@@ -1,5 +1,5 @@
+import { checkLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
 
 import { buildInsightNodeFromQueryTool, withCurrentQueryMetadata } from './EditorFiltersShell'
 

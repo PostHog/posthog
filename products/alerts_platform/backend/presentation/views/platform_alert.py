@@ -1,6 +1,6 @@
 from dataclasses import replace
 from functools import cache, cached_property
-from typing import Any, Literal, cast
+from typing import Any, Final, Literal, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -9,17 +9,22 @@ from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, e
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from posthog import permissions
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, as_drf_validation_error
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, User
 from posthog.permissions import (
-    PostHogFeatureFlagPermission,
+    FEATURE_FLAG_REQUIRED_ERROR_CODE,
+    get_authenticator_client,
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
 )
@@ -32,9 +37,14 @@ from products.alerts_platform.backend.facade.contracts import (
     MAX_EVALUATION_PERIODS,
     MAX_INSTANCES_CEILING,
     MAX_STORED_INTEGER,
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    AlertEventKind,
+    DestinationType,
     Grouping,
     GroupingMode,
     InvalidPlatformAlertEdit,
+    NewAlertDestination,
     OnOverflow,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
@@ -52,7 +62,16 @@ from products.alerts_platform.backend.facade.enums import (
     PlatformAlertState,
 )
 from products.alerts_platform.backend.facade.source_configs import editable_source_configs
+from products.alerts_platform.backend.presentation.views.platform_alert_destinations import (
+    MAX_DESTINATIONS_PER_ALERT,
+    PlatformAlertCreateDestinationSerializer,
+    PlatformAlertDeleteDestinationSerializer,
+    PlatformAlertDestinationSerializer,
+    serialized_destination,
+)
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
+
+PLATFORM_ALERTS_FLAG: Final = "platform-alerts"
 
 RULE_LABELS_HELP = (
     'Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. '
@@ -255,6 +274,7 @@ SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
     PlatformAlertConfigurationSourceKind.LOGS.value: "logs",
     PlatformAlertConfigurationSourceKind.WAREHOUSE_SOURCE.value: "external_data_source",
     PlatformAlertConfigurationSourceKind.WAREHOUSE_DESTINATION.value: "external_data_source",
+    PlatformAlertConfigurationSourceKind.METRICS.value: "metrics",
 }
 
 # Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
@@ -429,12 +449,62 @@ EDIT_RESPONSES = {
 }
 
 
+class PlatformAlertsFlagPermission(BasePermission):
+    """Lets a caller in when the flag of at least one source kind is on. Each action then serves only
+    the kinds whose flag is on."""
+
+    message = f"This action requires feature flag {PLATFORM_ALERTS_FLAG!r} to be enabled for your organization."
+    code = FEATURE_FLAG_REQUIRED_ERROR_CODE
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        assert isinstance(view, PlatformAlertConfigurationViewSet)
+        return bool(view.open_source_kinds)
+
+
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "alert"
-    posthog_feature_flag = "platform-alerts"
-    permission_classes = [PostHogFeatureFlagPermission]
+    scope_object_read_actions = ["list", "retrieve", "destinations"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "create_destination",
+        "delete_destination",
+    ]
+    permission_classes = [PlatformAlertsFlagPermission]
     serializer_class = PlatformAlertConfigurationSerializer
     pagination_class = PrecountedLimitOffsetPagination
+
+    @cached_property
+    def open_source_kinds(self) -> frozenset[str]:
+        """The kinds whose flag is on for the caller: a kind's `access_flag` when it has one, and
+        `platform-alerts` otherwise."""
+        specs = editable_source_configs()
+        flag_of_kind: dict[str, str] = {}
+        for source_kind in SOURCE_KIND_RESOURCE:
+            spec = specs.get(SourceKind(source_kind))
+            flag_of_kind[source_kind] = (
+                spec.access_flag if spec is not None and spec.access_flag else PLATFORM_ALERTS_FLAG
+            )
+        enabled = {flag: self._flag_enabled(flag) for flag in set(flag_of_kind.values())}
+        return frozenset(kind for kind, flag in flag_of_kind.items() if enabled[flag])
+
+    def _flag_required(self, source_kind: str) -> PermissionDenied:
+        label = PlatformAlertConfigurationSourceKind(source_kind).label
+        return PermissionDenied(
+            f"{label} alerts are not available for this project yet.", code=FEATURE_FLAG_REQUIRED_ERROR_CODE
+        )
+
+    def _flag_enabled(self, flag: str) -> bool:
+        return permissions.posthog_feature_flag_enabled(
+            flag,
+            str(cast(User, self.request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.id,
+            caller_properties=get_authenticator_client(getattr(self.request, "successful_authenticator", None)),
+        )
 
     @cached_property
     def canonical_team(self) -> Team:
@@ -472,6 +542,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         token_scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
         permitted: list[str] = []
         for source_kind, resource in SOURCE_KIND_RESOURCE.items():
+            if source_kind not in self.open_source_kinds:
+                continue
             if not self.user_access_control.check_access_level_for_resource(resource, access_level):
                 continue
             if (
@@ -490,14 +562,18 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     def _writable_source_kinds(self) -> list[str]:
         return self._source_kinds_with("editor", "write")
 
-    def _writable_configuration(
-        self, team_id: int, configuration_id: UUID, verb: str
-    ) -> PlatformAlertConfigurationView:
+    def _readable_configuration(self, team_id: int, configuration_id: UUID) -> PlatformAlertConfigurationView:
         current = platform_api.get_configuration(
             team_id=team_id, source_kinds=self._readable_source_kinds(), configuration_id=configuration_id
         )
         if current is None:
             raise NotFound()
+        return current
+
+    def _writable_configuration(
+        self, team_id: int, configuration_id: UUID, verb: str
+    ) -> PlatformAlertConfigurationView:
+        current = self._readable_configuration(team_id, configuration_id)
         if current.source_kind not in self._writable_source_kinds:
             raise PermissionDenied(f"You cannot {verb} {current.source_kind} alerts.")
         return current
@@ -543,15 +619,17 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         if self.team.parent_team_id is not None:
             raise Conflict("This URL names an environment. Create its alerts on that environment's logs alerts page.")
         source_kind = request.data.get("source_kind") if isinstance(request.data, dict) else None
-        create_serializer = create_serializers().get(source_kind) if isinstance(source_kind, str) else None
-        if create_serializer is None:
+        if not isinstance(source_kind, str) or (create_serializer := create_serializers().get(source_kind)) is None:
             raise ValidationError(
                 {"source_kind": f"Must be one of: {', '.join(sorted(create_serializers()))}."}, code="invalid_choice"
             )
+        if source_kind not in self.open_source_kinds:
+            raise self._flag_required(source_kind)
         # The kind comes from the body, so the source product's scope and access are checked here
         # rather than through `required_scopes`.
         if source_kind not in self._source_kinds_with("editor", "write"):
             raise PermissionDenied(f"You cannot create {source_kind} alerts.")
+        self._check_rollout_flag(SourceKind(source_kind))
 
         serializer = create_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -573,6 +651,13 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         # Robust, so an analytics failure, such as a malformed Referer, cannot fail a create that committed.
         transaction.on_commit(lambda: self._track("created", created), robust=True)
         return Response(PlatformAlertConfigurationSerializer(created).data, status=status.HTTP_201_CREATED)
+
+    def _check_rollout_flag(self, source_kind: SourceKind) -> None:
+        spec = editable_source_configs().get(source_kind)
+        if spec is None or spec.rollout_flag is None:
+            return
+        if not self._flag_enabled(spec.rollout_flag):
+            raise self._flag_required(source_kind.value)
 
     def _track(self, action: Literal["created", "deleted"], configuration: PlatformAlertConfigurationView) -> None:
         report_user_action(
@@ -662,6 +747,165 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         if group is None:
             raise NotFound()
         return Response(PlatformAlertSerializer(group).data)
+
+    def _destination_configuration(self, pk: str, *, write: bool) -> PlatformAlertConfigurationView:
+        configuration_id = serializers.UUIDField().run_validation(pk)
+        team_id = self._canonical_team_id()
+        current = (
+            self._writable_configuration(team_id, configuration_id, "change destinations of")
+            if write
+            else self._readable_configuration(team_id, configuration_id)
+        )
+        spec = editable_source_configs().get(SourceKind(current.source_kind))
+        # Only a kind the platform creates natively keeps its destinations as `AlertDestination` rows.
+        # Every other kind's destinations belong to its source product.
+        if (
+            current.owner != PlatformAlertOwner.PLATFORM
+            or spec is None
+            or spec.native is None
+            or not spec.native.platform_destinations
+        ):
+            raise Conflict(f"The destinations of {current.source_kind} alerts are managed by that product.")
+        return current
+
+    @extend_schema(
+        responses={
+            200: PlatformAlertDestinationSerializer(many=True),
+            404: OpenApiResponse(description="No alert with this id that the caller can read."),
+            409: OpenApiResponse(description="The alert's source product manages its destinations."),
+        },
+        description="List the notification destinations of an alert.",
+    )
+    @action(detail=True, methods=["GET"], url_path="destinations", pagination_class=None)
+    def destinations(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        configuration = self._destination_configuration(pk, write=False)
+        destinations = platform_api.list_alert_destinations(
+            team_id=self._canonical_team_id(), configuration_id=configuration.id
+        )
+        return Response(
+            PlatformAlertDestinationSerializer([serialized_destination(d) for d in destinations], many=True).data
+        )
+
+    @extend_schema(
+        request=PlatformAlertCreateDestinationSerializer,
+        responses={
+            201: PlatformAlertDestinationSerializer,
+            400: OpenApiResponse(description="The destination settings are invalid."),
+            403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
+            404: OpenApiResponse(description="No alert with this id that the caller can read."),
+            409: OpenApiResponse(description="The alert's source product manages its destinations."),
+        },
+        description=(
+            "Add a notification destination to an alert. It hears the transitions in `event_kinds`. "
+            "A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves."
+        ),
+    )
+    @destinations.mapping.post
+    def create_destination(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        configuration = self._destination_configuration(pk, write=True)
+        team_id = self._canonical_team_id()
+        serializer = PlatformAlertCreateDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = cast(AlertDestinationData, serializer.validated_data["data"])
+        event_kinds: tuple[AlertEventKind, ...] = serializer.validated_data["event_kinds"]
+        if data["type"] == DestinationType.SLACK:
+            # The accessor native delivery sends through, so a destination it would refuse is never saved.
+            try:
+                IntegrationManager.slack.oauth.get(team_id, data["slack_workspace_id"])
+            except IntegrationNotFound:
+                raise ValidationError({"slack_workspace_id": "Choose a Slack workspace connected to this project."})
+        try:
+            with transaction.atomic():
+                # The alert's row stays locked until the destinations commit. A delete that got there
+                # first leaves no row, and one that comes later waits, then removes these destinations too.
+                if (
+                    platform_api.get_configuration(
+                        team_id=team_id,
+                        source_kinds=self._writable_source_kinds,
+                        configuration_id=configuration.id,
+                        lock=True,
+                    )
+                    is None
+                ):
+                    raise NotFound()
+                # Each destination is another message every time the alert fires, so one alert has only a few.
+                existing = platform_api.list_alert_destinations(team_id=team_id, configuration_id=configuration.id)
+                if len(existing) >= MAX_DESTINATIONS_PER_ALERT:
+                    raise ValidationError(
+                        f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
+                    )
+                (created,) = platform_api.create_alert_destinations(
+                    team_id=team_id,
+                    configuration_id=configuration.id,
+                    destinations=(NewAlertDestination(data=data, event_kinds=event_kinds),),
+                )
+        except AlertDestinationValidationError as error:
+            raise as_drf_validation_error(error)
+
+        # Robust, so an analytics failure, such as a malformed Referer, cannot fail a create that committed.
+        transaction.on_commit(
+            lambda: self._track_destination(
+                "created",
+                configuration,
+                {"type": data["type"], "event_kinds": [kind.value for kind in event_kinds]},
+            ),
+            robust=True,
+        )
+        return Response(
+            PlatformAlertDestinationSerializer(serialized_destination(created)).data, status=status.HTTP_201_CREATED
+        )
+
+    @extend_schema(
+        request=PlatformAlertDeleteDestinationSerializer,
+        responses={
+            204: OpenApiResponse(description="The destinations are deleted. An ID of another alert is ignored."),
+            403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
+            404: OpenApiResponse(description="No alert with this id that the caller can read."),
+            409: OpenApiResponse(
+                description="The alert's source product manages its destinations, or a PagerDuty destination "
+                "has an open incident."
+            ),
+        },
+        description="Delete notification destinations of an alert.",
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations/delete")
+    def delete_destination(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        configuration = self._destination_configuration(pk, write=True)
+        serializer = PlatformAlertDeleteDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        destination_ids: list[UUID] = serializer.validated_data["destination_ids"]
+        # The resolve for an open incident goes to the destinations that remain when the firing ends,
+        # so a removed incident manager would keep its incident open for good.
+        if any(alert.state == PlatformAlertState.FIRING.value for alert in configuration.alerts) and any(
+            destination.id in destination_ids
+            and destination.enabled
+            and destination.data["type"] == DestinationType.PAGERDUTY
+            for destination in platform_api.list_alert_destinations(
+                team_id=self._canonical_team_id(), configuration_id=configuration.id
+            )
+        ):
+            raise Conflict("This PagerDuty destination has an open incident. Remove it once the alert resolves.")
+        deleted = platform_api.delete_alert_destinations(
+            team_id=self._canonical_team_id(), configuration_id=configuration.id, destination_ids=destination_ids
+        )
+        transaction.on_commit(
+            lambda: self._track_destination("deleted", configuration, {"count": deleted}), robust=True
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _track_destination(
+        self,
+        action: Literal["created", "deleted"],
+        configuration: PlatformAlertConfigurationView,
+        properties: dict[str, Any],
+    ) -> None:
+        report_user_action(
+            cast(User, self.request.user),
+            f"alert destination {action}",
+            {"alert_id": str(configuration.id), "source_kind": configuration.source_kind, **properties},
+            team=self.team,
+            request=self.request,
+        )
 
     @extend_schema(parameters=[PlatformAlertConfigurationListQuerySerializer])
     def list(self, request: Request, **kwargs) -> Response:

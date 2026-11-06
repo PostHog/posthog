@@ -102,7 +102,7 @@ Look for names, emails, tokens, and internal text in the pixels and in the capti
 
 ```bash
 # --yes only after the check above, and for a running-app reel only after the developer approves this exact file
-hogli pr:upload-image --yes --alt "<what the flow shows>" "$RUN_DIR/feature-reel.webp"
+hogli pr:upload-image --yes --print-markdown --alt "<what the flow shows>" "$RUN_DIR/feature-reel.webp"
 ```
 
 Paste the markdown line that the command prints as the "after" of the change. For the "before", follow `references/screenshots-and-reels.md` in `/writing-pr-descriptions`.

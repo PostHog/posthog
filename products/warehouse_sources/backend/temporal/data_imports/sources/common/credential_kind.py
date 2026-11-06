@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSwitchGroupConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import SourceKey
 
 CREDENTIAL_KINDS_PATH = Path(__file__).resolve().parents[4] / "facade" / "credential_kinds.py"
 
@@ -54,9 +54,9 @@ def oauth_kind_of(source_config: SourceConfig) -> str | None:
     return None
 
 
-def default_credential_kind(source_type: ExternalDataSourceType, source_config: SourceConfig) -> str:
+def default_credential_kind(source_type: SourceKey, source_config: SourceConfig) -> str:
     """A source with an OAuth field uses the kind that field names, because its rows exist already."""
-    return oauth_kind_of(source_config) or kebab_case(source_type.value)
+    return oauth_kind_of(source_config) or kebab_case(str(source_type))
 
 
 class ChangedFrozenValueError(ValueError):
@@ -85,10 +85,7 @@ def merge_append_only(
 
 def compute_credential_kinds() -> dict[str, str]:
     sources = SourceRegistry.get_all_sources()
-    kinds = {
-        source_type.value: sources[source_type].credential_kind
-        for source_type in sorted(sources, key=lambda source_type: source_type.value)
-    }
+    kinds = {str(source_type): sources[source_type].credential_kind for source_type in sorted(sources, key=str)}
     return {source_type: kind for source_type, kind in kinds.items() if kind is not None}
 
 

@@ -8,6 +8,8 @@ from django.db import OperationalError
 import requests
 from google.auth.exceptions import RefreshError, TransportError
 
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
@@ -99,14 +101,14 @@ def test_credentials_refreshes_stale_db_connection_before_query(monkeypatch):
     integration.refresh_token = "refresh-token"
 
     def fake_get(*args, **kwargs):
-        calls.append("Integration.objects.get")
+        calls.append("IntegrationManager.get")
         return integration
 
-    monkeypatch.setattr(gsc.Integration.objects, "get", fake_get)
+    monkeypatch.setattr(gsc.IntegrationManager.google_search_console.oauth, "get", fake_get)
 
     creds = _credentials(integration_id=1, team_id=1)
 
-    assert calls == ["close_old_connections", "Integration.objects.get"]
+    assert calls == ["close_old_connections", "IntegrationManager.get"]
     assert creds.refresh_token == "refresh-token"
 
 
@@ -114,7 +116,7 @@ def test_get_integration_reraises_after_exhausting_attempts(monkeypatch):
     get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
 
     monkeypatch.setattr(gsc, "close_old_connections", lambda: None)
-    monkeypatch.setattr(gsc.Integration.objects, "get", get)
+    monkeypatch.setattr(gsc.IntegrationManager.google_search_console.oauth, "get", get)
     sleeps: list[float] = []
     monkeypatch.setattr(gsc.time, "sleep", lambda seconds: sleeps.append(seconds))
 
@@ -124,6 +126,17 @@ def test_get_integration_reraises_after_exhausting_attempts(monkeypatch):
     # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry the activity.
     assert get.call_count == 4
     assert sleeps == [2, 4, 6]
+
+
+def test_get_integration_raises_a_stable_missing_text_without_retry(monkeypatch):
+    get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
+    monkeypatch.setattr(gsc, "close_old_connections", lambda: None)
+    monkeypatch.setattr(gsc.IntegrationManager.google_search_console.oauth, "get", get)
+
+    with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
+        _get_integration(integration_id=1, team_id=2)
+
+    assert get.call_count == 1
 
 
 def _make_response(config: GoogleSearchConsoleSourceConfig, rows_per_call: list[list[dict]]):

@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 pub mod common;
 use crate::common::ServerHandle;
+use feature_flags::cohorts::cohort_models::CohortType;
 use feature_flags::config::{Config, DEFAULT_TEST_CONFIG};
 use feature_flags::flags::flag_matching_utils::calculate_hash;
 use feature_flags::flags::flag_models::FeatureFlagRow;
@@ -1157,6 +1158,86 @@ async fn test_static_and_dynamic_cohort_conditions() -> Result<()> {
 
     assert_eq!(matched_uuids(&json_response), expected);
     assert_eq!(json_response["errors_count"], json!(0));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_realtime_cohort_condition_reads_membership_for_a_serving_team() -> Result<()> {
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await?;
+    let server = ServerHandle::for_config(batch_eval_config()).await;
+
+    let cohort = context
+        .insert_cohort_with_type_and_condition_type(
+            team.id,
+            None,
+            json!({"properties": {"type": "OR", "values": [{
+                "type": "OR",
+                "values": [{"key": "plan", "value": "enterprise", "type": "person"}],
+            }]}}),
+            false,
+            Some(CohortType::Realtime),
+            None,
+            Some(chrono::Utc::now()),
+            Some(json!({"behavioral": true})),
+            None,
+        )
+        .await?;
+    context
+        .insert_flag(
+            team.id,
+            Some(flag_row(
+                team.id,
+                "realtime-cohort-flag",
+                json!({
+                    "groups": [{
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }],
+                }),
+            )),
+        )
+        .await?;
+
+    // The person fails the cohort's person filter, so only their `cohort_membership` row can match them.
+    context
+        .insert_person(
+            team.id,
+            "realtime_member".to_string(),
+            Some(json!({"plan": "free"})),
+        )
+        .await?;
+    let member = context
+        .get_person_uuid_by_distinct_id(team.id, "realtime_member")
+        .await?;
+    context
+        .insert_cohort_membership(team.id, cohort.id, member, true)
+        .await?;
+
+    let mut conn = context.get_non_persons_connection().await?;
+    sqlx::query(
+        "INSERT INTO cohort_realtime_team_access \
+         (team_id, level, purpose, save_triggers_backfill, processing_since, changed_at) \
+         VALUES ($1, 'serving', 'pilot', false, now(), now())",
+    )
+    .bind(team.id)
+    .execute(&mut *conn)
+    .await?;
+    let res = send_batch_request(
+        &server,
+        Some(INTERNAL_TOKEN),
+        &batch_body(team.id, "realtime-cohort-flag", 0),
+    )
+    .await;
+    // Delete before asserting, so a failed assertion leaves no row behind.
+    sqlx::query("DELETE FROM cohort_realtime_team_access WHERE team_id = $1")
+        .bind(team.id)
+        .execute(&mut *conn)
+        .await?;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(matched_uuids(&res.json::<Value>().await?), vec![member]);
 
     Ok(())
 }

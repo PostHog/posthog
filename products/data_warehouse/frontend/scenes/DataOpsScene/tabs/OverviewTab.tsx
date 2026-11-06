@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconDatabase, IconPeople, IconRefresh } from '@posthog/icons'
 
@@ -7,6 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
@@ -81,15 +83,33 @@ export function OverviewTab(): JSX.Element {
     const { loadManagedWarehouseDataStatus } = useActions(managedWarehouseDataStatusLogic)
     const { loadSourceSchemas } = useActions(sourceSchemasModalLogic)
 
+    const openSourceSchemas = (source: ManagedWarehouseSourceSummaryApi): void => {
+        // pinned: analytics event and property names, renaming breaks dashboards
+        posthog.capture('managed warehouse source schemas opened', {
+            readiness_state: source.readiness_state,
+            source_type: source.source_type,
+        })
+        loadSourceSchemas({ sourceId: source.source_id, sourceName: source.source_name })
+    }
+
     const sourceSummaryColumns: LemonTableColumns<ManagedWarehouseSourceSummaryApi> = [
         {
             title: 'Source',
             key: 'source',
             render: (_, source) => (
-                <div>
-                    <div className="font-medium">{source.source_name}</div>
-                    <div className="text-xs text-muted">{source.source_type}</div>
-                </div>
+                <LemonTableLink
+                    title={source.source_name}
+                    description={source.source_type}
+                    to={urls.dataWarehouseSource(`managed-${source.source_id}`, 'schemas')}
+                    data-attr="managed-warehouse-source-schemas"
+                    onClick={(e) => {
+                        // A plain click opens the table list. Cmd or Ctrl-click skips this handler
+                        // and opens the source page in a new tab.
+                        e.preventDefault()
+                        e.stopPropagation()
+                        openSourceSchemas(source)
+                    }}
+                />
             ),
             sorter: (a, b) => a.source_name.localeCompare(b.source_name),
         },
@@ -99,7 +119,7 @@ export function OverviewTab(): JSX.Element {
             render: (_, source) => (
                 <div className="space-y-1 max-w-96">
                     <StatusTag readinessState={source.readiness_state} />
-                    <div className="text-xs text-muted">{source.detail}</div>
+                    <div className="text-xs text-muted break-words">{source.detail}</div>
                 </div>
             ),
             sorter: (a, b) => STATUS_SEVERITY[a.readiness_state] - STATUS_SEVERITY[b.readiness_state],
@@ -207,7 +227,7 @@ export function OverviewTab(): JSX.Element {
                     <div>
                         <h3 className="mb-1">Imported source tables</h3>
                         <p className="text-xs text-muted mb-0">
-                            Reflects the warehouse source imports currently enabled to sync.{' '}
+                            Shows your warehouse source imports, including tables with sync paused.{' '}
                             <Link to={urls.sources()}>Manage sources</Link>
                         </p>
                     </div>
@@ -221,8 +241,7 @@ export function OverviewTab(): JSX.Element {
                         rowKey="source_id"
                         pagination={{ pageSize: 20 }}
                         onRow={(source) => ({
-                            onClick: () =>
-                                loadSourceSchemas({ sourceId: source.source_id, sourceName: source.source_name }),
+                            onClick: () => openSourceSchemas(source),
                             className: 'cursor-pointer',
                         })}
                     />

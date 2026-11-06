@@ -1,0 +1,202 @@
+from typing import Any
+
+import pytest
+
+from products.warehouse_sources.sources.adroll._config import AdRollSourceConfig
+from products.warehouse_sources.sources.adroll.adroll import (
+    MAX_RETRY_ATTEMPTS,
+    AdRollResumeConfig,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.adroll.settings import ADROLL_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.adroll.source import AdRollSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+
+CAMPAIGNS_PATH = ADROLL_ENDPOINTS["campaigns"].path
+ADVERTISABLES_PATH = ADROLL_ENDPOINTS["advertisables"].path
+PIXEL_PATH = ADROLL_ENDPOINTS["pixels"].path
+RULES_PATH = ADROLL_ENDPOINTS["rules"].path
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(AdRollSource(), AdRollSourceConfig(client_id="cid", personal_access_token="pat"))
+
+
+def _page(results: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"results": results})
+
+
+class TestValidateCredentials:
+    @pytest.mark.parametrize(
+        "status_code, expected",
+        [
+            (200, True),
+        ],
+    )
+    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert validate_credentials("cid", "pat") is expected
+
+        assert network.requests_log[0].path == ADROLL_ENDPOINTS["organization"].path
+        assert network.requests_log[0].param("apikey") == "cid"
+        assert network.requests_log[0].headers["authorization"] == "Token pat"
+
+
+class TestRows:
+    @pytest.mark.parametrize("endpoint", ["advertisable_reports", "campaign_reports", "ad_reports"])
+    def test_report_endpoints_filter_by_advertisables_in_entity_format(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _page([{"eid": "ADV1"}]),
+                _page([{"eid": "C1", "impressions": 5}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"eid": "C1", "impressions": 5, "_advertisable_eid": "ADV1"}]
+        assert result.paths[1] == ADROLL_ENDPOINTS[endpoint].path
+        # The reporting endpoints take a list of advertisables, not a single one.
+        assert result.requests[1].param("advertisables") == "ADV1"
+        assert result.requests[1].param("data_format") == "entity"
+
+    def test_advertisables_without_eid_are_skipped(self) -> None:
+        result = _driver().run("ads", [_page([{"name": "broken"}])])
+
+        assert result.raised is None
+        assert result.rows == []
+        assert len(result.requests) == 1
+
+    def test_retries_exhausted_raises(self) -> None:
+        result = _driver().run("advertisables", always(ScriptedResponse(status=500, json={"error": "boom"})))
+
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) == MAX_RETRY_ATTEMPTS
+
+    def test_non_retryable_client_error_raises(self) -> None:
+        result = _driver().run("advertisables", [ScriptedResponse(status=401, json={"error": "boom"})])
+
+        assert isinstance(result.raised, Exception)
+        assert "401" in str(result.raised)
+        assert len(result.requests) == 1
+
+
+class TestPixelFanOut:
+    @pytest.mark.parametrize(
+        "endpoint, pixel_answers, rules_answers, expected_rows, expected_rule_pixels",
+        [
+            (
+                "pixels",
+                [
+                    ScriptedResponse(json={"results": {"eid": "PIX1", "status": "active"}}),
+                    ScriptedResponse(json={"results": {"eid": "PIX2", "status": "inactive"}}),
+                ],
+                [],
+                [
+                    {"eid": "PIX1", "status": "active", "_advertisable_eid": "ADV1"},
+                    {"eid": "PIX2", "status": "inactive", "_advertisable_eid": "ADV2"},
+                ],
+                [],
+            ),
+            (
+                "rules",
+                [
+                    ScriptedResponse(json={"results": {"eid": "PIX1"}}),
+                    ScriptedResponse(json={"results": {"eid": "PIX2"}}),
+                ],
+                [_page([{"eid": "R1", "type": "c"}, {"eid": "R2", "type": "s"}]), _page([{"eid": "R3", "type": "b"}])],
+                [
+                    {"eid": "R1", "type": "c", "_pixel_eid": "PIX1"},
+                    {"eid": "R2", "type": "s", "_pixel_eid": "PIX1"},
+                    {"eid": "R3", "type": "b", "_pixel_eid": "PIX2"},
+                ],
+                ["PIX1", "PIX2"],
+            ),
+            (
+                "rules",
+                [ScriptedResponse(json={"results": None}), ScriptedResponse(json={"results": {"eid": "PIX2"}})],
+                [_page([{"eid": "R3", "type": "b"}])],
+                [{"eid": "R3", "type": "b", "_pixel_eid": "PIX2"}],
+                ["PIX2"],
+            ),
+            (
+                "rules",
+                [ScriptedResponse(json={"results": {}}), ScriptedResponse(json={"results": {"status": "inactive"}})],
+                [],
+                [],
+                [],
+            ),
+        ],
+    )
+    def test_fan_out_through_advertisable_pixel(
+        self,
+        endpoint: str,
+        pixel_answers: list[ScriptedResponse],
+        rules_answers: list[ScriptedResponse],
+        expected_rows: list[dict[str, Any]],
+        expected_rule_pixels: list[str],
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    ADVERTISABLES_PATH: [_page([{"eid": "ADV1"}, {"eid": "ADV2"}])],
+                    PIXEL_PATH: pixel_answers,
+                    RULES_PATH: rules_answers,
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert [r.param("advertisable") for r in result.requests if r.path == PIXEL_PATH] == ["ADV1", "ADV2"]
+        assert [r.param("pixel") for r in result.requests if r.path == RULES_PATH] == expected_rule_pixels
+        assert all(r.param("apikey") == "cid" for r in result.requests)
+
+
+class TestFanOutResume:
+    def test_resume_skips_completed_advertisables(self) -> None:
+        result = _driver().run(
+            "campaigns",
+            [
+                _page([{"eid": "ADV1"}, {"eid": "ADV2"}]),
+                _page([{"eid": "C2"}]),
+            ],
+            resume_state=AdRollResumeConfig(
+                fanout_state={
+                    "completed": [f"{CAMPAIGNS_PATH}?advertisable=ADV1"],
+                    "current": None,
+                    "child_state": None,
+                }
+            ),
+        )
+
+        # ADV1 was already synced — only the parent list and ADV2's campaigns are fetched.
+        assert result.raised is None
+        assert [(row["eid"], row["_advertisable_eid"]) for row in result.rows] == [("C2", "ADV2")]
+        assert len(result.requests) == 2
+        assert result.requests[1].param("advertisable") == "ADV2"
+
+
+class TestAdRollSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
+        config = ADROLL_ENDPOINTS[endpoint]
+        answer = ScriptedResponse(json={"eid": "ORG1"}) if endpoint == "organization" else _page([])
+        result = _driver().run(endpoint, [answer])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == [config.primary_key]
+        assert result.response.sort_mode == "asc"
+        assert result.response.partition_mode is None
+        assert result.response.partition_keys is None
+        assert result.response.supports_resume is (not config.pixel_scoped)

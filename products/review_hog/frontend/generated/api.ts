@@ -313,8 +313,9 @@ export const getReviewHogRepositoriesListUrl = (projectId: string) => {
 /**
  * The repositories this project has settings for: selected repositories and repository exceptions.
  *
- * Project members can read them. Only project admins can change them, and every change goes to the
- * activity log. A repository has settings in one project at most.
+ * Project members can read them and turn a repository's reviews up. Only project admins can turn them
+ * down or remove them. Every change goes to the activity log. A repository has settings in one project
+ * at most.
  */
 export const reviewHogRepositoriesList = async (
     projectId: string,
@@ -331,7 +332,7 @@ export const getReviewHogRepositoriesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Include a repository into this project, remove it, or set or clear its exception. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it.
+ * Include a repository into this project, remove it, set or clear its exception, or turn its draft reviews on or off. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it. Project members can only turn reviews up: include a repository, raise its exception, or turn draft reviews on. Everything else needs a project admin.
  * @summary Save a repository's settings
  */
 export const reviewHogRepositoriesCreate = async (
@@ -371,7 +372,7 @@ export const getReviewHogRepositoriesPeopleCreateUrl = (projectId: string, id: s
 }
 
 /**
- * Add a project member to the 'listed' or 'excepted' list of the repository exception.
+ * Add a project member to the 'listed' or 'excepted' list of the repository exception. A project member who is not an admin can only add themselves to the 'listed' list.
  * @summary Add a person to a repository exception list
  */
 export const reviewHogRepositoriesPeopleCreate = async (

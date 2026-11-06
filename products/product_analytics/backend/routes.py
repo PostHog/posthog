@@ -2,8 +2,12 @@ from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 
 import products.alerts.backend.presentation.views.alert as alert
-from products.product_analytics.backend.presentation.events_retention import EventsRetentionViewSet
+from products.product_analytics.backend.presentation.events_retention import (
+    EventsRetentionViewSet,
+    OrganizationEventsRetentionViewSet,
+)
 from products.product_analytics.backend.presentation.insight import InsightViewSet
+from products.product_analytics.backend.presentation.insight_explanation import InsightExplanationViewSet
 from products.product_analytics.backend.presentation.insight_variable import InsightVariableViewSet
 from products.product_analytics.backend.presentation.paths_v2 import PathsV2ViewSet
 
@@ -17,6 +21,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"sharing",
         sharing.SharingConfigurationViewSet,
         "project_insight_sharing",
+        ["team_id", "insight_id"],
+    )
+
+    insights_router.register(
+        r"explanations",
+        InsightExplanationViewSet,
+        "project_insight_explanations",
         ["team_id", "insight_id"],
     )
 
@@ -47,4 +58,13 @@ def register_routes(routers: RouterRegistry) -> None:
         EventsRetentionViewSet,
         "project_events_retention",
         ["team_id"],
+    )
+
+    # Not "events_retention": the schema generator marks an organization path that repeats a project path as a
+    # deprecated duplicate and leaves it out of the generated client.
+    routers.organizations.register(
+        r"events_retention_setting",
+        OrganizationEventsRetentionViewSet,
+        "organization_events_retention_setting",
+        ["organization_id"],
     )

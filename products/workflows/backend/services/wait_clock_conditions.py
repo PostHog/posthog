@@ -11,6 +11,7 @@ delay step and a condition that guards it, and the wait is woken by something th
 happens.
 """
 
+import re
 from typing import Optional
 
 from posthog.hogql import ast
@@ -34,5 +35,40 @@ class _ClockCallFinder(TraversingVisitor):
 def find_clock_function(condition_expr: ast.Expr) -> Optional[str]:
     """Name of the first clock function the expression calls, or None if it calls none."""
     finder = _ClockCallFinder()
+    finder.visit(condition_expr)
+    return finder.found
+
+
+# The matcher keys its streams on person and distinct_id only, so a group change carries nothing it
+# can look a parked job up by.
+GROUP_FIELD_RE = re.compile(r"^group_\d+$")
+
+
+class _GroupFieldFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found: Optional[str] = None
+        # A lambda argument can shadow a group name, as in arrayExists(group_0 -> group_0 = 'pro', xs).
+        self.bound: set[str] = set()
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        added = {arg for arg in node.args if arg not in self.bound}
+        self.bound |= added
+        try:
+            super().visit_lambda(node)
+        finally:
+            self.bound -= added
+
+    def visit_field(self, node: ast.Field) -> None:
+        # Any unbound group root is group data the matcher cannot observe: a property, the key, or
+        # the whole group passed into another expression. Bracket access wraps the same bare field.
+        root = str(node.chain[0])
+        if self.found is None and root not in self.bound and GROUP_FIELD_RE.match(root):
+            self.found = root
+        super().visit_field(node)
+
+
+def find_group_field(condition_expr: ast.Expr) -> Optional[str]:
+    """Name of the first group field the expression reads, or None if it reads none."""
+    finder = _GroupFieldFinder()
     finder.visit(condition_expr)
     return finder.found

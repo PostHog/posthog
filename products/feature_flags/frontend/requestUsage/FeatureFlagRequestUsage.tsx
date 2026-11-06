@@ -90,11 +90,11 @@ export function FeatureFlagRequestUsage(): JSX.Element {
             title: 'Billing units',
             dataIndex: 'billingUnits',
             align: 'right',
-            render: (value, { remoteRequests, localRequests }) => (
+            render: (value, { remoteRequests, localBillingUnits }) => (
                 <span>
                     {(value ?? 0).toLocaleString()}{' '}
                     <span className="text-secondary whitespace-nowrap">
-                        ({remoteRequests.toLocaleString()} + 10 × {localRequests.toLocaleString()})
+                        ({remoteRequests.toLocaleString()} remote + {localBillingUnits.toLocaleString()} local)
                     </span>
                 </span>
             ),
@@ -168,9 +168,9 @@ export function FeatureFlagRequestUsage(): JSX.Element {
 
             <LemonBanner type="info">
                 This view shows billable requests, not every HTTP request. Remote requests include <code>/flags</code>{' '}
-                and legacy <code>/decide</code> traffic. Local evaluation requests use 10 billing units each. Data can
-                take about 30 minutes to appear, and hourly buckets reflect billing aggregation time rather than exact
-                request time.{' '}
+                and legacy <code>/decide</code> traffic. Local evaluation requests use 10 billing units each, except
+                responses with no changes (304 Not Modified), which use 1. Data can take about 30 minutes to appear, and
+                hourly buckets reflect billing aggregation time rather than exact request time.{' '}
                 <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage">
                     Learn how usage is calculated
                 </Link>

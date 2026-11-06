@@ -4,8 +4,8 @@ import { useState } from 'react'
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { sanitizeVariableKey } from './hogFlowOutputMappingLogic'

@@ -169,6 +169,10 @@ class DataWarehouseSavedQueryMinimalSerializer(
         help_text="Whether this view is set up to update incrementally. A run can still rebuild the "
         "whole table, for example on the first run or after the query changes.",
     )
+    is_raw_managed_trino = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it.",
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -194,5 +198,10 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "is_test",
             "expires_at",
             "user_access_level",
+            "is_raw_managed_trino",
         ]
         read_only_fields = fields
+
+    def get_is_raw_managed_trino(self, view: DataWarehouseSavedQuery) -> bool:
+        # The list defers `query`, so reading the model property here would load it once per view.
+        return bool(getattr(view, "raw_managed_trino", False))

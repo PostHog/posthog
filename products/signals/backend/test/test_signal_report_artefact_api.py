@@ -54,7 +54,7 @@ def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> N
 
 
 class TestSignalReportArtefactViewSet(APIBaseTest):
-    @parameterized.expand([("impact_measurement_plan",), ("reviewer_corrections",)])
+    @parameterized.expand([("impact_measurement_plan",), ("reviewer_corrections",), ("check_authoring",)])
     def test_system_decision_type_cannot_be_written(self, artefact_type: str) -> None:
         report = self._create_report()
         response = self.client.post(
@@ -416,26 +416,56 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [r["github_login"] for r in json.loads(new_row.content)] == ["bob"]
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["bob"]
 
-    def test_put_reviewers_re_evaluates_autostart(self):
-        # Appending a reviewers status re-runs the (idempotent) auto-start evaluation on commit.
+    @parameterized.expand(
+        [
+            ("put_session", "put", None, True),
+            ("put_inbox_and_task_key", "put", ["inbox:write", "task:write"], True),
+            ("put_inbox_only_key", "put", ["inbox:write"], False),
+            ("post_inbox_and_task_key", "post", ["inbox:write", "task:write"], True),
+            ("post_inbox_only_key", "post", ["inbox:write"], False),
+        ]
+    )
+    def test_reviewer_writes_need_task_scope_and_re_evaluate_autostart(
+        self, _name: str, method: str, scopes: list[str] | None, allowed: bool
+    ):
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+        if scopes is not None:
+            api_key = self.create_personal_api_key_with_scopes(scopes)
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        content = [{"github_login": "alice"}, {"github_login": "bob"}]
 
         with patch(
             "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
             new_callable=AsyncMock,
         ) as mock_autostart:
             with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.put(
-                    self._detail_url(str(report.id), str(artefact.id)),
-                    data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
-                    content_type="application/json",
-                )
+                if method == "put":
+                    response = self.client.put(
+                        self._detail_url(str(report.id), str(artefact.id)),
+                        data=json.dumps({"content": content}),
+                        content_type="application/json",
+                    )
+                else:
+                    response = self.client.post(
+                        self._list_url(str(report.id)),
+                        data=json.dumps({"artefact_type": "suggested_reviewers", "content": content}),
+                        content_type="application/json",
+                    )
 
-        assert response.status_code == status.HTTP_200_OK
-        mock_autostart.assert_awaited_once()
-        assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
-        assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
+        if allowed:
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content
+        else:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert [r["github_login"] for r in self._latest_reviewers(report)] == (
+            ["alice", "bob"] if allowed else ["alice"]
+        )
+        assert mock_autostart.await_count == (1 if allowed else 0)
+        if allowed:
+            assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
+            assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
+            assert mock_autostart.call_args.kwargs["triggering_user_id"] == self.user.id
 
     def test_put_adding_reviewer_notifies_added_reviewer_on_commit(self):
         # Manually adding a reviewer enqueues a Slack ping (after commit) for only the newly-added
@@ -1431,6 +1461,106 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
         assert not self._reviewer_filter_matches(report, self.user)
 
+    def test_leaving_as_the_default_owner_is_not_a_routing_correction(self):
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid), "is_default_owner": True}])
+
+        with (
+            patch("products.signals.backend.views.forward_reviewer_correction_note") as forward,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._latest_reviewers(report) == []
+        forward.assert_not_called()
+        assert _recent_reviewer_corrections(self.team)["corrections"] == []
+
+    @parameterized.expand(
+        [
+            # Set outright on an entry the stored list never marked.
+            ("claimed_outright", False),
+            # Inherited by pairing the stored owner's login with another member's uuid.
+            ("transferred_by_login", True),
+        ]
+    )
+    def test_posting_reviewers_cannot_forge_the_default_owner_flag(self, _name: str, borrow_owner_login: bool):
+        # Only the fallback may set is_default_owner: it is the mark the removal paths read to skip a
+        # routing correction, so a client that could set it could suppress someone else's correction.
+        report = self._create_report()
+        owner = self._create_org_member("owner@example.com")
+        _attach_github_login(owner, "owner-login")
+        teammate = self._create_org_member("teammate@example.com")
+        self._create_artefact(
+            report,
+            content=[{"user_uuid": str(owner.uuid), "github_login": "owner-login", "is_default_owner": True}],
+        )
+        entry: dict = {"user_uuid": str(teammate.uuid)}
+        if borrow_owner_login:
+            entry["github_login"] = "owner-login"
+        else:
+            entry["is_default_owner"] = True
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {"artefact_type": "suggested_reviewers", "content": [entry]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        reviewers = self._latest_reviewers(report)
+        assert [item["user_uuid"] for item in reviewers] == [str(teammate.uuid)]
+        assert all(item["is_default_owner"] is False for item in reviewers)
+
+    @parameterized.expand(
+        [
+            # Names a teammate today.
+            ("another_members_login", "teammate-login"),
+            # Names nobody today, and whoever links that account tomorrow.
+            ("an_unlinked_login", "nobody-here"),
+        ]
+    )
+    def test_posting_reviewers_drops_the_default_owner_flag_on_a_mismatched_identity(self, _name: str, login: str):
+        # An unprotected report stores the pair as given, and a later edit matches the stored login.
+        report = self._create_report()
+        owner = self._create_org_member("owner@example.com", github_login="owner-login")
+        self._create_org_member("teammate@example.com", github_login="teammate-login")
+        self._create_artefact(report, content=[{"user_uuid": str(owner.uuid), "is_default_owner": True}])
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {
+                "artefact_type": "suggested_reviewers",
+                "content": [{"user_uuid": str(owner.uuid), "github_login": login}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [item["is_default_owner"] for item in self._latest_reviewers(report)] == [False]
+
+    @parameterized.expand(
+        [
+            ("by_uuid", False),
+            # A caller can name the same member by login alone, as the merge itself resolves it.
+            ("by_login", True),
+        ]
+    )
+    def test_posting_reviewers_keeps_the_stored_default_owner_flag(self, _name: str, by_login: bool):
+        report = self._create_report()
+        owner = self._create_org_member("owner@example.com", github_login="owner-login")
+        self._create_artefact(report, content=[{"user_uuid": str(owner.uuid), "is_default_owner": True}])
+        entry = {"github_login": "owner-login"} if by_login else {"user_uuid": str(owner.uuid)}
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {"artefact_type": "suggested_reviewers", "content": [entry]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [item["is_default_owner"] for item in self._latest_reviewers(report)] == [True]
+
     def test_leave_reviewers_keeps_an_entry_whose_login_was_reassigned(self):
         _attach_github_login(self.user, "CallerCase")
         teammate = self._create_org_member("teammate@example.com", github_login=None)
@@ -2392,6 +2522,8 @@ class TestSignalReportCommitDiff(APIBaseTest):
         with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
             response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["code"] == "github_repository_inaccessible"
+        assert response.json()["remediation_url"] == f"/project/{self.team.id}/settings/project-integrations"
 
     def _mock_github(self, result: dict):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
