@@ -99,6 +99,7 @@ import {
     type NodeApiSuspended,
     type NodeEndpointApi,
     NodeTypeEnumApi,
+    type WarehouseColumnAnnotationDescriptionSourceEnumApi,
 } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
@@ -112,6 +113,8 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
+    ExternalDataSchemaApiAvailableColumnsItem,
+    ExternalDataSchemaApiAvailableColumnsItemSensitivity,
     IncrementalSyncBlockedReasonEnumApi,
     RowFilterColumnApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -6195,6 +6198,7 @@ export enum ActivityScope {
     KNOWLEDGE_LIBRARY = 'KnowledgeLibrary',
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
+    SIGNAL_SOURCE_CONFIG = 'SignalSourceConfig',
     SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
     STAMPHOG_REPO_CONFIG = 'StamphogRepoConfig',
     REVIEW_REPOSITORY = 'ReviewRepository',
@@ -6272,6 +6276,7 @@ export interface DataModelingNode {
     name: string
     type: DataModelingNodeType
     description?: string
+    description_source?: WarehouseColumnAnnotationDescriptionSourceEnumApi | null
     saved_query_id?: string
     /** UUID of the data catalog metric a metric node stands for */
     metric_id?: string | null
@@ -6307,6 +6312,7 @@ export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
     name: string
+    description?: string | null
     /** Only included when fetching a single saved query, not in list responses */
     query?: HogQLQuery
     columns: DatabaseSchemaField[]
@@ -6568,11 +6574,18 @@ export interface SimpleExternalDataSourceSchema {
     sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
 }
 
+/** The kind of personal or secret data a column's name and type suggest. */
+export type ColumnSensitivity = NonNullable<ExternalDataSchemaApiAvailableColumnsItemSensitivity>
+
+/** A column offered by the column picker. */
+export type SchemaAvailableColumn = ExternalDataSchemaApiAvailableColumnsItem
+
 export interface AvailableColumn {
     label: string
     field: string
     type: string
     nullable: boolean
+    sensitivity?: ColumnSensitivity | null
 }
 
 /** The comparison operators a row filter may use. Mirrors the backend allowlist. */
@@ -6707,7 +6720,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     enabled_columns?: string[] | null
     /** Source columns whose values are replaced with a one-way hash at sync time. */
     masked_columns?: string[] | null
-    available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    available_columns?: SchemaAvailableColumn[]
     /** Exact source identifiers are available for sources that project columns upstream. */
     source_column_metadata_available?: boolean
     /**

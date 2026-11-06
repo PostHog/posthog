@@ -138,6 +138,7 @@ ActivityScope = Literal[
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
+    "SignalSourceConfig",
     "SignalTeamConfig",
     "StreamlitApp",
     "Metric",
@@ -1639,6 +1640,25 @@ class LogActivityEntry(TypedDict, total=False):
     client: Optional[str]
     ip_address: Optional[str]
     force_save: bool
+
+
+def update_activity_context(row: ActivityLog, **fields: Any) -> None:
+    """Add fields that are known only after the logged action ran to the row's context.
+
+    `$activity_log_entry_created` went out when the row was created, so a destination that streams the
+    activity log does not receive these fields.
+    """
+    try:
+        detail = cast(Detail, row.detail)
+        if detail.context is None:
+            raise ValueError(f"{row.scope} activity row has no context to update")
+        row.detail = dataclasses.replace(detail, context=dataclasses.replace(detail.context, **fields))
+        row.save(update_fields=["detail"])
+    except Exception as e:
+        logger.warn("activity_log.failed_to_update_activity_context", scope=row.scope, exception=e)
+        capture_exception(e)
+        if settings.TEST:
+            raise
 
 
 def log_activity_with_soft_delete(

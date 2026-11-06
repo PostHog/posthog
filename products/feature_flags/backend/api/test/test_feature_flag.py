@@ -4717,7 +4717,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         create_flag_targeting_a_new_cohort(0)
 
-        with self.assertNumQueries(FuzzyInt(17, 18)):
+        with self.assertNumQueries(FuzzyInt(15, 16)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4725,7 +4725,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             create_flag_targeting_a_new_cohort(i)
 
         # Query count should stay constant regardless of flag and cohort count (no N+1)
-        with self.assertNumQueries(FuzzyInt(17, 18)):
+        with self.assertNumQueries(FuzzyInt(15, 16)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4749,7 +4749,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(16, 17)):
+        with self.assertNumQueries(FuzzyInt(14, 15)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -4788,7 +4788,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Capture query count with 5 flags
-        with self.assertNumQueries(FuzzyInt(17, 21)):
+        with self.assertNumQueries(FuzzyInt(15, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 5)
@@ -4812,7 +4812,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Query count should remain similar (not scale linearly with flag count)
-        with self.assertNumQueries(FuzzyInt(17, 20)):
+        with self.assertNumQueries(FuzzyInt(15, 18)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 30)
