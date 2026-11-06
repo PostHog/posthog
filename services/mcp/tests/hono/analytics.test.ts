@@ -241,6 +241,46 @@ describe('Hono MCP analytics contexts', () => {
         }
     )
 
+    it.each([
+        // Error results embed upstream error bodies; the sanitized `$mcp_error_message` covers failures.
+        [
+            'a failed call',
+            true,
+            { parameters: { query: 'level:error' }, response: 'Error: upstream body' },
+            true,
+            false,
+        ],
+        [
+            'an argument too deep to redact',
+            false,
+            { parameters: JSON.parse('['.repeat(20_000) + ']'.repeat(20_000)), response: 'rows' },
+            false,
+            false,
+        ],
+    ])(
+        'records the event without the payload it cannot send for %s',
+        async (_case, isError, meta, sendsArguments, sendsResult) => {
+            await trackToolCall('query-logs', 12, isError, makeState(), undefined, meta)
+
+            const captured = mockCaptureToolCall.mock.calls[0]![0]
+            expect(captured.toolName).toBe('query-logs')
+            expect(captured.parameters !== undefined).toBe(sendsArguments)
+            expect(captured.response !== undefined).toBe(sendsResult)
+        }
+    )
+
+    it('drops preloaded app data from the captured result for every consumer', async () => {
+        const appData = { rows: [{ value: 'widget-only-data' }] }
+        await trackToolCall('render-ui', 12, false, makeState(), undefined, {
+            response: { content: [{ type: 'text', text: 'ok' }], _meta: { 'com.posthog.mcp/app_data': appData } },
+        })
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].response).toEqual({
+            content: [{ type: 'text', text: 'ok' }],
+            _meta: {},
+        })
+    })
+
     it('redacts secret-bearing fields from captured arguments and result', async () => {
         await trackToolCall('user-settings-update', 12, false, makeState(), undefined, {
             parameters: { first_name: 'Ada', password: 'hunter2', payload: { client_secret: 'oauth-secret' } },

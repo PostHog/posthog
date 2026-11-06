@@ -229,7 +229,7 @@ export async function trackToolCall(
             ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
             ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
             ...(analyticsMeta?.llmModelSource ? { llmModelSource: analyticsMeta.llmModelSource } : {}),
-            ...capturedPayload(toolName, state, analyticsMeta),
+            ...capturedPayload(toolName, isError, analyticsMeta),
             properties: {
                 ...properties,
                 tool_name: toolName,
@@ -494,23 +494,26 @@ function serializeSpanState(value: unknown): string | undefined {
 }
 
 // Arguments and results follow the `$ai_span` policy and redaction; the SDK then truncates them.
+// Failed calls send no result: their text embeds upstream error bodies, which the sanitized
+// `$mcp_error_message` exists to keep out of analytics.
 function capturedPayload(
     toolName: string,
-    state: ResolvedState,
+    isError: boolean,
     analyticsMeta: ToolCallAnalyticsMeta | undefined
 ): { parameters?: unknown; response?: unknown } {
     const { parameters, response } = analyticsMeta ?? {}
-    return {
-        ...(parameters !== undefined && shouldCaptureToolInput(toolName, parameters)
-            ? { parameters: redactSecrets(parameters) }
-            : {}),
-        ...(response !== undefined && shouldCaptureToolOutput(toolName, parameters)
-            ? {
-                  response: redactSecrets(
-                      state.clientProfile.consumer === 'posthog_ai' ? omitAppData(response) : response
-                  ),
-              }
-            : {}),
+    try {
+        return {
+            ...(parameters !== undefined && shouldCaptureToolInput(toolName, parameters)
+                ? { parameters: redactSecrets(parameters) }
+                : {}),
+            ...(response !== undefined && !isError && shouldCaptureToolOutput(toolName, parameters)
+                ? { response: redactSecrets(omitAppData(response)) }
+                : {}),
+        }
+    } catch {
+        // A payload too deep to redact must not cost the event its usage and failure metrics.
+        return {}
     }
 }
 

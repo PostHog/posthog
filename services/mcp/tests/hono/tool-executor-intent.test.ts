@@ -248,9 +248,42 @@ describe('ToolExecutor analytics capture', () => {
             })
             // Exec routes name the inner tool, so they carry its arguments rather than the command string.
             expect(event.parameters).toEqual({ projectId: 2 })
-            expect(JSON.stringify(event.response)).toContain('Switched to project 2')
+            expect(event.response).toBe('Switched to project 2')
         }
     )
+
+    // Formatted text hides credential fields from key-based redaction, so the captured
+    // result is the handler's raw object.
+    it.each(['direct', 'exec'])('redacts a credential the %s result returns', async (mode) => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const tool = {
+            name: 'switch-project',
+            title: 'Create token',
+            description: 'Synthetic credential tool',
+            scopes: [],
+            annotations: { readOnlyHint: false },
+            schema: z.object({}),
+            handler: async () => ({ id: 1, scim_bearer_token: 'canary-secret' }),
+        }
+        vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+            build: () => tool,
+            meta: undefined,
+            rawInputSchema: undefined,
+            definition: undefined,
+        })
+        const state = makeToolExecutorState([tool], { useSingleExec: mode === 'exec', suppressAnalytics: false })
+
+        await executor.handleToolCall(
+            mode === 'exec'
+                ? { name: 'exec', arguments: { command: 'call switch-project {}' } }
+                : { name: tool.name, arguments: {} },
+            state
+        )
+
+        await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce())
+        expect(capture.mock.calls[0]![0].response).toEqual({ id: 1, scim_bearer_token: '[redacted]' })
+        capture.mockRestore()
+    })
 
     // An unresolved exec command is the agent's raw string: no tool name to apply the
     // capture policy to, and key-based redaction can't see inside it.
