@@ -33,6 +33,7 @@ from products.mcp_store.backend.facade.contracts import (
     ConnectorCallOutcome,
     ConnectorTool,
     SandboxInstallations,
+    UnconnectedTeamTool,
     UnmountedInstallation,
     UnmountedInstallationReason,
 )
@@ -43,6 +44,8 @@ from products.mcp_store.backend.gateway import (
     reachable_agent_grants,
 )
 from products.mcp_store.backend.models import (
+    MCPAuthType,
+    MCPGatewayServer,
     MCPMemberServerRevocation,
     MCPServerInstallation,
     MCPServerInstallationTool,
@@ -369,6 +372,33 @@ def get_active_installations(team_id: int, user_id: int, *, include_shared: bool
 
     logger.debug("Found active MCP installations", count=len(results), team_id=team_id)
     return results
+
+
+def team_tools_not_connected(team_id: int, user_id: int) -> list[UnconnectedTeamTool]:
+    """Catalog servers the team turned on for its members, minus the ones this member has a working personal
+    connection to. Servers that a team only gets from the catalog default are left out, because nobody chose them."""
+    servers = (
+        MCPGatewayServer.objects.for_team(team_id)
+        .filter(is_team_enabled=True, template__isnull=False, template__is_active=True)
+        .exclude(member_revocations__user_id=user_id)
+        .select_related("template")
+    )
+    connected_urls = {
+        installation.url
+        for installation in MCPServerInstallation.objects.filter(
+            team_id=team_id, user_id=user_id, scope="personal", is_enabled=True
+        )
+        if _is_oauth_ready(installation)
+    }
+    return [
+        UnconnectedTeamTool(
+            template_id=str(server.template.id),
+            name=server.template.name,
+            connects_with_oauth=server.template.auth_type == MCPAuthType.OAUTH,
+        )
+        for server in servers
+        if server.template is not None and server.url not in connected_urls
+    ]
 
 
 def get_installations_for_sandbox(

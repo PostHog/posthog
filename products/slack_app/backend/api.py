@@ -55,6 +55,7 @@ from products.slack_app.backend.feature_flags import (
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.logic import interview_recruitment, reply_suggestions
+from products.slack_app.backend.logic.connect_tool import CONNECT_TOOL_SKIP_ACTION_ID, resume_mention_workflow
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
@@ -4635,6 +4636,22 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+def _handle_connect_tool_skip(payload: dict) -> HttpResponse:
+    """Start the waiting task without the tool, and remove the offer the click came from."""
+    action = next(
+        (action for action in payload.get("actions") or [] if action.get("action_id") == CONNECT_TOOL_SKIP_ACTION_ID),
+        None,
+    )
+    value = read_action_value(action) if action else None
+    workflow_id = value.get("workflow_id") if value else None
+    if isinstance(workflow_id, str) and workflow_id:
+        resume_mention_workflow(workflow_id)
+    response_url = payload.get("response_url")
+    if isinstance(response_url, str) and response_url:
+        _delete_ephemeral_via_response_url(response_url)
+    return HttpResponse(status=200)
+
+
 def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
     """Start the picked suggestion as a task in a new DM thread, as if the person had sent it there."""
     slack_team_id = payload.get("team", {}).get("id", "")
@@ -6397,6 +6414,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         or feature_tip_interactivity.feature_tip_integration_hint(payload)
         or interview_recruitment.interview_integration_hint(payload)
         or onboarding_interactivity.onboarding_integration_hint(payload)
+        or _extract_action_value_hints(payload, CONNECT_TOOL_SKIP_ACTION_ID)[0]
     )
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
@@ -6541,6 +6559,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return interview_recruitment.handle_interview_action(payload)
             if action_id == WORK_FOCUS_TASK_ACTION_ID:
                 return _handle_work_focus_task_click(payload)
+            if action_id == CONNECT_TOOL_SKIP_ACTION_ID:
+                return _handle_connect_tool_skip(payload)
             if is_onboarding_action(action_id):
                 return onboarding_interactivity.handle_onboarding_action(payload)
             if reply_suggestions.is_reply_suggestion_action(action_id) and clicked_reply_suggestion:

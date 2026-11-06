@@ -70,6 +70,7 @@ from products.slack_app.backend.api import (
 )
 from products.slack_app.backend.views import (
     slack_app_command_handler,
+    slack_tool_connected,
     slack_user_link_authorize,
     slack_user_link_callback,
 )
@@ -351,6 +352,7 @@ urlpatterns = [
     # and likewise must precede `social_django.urls` for the same reason.
     path("complete/slack-link/start/", slack_user_link_authorize, name="slack_link_start"),
     path("complete/slack-link/", slack_user_link_callback, name="slack_link_complete"),
+    path("complete/slack-tool-connected/", slack_tool_connected, name="slack_tool_connected"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
