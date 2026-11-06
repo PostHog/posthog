@@ -817,9 +817,6 @@ jobs:
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: ${{ runner.os }}-typegen-
 
-            - name: Build products
-              run: pnpm --filter=@posthog/frontend build:products
-
             - name: Check if products.tsx and products.json are up to date
               run: pnpm --filter=@posthog/frontend build:products && git diff --exit-code
 
