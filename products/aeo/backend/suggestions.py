@@ -15,6 +15,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.cache import caches
+from django.db.models.functions import Lower
 
 import requests
 import structlog
@@ -253,7 +254,8 @@ def generate_suggestions(
                         # Keep the complete suggestions instead of losing the whole paid answer.
                         text = _complete_items_prefix(text)
                     try:
-                        return parse_suggestions(text, count=count, existing_keys=existing_keys)
+                        # Tracked prompts are removed later, so every usable item is kept here.
+                        return parse_suggestions(text, count=MAX_SUGGESTIONS, existing_keys=existing_keys)
                     except PromptSuggestionError:
                         # The gateway logs this call as a success, so an unreadable answer is only visible here.
                         logger.warning(
@@ -347,16 +349,22 @@ def run_job(team_id: int, job_id: str, request: PromptSuggestionRequest) -> None
         .order_by("-created_at")
         .values_list("prompt", flat=True)[:MAX_EXISTING_PROMPTS_IN_INSTRUCTIONS]
     )
-    # Every version of every prompt counts, archived ones included, so a suggestion never revives retired wording.
-    existing_keys = {
-        prompt_key(text)
-        for text in AEOPromptVersion.objects.for_team(team_id).values_list("text", flat=True).iterator()
-    }
     try:
-        suggestions = generate_suggestions(team_id, request, context_prompts=prompts, existing_keys=existing_keys)
+        candidates = generate_suggestions(team_id, request, context_prompts=prompts, existing_keys=set())
     except PromptSuggestionError as error:
         fail_job(team_id, job_id, str(error))
         return
+    # Every version of every prompt counts, archived ones included, so a suggestion never revives retired wording.
+    # Only the candidates are looked up, so the work does not grow with the team's prompt history.
+    tracked = set(
+        AEOPromptVersion.objects.for_team(team_id)
+        .annotate(key=Lower("text"))
+        .filter(key__in=[prompt_key(candidate.prompt) for candidate in candidates])
+        .values_list("key", flat=True)
+    )
+    suggestions = [c for c in candidates if prompt_key(c.prompt) not in tracked][
+        : min(max(request.count, 1), MAX_SUGGESTIONS)
+    ]
     _save_job(
         team_id,
         PromptSuggestionJob(id=job_id, status=PromptSuggestionStatus.COMPLETED, suggestions=tuple(suggestions)),
