@@ -205,9 +205,9 @@ Do not convert one local result into a general performance guarantee.
 
 ## Code references
 
-- [Dashboard grid and event handlers](../../frontend/src/scenes/dashboard/DashboardItems.tsx).
+- [Dashboard grid and event handlers](./frontend/DashboardItems.tsx).
 - [Interaction state and layout commits](../../frontend/src/scenes/dashboard/useDashboardLayoutInteraction.ts).
-- [Neighbor resize](../../frontend/src/scenes/dashboard/dashboardResizeCompactor.ts) and [compaction modes](./frontend/dashboardCustomization.ts).
+- [Neighbor resize](./frontend/dashboardResizeCompactor.ts) and [compaction modes](./frontend/dashboardCustomization.ts).
 - [Insight card lifecycle](../../frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx).
 - [Canvas sizing](../../packages/quill/packages/charts/src/core/hooks/useChartCanvas.ts) and [draw scheduling](../../packages/quill/packages/charts/src/core/hooks/useChartDraw.ts).
 - [Dashboard engineering skill](../../.agents/skills/managing-dashboards/SKILL.md) for access, queries, and surface contracts.

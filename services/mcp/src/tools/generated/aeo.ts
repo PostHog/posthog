@@ -47,8 +47,10 @@ const aeoPromptsChecksList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/${encodeURIComponent(String(params.id))}/checks/`,
             query: {
                 engine: params.engine,
+                include_answer_text: params.include_answer_text,
                 limit: params.limit,
                 offset: params.offset,
+                since: params.since,
                 version: params.version,
             },
         })
@@ -119,6 +121,7 @@ const aeoPromptsList = (): ToolBase<
                 active: params.active,
                 include_archived: params.include_archived,
                 limit: params.limit,
+                needs_improvement: params.needs_improvement,
                 offset: params.offset,
                 topic: params.topic,
             },

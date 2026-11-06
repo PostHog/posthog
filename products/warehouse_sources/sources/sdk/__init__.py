@@ -193,7 +193,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStoreProvider,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
-    FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
@@ -422,7 +421,6 @@ __all__ = [
     "ExternalDataSource",
     "ExternalDataSourceType",
     "ExternalWebhookInfo",
-    "FEATURE_FLAG",
     "FILE_MODIFIED_AT_COLUMN",
     "FILE_PATH_COLUMN",
     "FORMAT_ERROR",

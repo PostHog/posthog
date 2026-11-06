@@ -99,7 +99,13 @@ class SignalsConfig(AppConfig):
 
 
 def _record_task_spend_delta(
-    *, team_id: int, run_id: UUID, cost_delta_microusd: int, origin_product: str, **kwargs: object
+    *,
+    team_id: int,
+    run_id: UUID,
+    cost_delta_microusd: int,
+    origin_product: str,
+    accounting_failed: bool = False,
+    **kwargs: object,
 ) -> None:
     if origin_product not in {"signal_report", "signals_scout"}:
         return
@@ -108,4 +114,6 @@ def _record_task_spend_delta(
         record_task_cost_delta,  # noqa: PLC0415 — keeps accounting off Django startup
     )
 
-    record_task_cost_delta(team_id=team_id, run_id=run_id, cost_delta_microusd=cost_delta_microusd)
+    record_task_cost_delta(
+        team_id=team_id, run_id=run_id, cost_delta_microusd=cost_delta_microusd, accounting_failed=accounting_failed
+    )

@@ -204,6 +204,7 @@ def complete_signal_spend(run_id: str) -> None:
             team_id=run.team_id,
             run_id=run_id,
             report_id=str(run.task.signal_report_source_id) if run.task.signal_report_source_id else None,
+            final_attempt=activity.in_activity() and activity.info().attempt >= 10,
         )
 
 
