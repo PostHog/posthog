@@ -663,7 +663,8 @@ class ExposureQueryBuilder:
         # (UTC-day-aligned). The experiment_date_from/to placeholders tighten
         # the scan to the actual experiment dates so that variant aggregation
         # only considers events within the experiment.
-        query_string = """
+        query_string = (
+            """
             SELECT
                 {entity_key} AS entity_id,
                 {variant_expr} AS variant,
@@ -671,7 +672,9 @@ class ExposureQueryBuilder:
                 max(timestamp) AS last_exposure_time,
                 argMin(uuid, timestamp) AS exposure_event_uuid,
                 argMin(`$session_id`, timestamp) AS exposure_session_id,
-                [] AS breakdown_value
+                [] AS breakdown_value"""
+            + self.context.precompute_distinct_id_column_sql("argMin(distinct_id, timestamp)")
+            + """
             FROM events
             WHERE timestamp >= {time_window_min}
                 AND timestamp < {time_window_max}
@@ -682,6 +685,7 @@ class ExposureQueryBuilder:
                 AND {variant_property} IN {variants}
             GROUP BY entity_id
         """
+        )
 
         placeholders = {
             "entity_key": parse_expr(self.context.entity_key),

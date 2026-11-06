@@ -1,6 +1,9 @@
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import type { InsightEditorFilterGroup, InsightLogicProps } from '~/types'
 
 import { EditorFilterGroupTile } from './EditorFilterGroupTile'
+import { QuillEditorFilterGroupTile } from './QuillEditorFilterGroupTile'
 
 export interface EditorFilterGroupProps {
     editorFilterGroup: InsightEditorFilterGroup
@@ -9,7 +12,15 @@ export interface EditorFilterGroupProps {
 }
 
 export function EditorFilterGroup({ insightProps, editorFilterGroup, queryKind }: EditorFilterGroupProps): JSX.Element {
-    return (
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    return todayRailNav ? (
+        <QuillEditorFilterGroupTile
+            insightProps={insightProps}
+            editorFilterGroup={editorFilterGroup}
+            queryKind={queryKind}
+        />
+    ) : (
         <EditorFilterGroupTile
             insightProps={insightProps}
             editorFilterGroup={editorFilterGroup}

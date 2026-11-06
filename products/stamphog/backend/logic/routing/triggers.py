@@ -191,8 +191,11 @@ def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, rev
     head_sha = _head_sha(pr)
     record = state.record
     if record is not None and record.get("head_sha") == head_sha:
-        # ALWAYS routes once per head and action. FALLBACK routes once per head, whatever started it.
-        if mode == RoutingMode.FALLBACK or record.get("trigger") == action:
+        # Both modes route once per head, whatever started it. The `opened` task reads the live pull
+        # request, so it already routes a draft marked ready before the task ran, and the
+        # `ready_for_review` delivery for that head must not request the same owners again. A waiting
+        # record left by FALLBACK requested nobody, so ALWAYS still routes that head.
+        if mode == RoutingMode.FALLBACK or record.get("status") != STATUS_WAITING:
             return None
     if mode == RoutingMode.FALLBACK and record is not None and record.get(FULL_ROUTED_HEAD):
         return None

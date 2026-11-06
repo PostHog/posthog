@@ -13,7 +13,8 @@ Safety: age is a staleness heuristic, not a "no unsaved work" guarantee — edit
 made without any git operation may not move the activity signal. So `--mode full`
 skips a worktree with uncommitted/untracked changes, unpushed commits, or git
 state it cannot read (present-but-corrupt/locked) unless `--include-dirty` is
-given. Orphaned worktrees (admin gitdir pruned) are removed by default: deleting
+given. Unpushed commits whose work a squash merge landed on the default branch
+do not count, because the merge queue rewrites every pull request that way. Orphaned worktrees (admin gitdir pruned) are removed by default: deleting
 the directory never touches git refs, so committed work survives in the shared
 repo — only uncommitted edits in an already-stale tree could be lost. `--mode
 deps` and `--mode build` only remove recreatable artifacts, so they have no such
@@ -215,6 +216,7 @@ class Worktree:
     artifact_items: list[Path] = field(default_factory=list)
     dirty: bool = False
     unpushed: int = 0
+    squash_merged: str | None = None
     detached: bool = False
     state_unknown: bool = False
 
@@ -225,8 +227,9 @@ class Worktree:
         Includes worktrees whose git state we couldn't read — an orphaned or
         unreadable worktree might contain uncommitted work, so we fail closed
         and treat "can't verify it's clean" as unsafe rather than deleting it.
+        Unpushed commits that a squash merge landed are not work at risk.
         """
-        return self.dirty or self.unpushed > 0 or self.state_unknown
+        return self.dirty or (self.unpushed > 0 and self.squash_merged is None) or self.state_unknown
 
 
 @dataclass(frozen=True)
@@ -1421,7 +1424,8 @@ def _populate_git_state(worktrees: list[Worktree], has_remotes: bool) -> None:
 
 
 def _compute_git_state(wt: Worktree, has_remotes: bool) -> None:
-    status = _git(wt.path, ["status", "--porcelain"])
+    # status.showUntrackedFiles=no would hide new files, and --force removes them without asking.
+    status = _git(wt.path, ["status", "--porcelain", "--untracked-files=normal"])
     if status is not None and status.returncode == 0:
         wt.dirty = bool(status.stdout.strip())
 
@@ -1440,6 +1444,8 @@ def _compute_git_state(wt: Worktree, has_remotes: bool) -> None:
             else:
                 count = ahead.stdout.strip()
                 wt.unpushed = int(count) if count.isdigit() else 0
+                if wt.unpushed:
+                    wt.squash_merged = _squash_merge(wt.path)
         return
 
     # git couldn't read the worktree's status. Distinguish two cases:
@@ -1475,12 +1481,178 @@ def _git(cwd: Path, args: Sequence[str], timeout: float = 30.0) -> subprocess.Co
         return None
 
 
+# A branch with more changed files than this is no squash merge to look for, and its file list would
+# not fit one git command line.
+_SQUASH_MAX_FILES = 1000
+_SQUASH_MAX_CANDIDATES = 2000
+
+
+def _squash_merge(worktree: Path) -> str | None:
+    """Where the unpushed commits of *worktree* landed through a squash merge, or None.
+
+    The merge queue lands a pull request as one new commit on the default branch
+    and deletes the branch. The branch's own commits are then on no remote and
+    are not ancestors of the default branch, although the work is merged.
+
+    The offline check compares the patch id (a stable hash of a diff) of the
+    branch's whole change with the default-branch commits since the branch left
+    it that touch the same files. It misses a merge whose diff the queue changed,
+    for example by resolving a conflict. The GitHub CLI, when it is installed and
+    logged in, then looks for a merged pull request that contains HEAD.
+    """
+
+    head = _git(worktree, ["rev-parse", "HEAD"])
+    if head is None or head.returncode != 0:
+        return None
+    sha = head.stdout.strip()
+    default = _default_branch_ref(worktree)
+    if default is None:
+        return None
+    commit = _squash_commit(worktree, sha, default)
+    if commit is not None:
+        return commit[:10]
+    return _merged_pull_request(worktree, sha, default.removeprefix("origin/"))
+
+
+def _default_branch_ref(worktree: Path) -> str | None:
+    symbolic = _git(worktree, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+    if symbolic is not None and symbolic.returncode == 0 and symbolic.stdout.strip():
+        return symbolic.stdout.strip()
+    for candidate in ("origin/master", "origin/main"):
+        verified = _git(worktree, ["rev-parse", "--verify", "--quiet", candidate])
+        if verified is not None and verified.returncode == 0:
+            return candidate
+    return None
+
+
+def _squash_commit(worktree: Path, head: str, default: str) -> str | None:
+    base = _git(worktree, ["merge-base", default, head])
+    if base is None or base.returncode != 0:
+        return None
+    fork_point = base.stdout.strip()
+    changed = _git(worktree, ["diff", "--name-only", "--no-renames", fork_point, head])
+    if changed is None or changed.returncode != 0:
+        return None
+    files = changed.stdout.splitlines()
+    if not files or len(files) > _SQUASH_MAX_FILES:
+        return None
+    own = _patch_ids(worktree, ["diff", "--no-renames", fork_point, head])
+    if not own:
+        return None
+    candidates = _patch_ids(
+        worktree,
+        [
+            "log",
+            "-p",
+            "--no-renames",
+            "--format=commit %H",
+            "-n",
+            str(_SQUASH_MAX_CANDIDATES),
+            f"{fork_point}..{default}",
+            "--",
+            *files,
+        ],
+    )
+    commit = candidates.get(next(iter(own)))
+    if commit is None or not _contains_branch(worktree, commit, head):
+        return None
+    return commit
+
+
+def _contains_branch(worktree: Path, commit: str, head: str) -> bool:
+    """Whether merging *head* into *commit* changes nothing.
+
+    A patch id leaves out where each hunk applies, so an edit moved to another block with the same
+    context lines has the id of the squash it no longer matches. Merging catches that."""
+
+    merged = _git(worktree, ["merge-tree", "--write-tree", commit, head])
+    tree = _git(worktree, ["rev-parse", f"{commit}^{{tree}}"])
+    if merged is None or tree is None or merged.returncode != 0 or tree.returncode != 0:
+        return False
+    return merged.stdout.split("\n", 1)[0].strip() == tree.stdout.strip()
+
+
+def _patch_ids(cwd: Path, git_args: Sequence[str], timeout: float = 120.0) -> dict[str, str]:
+    """The commit of each patch id among the patches that ``git <git_args>`` prints, the first one per id.
+
+    The patches stream straight into ``git patch-id``: a long history of a big, often rewritten file
+    would not fit in memory, and several worktrees are checked at once.
+    Diffs are bytes, not text: a binary or non-UTF-8 file would make a text decode fail.
+    --verbatim keeps whitespace in the id, so a re-indent committed after the merge does not match it."""
+
+    try:
+        with subprocess.Popen(["git", *git_args], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as patch:
+            try:
+                ids = subprocess.run(
+                    ["git", "patch-id", "--verbatim"],
+                    cwd=cwd,
+                    stdin=patch.stdout,
+                    capture_output=True,
+                    timeout=timeout,
+                )
+                # Closed here too, so git exits on a broken pipe instead of blocking if patch-id stopped reading.
+                patch.stdout.close()
+                if patch.wait(timeout=timeout) != 0:
+                    return {}
+            except subprocess.TimeoutExpired:
+                # Leaving the with block waits for git without a timeout, so a stalled git is killed first.
+                patch.kill()
+                return {}
+    except (FileNotFoundError, OSError):
+        return {}
+    commits: dict[str, str] = {}
+    for line in ids.stdout.decode(errors="replace").splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            commits.setdefault(parts[0], parts[1])
+    return commits
+
+
+def _merged_pull_request(worktree: Path, head: str, base: str) -> str | None:
+    """A pull request merged into *base* that contains HEAD. A stacked pull request merged into a
+    branch that never reached *base* does not count."""
+
+    gh = shutil.which("gh")
+    if gh is None:
+        return None
+    # The search also matches pull requests that only mention the hash, so HEAD must be one of the commits.
+    query = f'[.[] | select(any(.commits[]; .oid == "{head}")) | .number][0] // empty'
+    try:
+        result = subprocess.run(
+            [
+                gh,
+                "pr",
+                "list",
+                "--state",
+                "merged",
+                "--base",
+                base,
+                "--search",
+                head,
+                "--json",
+                "number,commits",
+                "--jq",
+                query,
+            ],
+            cwd=worktree,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    number = result.stdout.strip()
+    return f"#{number}" if result.returncode == 0 and number.isdigit() else None
+
+
 def _state_markers(wt: Worktree) -> str:
     parts: list[str] = []
     if wt.dirty:
         parts.append("uncommitted changes")
     if wt.unpushed:
-        parts.append(f"{wt.unpushed} unpushed commit(s)")
+        parts.append(
+            f"{wt.unpushed} unpushed commit(s)" + (f" merged as {wt.squash_merged}" if wt.squash_merged else "")
+        )
     if wt.detached:
         parts.append("detached HEAD")
     if wt.state_unknown:
@@ -1497,7 +1669,9 @@ def _listing_markers(wt: Worktree, mode: str) -> str:
     if mode == "full":
         if wt.dirty:
             parts.append("dirty")
-        if wt.unpushed:
+        if wt.unpushed and wt.squash_merged:
+            parts.append(f"merged as {wt.squash_merged}")
+        elif wt.unpushed:
             parts.append(f"{wt.unpushed} unpushed")
         if wt.detached:
             parts.append("detached")

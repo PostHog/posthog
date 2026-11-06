@@ -5,6 +5,7 @@ import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { retryImport } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -92,6 +93,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     } = useValues(insightVizDataLogic(insightProps))
 
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!querySource) {
         return null
@@ -163,7 +165,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             show: !isRetention,
             defaultExpanded: true,
             headerExtra:
-                isFunnels && (querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow ? (
+                !todayRailNav &&
+                isFunnels &&
+                (querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow ? (
                     <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
                         {/* span so the tooltip has a ref-able anchor — FunnelVizType is a plain function component */}
                         <span className="inline-flex">
