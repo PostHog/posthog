@@ -1,5 +1,5 @@
 rules:
-    # WARNING grandfathers the existing direct v1 callers and blocks new ones on PRs.
+    # WARNING allows existing direct v1 callers and blocks new ones in PRs.
     - id: authorization-through-sdk
       message: |
           Make authorization decisions through products.authorization.backend.facade.api.
