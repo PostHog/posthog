@@ -259,17 +259,17 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert staging.status_code == status.HTTP_200_OK, staging.json()
         assert production_again.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
-    @parameterized.expand([("default_cap", None, False), ("provider_cap", 32, True)])
-    def test_exchange_takes_a_large_key_set_only_from_a_provider_that_allows_it(
-        self, _name: str, jwks_max_keys: int | None, accepted: bool
+    @parameterized.expand([("more_than_a_client_may_register", 13, True), ("past_the_registry_cap", 32, False)])
+    def test_exchange_takes_a_registry_provider_key_set_up_to_the_registry_cap(
+        self, _name: str, extra_keys: int, accepted: bool
     ) -> None:
         other = json.loads(jwk_from_pem(_OTHER_KEY_PEM).export_public())
-        keys = _jwks()["keys"] + [{**other, "kid": f"rotated-{i}", "alg": "RS256", "use": "sig"} for i in range(13)]
-        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, jwks_max_keys=jwks_max_keys)
+        keys = _jwks()["keys"] + [
+            {**other, "kid": f"rotated-{i}", "alg": "RS256", "use": "sig"} for i in range(extra_keys)
+        ]
 
-        with (
-            patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)),
-            patch("posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=({"keys": keys}, None)),
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=({"keys": keys}, None)
         ):
             response = self._exchange()
 

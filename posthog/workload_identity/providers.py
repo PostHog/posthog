@@ -104,8 +104,6 @@ class WorkloadProvider:
     # Condition claims every policy must set, for a subject that is unique only together with them.
     required_condition_claims: tuple[str, ...] = ()
     subject_lookup_conditions: tuple[tuple[str, str], ...] = ()
-    # The registry pins the JWKS URL, so the cap against a hostile client key set can be raised here.
-    jwks_max_keys: int | None = None
     claims_equal_to_subject: tuple[str, ...] = ()
     condition_companions: tuple[ConditionCompanions, ...] = ()
     # The CI config that gives a job an OIDC token, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
@@ -455,7 +453,6 @@ DEPOT_CI = WorkloadProvider(
     resolve_subject=resolve_github_repository,
     # The lookup asks GitHub, which knows nothing about another forge's repository IDs.
     subject_lookup_conditions=(("forge", "github"),),
-    jwks_max_keys=32,
     condition_companions=(
         ConditionCompanions(
             claims=("ref", "workflow_ref"),

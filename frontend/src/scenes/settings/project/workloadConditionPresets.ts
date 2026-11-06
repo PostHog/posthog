@@ -40,8 +40,10 @@ export function conditionsFromRows(
     const conditions: Record<string, string> = {}
     for (const [claim, value] of rows.flatMap((row) => rowConditions(row, provider))) {
         if (claim in conditions && conditions[claim] !== value) {
-            const label = provider?.condition_claims.find((candidate) => candidate.name === claim)?.label ?? claim
-            return { conditions, conflict: `Two conditions ask for different values of ${label}.` }
+            return {
+                conditions,
+                conflict: `Two conditions ask for different values of ${claimLabel(provider, claim)}.`,
+            }
         }
         conditions[claim] = value
     }
