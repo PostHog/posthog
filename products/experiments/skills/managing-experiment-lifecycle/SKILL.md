@@ -181,6 +181,8 @@ Creates a copy as a new draft with fresh dates and no results.
 
 Optional: custom `name` (defaults to "Original Name (Copy)").
 
+The response has no `_posthogUrl`, so link the new draft with `generate-app-url` and `/experiments/{id}`.
+
 ### Copy to project (`experiment-copy-to-project`)
 
 Copies an experiment into a **different project in the same organization** as a new draft. Use this instead of
@@ -220,6 +222,7 @@ Creating a new experiment and copying the metrics over produces a second feature
 - **Analysis**: the migrated experiment reads the same exposures. Results are computed by the new engine, so numbers can differ from what the legacy view used to show.
 
 **Tell the user there will be two experiments before you call it**, and link both afterwards.
+Use the `_posthogUrl` from `experiment-migrate` for the migrated one, and the one from `experiment-get` for the legacy one.
 Calling it again returns the experiment the first call created, so a retry is safe.
 
 No request body.
@@ -244,6 +247,13 @@ Migrate only when the user asks for it, wants results for the experiment, or req
 | Want a similar experiment with a fresh start       | Duplicate                | `experiment-duplicate`         |
 | Want the same experiment in a different project    | Copy to another project  | `experiment-copy-to-project`   |
 | Experiment is legacy and needs the new engine      | Migrate                  | `experiment-migrate`           |
+
+## Linking next steps
+
+Every lifecycle tool except `experiment-duplicate` and `experiment-copy-to-project` returns the experiment's `_posthogUrl`.
+Link the experiment with it whenever you point the user to it.
+When you suggest a next step in PostHog, such as looking at the health checks after a launch, watching session replays for each variant, or turning on significance notifications, link that step too.
+→ See [`references/links.md`](../creating-experiments/references/links.md) in [[creating-experiments]] for which link goes with which step.
 
 ## Resolving experiments
 
