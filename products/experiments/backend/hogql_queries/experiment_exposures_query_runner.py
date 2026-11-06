@@ -73,6 +73,7 @@ from products.experiments.backend.health.context import (
     load_health_context,
 )
 from products.experiments.backend.health.exposure_gate import load_split_history
+from products.experiments.backend.health.launch_time import hours_since_launch
 from products.experiments.backend.health.registry import (
     EXPOSURE_HEALTH_CHECKS,
     evaluate as evaluate_health,
@@ -582,7 +583,9 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
                 sample_ratio_expected=sample_ratio_mismatch.expected if sample_ratio_mismatch else {},
                 daily_exposures=daily_exposures,
-                hours_since_launch=self.experiment.hours_since_launch,
+                hours_since_launch=hours_since_launch(
+                    self.experiment, datetime.now(UTC), can_read_flag_history=self._can_read_flag_history()
+                ),
                 counts_groups=aggregates_by_group(self.group_type_index),
                 filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
                 has_positive_test_account_filter=has_positive_test_account_filter(self.team),
