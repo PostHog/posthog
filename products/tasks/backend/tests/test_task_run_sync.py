@@ -14,6 +14,7 @@ from posthog.models.user import User
 from products.tasks.backend.logic.services.custom_prompt_internals import _update_task_run_error_message
 from products.tasks.backend.logic.services.workflow_dispatch import materialize_due_scheduled_task_runs
 from products.tasks.backend.models import Task, TaskRun, TaskStatusChange
+from products.tasks.backend.task_profiles import USER
 from products.tasks.backend.task_run_sync import (
     LatestRun,
     StatusMismatch,
@@ -172,7 +173,7 @@ class TestTaskRunSync(TestCase):
             title="Task",
             description="d",
             user_id=self.user.id,
-            origin_product=Task.OriginProduct.USER_CREATED,
+            profile=USER,
             start_workflow=False,
             **head_branch,
         )
