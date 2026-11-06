@@ -17,6 +17,7 @@ rules:
       owners: team-replay
     - match:
           - '/logs/metrics-rules/*.test.*'
+          - '/logs/parity/*.test.*'
           - '/logs/pipeline/*.test.*'
           - '/logs/retention/*.test.*'
           - '/logs/sampling/*.test.*'
