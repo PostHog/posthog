@@ -23,8 +23,7 @@ import { WorkloadTokenSchema, type WorkloadToken } from './tokens'
 
 const TOKEN_EXCHANGE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:token-exchange'
 const ID_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:id_token'
-// Provider tokens can live as little as five minutes, and the workload token never outlives the
-// provider token it came from, so hog exchanges again this long before it expires.
+// The workload token never outlives the provider's, which can live five minutes, so renew early.
 const RENEW_MARGIN_MS = 60_000
 const WORKLOAD_DOCS_URL = 'https://posthog.com/docs/api/workload-identity'
 
@@ -75,7 +74,6 @@ function exchangeError(status: number, raw: unknown, provider: WorkloadProvider,
     const body = ExchangeErrorBody.safeParse(raw).data ?? {}
     const message = body.error_description ?? `PostHog refused the workload token exchange with HTTP ${status}.`
     const code = body.error_code ?? (status >= 500 ? 'workload_exchange_unavailable' : 'workload_exchange_failed')
-    // The claims say why no policy matched, so they go with the message for people and agents alike.
     const claims = body.claims ? ` The job sent: ${JSON.stringify(body.claims)}.` : ''
     return new HogError(code, `${message}${claims}`, exchangeHint(code, message, body, provider, projectId))
 }
@@ -91,14 +89,12 @@ interface WorkloadKeyFields {
     scopes: string[]
 }
 
-// Resolves to undefined when the job isn't set up to get an OIDC token.
 export async function exchangeWorkloadToken(
     runtime: Runtime,
     fields: Pick<WorkloadKeyFields, 'host' | 'projectId' | 'provider'>
 ): Promise<WorkloadKey | undefined> {
     const { host, projectId, provider } = fields
-    // The audience is the host the token goes to, so a token sent to the wrong host is useless there
-    // and anywhere else.
+    // The audience is the host the token goes to, so no other host can use it.
     const subjectToken = await provider.fetchToken(runtime, host)
     if (subjectToken === undefined) {
         return undefined
@@ -157,8 +153,7 @@ export class WorkloadKey implements AccessKey {
     }
 
     async fresh(runtime: Runtime, storage: AccessKeyStorage, rejectedToken?: string): Promise<AccessKey> {
-        // A token PostHog issued for less than twice the margin renews at half its life, so a short one
-        // isn't exchanged again on every request.
+        // A short-lived token renews at half its life, so it isn't exchanged on every request.
         const margin = Math.min(RENEW_MARGIN_MS, (this.expiresAt - this.issuedAt) / 2)
         const needsRenewal =
             rejectedToken === undefined ? this.expiresAt - runtime.now() <= margin : this.accessToken === rejectedToken

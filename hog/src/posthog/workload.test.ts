@@ -74,7 +74,6 @@ describe('workload credentials', () => {
             'https://eu.posthog.com',
             'https://ph.example.com',
         ],
-        // A repository can't send the job's token to a host of its choosing.
         [
             'US Cloud over a posthog.json host that is no Cloud region',
             {},
