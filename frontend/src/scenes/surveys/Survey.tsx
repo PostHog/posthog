@@ -61,7 +61,10 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
     useToolStreamListener({
         tools: SURVEY_EDIT_TOOLS,
         onEvent: (event) => {
-            if (event.phase === 'completed' && resolveToolCall(event.invocation).innerInput?.id === id) {
+            const input = resolveToolCall(event.invocation).innerInput
+            // The survey tools also accept these aliases, since agents often send them.
+            const editedId = input?.id ?? input?.survey_id ?? input?.surveyId
+            if (event.phase === 'completed' && editedId === id) {
                 loadSurvey()
             }
         },
