@@ -19,6 +19,7 @@ from posthog.models import Organization, Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import dimensional_ttl_schedule
 from products.web_analytics.dags.web_dimensional_precompute import (
     BOUNCES_TABLE,
     DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION,
@@ -57,6 +58,7 @@ def _ready_job(start: int, end: int, built_minutes_ago: int, ttl_minutes: int) -
         time_range_end=_day(end),
         query_hash="hash",
         status=PreaggregationJob.Status.READY,
+        created_at=built_at,
         computed_at=built_at,
         expires_at=built_at + timedelta(minutes=ttl_minutes),
     )
@@ -169,10 +171,22 @@ class TestSummarizeCoverage(SimpleTestCase):
                 (date(2026, 10, 19),),
                 180 * 60,
             ),
+            (
+                "job_past_the_schedule_ttl_is_missing_despite_a_longer_stored_expiry",
+                [
+                    _ready_job(-3, -1, 100 * 24 * 60, 200 * 24 * 60),
+                    _ready_job(-1, 0, 600, 24 * 60),
+                    _ready_job(0, 1, 10, 60),
+                ],
+                (date(2026, 10, 16), date(2026, 10, 17)),
+                10 * 60,
+            ),
             ("no_jobs", [], (date(2026, 10, 16), date(2026, 10, 17), date(2026, 10, 18), date(2026, 10, 19)), None),
         ]
     )
     def test_reports_missing_days_and_today_lag(self, _name, jobs, expected_missing, expected_lag):
+        with time_machine.travel(_NOW, tick=False):
+            ttl_schedule = dimensional_ttl_schedule()
         coverage = summarize_coverage(
             team_id=1,
             table=STATS_TABLE,
@@ -180,6 +194,7 @@ class TestSummarizeCoverage(SimpleTestCase):
             window=TimeSpan(start=_day(-3), end=_day(1)),
             current_day=_NOW.date(),
             now=_NOW,
+            ttl_schedule=ttl_schedule,
         )
 
         assert coverage.missing_days == expected_missing
@@ -277,6 +292,17 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
         # Chunking bounds each ensure call to <= chunk_days so no single INSERT
         # scans the whole window. Exercised here with a 7-day chunk for clarity.
         t1 = self._make_team("A")
+        calls: list[tuple[str, datetime]] = []
+
+        def record(table: str):
+            def ensure(_team: Team, start: datetime, _end: datetime) -> LazyComputationResult:
+                calls.append((table, start))
+                return _READY
+
+            return ensure
+
+        stats_mock.side_effect = record("stats")
+        bounces_mock.side_effect = record("bounces")
         with (
             time_machine.travel("2026-10-14T20:21:00Z", tick=False),
             patch(_SINGLE_CHUNK, 7),
@@ -285,6 +311,11 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
             ensure_web_dimensional_precompute_op(dagster.build_op_context())
         chunks = [(s, e) for _t, s, e in (c.args for c in stats_mock.call_args_list)]
         assert len(chunks) > 1
+        # A read needs both tables for a day, so each chunk builds both before the next, newest first.
+        starts = [start for _table, start in calls[::2]]
+        assert [table for table, _start in calls] == ["stats", "bounces"] * len(chunks)
+        assert [start for _table, start in calls[1::2]] == starts
+        assert starts == sorted(starts, reverse=True)
         assert all((e - s).days <= 7 for s, e in chunks)
         # A chunk that straddles UTC midnight makes the framework merge two missing days into one
         # INSERT, so every boundary must sit on a UTC midnight even when the run starts mid-day.
