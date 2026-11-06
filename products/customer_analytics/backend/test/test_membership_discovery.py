@@ -72,9 +72,7 @@ class TestMembershipDiscovery(MembershipTestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "lookup unavailable"):
                 self.run_discovery()
-        assert list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values()) == before
-        assert self.get_rows() == [(self.key.distinct_id,)]
-        assert MembershipCleanupScan.objects.for_team(self.team.pk).get().cursor == []
+        self.assert_membership_state(before, [])
 
     @parameterized.expand([("live",), ("deleted_mapping",), ("deleted_person",), ("orphan",), ("unavailable",)])
     def test_primary_identity_check_protects_membership(self, identity_state: str) -> None:

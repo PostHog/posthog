@@ -24,6 +24,10 @@ from products.customer_analytics.backend.logic.membership_discovery import (
     MembershipDiscoveryStore,
     run_membership_discovery,
 )
+from products.customer_analytics.backend.models.membership_cleanup import (
+    MembershipCleanupCandidate,
+    MembershipCleanupScan,
+)
 
 
 class MembershipTestCase(ClickhouseTestMixin, APIBaseTest):
@@ -137,3 +141,8 @@ class MembershipTestCase(ClickhouseTestMixin, APIBaseTest):
             self.create_mapping(self.create_person(), version=2)
         else:
             self.create_group()
+
+    def assert_membership_state(self, candidate_rows: list[dict[str, object]], cursor: list[int | str]) -> None:
+        assert list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values()) == candidate_rows
+        assert self.get_rows() == [(self.key.distinct_id,)]
+        assert MembershipCleanupScan.objects.for_team(self.team.pk).get().cursor == cursor
