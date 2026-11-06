@@ -1,10 +1,7 @@
-from typing import cast
+from typing import Any
 
 from django.contrib import admin
-from django.forms import ModelForm
 from django.http import HttpRequest
-
-from posthog.models.user import User
 
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 
@@ -13,8 +10,8 @@ from products.workflows.backend.models import SandboxSenderOrganizationBlock
 class SandboxSenderOrganizationBlockAdmin(admin.ModelAdmin):
     list_display = ("organization", "reason", "created_by", "created_at")
     fields = ("organization", "reason", "created_by", "created_at")
-    readonly_fields = ("created_by", "created_at")
-    raw_id_fields = ("organization",)
+    readonly_fields = ("created_at",)
+    raw_id_fields = ("organization", "created_by")
     search_fields = ("organization__id", "organization__name", "reason")
     list_select_related = ("organization", "created_by")
     ordering = ("-created_at",)
@@ -22,15 +19,9 @@ class SandboxSenderOrganizationBlockAdmin(admin.ModelAdmin):
     def get_readonly_fields(
         self, request: HttpRequest, obj: SandboxSenderOrganizationBlock | None = None
     ) -> tuple[str, ...]:
-        return ("organization", *self.readonly_fields) if obj is not None else tuple(self.readonly_fields)
+        if obj is None:
+            return tuple(self.readonly_fields)
+        return ("organization", "created_by", *self.readonly_fields)
 
-    def save_model(
-        self,
-        request: HttpRequest,
-        obj: SandboxSenderOrganizationBlock,
-        form: ModelForm | None,
-        change: bool,
-    ) -> None:
-        if not change:
-            obj.created_by = cast(User, request.user)
-        super().save_model(request, obj, form, change)
+    def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
+        return {**super().get_changeform_initial_data(request), "created_by": request.user.pk}
