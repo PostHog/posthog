@@ -13,7 +13,7 @@
     },
     "dependencies": {
         "@babel/runtime": "^7.29.10",
-        "@jest/globals": "^30.5.2",
+        "@jest/globals": "^30.0.5",
         "@jest/test-sequencer": "^30.0.5",
         "@posthog/frontend": "workspace:*",
         "@storybook/addon-a11y": "^10.6.5",

@@ -192,7 +192,7 @@
         "eslint": "^8.57.0",
         "eslint-plugin-no-only-tests": "^3.4.0",
         "jest": "^30.0.0",
-        "jest-environment-node": "^30.5.2",
+        "jest-environment-node": "^30.0.0",
         "jest-junit": "^16.0.0",
         "oxlint": "1.90.0",
         "oxlint-plugin-eslint": "1.90.0",
