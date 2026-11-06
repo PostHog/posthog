@@ -42,9 +42,10 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
     })
 
     // register tool so edits from AI will always reload the survey data on-page
-    useMaxTool({
+    const { openMax } = useMaxTool({
         identifier: 'edit_survey',
         active: !!id && id !== 'new',
+        initialMaxPrompt: `Change the survey "${survey.name}": `,
         callback: (toolOutput: { survey_id?: string; error?: string }) => {
             if (!toolOutput?.error && toolOutput?.survey_id === id) {
                 loadSurvey()
@@ -74,7 +75,7 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
 
     return (
         <BindLogic logic={surveyLogic} props={{ id }}>
-            {isEditingSurvey ? <SurveyForm id={id} /> : <SurveyView id={id} />}
+            {isEditingSurvey ? <SurveyForm id={id} /> : <SurveyView id={id} openMax={openMax} />}
         </BindLogic>
     )
 }

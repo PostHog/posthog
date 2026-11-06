@@ -21,6 +21,8 @@ import {
     SurveyType,
 } from '~/types'
 
+import type { ActivityLogPaginatedResponseApi } from 'products/surveys/frontend/generated/api.schemas'
+
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
 
 const MOCK_BASIC_SURVEY: Survey = {
@@ -600,6 +602,47 @@ export const SurveyView: Story = {
     },
 }
 
+const MOCK_DRAFT_SURVEY_ACTIVITY: ActivityLogPaginatedResponseApi = {
+    results: [
+        {
+            id: 'draft-survey-updated',
+            user: { first_name: 'Alex Example', email: 'alex@example.com' },
+            activity: 'updated',
+            scope: 'Survey',
+            item_id: MOCK_DRAFT_SURVEY.id,
+            created_at: '2023-06-27T15:20:00Z',
+            is_system: false,
+            was_impersonated: false,
+            client: null,
+        },
+        {
+            id: 'draft-survey-created',
+            user: { first_name: 'Employee 427', email: 'test2@posthog.com' },
+            activity: 'created',
+            scope: 'Survey',
+            item_id: MOCK_DRAFT_SURVEY.id,
+            detail: {
+                id: MOCK_DRAFT_SURVEY.id,
+                name: MOCK_DRAFT_SURVEY.name,
+                short_id: '',
+                type: '',
+                trigger: {
+                    job_type: 'agent',
+                    job_id: '',
+                    payload: { intent: 'Find out what makes checkout hard for first-time buyers.' },
+                },
+            },
+            created_at: '2023-04-27T10:04:37Z',
+            is_system: false,
+            was_impersonated: false,
+            client: 'mcp',
+        },
+    ],
+    next: null,
+    previous: null,
+    total_count: 2,
+}
+
 export const SurveyDraftReview: Story = {
     parameters: {
         pageUrl: urls.survey(MOCK_DRAFT_SURVEY.id),
@@ -608,6 +651,13 @@ export const SurveyDraftReview: Story = {
             snapshotBrowsers: [],
         },
     },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/surveys/${MOCK_DRAFT_SURVEY.id}/activity/`]: MOCK_DRAFT_SURVEY_ACTIVITY,
+            },
+        }),
+    ],
 }
 
 export const SurveyResults: Story = {
