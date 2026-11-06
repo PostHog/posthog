@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events'
+import { PoolClient } from 'pg'
 
-import { closeHub, createHub } from '~/common/utils/db/hub'
+import { defaultConfig } from '~/common/config/config'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import {
@@ -9,9 +10,9 @@ import {
     createTestTeamFixture,
     createUser,
 } from '~/tests/helpers/sql'
-import { Hub, Team } from '~/types'
+import { Team } from '~/types'
 
-import { OrganizationMembersService } from './organization-members.service'
+import { OrganizationMembersService, RecipientCheck } from './organization-members.service'
 
 const idleClient = (): unknown => ({
     query: () => Promise.resolve({ rows: [] }),
@@ -33,17 +34,24 @@ const routerFor = (select: jest.Mock, blockedTeamIds: () => number[] = () => [])
                   : select(),
     }) as unknown as PostgresRouter
 
+const memberCheck = (check: RecipientCheck): Extract<RecipientCheck, { organizationBlocked: false }> => {
+    if (check.organizationBlocked) {
+        throw new Error('The organization is blocked')
+    }
+    return check
+}
+
 describe('OrganizationMembersService', () => {
-    let hub: Hub
+    let postgres: PostgresRouter
     let service: OrganizationMembersService
     let team: Team
     let organizationId: string
     let memberEmail: string
 
     const createMember = async (email: string, inOrganization: string, verified: boolean | null): Promise<number> => {
-        const userId = await createUser(hub.postgres, new UUIDT().toString())
-        await createOrganizationMembership(hub.postgres, inOrganization, userId)
-        await hub.postgres.query(
+        const userId = await createUser(postgres, new UUIDT().toString())
+        await createOrganizationMembership(postgres, inOrganization, userId)
+        await postgres.query(
             PostgresUse.COMMON_WRITE,
             'UPDATE posthog_user SET email = $1, is_active = true, is_email_verified = $2 WHERE id = $3',
             [email, verified, userId],
@@ -53,25 +61,25 @@ describe('OrganizationMembersService', () => {
     }
 
     beforeEach(async () => {
-        hub = await createHub()
-        service = new OrganizationMembersService(hub.postgres)
-        ;({ team, organizationId } = await createTestTeamFixture(hub.postgres))
+        postgres = new PostgresRouter(defaultConfig)
+        service = new OrganizationMembersService(postgres)
+        ;({ team, organizationId } = await createTestTeamFixture(postgres))
         memberEmail = `member-${team.id}@example.com`
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await postgres.end()
     })
 
     it.each([
         ['allows a verified member, whatever the case and padding', true, () => Promise.resolve(), 'allowed'],
         ['flags an unverified member', false, () => Promise.resolve(), 'unverified'],
-        ['flags a member with no recorded verification as unverified', null, () => Promise.resolve(), 'unverified'],
+        ['allows a member with no recorded verification', null, () => Promise.resolve(), 'allowed'],
         [
             'blocks a removed member',
             true,
             (userId: number) =>
-                hub.postgres.query(
+                postgres.query(
                     PostgresUse.COMMON_WRITE,
                     'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
                     [userId],
@@ -83,7 +91,7 @@ describe('OrganizationMembersService', () => {
             'blocks an inactive member',
             true,
             (userId: number) =>
-                hub.postgres.query(
+                postgres.query(
                     PostgresUse.COMMON_WRITE,
                     'UPDATE posthog_user SET is_active = false WHERE id = $1',
                     [userId],
@@ -95,7 +103,7 @@ describe('OrganizationMembersService', () => {
             'blocks every member of an inactive organization',
             true,
             () =>
-                hub.postgres.query(
+                postgres.query(
                     PostgresUse.COMMON_WRITE,
                     'UPDATE posthog_organization SET is_active = false WHERE id = $1',
                     [organizationId],
@@ -103,31 +111,46 @@ describe('OrganizationMembersService', () => {
                 ),
             'blocked',
         ],
+        [
+            'blocks every recipient once staff block the organization',
+            true,
+            () =>
+                postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_sandboxsenderorganizationblock (organization_id, reason, created_at)
+                     VALUES ($1, 'test block', now())`,
+                    [organizationId],
+                    'test:block-sandbox-organization'
+                ),
+            'organization_blocked',
+        ],
     ] as const)('%s', async (_case, verified, change, expected) => {
         const userId = await createMember(memberEmail, organizationId, verified)
         await change(userId)
         const address = `  ${memberEmail.toUpperCase()} `
 
-        const check = await service.checkRecipients(team.id, [address])
+        const check = await service.checkRecipients(team.id, [address], { fresh: false })
 
         expect(check).toEqual(
-            expected === 'allowed'
-                ? { organizationBlocked: false, blocked: [], deliverTo: new Map([[address, memberEmail]]) }
-                : {
-                      organizationBlocked: false,
-                      blocked: [{ address, unverifiedMember: expected === 'unverified' }],
-                      deliverTo: new Map(),
-                  }
+            expected === 'organization_blocked'
+                ? { organizationBlocked: true }
+                : expected === 'allowed'
+                  ? { organizationBlocked: false, blocked: [], deliverTo: new Map([[address, memberEmail]]) }
+                  : {
+                        organizationBlocked: false,
+                        blocked: [{ address, unverifiedMember: expected === 'unverified' }],
+                        deliverTo: new Map(),
+                    }
         )
     })
 
     it('blocks a verified member of another organization', async () => {
-        const otherOrganizationId = await createOrganization(hub.postgres)
+        const otherOrganizationId = await createOrganization(postgres)
         const outsider = `outsider-${team.id}@example.com`
         await createMember(outsider, otherOrganizationId, true)
         await createMember(memberEmail, organizationId, true)
 
-        expect(await service.checkRecipients(team.id, [memberEmail, outsider])).toEqual({
+        expect(await service.checkRecipients(team.id, [memberEmail, outsider], { fresh: false })).toEqual({
             organizationBlocked: false,
             blocked: [{ address: outsider, unverifiedMember: false }],
             deliverTo: new Map([[memberEmail, memberEmail]]),
@@ -135,31 +158,25 @@ describe('OrganizationMembersService', () => {
     })
 
     it.each([
-        ['delivers to the address that matches one exactly', 'Member', true],
-        ['blocks an address that matches neither', 'MEMBER', false],
-    ])('%s of two members whose addresses differ only in case', async (_case, written, delivered) => {
-        await createMember(`Member-${team.id}@example.com`, organizationId, true)
-        await createMember(`member-${team.id}@example.com`, organizationId, true)
+        ['delivers to the address that matches one exactly', ['Member', 'member'], 'Member', 'Member'],
+        ['blocks an address that matches neither', ['Member', 'member'], 'MEMBER', undefined],
+        [
+            'delivers to the one stored address when padding is all they differ by',
+            ['member', ' member'],
+            'MEMBER',
+            'member',
+        ],
+    ])('%s of two members whose stored addresses differ', async (_case, stored, written, delivered) => {
+        for (const name of stored) {
+            await createMember(`${name}-${team.id}@example.com`, organizationId, true)
+        }
         const address = `${written}-${team.id}@example.com`
+        const deliveredAddress = delivered && `${delivered}-${team.id}@example.com`
 
-        expect(await service.checkRecipients(team.id, [address])).toEqual({
-            organizationBlocked: false,
-            blocked: delivered ? [] : [{ address, unverifiedMember: false }],
-            deliverTo: new Map(delivered ? [[address, address]] : []),
-        })
-    })
+        const check = memberCheck(await service.checkRecipients(team.id, [address], { fresh: false }))
 
-    it('blocks every recipient once staff block the organization', async () => {
-        await createMember(memberEmail, organizationId, true)
-        await hub.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO workflows_sandboxsenderorganizationblock (organization_id, reason, created_at)
-             VALUES ($1, 'test block', now())`,
-            [organizationId],
-            'test:block-sandbox-organization'
-        )
-
-        expect(await service.checkRecipients(team.id, [memberEmail])).toEqual({ organizationBlocked: true })
+        expect(check.deliverTo.get(address)).toBe(deliveredAddress)
+        expect(check.blocked).toEqual(deliveredAddress ? [] : [{ address, unverifiedMember: false }])
     })
 
     type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
@@ -188,12 +205,9 @@ describe('OrganizationMembersService', () => {
                     ? new Promise<void>((resolve) => (handOver = resolve))
                     : Promise.resolve()
                 const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
-                ;(router as any).pools = new Map([
-                    [
-                        PostgresUse.COMMON_WRITE,
-                        { connect: () => (healthy ? Promise.resolve() : connected).then(newClient) },
-                    ],
-                ])
+                jest.spyOn(router, 'connect').mockImplementation(() =>
+                    (healthy ? Promise.resolve() : connected).then(() => newClient() as unknown as PoolClient)
+                )
                 const stalledService = new OrganizationMembersService(router)
 
                 const checks = Promise.allSettled(
@@ -233,46 +247,18 @@ describe('OrganizationMembersService', () => {
             email,
             is_email_verified: true,
         })
-        const allowed = {
-            organizationBlocked: false,
-            blocked: [],
-            deliverTo: new Map([['member@example.com', 'member@example.com']]),
-        }
-        const memberBlocked = {
-            organizationBlocked: false,
-            blocked: [{ address: 'member@example.com', unverifiedMember: false }],
-            deliverTo: new Map(),
-        }
-
-        it('fails closed when every member lookup outlasts its one-minute decision', async () => {
-            let now = 0
-            const query = jest.fn(() => {
-                now += 60_000
-                return Promise.resolve({ rows: [memberRow('member@example.com')] })
-            })
-            const service = new OrganizationMembersService(routerFor(query), () => now)
-
-            await expect(service.checkRecipients(1, ['member@example.com'])).rejects.toThrow('expired')
-            expect(query).toHaveBeenCalledTimes(2)
-        })
-
-        it('fails closed when the fresh lookup outlasts its one-minute decision', async () => {
-            let now = 0
-            const query = jest.fn(() => {
-                now += 60_000
-                return Promise.resolve({ rows: [memberRow('member@example.com')] })
-            })
-            const service = new OrganizationMembersService(routerFor(query), () => now)
-
-            await expect(service.checkRecipients(1, ['member@example.com'], { fresh: true })).rejects.toThrow('expired')
-            expect(query).toHaveBeenCalledTimes(1)
-        })
 
         it('keeps at most five lookups open while the pool has no connection, and runs no query for them once it recovers', async () => {
             jest.useFakeTimers()
             try {
                 let recovered = false
                 const waitingForConnection: (() => void)[] = []
+                const lateClients: { query: jest.Mock; release: jest.Mock }[] = []
+                const lateClient = (): unknown => {
+                    const client = { ...(idleClient() as object), query: jest.fn(), release: jest.fn() }
+                    lateClients.push(client)
+                    return client
+                }
                 const query = jest.fn((_tx: unknown, sql: string, _params: unknown, tag: string) =>
                     Promise.resolve({
                         rows:
@@ -281,11 +267,13 @@ describe('OrganizationMembersService', () => {
                                 : [memberRow('member@example.com')],
                     })
                 )
+                const memberSelects = (): number =>
+                    query.mock.calls.filter(([, sql]) => String(sql).includes('posthog_organizationmembership')).length
                 const pool = {
                     connect: () =>
                         recovered
                             ? Promise.resolve(idleClient())
-                            : new Promise((resolve) => waitingForConnection.push(() => resolve(idleClient()))),
+                            : new Promise((resolve) => waitingForConnection.push(() => resolve(lateClient()))),
                     query,
                 } as unknown as PostgresRouter
                 const service = new OrganizationMembersService(pool)
@@ -304,18 +292,22 @@ describe('OrganizationMembersService', () => {
                 waitingForConnection.forEach((connect) => connect())
                 await jest.advanceTimersByTimeAsync(0)
                 expect(query).not.toHaveBeenCalled()
+                expect(
+                    lateClients.map((client) => [client.query.mock.calls.length, client.release.mock.calls.length])
+                ).toEqual(Array(5).fill([0, 1]))
 
-                await expect(service.checkRecipients(1, ['member@example.com'], { fresh: true })).resolves.toEqual(
-                    allowed
-                )
-                expect(query).toHaveBeenCalledTimes(3)
+                await expect(
+                    service.checkRecipients(1, ['member@example.com'], { fresh: true })
+                ).resolves.toMatchObject({ blocked: [] })
+                expect(memberSelects()).toBe(1)
             } finally {
                 jest.useRealTimers()
             }
         })
 
         it('shares one member lookup with a send that starts while it runs and with later sends, and reloads it after a minute', async () => {
-            let now = 0
+            const start = Date.now()
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
             let member = 'member@example.com'
             let lookups = 0
             let lookupStarted: () => void = () => {}
@@ -334,44 +326,73 @@ describe('OrganizationMembersService', () => {
                 }
                 return { rows: [memberRow(member)] }
             })
-            const service = new OrganizationMembersService(routerFor(query), () => now)
+            const service = new OrganizationMembersService(routerFor(query))
+            try {
+                const first = service.checkRecipients(1, ['member@example.com'], { fresh: false })
+                await started
+                const joining = service.checkRecipients(1, ['member@example.com'], { fresh: false })
+                releaseLookup()
+                expect((await Promise.all([first, joining])).map((check) => memberCheck(check).blocked)).toEqual([
+                    [],
+                    [],
+                ])
+                expect(
+                    memberCheck(await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked
+                ).toEqual([])
+                expect(query).toHaveBeenCalledTimes(1)
 
-            const first = service.checkRecipients(1, ['member@example.com'])
-            await started
-            const joining = service.checkRecipients(1, ['member@example.com'])
-            releaseLookup()
-            expect(await Promise.all([first, joining])).toEqual([allowed, allowed])
-            expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(allowed)
-            expect(query).toHaveBeenCalledTimes(1)
-
-            now = 60_001
-            member = 'new-member@example.com'
-            expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(memberBlocked)
-            expect(query).toHaveBeenCalledTimes(2)
+                clock.mockReturnValue(start + 57_001)
+                member = 'new-member@example.com'
+                expect(
+                    memberCheck(await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked
+                ).toEqual([{ address: 'member@example.com', unverifiedMember: false }])
+            } finally {
+                clock.mockRestore()
+            }
         })
 
         it.each([
-            ['the member is removed', memberBlocked],
-            ['the organization is blocked', { organizationBlocked: true }],
-        ])('reloads a fresh check inside the minute when %s', async (change, expected) => {
-            let member = 'member@example.com'
-            let blockedTeamIds: number[] = []
-            const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
-            const service = new OrganizationMembersService(
-                routerFor(query, () => blockedTeamIds),
-                () => 0
-            )
+            ['the member is removed', [{ address: 'member@example.com', unverifiedMember: false }]],
+            ['staff block the organization', 'organization blocked'],
+        ] as const)(
+            'reloads a fresh check inside the minute when %s, and blocks later cached checks as well',
+            async (_change, expected) => {
+                let member = 'member@example.com'
+                let blockedTeamIds: number[] = []
+                const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
+                const service = new OrganizationMembersService(routerFor(query, () => blockedTeamIds))
+                const outcome = (check: RecipientCheck): unknown =>
+                    check.organizationBlocked ? 'organization blocked' : check.blocked
 
-            expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(allowed)
-            if (change === 'the member is removed') {
-                member = 'new-member@example.com'
-            } else {
-                blockedTeamIds = [1]
+                expect(outcome(await service.checkRecipients(1, ['member@example.com'], { fresh: false }))).toEqual([])
+                if (expected === 'organization blocked') {
+                    blockedTeamIds = [1]
+                } else {
+                    member = 'new-member@example.com'
+                }
+
+                expect(outcome(await service.checkRecipients(1, ['member@example.com'], { fresh: true }))).toEqual(
+                    expected
+                )
+                expect(outcome(await service.checkRecipients(1, ['member@example.com'], { fresh: false }))).toEqual(
+                    expected
+                )
             }
+        )
 
-            expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(allowed)
-            expect(await service.checkRecipients(1, ['member@example.com'], { fresh: true })).toEqual(expected)
-            expect(query).toHaveBeenCalledTimes(2)
+        it('checks a cached block against a fresh lookup before reporting it', async () => {
+            let members = ['member@example.com']
+            const query = jest.fn(() => Promise.resolve({ rows: members.map(memberRow) }))
+            const service = new OrganizationMembersService(routerFor(query))
+
+            expect(
+                memberCheck(await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked
+            ).toEqual([])
+            members = ['member@example.com', 'joined@example.com']
+
+            expect(
+                memberCheck(await service.checkRecipients(1, ['joined@example.com'], { fresh: false })).blocked
+            ).toEqual([])
         })
 
         it('does not let a fresh check join a lookup that started before it', async () => {
@@ -380,17 +401,19 @@ describe('OrganizationMembersService', () => {
                 .fn()
                 .mockReturnValueOnce(new Promise((resolve) => (finishEarlierLookup = resolve)))
                 .mockResolvedValue({ rows: [memberRow('new-member@example.com')] })
-            const service = new OrganizationMembersService(routerFor(query), () => 0)
+            const service = new OrganizationMembersService(routerFor(query))
 
-            const earlierCheck = service.checkRecipients(1, ['member@example.com'])
+            const earlierCheck = service.checkRecipients(1, ['member@example.com'], { fresh: false })
             while (query.mock.calls.length === 0) {
                 await new Promise((resolve) => setImmediate(resolve))
             }
             const freshCheck = service.checkRecipients(1, ['member@example.com'], { fresh: true })
             finishEarlierLookup({ rows: [memberRow('member@example.com')] })
 
-            expect(await earlierCheck).toEqual(allowed)
-            expect(await freshCheck).toEqual(memberBlocked)
+            expect(memberCheck(await earlierCheck).blocked).toEqual([])
+            expect(memberCheck(await freshCheck).blocked).toEqual([
+                { address: 'member@example.com', unverifiedMember: false },
+            ])
             expect(query).toHaveBeenCalledTimes(2)
         })
     })

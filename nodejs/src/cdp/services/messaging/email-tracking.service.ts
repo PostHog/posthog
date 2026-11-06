@@ -25,7 +25,7 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
-import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
+import { SES_LINK_INDEX_TAG, SesSandboxDelivery, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 import { SandboxEmailSender } from './sandbox-email-sender'
 
@@ -680,6 +680,7 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
+            // Cannot fail the webhook: the sender bounds each capture and logs its own errors.
             await this.captureSandboxDeliveries(sandboxDeliveries || [])
 
             return { status, message: body as string }
@@ -690,9 +691,7 @@ export class EmailTrackingService {
         }
     }
 
-    private async captureSandboxDeliveries(
-        deliveries: { teamId: string; isTest: boolean; recipientCount: number }[]
-    ): Promise<void> {
+    private async captureSandboxDeliveries(deliveries: SesSandboxDelivery[]): Promise<void> {
         for (const { teamId, isTest, recipientCount } of deliveries) {
             const parsedTeamId = Number(teamId)
             if (Number.isSafeInteger(parsedTeamId) && parsedTeamId > 0) {

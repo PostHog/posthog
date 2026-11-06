@@ -260,6 +260,8 @@ export const SES_SENSITIVE_TAG = 'ph_sensitive'
 // and dashes in a tag, so the value is 'true' as for SES_SENSITIVE_TAG.
 export const SES_EMAIL_STATUS_TAG = 'ph_email_status'
 
+export type SesSandboxDelivery = { teamId: string; isTest: boolean; recipientCount: number }
+
 export type SesEmailStatusUpdate = {
     teamId: string
     invocationId: string
@@ -734,7 +736,7 @@ export class SesWebhookHandler {
             timestamp?: string
             clearsGlobalHardBounces?: boolean
         }[]
-        sandboxDeliveries?: { teamId: string; isTest: boolean; recipientCount: number }[]
+        sandboxDeliveries?: SesSandboxDelivery[]
         // Status changes of transactional emails, for the email_status table.
         emailStatusUpdates?: SesEmailStatusUpdate[]
     }> {
@@ -842,7 +844,7 @@ export class SesWebhookHandler {
             timestamp?: string
             clearsGlobalHardBounces?: boolean
         }[] = []
-        const sandboxDeliveries: { teamId: string; isTest: boolean; recipientCount: number }[] = []
+        const sandboxDeliveries: SesSandboxDelivery[] = []
         // A signature only proves AWS sent the event, from any account's topic. The global hard-bounce list
         // affects every team, so it only takes events from a configured topic.
         const fromTrustedTopic = 'envelope' in parsed && this.allowedTopicArns.size > 0
