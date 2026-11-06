@@ -7,6 +7,44 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface MCPCustomHarnessApi {
+    readonly id: string
+    /**
+     * Name to show for calls from this harness.
+     * @maxLength 100
+     * @pattern ^[\w .+&()/-]+$
+     */
+    name: string
+    /**
+     * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+     * @maxLength 100
+     */
+    match_pattern: string
+    /** Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon. */
+    icon?: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PatchedMCPCustomHarnessApi {
+    readonly id?: string
+    /**
+     * Name to show for calls from this harness.
+     * @maxLength 100
+     * @pattern ^[\w .+&()/-]+$
+     */
+    name?: string
+    /**
+     * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+     * @maxLength 100
+     */
+    match_pattern?: string
+    /** Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon. */
+    icon?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 /**
  * * `feedback` - Feedback
  * * `missing_capability` - Missing capability
@@ -500,6 +538,16 @@ export interface MCPSessionApi {
 }
 
 export interface PaginatedMCPSessionListApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
     results: MCPSessionApi[]
     /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
     has_next: boolean
@@ -533,6 +581,16 @@ export interface MCPToolCallApi {
 }
 
 export interface PaginatedMCPToolCallListApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
     results: MCPToolCallApi[]
     /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
     has_next: boolean
@@ -639,6 +697,7 @@ export interface MCPIntentDigestApi {
 export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -657,6 +716,7 @@ export type McpAnalyticsIntentClustersRetrieveParams = {
 export type McpAnalyticsMissingCapabilitiesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -750,4 +810,8 @@ export type McpAnalyticsSessionsActivityOverviewParams = {
      * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
      */
     properties?: string
+    /**
+     * Compute the overview again instead of serving the cached result, at most once every 5 seconds. The fresh result replaces the cached one.
+     */
+    refresh?: boolean
 }

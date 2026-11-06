@@ -26,6 +26,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { MAX_SIDE_PANEL_ID, REPORT_AI_PANEL, SCOUT_AI_PANEL, SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
@@ -35,7 +36,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SidePanelTab } from '~/types'
 
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
 
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'

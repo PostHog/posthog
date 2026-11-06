@@ -30,6 +30,11 @@ jobs:
         steps:
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/checkout@v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/setup-node@v6.2.0
               with:

@@ -53,6 +53,7 @@ export interface GeometryInput {
     values: number[]
     dates: number[]
     interval: ChartInterval
+    uses24hourClock: boolean
     formatValue: (value: number) => string
 }
 
@@ -106,7 +107,7 @@ export function chartGeometry(input: GeometryInput): ChartGeometry {
         text: yTexts[index] ?? null,
     }))
 
-    const texts = dates.map((at) => formatAxisDate(at, interval))
+    const texts = dates.map((at) => formatAxisDate(at, interval, input.uses24hourClock))
     const labelWidth = Math.max(0, ...texts.map((text) => monoTextWidth(text)))
     const indices = compact
         ? count > 1

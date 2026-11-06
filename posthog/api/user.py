@@ -124,13 +124,7 @@ from posthog.models.organization_notification_lock import notification_locks_for
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey, max_personal_api_keys_for_user
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-from posthog.models.user import (
-    ROLE_CHOICES,
-    Notifications,
-    OnboardingFlowVariant,
-    OnboardingSkippedReason,
-    ShortcutPosition,
-)
+from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
@@ -245,11 +239,6 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=64,
         help_text="Onboarding step key the user was on when skipping, for analytics only.",
-    )
-    flow_variant = serializers.ChoiceField(
-        choices=OnboardingFlowVariant.choices,
-        required=False,
-        help_text="Which onboarding flow the user skipped from, for analytics only.",
     )
 
 
@@ -1455,7 +1444,6 @@ class UserViewSet(
         non_delegated_reasons = {OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER}
         reason = validated["reason"]
         step_at_skip = validated.get("step_at_skip") or ""
-        flow_variant = validated.get("flow_variant")
 
         with transaction.atomic():
             locked = User.objects.select_for_update().get(pk=instance.pk)
@@ -1532,7 +1520,6 @@ class UserViewSet(
                             properties={
                                 "step_at_skip": step_at_skip or None,
                                 "reason": reason,
-                                "flow_variant": flow_variant,
                             },
                             groups=analytics_groups,
                         )
