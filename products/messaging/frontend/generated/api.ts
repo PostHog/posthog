@@ -48,9 +48,11 @@ import type {
     TransactionalEmailLogListApi,
     TransactionalEmailLogListParams,
     TransactionalEmailLogResultsRetrieveParams,
+    TransactionalEmailLogStatsOverTimeRetrieveParams,
     TransactionalEmailLogStatsRetrieveParams,
     TransactionalEmailResultsApi,
     TransactionalEmailStatsApi,
+    TransactionalEmailStatsOverTimeApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -1124,4 +1126,41 @@ export const transactionalEmailLogStatsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getTransactionalEmailLogStatsOverTimeRetrieveUrl = (
+    projectId: string,
+    params?: TransactionalEmailLogStatsOverTimeRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/stats_over_time/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/stats_over_time/`
+}
+
+/**
+ * Count sends by delivery status per time bucket, with totals for the period before.
+ * @summary Get transactional email delivery stats over time
+ */
+export const transactionalEmailLogStatsOverTimeRetrieve = async (
+    projectId: string,
+    params?: TransactionalEmailLogStatsOverTimeRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailStatsOverTimeApi> => {
+    return apiMutator<TransactionalEmailStatsOverTimeApi>(
+        getTransactionalEmailLogStatsOverTimeRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
