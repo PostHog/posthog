@@ -419,7 +419,9 @@ class TestSesEventsDlqConsoleTool(BaseTest):
         readable.get_queue_attributes.return_value = {
             "Attributes": {"ApproximateNumberOfMessages": "3", "ApproximateNumberOfMessagesNotVisible": "1"}
         }
-        readable.receive_message.return_value = {"Messages": [sns_message("a", "Bounce", team_id=42)]}
+        readable.receive_message.return_value = {
+            "Messages": [sns_message("a", "Bounce", team_id=42), sns_message("b", "Delivery", team_id=-1)]
+        }
         unreadable = MagicMock()
         unreadable.get_queue_attributes.side_effect = ClientError(
             {"Error": {"Code": "AccessDenied", "Message": "not allowed"}}, "GetQueueAttributes"
@@ -433,6 +435,7 @@ class TestSesEventsDlqConsoleTool(BaseTest):
         assert QUEUE.name in content
         assert "Could not read the queue: An error occurred (AccessDenied)" in content
         assert 'href="/admin/console/teams/42/"' in content
+        assert "Delivery" in content and "/admin/console/teams/-1/" not in content
         assert "r***@example.com" in content
         assert "recipient@example.com" not in content
         assert "2 h 0 min" in content

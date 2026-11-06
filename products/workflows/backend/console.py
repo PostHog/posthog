@@ -116,6 +116,10 @@ def _queue_row(state: SesEventsDlqState) -> Row:
 def _team(team_id: int | None) -> Cell:
     if team_id is None:
         return MISSING
+    # The ID comes from an unverified tracking code, and the team route refuses a negative ID, so
+    # linking one would fail the whole page.
+    if team_id < 1:
+        return Cell(text=str(team_id))
     return Cell(text=str(team_id), href=reverse("admin_console_team", kwargs={"team_id": team_id}))
 
 
