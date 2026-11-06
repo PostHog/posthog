@@ -140,6 +140,8 @@ from products.tasks.backend.temporal.process_task.utils import get_cached_github
 
 from ee.billing.quota_limiting import QuotaResource
 
+SLACK_PROFILE = get_task_profile("slack")
+
 BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 # The catalog gates no model behind a rollout flag now, so the write paths that re-check
@@ -2936,7 +2938,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
-        self.assertEqual((task.profile, task.options, task.idempotency_key), (None, None, None))
+        self.assertEqual((task.profile, task.options, task.idempotency_key), ("user", None, None))
 
     def test_create_task_with_hogdesk_origin_product(self):
         # HogDesk creates Code tasks from a support ticket's Code chat with this
@@ -3058,7 +3060,7 @@ class TestTaskAPI(BaseTaskAPITest):
             team=self.team,
             title="Slack task",
             description="Created from Slack",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             user_id=self.user.id,
             repository="posthog/posthog",
             create_pr=True,
@@ -7588,6 +7590,50 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
 
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertEqual(second.json()["id"], first.json()["id"])
+
+    @parameterized.expand(
+        [
+            ("origin_omitted", {}, "user"),
+            ("user_created", {"origin_product": "user_created"}, "user"),
+            ("error_tracking", {"origin_product": "error_tracking"}, "error_tracking"),
+            ("loop", {"origin_product": "loop"}, "loop"),
+            ("posthog_ai", {"origin_product": "posthog_ai"}, "posthog_ai"),
+        ]
+    )
+    def test_an_origin_only_create_stores_the_public_profile_of_its_origin(
+        self, _name: str, payload: dict[str, Any], profile_key: str
+    ) -> None:
+        response = self._create(**payload)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual((task.profile, task.options, task.source_kind), (profile_key, None, None))
+
+    def test_an_origin_only_create_without_a_public_profile_is_refused_like_a_reserved_origin(self) -> None:
+        with patch("products.tasks.backend.presentation.serializers.public_profile_for_origin", return_value=None):
+            response = self._create(origin_product="error_tracking")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["attr"], "origin_product")
+        self.assertIn("reserved for server-created tasks", response.json()["detail"])
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+
+    @parameterized.expand(
+        [
+            ("origin_only", {}, True),
+            ("profile_only", {"profile": "test.public"}, True),
+            ("profile_and_options", {"profile": "test.public", "options": {"runtime": "pi"}}, False),
+            ("profile_and_key", {"profile": "test.public", "idempotency_key": "warm-1"}, False),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._find_idling_warm_run", return_value=None)
+    def test_only_a_plain_create_looks_for_a_warm_run_to_reuse(
+        self, _name: str, payload: dict[str, Any], looks: bool, mock_find_warm_run
+    ) -> None:
+        response = self._create(branch="main", **payload)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(mock_find_warm_run.called, looks)
 
 
 class TestTaskRepositoriesAction(BaseTaskAPITest):

@@ -24,6 +24,7 @@ from products.tasks.backend.facade import (
     cancellation as cancellation_facade,
     contracts,
 )
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.staged_artifacts import (
     build_task_artifact_entry,
     build_task_staged_artifact_cache_key,
@@ -38,6 +39,7 @@ from products.tasks.backend.models import (
     TaskRun,
 )
 from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.task_profiles import USER
 
 FACADE = "products.tasks.backend.facade.api"
 
@@ -99,6 +101,7 @@ class TestWarmTaskSandbox(APIBaseTest):
             "repository": "posthog/posthog",
             "github_integration_id": self.integration.id,
             "branch": "main",
+            "profile": USER,
         }
         kwargs.update(overrides)
         return facade.warm_task_sandbox(**kwargs)
@@ -168,6 +171,40 @@ class TestWarmTaskSandbox(APIBaseTest):
 
         assert response.status_code == 200, response.content
         assert mock_warm.called is should_warm
+
+    @parameterized.expand(
+        [
+            ("default_origin", {}, "user"),
+            ("code_app", {"origin_product": "user_created"}, "user"),
+            ("posthog_ai", {"origin_product": "posthog_ai"}, "posthog_ai"),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox", return_value=None)
+    def test_warm_endpoint_warms_under_the_public_profile_of_the_origin(
+        self, _name: str, origin: dict[str, str], profile_key: str, mock_warm, _mock_warm_enabled
+    ):
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {"repository": "posthog/posthog", "github_integration": self.integration.id, "branch": "main", **origin},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert mock_warm.call_args.kwargs["profile"].key == profile_key
+
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    def test_warm_endpoint_does_not_warm_an_origin_without_a_public_profile(self, mock_warm, _mock_warm_enabled):
+        with patch("products.tasks.backend.presentation.views.api.public_profile_for_origin", return_value=None):
+            response = self.client.post(
+                "/api/projects/@current/tasks/warm/",
+                {"repository": "posthog/posthog", "github_integration": self.integration.id, "branch": "main"},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.content
+        mock_warm.assert_not_called()
 
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.facade.api.warm_task_resume_sandbox")
@@ -381,6 +418,7 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert isinstance(result, contracts.WarmTaskDTO)
         task = Task.objects.get(id=result.task_id)
         assert task.origin_product == Task.OriginProduct.USER_CREATED
+        assert task.profile == "user"
         assert task.created_by_id == self.user.id
         assert task.repository == "posthog/posthog"
         assert task.github_integration_id == self.integration.id
@@ -409,13 +447,11 @@ class TestWarmTaskSandbox(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("posthog_ai_connected", Task.OriginProduct.POSTHOG_AI, True, "user"),
-            ("posthog_ai_without_personal_github", Task.OriginProduct.POSTHOG_AI, False, "bot"),
+            ("posthog_ai_connected", True, "user"),
+            ("posthog_ai_without_personal_github", False, "bot"),
         ]
     )
-    def test_repo_less_warm_stamps_authorship_from_the_creators_personal_github(
-        self, _name, origin_product, connected, expected_mode
-    ):
+    def test_repo_less_warm_stamps_authorship_from_the_creators_personal_github(self, _name, connected, expected_mode):
         user_integration = (
             UserIntegration.objects.create(
                 user=self.user,
@@ -435,7 +471,9 @@ class TestWarmTaskSandbox(APIBaseTest):
             return WarmResult(run=run, just_created=True)
 
         with patch(f"{WARM_SRC}.warm", autospec=True, side_effect=fake_warm):
-            result = self._warm(repository=None, github_integration_id=None, branch=None, origin_product=origin_product)
+            result = self._warm(
+                repository=None, github_integration_id=None, branch=None, profile=get_task_profile("posthog_ai")
+            )
 
         assert result is not None
         task = Task.objects.get(id=result.task_id)
@@ -464,7 +502,7 @@ class TestWarmTaskSandbox(APIBaseTest):
             "repository": None,
             "github_integration_id": None,
             "branch": None,
-            "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+            "profile": get_task_profile("signals.inbox"),
             "signal_report_id": report.id,
             "code_access_allowed": entitled,
         }
@@ -475,6 +513,7 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert result is not None
         task = Task.objects.get(id=result.task_id)
         assert task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        assert task.profile == "signals.inbox"
         assert str(task.signal_report_id) == str(report.id)
         assert task.repository is None
         assert task.repositories == []
