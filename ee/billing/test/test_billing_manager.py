@@ -22,6 +22,7 @@ from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.events_plan_deletion import cleanup_date, next_pass_on
+from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -625,11 +626,13 @@ class TestBillingManager(BaseTest):
 
     @parameterized.expand(
         [
-            ("downgrade_from_the_features_sync", True, _SURVEYS, _FREE_RETENTION, 84, 12, True),
-            ("downgrade_from_the_org_details_sync", False, _SURVEYS, _FREE_RETENTION, 84, 12, True),
-            ("first_billing_sync", False, None, _FREE_RETENTION, 84, 12, False),
-            ("upgrade", False, _FREE_RETENTION, _SURVEYS, 12, 84, False),
-            ("teams_already_reconciled", False, _SURVEYS, _FREE_RETENTION, 12, 12, False),
+            ("downgrade_from_the_features_sync", True, _SURVEYS, _FREE_RETENTION, 84, 12, None, True),
+            ("downgrade_from_the_org_details_sync", False, _SURVEYS, _FREE_RETENTION, 84, 12, None, True),
+            ("first_billing_sync", False, None, _FREE_RETENTION, 84, 12, None, False),
+            ("upgrade", False, _FREE_RETENTION, _SURVEYS, 12, 84, None, False),
+            ("teams_already_reconciled", False, _SURVEYS, _FREE_RETENTION, 12, 12, None, False),
+            ("set_period_within_the_new_plan", False, _SURVEYS, _FREE_RETENTION, 84, 12, 6, False),
+            ("set_period_past_the_new_plan", False, _SURVEYS, _FREE_RETENTION, 84, 12, 36, True),
         ]
     )
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
@@ -643,6 +646,7 @@ class TestBillingManager(BaseTest):
         features: list[dict],
         team_months: int,
         expected_team_months: int,
+        set_months: int | None,
         reported: bool,
         mock_scoped_capture: MagicMock,
         _mock_is_cloud: MagicMock,
@@ -651,6 +655,7 @@ class TestBillingManager(BaseTest):
         Organization.objects.filter(pk=organization.pk).update(available_product_features=previous_features)
         organization.refresh_from_db()
         Team.objects.filter(pk=self.team.pk).update(event_retention_months=team_months)
+        TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=set_months)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         User.objects.create_and_join(organization, "member@posthog.com", None)

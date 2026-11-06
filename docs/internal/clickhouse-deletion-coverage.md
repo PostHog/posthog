@@ -358,7 +358,9 @@ The `update_plan_deletions` config has its own `team_ids`, which limits the rows
 `monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere). It is stopped by default.
 Pass dates are dates in that local time zone, so the date shown in settings is the day its deletes start.
 
-A billing sync that shortens the plan period writes the organization's rows straight away, the same way a settings save does.
+A billing sync that shortens the plan period checks each team's period under the previous and the new plan.
+It does nothing more when no team's period gets shorter, for example when every team has a set period within the new plan.
+Otherwise it writes the rows of those teams straight away, the same way a settings save does.
 Each row whose period got shorter keeps the plan period from before in `downgraded_from_months`.
 The sync then queues the Celery task `report_events_retention_shortened`, which sends an `events retention period shortened` event to each organization admin, with the previous and new plan periods and the first pass past the shorter period.
 The send runs in a worker, so an ingestion outage never holds up the billing sync.

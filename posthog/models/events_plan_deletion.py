@@ -171,7 +171,8 @@ def _row(team_id: int, state: PlanDeletionState) -> TeamEventsPlanDeletion:
 
 
 def apply_events_retention_change(organization: Organization, previous_months: int | None) -> None:
-    """Align the organization's teams with its plan period. After a downgrade, push their passes and tell the admins.
+    """Align the organization's teams with its plan period. When a downgrade shortens the period of any team, push
+    those teams' passes and tell the admins.
 
     The first billing sync has no previous period. It moves teams off the 84-month fallback, which is no downgrade.
     """
@@ -183,14 +184,22 @@ def apply_events_retention_change(organization: Organization, previous_months: i
             return
         if previous_months is None or organization_events_retention_months(organization) >= previous_months:
             return
-        states = reschedule_plan_deletions(
-            deleting_plans(Team.objects.filter(organization_id=organization.id)), cleanup_date(), previous_months
-        )
+        shortened = _shortened_teams(list(Team.objects.filter(organization_id=organization.id)), previous_months)
+        if not shortened:
+            return
+        states = reschedule_plan_deletions(deleting_plans(shortened), cleanup_date(), previous_months)
     deletion_on = min(
         (state.next_deletion_on for state in states.values() if state.downgraded_from_months is not None),
         default=None,
     )
     report_events_retention_shortened.delay(str(organization.id), _notice(organization, previous_months, deletion_on))
+
+
+def _shortened_teams(teams: Sequence[Team], previous_months: int) -> list[Team]:
+    plans = [team_plan(team) for team in teams]
+    before = retention_periods([replace(plan, plan_months=previous_months) for plan in plans])
+    after = retention_periods(plans)
+    return [team for team in teams if after[team.id] < before[team.id]]
 
 
 def report_retention_shortened(organization_id: UUID, notice: dict[str, object]) -> None:
