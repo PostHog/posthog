@@ -41,6 +41,8 @@ INVALID_CREDENTIALS_MESSAGE = (
 class CustomerIOImportProvider(ImportProvider):
     key = ImportProviderKey.CUSTOMERIO.value
     label = ImportProviderKey.CUSTOMERIO.label
+    api_key_label = "Customer.io App API Key"
+    api_key_help = "You can generate an App API key in Customer.io under Settings → Account Settings → API Credentials."
     steps = (
         ImportStepSpec(
             key="categories",

@@ -358,11 +358,13 @@ export interface WebhookUrlApi {
 
 /**
  * * `customerio` - Customer.io
+ * * `resend` - Resend
  */
 export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
 export const ImportProviderKeyEnumApi = {
     Customerio: 'customerio',
+    Resend: 'resend',
 } as const
 
 /**
@@ -395,6 +397,49 @@ export const ImportStepStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+export interface ImportStepCountApi {
+    /** What the step counted, for example `complained`. */
+    key: string
+    /** Display text for the count, including what it means for sends. */
+    label: string
+    /** The count so far. */
+    value: number
+}
+
+/**
+ * * `created` - Created
+ * * `skipped` - Left as it is
+ * * `failed` - Failed
+ * * `listed` - Listed
+ */
+export type ImportItemStatusEnumApi = (typeof ImportItemStatusEnumApi)[keyof typeof ImportItemStatusEnumApi]
+
+export const ImportItemStatusEnumApi = {
+    Created: 'created',
+    Skipped: 'skipped',
+    Failed: 'failed',
+    Listed: 'listed',
+} as const
+
+export interface ImportStepItemApi {
+    /** The object's name, for example a template name or a domain. */
+    label: string
+    /** `created` when the step made it, `skipped` when it already existed and stayed as it was, `failed` when it could not be made, `listed` when the step only reports it.
+     *
+     * * `created` - Created
+     * * `skipped` - Left as it is
+     * * `failed` - Failed
+     * * `listed` - Listed */
+    status: ImportItemStatusEnumApi
+    /**
+     * Where to open the object in PostHog, as an app path.
+     * @nullable
+     */
+    url: string | null
+    /** What to review, or what did not carry over exactly. */
+    notes: string[]
+}
+
 export interface ImportStepProgressApi {
     /** Step key, for example `suppressions`. */
     key: string
@@ -418,6 +463,14 @@ export interface ImportStepProgressApi {
      * @nullable
      */
     last_error: string | null
+    /** A breakdown of what the step did. Only counts above zero appear. */
+    counts: ImportStepCountApi[]
+    /** The objects the step handled, with anything to review. */
+    items: ImportStepItemApi[]
+    /** How many more warnings there were than `warnings` holds. */
+    warnings_omitted: number
+    /** How many more objects there were than `items` holds. */
+    items_omitted: number
 }
 
 export interface ProviderImportRunApi {
@@ -425,7 +478,8 @@ export interface ProviderImportRunApi {
     id: string
     /** The provider the run imports from.
      *
-     * * `customerio` - Customer.io */
+     * * `customerio` - Customer.io
+     * * `resend` - Resend */
     provider: ImportProviderKeyEnumApi
     /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
      *
@@ -453,7 +507,8 @@ export interface ProviderImportRunApi {
 export interface StartProviderImportApi {
     /** The provider to import from.
      *
-     * * `customerio` - Customer.io */
+     * * `customerio` - Customer.io
+     * * `resend` - Resend */
     provider: ImportProviderKeyEnumApi
     /**
      * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -461,7 +516,10 @@ export interface StartProviderImportApi {
      * @items.maxLength 64
      */
     steps: string[]
-    /** The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key. */
+    /**
+     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.
+     * @maxLength 512
+     */
     api_key?: string
 }
 
@@ -477,12 +535,28 @@ export interface ImportStepOptionApi {
 export interface ImportProviderOptionApi {
     /** Provider key to send when starting an import.
      *
-     * * `customerio` - Customer.io */
+     * * `customerio` - Customer.io
+     * * `resend` - Resend */
     key: ImportProviderKeyEnumApi
     /** Display name of the provider. */
     label: string
     /** What the provider can import, in the order the steps run. */
     steps: ImportStepOptionApi[]
+    /** Whether PostHog stores the API key for later imports. When false, PostHog deletes the key when the run ends, so each import needs it again. */
+    retains_credentials: boolean
+    /** Display name of the API key this provider asks for. */
+    api_key_label: string
+    /** What kind of key to create, and how PostHog handles it. */
+    api_key_help: string
+    /**
+     * The page in the provider's app where the person can create the key.
+     * @nullable
+     */
+    api_key_url: string | null
+    /** What the import can't bring over. Empty when there is nothing to say. */
+    not_imported: string
+    /** What the person does once the import has finished, in order. */
+    next_steps: string[]
 }
 
 /**
