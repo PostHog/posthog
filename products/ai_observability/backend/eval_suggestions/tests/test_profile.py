@@ -52,6 +52,14 @@ class TestStructuredGaps:
         [
             ("same_mix_everywhere", ["P1", "P2", "P3", "P3"], ["P1", "P2", "P3", "P3"], 20, "findings[].priority"),
             ("too_few_items", ["P0", "P1"], ["P2", "P3"], 10, "findings[].priority"),
+            # 200 items on each side, but each from a single response, so nothing independent backs the gap.
+            (
+                "one_long_response_per_segment",
+                ["P0", "P1", "P2", "P3"] * 50,
+                ["P2", "P3"] * 100,
+                1,
+                "findings[].priority",
+            ),
             ("identifier_field", ["api/auth.py", "api/keys.py"], ["ui/list.tsx", "ui/form.tsx"], 20, "findings[].file"),
             # The same split as a priority gap, on a field a card cannot name in plain words.
             (
