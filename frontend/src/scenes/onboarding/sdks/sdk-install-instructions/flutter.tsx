@@ -18,7 +18,7 @@ export interface FlutterInstallProps {
 }
 
 function FlutterInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.YAML}>posthog_flutter: ^5.24.0</CodeSnippet>
+    return <CodeSnippet language={Language.YAML}>posthog_flutter: ^6.0.0</CodeSnippet>
 }
 
 function FlutterDartSetup(props: FlutterSetupProps & FlutterInstallProps): JSX.Element {
@@ -186,15 +186,12 @@ function FlutterIOSSetupSnippet({ requiresManualInstall }: FlutterSetupProps): J
     const url = apiHostOrigin()
 
     const minPlatformVersionInstructions = (
-        <>
-            <p>
-                Update the minimum platform version to iOS <strong>13.0</strong> in your <strong>Podfile</strong>:
-            </p>
-            <CodeSnippet language={Language.YAML}>
-                {`platform :ios, '13.0'
-    # rest of your config`}
-            </CodeSnippet>
-        </>
+        <p>
+            Set the minimum deployment target to iOS <strong>15.0</strong> in Xcode (
+            <strong>Runner &gt; General &gt; Minimum Deployments</strong>). PostHog installs through Swift Package
+            Manager, which is on by default from Flutter 3.44. On an older Flutter, run{' '}
+            <code>flutter config --enable-swift-package-manager</code>.
+        </p>
     )
 
     if (requiresManualInstall) {

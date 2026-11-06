@@ -4,7 +4,7 @@ import { StepDefinition } from '../steps'
 import { DEFAULT_SNIPPET_METHODS, snippetFunctions } from './_snippets/js-snippet-builder'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-const DEFAULT_FLUTTER_SDK_VERSION = '5.24.0'
+const DEFAULT_FLUTTER_SDK_VERSION = '6.0.0'
 
 export const getFlutterInstallSteps = (
     ctx: OnboardingComponentsContext,

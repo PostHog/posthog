@@ -19,7 +19,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'yaml',
                                 file: 'pubspec.yaml',
                                 code: dedent`
-                                    posthog_flutter: ^5.24.0
+                                    posthog_flutter: ^6.0.0
                                 `,
                             },
                         ]}
