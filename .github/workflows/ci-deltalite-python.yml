@@ -90,7 +90,7 @@ jobs:
                       {
                         "run_parity": ${{ steps.selection.outputs.run || 'true' }},
                         "selected_suite_count": ${{ steps.selection.outputs.run == 'false' && '0' || '1' }},
-                        "full_run_reason_category": ${{ toJSON(steps.selection.outputs.run == 'false' && '' || 'full-or-uncertain') }},
+                        "full_run_reason_category": ${{ toJSON(steps.selection.outputs.run != 'false' && 'full-or-uncertain' || '') }},
                         "full_run_reason_detail": ${{ toJSON(github.event_name) }},
                         "merge_queue": ${{ startsWith(github.head_ref, 'trunk-merge/') }},
                         "run_id": ${{ toJSON(github.run_id) }}
