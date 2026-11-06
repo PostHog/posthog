@@ -9,10 +9,11 @@ from django.test import RequestFactory, SimpleTestCase
 from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
 from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
 from posthog.admin.admins.global_rate_limit_threshold_config import GlobalRateLimitThresholdConfigAdmin
+from posthog.admin.admins.organization_admin import OrganizationAdmin
 from posthog.admin.admins.personal_api_key_admin import PersonalAPIKeyAdmin
 from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
-from posthog.models import PersonalAPIKey, User
+from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.global_rate_limit_threshold_config import GlobalRateLimitThresholdConfig
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -247,6 +248,24 @@ class TestOrganizationMemberInlineConfig(SimpleTestCase):
         assert "invited_by" in OrganizationMemberInline.readonly_fields
         assert "invited_by" in OrganizationMemberForUserInline.fields
         assert "invited_by" in OrganizationMemberForUserInline.readonly_fields
+
+
+class TestOrganizationAdminUsageDisplay(SimpleTestCase):
+    def test_usage_display_renders_products_next_to_billing_status_stamps(self):
+        organization = Organization(
+            usage={
+                "events": {"usage": 1000, "limit": 5000, "todays_usage": 10},
+                "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+                "billing_status_computed_at": "2026-08-02T00:00:00+00:00",
+                "billing_latest_usage_report_date": None,
+            }
+        )
+
+        html = OrganizationAdmin(Organization, AdminSite()).usage_display(organization)
+
+        assert "events" in html
+        assert "5,000" in html
+        assert "billing_status_computed_at" not in html
 
 
 class TestPersonalAPIKeyAdminForm(BaseTest):

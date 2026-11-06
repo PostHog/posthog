@@ -766,30 +766,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     lookup_field = "id"
     permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken]
 
-    # Installations are user-scoped or shared (safely_get_queryset returns both),
-    # so write actions don't need project admin access.
-    # Return project:read so AccessControlPermission requires "member" not "admin".
-    _USER_SCOPED_ACTIONS = {
-        "destroy",
-        "partial_update",
-        "install_custom",
-        "install_template",
-        "update_tool_approval",
-        "refresh_tools",
-        # share/unshare enforce their own owner/admin checks in the action bodies.
-        "share",
-        "unshare",
-    }
-
     # Mutations restricted to the credential owner (installer) on shared rows.
     # Tool approval is included: it gates which tools autonomous runs may execute
     # under the owner's credential, so a non-owner must not be able to flip it.
     _OWNER_ONLY_ACTIONS = {"destroy", "partial_update", "refresh_tools", "update_tool_approval"}
-
-    def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
-        if self.action in self._USER_SCOPED_ACTIONS:
-            return ["project:read"]
-        return None
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
