@@ -11,13 +11,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.utils import close_db_connections
 
-from ...merge_check.sources import (
-    POSTHOG_MAINLINE,
-    POSTHOG_REPOSITORY,
-    GitHubReader,
-    merged_mainline_commit,
-    read_github,
-)
+from ...merge_check.sources import POSTHOG_REPOSITORY, GitHubReader, MergedCommit, merged_commit, read_github
 from ..logic.pull_requests import source_repository_github
 from ..settings import writer_settings
 from .client import start_merge_check_workflow
@@ -37,8 +31,8 @@ def _is_before(timestamp: str | None, window_start: datetime) -> bool:
     return parsed is None or parsed < window_start
 
 
-def merged_commits_since(github: GitHubReader, window_start: datetime) -> list[str]:
-    commit_shas: list[str] = []
+def merged_commits_since(github: GitHubReader, window_start: datetime) -> list[MergedCommit]:
+    merges: list[MergedCommit] = []
     for page in range(1, RECONCILE_MAX_PAGES + 1):
         listed = read_github(
             github,
@@ -46,7 +40,6 @@ def merged_commits_since(github: GitHubReader, window_start: datetime) -> list[s
             endpoint="/repos/{owner}/{repo}/pulls",
             params={
                 "state": "closed",
-                "base": POSTHOG_MAINLINE,
                 "sort": "updated",
                 "direction": "desc",
                 "per_page": PULL_REQUESTS_PER_PAGE,
@@ -54,16 +47,16 @@ def merged_commits_since(github: GitHubReader, window_start: datetime) -> list[s
             },
         ).json()
         for pull_request in listed:
-            commit_sha = merged_mainline_commit(pull_request)
-            if commit_sha and not _is_before(pull_request.get("merged_at"), window_start):
-                commit_shas.append(commit_sha)
+            merge = merged_commit(pull_request)
+            if merge and not _is_before(pull_request.get("merged_at"), window_start):
+                merges.append(merge)
         if len(listed) < PULL_REQUESTS_PER_PAGE or _is_before(listed[-1].get("updated_at"), window_start):
-            return commit_shas
+            return merges
     capture_exception(ReconcileWindowTruncated(f"more than {RECONCILE_MAX_PAGES} pages of closed pull requests"))
-    return commit_shas
+    return merges
 
 
-def list_unreconciled_merges() -> tuple[int, list[str]] | None:
+def list_unreconciled_merges() -> tuple[int, list[MergedCommit]] | None:
     writer = writer_settings()
     if writer is None:
         return None
@@ -79,10 +72,10 @@ async def reconcile_merged_pull_requests_activity() -> None:
     merges = await database_sync_to_async(list_unreconciled_merges, thread_sensitive=False)()
     if merges is None:
         return
-    team_id, commit_shas = merges
+    team_id, merged_commits = merges
     client = await async_connect()
-    for commit_sha in commit_shas:
-        await start_merge_check_workflow(commit_sha, team_id=team_id, client=client)
+    for merge in merged_commits:
+        await start_merge_check_workflow(merge, team_id=team_id, client=client)
 
 
 @workflow.defn(name=RECONCILE_WORKFLOW_NAME)

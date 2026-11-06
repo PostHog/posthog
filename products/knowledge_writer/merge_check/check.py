@@ -10,25 +10,34 @@ from .sources import (
     GitHubReader,
     find_merged_pull_request,
     is_generated_path,
+    is_on_mainline,
     is_published_from_repository,
     is_test_path,
     read_commit_diff_by_path,
     read_docs_page_urls,
     read_generated_path_patterns,
+    read_merged_pull_request,
 )
 
 
 def run_merge_check(
     commit_sha: str,
     *,
+    pull_request_number: int | None,
     github: GitHubReader,
     http: httpx.Client,
     anthropic_client: Anthropic,
 ) -> MergeCheckReport:
     commit_url = f"https://github.com/{POSTHOG_REPOSITORY}/commit/{commit_sha}"
-    pull_request = find_merged_pull_request(github, commit_sha)
+    pull_request = (
+        find_merged_pull_request(github, commit_sha)
+        if pull_request_number is None
+        else read_merged_pull_request(github, pull_request_number, commit_sha)
+    )
     if pull_request is None:
         return no_docs_report(commit_sha, commit_url, title="", reason="no_pull_request")
+    if not is_on_mainline(github, commit_sha):
+        return no_docs_report(commit_sha, commit_url, title=pull_request.title, reason="not_on_mainline")
     if not pull_request.is_trusted_author:
         return no_docs_report(commit_sha, commit_url, title=pull_request.title, reason="untrusted_author")
     diff_by_path = read_commit_diff_by_path(github, commit_sha)

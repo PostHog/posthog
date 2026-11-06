@@ -41,6 +41,7 @@ MERGE_CHECK_RETRYABLE_ERRORS = (
 class MergeCheckInputs:
     commit_sha: str
     team_id: int
+    pull_request_number: int | None = None
 
 
 def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
@@ -66,7 +67,13 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
         return
     try:
         with httpx.Client(timeout=30) as http, anthropic_client:
-            report = run_merge_check(inputs.commit_sha, github=github, http=http, anthropic_client=anthropic_client)
+            report = run_merge_check(
+                inputs.commit_sha,
+                pull_request_number=inputs.pull_request_number,
+                github=github,
+                http=http,
+                anthropic_client=anthropic_client,
+            )
     except MERGE_CHECK_RETRYABLE_ERRORS as error:
         if not is_final_attempt:
             raise

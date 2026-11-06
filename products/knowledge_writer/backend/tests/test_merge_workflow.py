@@ -26,8 +26,10 @@ from products.knowledge_writer.backend.temporal.reconcile_workflow import (
     reconcile_merged_pull_requests_activity,
 )
 from products.knowledge_writer.backend.webhook_consumers import WEBHOOK_CONSUMERS
+from products.knowledge_writer.merge_check.sources import MergedCommit
 
 MERGE_COMMIT_SHA = "b" * 40
+MERGED = MergedCommit(commit_sha=MERGE_COMMIT_SHA, pull_request_number=42)
 WEBHOOK_SECRET = "test-knowledge-writer-webhook-secret"
 LINKED_INSTALLATION_ID = 1234
 START_MERGE_CHECK = "products.knowledge_writer.backend.temporal.client.start_merge_check"
@@ -107,7 +109,7 @@ def _post_signed(view, payload: dict[str, object], *, delivery_id: str = "delive
         pytest.param(_pull_request_delivery(merged_at=None), False, id="closed_unmerged"),
         pytest.param(_pull_request_delivery(action="opened"), False, id="not_closed"),
         pytest.param(_pull_request_delivery(repository="PostHog/posthog.com"), False, id="other_repository"),
-        pytest.param(_pull_request_delivery(base_ref="release"), False, id="other_base"),
+        pytest.param(_pull_request_delivery(base_ref="stack/parent-branch"), True, id="stacked_on_another_branch"),
         pytest.param(_pull_request_delivery(installation_id=9999), False, id="installation_not_linked"),
     ],
 )
@@ -124,7 +126,7 @@ def test_a_signed_merged_pull_request_starts_the_merge_check(
     if not starts_merge_check:
         start_merge_check.assert_not_called()
         return
-    start_merge_check.assert_called_once_with(MERGE_COMMIT_SHA, team_id=team.id)
+    start_merge_check.assert_called_once_with(MERGED, team_id=team.id)
 
 
 @pytest.mark.django_db
@@ -136,7 +138,7 @@ def test_a_redelivered_merge_starts_one_merge_check(team, writer_env, github_web
         for _ in range(2):
             assert _post_signed(github_webhook_view, _pull_request_delivery()).status_code == 202
 
-    start_merge_check.assert_called_once_with(MERGE_COMMIT_SHA, team_id=team.id)
+    start_merge_check.assert_called_once_with(MERGED, team_id=team.id)
 
 
 @pytest.mark.django_db
@@ -161,25 +163,31 @@ class ClosedPullRequestPages:
         page = int(params["page"])
         self.requested_pages.append(page)
         response = MagicMock()
-        response.json.return_value = self.pages[page - 1]
+        base_ref = params.get("base")
+        response.json.return_value = [
+            pull_request for pull_request in self.pages[page - 1] if base_ref in (None, pull_request["base"]["ref"])
+        ]
         return response
 
 
 def _closed_pull_request(
-    commit_sha: str, *, merged_hours_ago: float | None, updated_hours_ago: float
+    commit_sha: str, *, merged_hours_ago: float | None, updated_hours_ago: float, base_ref: str = "master"
 ) -> dict[str, object]:
     now = timezone.now()
     merged_at = None if merged_hours_ago is None else (now - timedelta(hours=merged_hours_ago)).isoformat()
     return {
+        "number": 42,
         "merged_at": merged_at,
         "merge_commit_sha": commit_sha,
         "updated_at": (now - timedelta(hours=updated_hours_ago)).isoformat(),
-        "base": {"ref": "master"},
+        "base": {"ref": base_ref},
     }
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_the_hourly_reconcile_starts_merge_checks_for_recent_merges_on_one_client(team, writer_env) -> None:
+async def test_the_hourly_reconcile_starts_merge_checks_for_recent_merges_with_any_base_on_one_client(
+    team, writer_env
+) -> None:
     recent_merges = ["1" * 40, "2" * 40]
     filler = [_closed_pull_request("3" * 40, merged_hours_ago=None, updated_hours_ago=1)] * (
         PULL_REQUESTS_PER_PAGE - len(recent_merges)
@@ -189,7 +197,9 @@ async def test_the_hourly_reconcile_starts_merge_checks_for_recent_merges_on_one
             [
                 _closed_pull_request(recent_merges[0], merged_hours_ago=0.5, updated_hours_ago=0.5),
                 *filler,
-                _closed_pull_request(recent_merges[1], merged_hours_ago=2, updated_hours_ago=2),
+                _closed_pull_request(
+                    recent_merges[1], merged_hours_ago=2, updated_hours_ago=2, base_ref="stack/parent-branch"
+                ),
             ],
             [_closed_pull_request("4" * 40, merged_hours_ago=5, updated_hours_ago=5)],
             [_closed_pull_request("5" * 40, merged_hours_ago=0.1, updated_hours_ago=0.1)],
@@ -206,5 +216,7 @@ async def test_the_hourly_reconcile_starts_merge_checks_for_recent_merges_on_one
 
     assert github.requested_pages == [1, 2]
     async_connect.assert_awaited_once()
-    started_workflow_ids = [call.kwargs["id"] for call in temporal.start_workflow.await_args_list]
-    assert started_workflow_ids == [merge_check_workflow_id(commit_sha) for commit_sha in recent_merges]
+    started = [
+        (call.kwargs["id"], call.args[1].pull_request_number) for call in temporal.start_workflow.await_args_list
+    ]
+    assert started == [(merge_check_workflow_id(commit_sha), 42) for commit_sha in recent_merges]

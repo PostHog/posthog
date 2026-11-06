@@ -28,12 +28,21 @@ TEST_PATH_PATTERN = re.compile(
 )
 
 
+MAINLINE_COMPARE_STATUSES = frozenset({"behind", "identical"})
+
+
 @dataclass(frozen=True)
 class MergedPullRequest:
     number: int
     title: str
     url: str
     is_trusted_author: bool
+
+
+@dataclass(frozen=True)
+class MergedCommit:
+    commit_sha: str
+    pull_request_number: int
 
 
 class GitHubReader(Protocol):
@@ -90,13 +99,35 @@ def read_github(
     return response
 
 
-def merged_mainline_commit(pull_request: Mapping[str, Any]) -> str | None:
+def merged_commit(pull_request: Mapping[str, Any]) -> MergedCommit | None:
     commit_sha = pull_request.get("merge_commit_sha")
-    if not pull_request.get("merged_at") or not isinstance(commit_sha, str):
+    number = pull_request.get("number")
+    if not pull_request.get("merged_at") or not isinstance(commit_sha, str) or not isinstance(number, int):
         return None
-    if (pull_request.get("base") or {}).get("ref") != POSTHOG_MAINLINE:
+    if not COMMIT_SHA_PATTERN.match(commit_sha):
         return None
-    return commit_sha if COMMIT_SHA_PATTERN.match(commit_sha) else None
+    return MergedCommit(commit_sha=commit_sha, pull_request_number=number)
+
+
+def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPullRequest | None:
+    merge = merged_commit(listed)
+    if merge is None or merge.commit_sha != commit_sha:
+        return None
+    return MergedPullRequest(
+        number=merge.pull_request_number,
+        title=listed["title"],
+        url=listed["html_url"],
+        is_trusted_author=listed.get("author_association") in TRUSTED_AUTHOR_ASSOCIATIONS,
+    )
+
+
+def read_merged_pull_request(github: GitHubReader, number: int, commit_sha: str) -> MergedPullRequest | None:
+    response = read_github(
+        github,
+        f"/repos/{POSTHOG_REPOSITORY}/pulls/{number}",
+        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+    )
+    return merged_pull_request(response.json(), commit_sha)
 
 
 def find_merged_pull_request(github: GitHubReader, commit_sha: str) -> MergedPullRequest | None:
@@ -105,16 +136,18 @@ def find_merged_pull_request(github: GitHubReader, commit_sha: str) -> MergedPul
         f"/repos/{POSTHOG_REPOSITORY}/commits/{commit_sha}/pulls",
         endpoint="/repos/{owner}/{repo}/commits/{sha}/pulls",
     )
-    for listed in response.json():
-        if merged_mainline_commit(listed) != commit_sha:
-            continue
-        return MergedPullRequest(
-            number=listed["number"],
-            title=listed["title"],
-            url=listed["html_url"],
-            is_trusted_author=listed.get("author_association") in TRUSTED_AUTHOR_ASSOCIATIONS,
-        )
-    return None
+    merged = (merged_pull_request(listed, commit_sha) for listed in response.json())
+    return next((pull_request for pull_request in merged if pull_request is not None), None)
+
+
+def is_on_mainline(github: GitHubReader, commit_sha: str) -> bool:
+    response = read_github(
+        github,
+        f"/repos/{POSTHOG_REPOSITORY}/compare/{POSTHOG_MAINLINE}...{commit_sha}",
+        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+        params={"per_page": 1},
+    )
+    return response.json().get("status") in MAINLINE_COMPARE_STATUSES
 
 
 def read_commit_diff_by_path(github: GitHubReader, commit_sha: str) -> dict[str, str]:

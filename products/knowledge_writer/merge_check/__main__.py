@@ -22,7 +22,11 @@ def replay_command(arguments: argparse.Namespace) -> int:
         for merge in merges:
             with judge_client(merge["commit_sha"]) as anthropic_client:
                 report = run_merge_check(
-                    merge["commit_sha"], github=github, http=http, anthropic_client=anthropic_client
+                    merge["commit_sha"],
+                    pull_request_number=None,
+                    github=github,
+                    http=http,
+                    anthropic_client=anthropic_client,
                 )
             flagged += report.needs_docs
             page_hits = sorted(set(report.page_urls) & set(merge.get("page_urls", [])))

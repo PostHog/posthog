@@ -22,24 +22,38 @@ FLAGS_PAGES = [f"https://posthog.com/docs/{path}" for path in FLAGS_PATHS]
 
 
 class FakePostHogGitHub:
-    def __init__(self, commit_sha: str, published_page_paths: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        commit_sha: str,
+        published_page_paths: tuple[str, ...] = (),
+        *,
+        is_commit_indexed: bool = True,
+        compare_status: str = "behind",
+    ) -> None:
         self.commit_sha = commit_sha
         self.published_page_paths = published_page_paths
+        self.is_commit_indexed = is_commit_indexed
+        self.compare_status = compare_status
+
+    def merged_pull_request(self) -> dict[str, object]:
+        return {
+            "number": 7,
+            "title": "chore: drop legacy rollout",
+            "html_url": "https://github.com/PostHog/posthog/pull/7",
+            "merge_commit_sha": self.commit_sha,
+            "merged_at": "2026-10-27T00:00:00Z",
+            "base": {"ref": "stack/parent-branch"},
+            "author_association": "MEMBER",
+        }
 
     def api_request(self, method: str, path: str, **_options: object) -> requests.Response:
-        if path.endswith("/pulls"):
-            pulls = [
-                {
-                    "number": 7,
-                    "title": "chore: drop legacy rollout",
-                    "html_url": "https://github.com/PostHog/posthog/pull/7",
-                    "merge_commit_sha": self.commit_sha,
-                    "merged_at": "2026-10-27T00:00:00Z",
-                    "base": {"ref": "master"},
-                    "author_association": "MEMBER",
-                }
-            ]
+        if path.endswith(f"/commits/{self.commit_sha}/pulls"):
+            pulls = [self.merged_pull_request()] if self.is_commit_indexed else []
             return github_response(json.dumps(pulls))
+        if path.endswith("/pulls/7"):
+            return github_response(json.dumps(self.merged_pull_request()))
+        if "/compare/" in path:
+            return github_response(json.dumps({"status": self.compare_status}))
         if "/contents/docs/published/docs/" in path:
             page_file = path.split("/contents/docs/published/docs/", 1)[1]
             is_published = any(page_file == f"{page_path}.mdx" for page_path in self.published_page_paths)
@@ -96,6 +110,7 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
 
     report = run_merge_check(
         commit_sha,
+        pull_request_number=7,
         github=FakePostHogGitHub(commit_sha),
         http=fake_sitemap(),
         anthropic_client=judge_recording(verdict, judge_requests),
@@ -116,6 +131,7 @@ def test_update_naming_no_sitemap_page_becomes_create() -> None:
 
     report = run_merge_check(
         commit_sha,
+        pull_request_number=7,
         github=FakePostHogGitHub(commit_sha),
         http=fake_sitemap(),
         anthropic_client=judge_recording(verdict, []),
@@ -136,6 +152,7 @@ def test_a_page_published_from_this_repository_skips_the_writer(published_page_p
 
     report = run_merge_check(
         commit_sha,
+        pull_request_number=7,
         github=FakePostHogGitHub(commit_sha, published_page_paths=(published_page_path,)),
         http=fake_sitemap(),
         anthropic_client=judge_recording(verdict, []),
@@ -149,9 +166,38 @@ def test_malformed_judge_output_declines_instead_of_raising() -> None:
 
     report = run_merge_check(
         commit_sha,
+        pull_request_number=7,
         github=FakePostHogGitHub(commit_sha),
         http=fake_sitemap(),
         anthropic_client=judge_returning_malformed_output(),
     )
 
     assert (report.needs_docs, report.reason) == (False, "judge_declined")
+
+
+@pytest.mark.parametrize(
+    "pull_request_number, is_commit_indexed, compare_status, expected_reason",
+    [
+        pytest.param(7, False, "behind", "no docs needed", id="webhook_merge_before_github_indexes_the_commit"),
+        pytest.param(None, True, "identical", "no docs needed", id="replay_looks_the_pull_request_up_by_commit"),
+        pytest.param(None, False, "behind", "no_pull_request", id="commit_without_a_pull_request"),
+        pytest.param(7, True, "diverged", "not_on_mainline", id="merged_into_a_branch_that_never_reached_master"),
+    ],
+)
+def test_a_merged_pull_request_with_any_base_is_judged_once_its_commit_is_on_master(
+    pull_request_number: int | None, is_commit_indexed: bool, compare_status: str, expected_reason: str
+) -> None:
+    commit_sha = "e" * 40
+    judge_requests: list[dict] = []
+    verdict = JudgeVerdict(needs_docs=False, change_kind=None, page_urls=[], reason="no docs needed")
+
+    report = run_merge_check(
+        commit_sha,
+        pull_request_number=pull_request_number,
+        github=FakePostHogGitHub(commit_sha, is_commit_indexed=is_commit_indexed, compare_status=compare_status),
+        http=fake_sitemap(),
+        anthropic_client=judge_recording(verdict, judge_requests),
+    )
+
+    assert (report.needs_docs, report.reason) == (False, expected_reason)
+    assert bool(judge_requests) == (expected_reason == verdict.reason)

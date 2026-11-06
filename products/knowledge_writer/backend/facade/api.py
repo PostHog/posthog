@@ -3,7 +3,7 @@ from typing import Any
 
 from posthog.github.installations import installation_team_ids
 
-from ...merge_check.sources import POSTHOG_REPOSITORY, merged_mainline_commit
+from ...merge_check.sources import POSTHOG_REPOSITORY, merged_commit
 from ..adapters.registry import REGISTRY
 from ..logic import intake
 from ..settings import writer_settings
@@ -28,10 +28,10 @@ def record_merged_pull_request(payload: Mapping[str, Any]) -> None:
         return
     if (payload.get("repository") or {}).get("full_name") != POSTHOG_REPOSITORY:
         return
-    commit_sha = merged_mainline_commit(payload.get("pull_request") or {})
-    if commit_sha is None:
+    merge = merged_commit(payload.get("pull_request") or {})
+    if merge is None:
         return
     team_id = writer_team_id()
     if team_id is None or team_id not in installation_team_ids(dict(payload)):
         return
-    start_merge_check(commit_sha, team_id=team_id)
+    start_merge_check(merge, team_id=team_id)
