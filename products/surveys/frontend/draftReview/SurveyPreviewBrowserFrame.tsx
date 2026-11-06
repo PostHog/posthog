@@ -6,10 +6,10 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { SurveyPosition } from '~/types'
 
+import type { SurveysSiteSnapshotRetrieveDevice } from 'products/surveys/frontend/generated/api.schemas'
+
 import { SurveyPreviewArea } from './surveyReview'
 import { surveySiteSnapshotLogic } from './surveySiteSnapshotLogic'
-
-export type PreviewDevice = 'desktop' | 'mobile'
 
 const POSITION_CLASSES: Record<SurveyPosition, string> = {
     [SurveyPosition.TopLeft]: 'top-4 left-4',
@@ -35,13 +35,14 @@ export function SurveyPreviewBrowserFrame({
     highlightedArea,
     preview,
 }: {
-    device: PreviewDevice
+    device: SurveysSiteSnapshotRetrieveDevice
     highlightedArea: SurveyPreviewArea | null
     preview: ReactNode
 }): JSX.Element {
     const { survey } = useValues(surveyLogic)
     const { readySnapshot } = useValues(surveySiteSnapshotLogic({ surveyId: survey.id, device }))
     const isMobile = device === 'mobile'
+    const pageHighlight = highlightClasses(highlightedArea === 'page')
 
     return (
         <div
@@ -57,7 +58,7 @@ export function SurveyPreviewBrowserFrame({
                 <span
                     className={cn(
                         'ml-2 min-w-0 flex-1 truncate rounded bg-surface-primary px-2 py-0.5 font-mono text-xs text-secondary',
-                        highlightClasses(highlightedArea === 'page')
+                        pageHighlight
                     )}
                 >
                     {readySnapshot?.pageUrl || survey.conditions?.url || 'Any page on your site'}
@@ -69,10 +70,7 @@ export function SurveyPreviewBrowserFrame({
                         <img
                             src={readySnapshot.imageUrl}
                             alt=""
-                            className={cn(
-                                'size-full rounded object-cover object-top',
-                                highlightClasses(highlightedArea === 'page')
-                            )}
+                            className={cn('size-full rounded object-cover object-top', pageHighlight)}
                         />
                     </div>
                 ) : (
@@ -87,7 +85,7 @@ export function SurveyPreviewBrowserFrame({
                         <div
                             className={cn(
                                 'm-6 flex flex-1 flex-col items-center gap-3 self-center rounded p-4',
-                                highlightClasses(highlightedArea === 'page')
+                                pageHighlight
                             )}
                         >
                             <span className="h-4 w-1/2 rounded-sm bg-border" />

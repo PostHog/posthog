@@ -37,13 +37,19 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         self._view("legacy", "https://example.com/legacy", hours_ago=24 * 8)
         self._view("pricing", PRICING, hours_ago=48)
         self._view("docs", DOCS, hours_ago=24)
-        self._view("mobile", MOBILE_HOME, hours_ago=12, viewport_width=390)
-        self._view("tablet", "https://example.com/tablet", hours_ago=6, viewport_width=900)
+        self._view("mobile", MOBILE_HOME, hours_ago=12, viewport=(390, 844))
+        self._view("tablet", "https://example.com/tablet", hours_ago=6, viewport=(900, 1200))
         self._view("no-replay", "https://example.com/no-replay", hours_ago=1, has_replay=False)
         flush_persons_and_events()
 
     def _view(
-        self, session_id: str, url: str, *, hours_ago: int, viewport_width: int = 1440, has_replay: bool = True
+        self,
+        session_id: str,
+        url: str,
+        *,
+        hours_ago: int,
+        viewport: tuple[int, int] = (1440, 900),
+        has_replay: bool = True,
     ) -> None:
         replay_start = timezone.now() - timedelta(hours=hours_ago)
         _create_event(
@@ -51,7 +57,12 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
             distinct_id=session_id,
             event="$pageview",
             timestamp=replay_start + timedelta(seconds=SESSION_OFFSET_SECONDS),
-            properties={"$session_id": session_id, "$current_url": url, "$viewport_width": viewport_width},
+            properties={
+                "$session_id": session_id,
+                "$current_url": url,
+                "$viewport_width": viewport[0],
+                "$viewport_height": viewport[1],
+            },
         )
         if has_replay:
             produce_replay_summary(
@@ -111,7 +122,11 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         first = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
         asset = ExportedAsset.objects.get()
         assert asset.export_context is not None
-        assert asset.export_context["session_recording_id"] == "docs"
+        assert (
+            asset.export_context["session_recording_id"],
+            asset.export_context["width"],
+            asset.export_context["height"],
+        ) == ("docs", 1440, 900)
         assert (first.status, first.exported_asset_id, first.page_url) == (SnapshotStatus.RENDERING, asset.id, DOCS)
 
         asset.content = b"png"

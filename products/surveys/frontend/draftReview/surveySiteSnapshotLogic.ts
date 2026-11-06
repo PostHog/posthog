@@ -74,17 +74,10 @@ export const surveySiteSnapshotLogic = kea<surveySiteSnapshotLogicType>([
         siteSnapshot: [
             null as SiteSnapshotApi | null,
             {
-                // The snapshot only decorates the preview, so a failed load falls back to the generic frame
-                // instead of reaching the loaders plugin, which shows an error toast.
-                loadSiteSnapshot: async (): Promise<SiteSnapshotApi | null> => {
-                    try {
-                        return await surveysSiteSnapshotRetrieve(String(values.currentProjectId), props.surveyId, {
-                            device: props.device,
-                        })
-                    } catch {
-                        return null
-                    }
-                },
+                loadSiteSnapshot: async (): Promise<SiteSnapshotApi | null> =>
+                    await surveysSiteSnapshotRetrieve(String(values.currentProjectId), props.surveyId, {
+                        device: props.device,
+                    }),
             },
         ],
     })),

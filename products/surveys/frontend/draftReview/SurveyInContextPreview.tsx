@@ -8,7 +8,9 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getNextPreviewPageIndex } from 'scenes/surveys/surveyPreviewNavigation'
 import { clampPreviewPageIndex, getFirstPreviewPageIndex } from 'scenes/surveys/utils'
 
-import { PreviewDevice, SurveyPreviewBrowserFrame } from './SurveyPreviewBrowserFrame'
+import type { SurveysSiteSnapshotRetrieveDevice } from 'products/surveys/frontend/generated/api.schemas'
+
+import { SurveyPreviewBrowserFrame } from './SurveyPreviewBrowserFrame'
 import { SurveyPreviewArea, getSurveyDelivery } from './surveyReview'
 
 export function SurveyInContextPreview({
@@ -18,7 +20,7 @@ export function SurveyInContextPreview({
 }): JSX.Element {
     const { survey, selectedPageIndex } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
-    const [device, setDevice] = useState<PreviewDevice>('desktop')
+    const [device, setDevice] = useState<SurveysSiteSnapshotRetrieveDevice>('desktop')
     const delivery = getSurveyDelivery(survey)
     const pageIndex = clampPreviewPageIndex(selectedPageIndex, survey)
     // SurveyAppearancePreview re-renders the posthog-js survey whenever a callback changes identity,

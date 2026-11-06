@@ -1,12 +1,9 @@
-"""A real frame of the customer's site, for the draft survey preview.
-
-The frame comes from a recent session replay of a page the survey's URL condition matches. It is rendered once as a
-PNG export and reused for every later preview of the same survey, device and URL condition.
-"""
-
+import json
+import hashlib
 from datetime import timedelta
 from typing import cast
 
+from django.core.cache import cache
 from django.db import models
 from django.utils import timezone
 
@@ -27,8 +24,10 @@ from products.exports.backend.facade.api import ExportedAsset, create_export_ass
 from products.surveys.backend.models import Survey
 
 SNAPSHOT_WINDOW = timedelta(days=7)
-# The pageview fires before the page paints, so the frame is taken a moment later.
+LONGEST_RECORDING = timedelta(days=1)
+NO_SNAPSHOT_TTL = timedelta(minutes=10)
 PAINT_DELAY_SECONDS = 3
+CANDIDATE_PAGEVIEWS = 100
 
 
 class SnapshotDevice(models.TextChoices):
@@ -43,19 +42,14 @@ class SnapshotStatus(models.TextChoices):
 
 
 @frozen
-class DeviceProfile:
-    viewport_filter: str
-    export_width: int
-    export_height: int
+class ViewportWidths:
+    min_width: int
+    max_width: int
 
 
-DEVICE_PROFILES: dict[SnapshotDevice, DeviceProfile] = {
-    SnapshotDevice.DESKTOP: DeviceProfile(
-        viewport_filter="toFloat(e.properties.$viewport_width) >= 1024", export_width=1400, export_height=875
-    ),
-    SnapshotDevice.MOBILE: DeviceProfile(
-        viewport_filter="toFloat(e.properties.$viewport_width) <= 767", export_width=390, export_height=844
-    ),
+DEVICE_VIEWPORTS: dict[SnapshotDevice, ViewportWidths] = {
+    SnapshotDevice.DESKTOP: ViewportWidths(min_width=1024, max_width=10_000),
+    SnapshotDevice.MOBILE: ViewportWidths(min_width=1, max_width=767),
 }
 
 URL_MATCH_TEMPLATES: dict[SurveyMatchType, str] = {
@@ -73,6 +67,8 @@ class SnapshotMoment:
     session_id: str
     offset_seconds: int
     page_url: str
+    viewport_width: int
+    viewport_height: int
 
 
 @frozen
@@ -98,6 +94,34 @@ def _url_condition(survey: Survey) -> ast.Expr:
 
 
 def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> SnapshotMoment | None:
+    pageviews_since = timezone.now() - SNAPSHOT_WINDOW
+    viewport = DEVICE_VIEWPORTS[device]
+    matching_pageviews = parse_select(
+        """
+        SELECT
+            e.$session_id AS session_id,
+            e.timestamp AS timestamp,
+            e.properties.$current_url AS page_url,
+            toInt(e.properties.$viewport_width) AS viewport_width,
+            toInt(e.properties.$viewport_height) AS viewport_height
+        FROM events AS e
+        WHERE e.event = '$pageview'
+            AND e.timestamp >= {pageviews_since}
+            AND e.$session_id != ''
+            AND toInt(e.properties.$viewport_width) BETWEEN {min_width} AND {max_width}
+            AND toInt(e.properties.$viewport_height) > 0
+            AND {url_condition}
+        ORDER BY e.timestamp DESC
+        LIMIT {candidates}
+        """,
+        placeholders={
+            "pageviews_since": ast.Constant(value=pageviews_since),
+            "min_width": ast.Constant(value=viewport.min_width),
+            "max_width": ast.Constant(value=viewport.max_width),
+            "url_condition": _url_condition(survey),
+            "candidates": ast.Constant(value=CANDIDATE_PAGEVIEWS),
+        },
+    )
     query = cast(
         ast.SelectQuery,
         parse_select(
@@ -105,11 +129,13 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
             SELECT
                 r.session_id,
                 least(
-                    dateDiff('second', r.started_at, e.timestamp) + {paint_delay},
+                    dateDiff('second', r.started_at, p.timestamp) + {paint_delay},
                     dateDiff('second', r.started_at, r.ended_at)
                 ) AS offset_seconds,
-                e.properties.$current_url AS page_url
-            FROM events AS e
+                p.page_url,
+                p.viewport_width,
+                p.viewport_height
+            FROM {matching_pageviews} AS p
             INNER JOIN (
                 SELECT
                     session_id,
@@ -117,25 +143,18 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
                     max(max_last_timestamp) AS ended_at
                 FROM raw_session_replay_events
                 WHERE min_first_timestamp >= {recordings_since}
+                    AND session_id IN (SELECT session_id FROM {matching_pageviews})
                 GROUP BY session_id
                 HAVING max(is_deleted) = 0
-            ) AS r ON r.session_id = e.$session_id
-            WHERE e.event = '$pageview'
-                AND e.timestamp >= {pageviews_since}
-                AND e.timestamp >= r.started_at
-                AND e.timestamp <= r.ended_at
-                AND {url_condition}
-                AND {viewport_condition}
-            ORDER BY e.timestamp DESC
+            ) AS r ON r.session_id = p.session_id
+            WHERE p.timestamp >= r.started_at AND p.timestamp <= r.ended_at
+            ORDER BY p.timestamp DESC
             LIMIT 1
             """,
             placeholders={
                 "paint_delay": ast.Constant(value=PAINT_DELAY_SECONDS),
-                # A recording can start up to a day before the pageview it contains.
-                "recordings_since": ast.Constant(value=timezone.now() - SNAPSHOT_WINDOW - timedelta(days=1)),
-                "pageviews_since": ast.Constant(value=timezone.now() - SNAPSHOT_WINDOW),
-                "url_condition": _url_condition(survey),
-                "viewport_condition": parse_expr(DEVICE_PROFILES[device].viewport_filter),
+                "recordings_since": ast.Constant(value=pageviews_since - LONGEST_RECORDING),
+                "matching_pageviews": matching_pageviews,
             },
         ),
     )
@@ -149,12 +168,17 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
         )
     if not response.results:
         return None
-    session_id, offset_seconds, page_url = response.results[0]
-    return SnapshotMoment(session_id=session_id, offset_seconds=int(offset_seconds), page_url=page_url)
+    session_id, offset_seconds, page_url, viewport_width, viewport_height = response.results[0]
+    return SnapshotMoment(
+        session_id=session_id,
+        offset_seconds=int(offset_seconds),
+        page_url=page_url,
+        viewport_width=viewport_width,
+        viewport_height=viewport_height,
+    )
 
 
 def _snapshot_key(survey: Survey, device: SnapshotDevice) -> dict[str, str]:
-    # The URL condition is part of the key, so editing it never shows a page the survey no longer targets.
     conditions = survey.conditions or {}
     return {
         "survey_id": str(survey.id),
@@ -166,9 +190,12 @@ def _snapshot_key(survey: Survey, device: SnapshotDevice) -> dict[str, str]:
 
 def _may_view_recording(user_access_control: UserAccessControl, team: Team, session_id: str) -> bool:
     recording = SessionRecording.objects.filter(team_id=team.id, session_id=session_id).first()
-    if recording is not None:
-        return user_access_control.check_access_level_for_object(recording, required_level="viewer")
-    return user_access_control.check_access_level_for_resource("session_recording", required_level="viewer")
+    return recording is None or user_access_control.check_access_level_for_object(recording, required_level="viewer")
+
+
+def _no_snapshot_cache_key(team: Team, key: dict[str, str]) -> str:
+    digest = hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()
+    return f"survey_site_snapshot_none:{team.id}:{digest}"
 
 
 def _snapshot_of(asset: ExportedAsset) -> SiteSnapshot:
@@ -205,10 +232,15 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
         session_id = (cached.export_context or {})["session_recording_id"]
         return _snapshot_of(cached) if _may_view_recording(user_access_control, team, session_id) else UNAVAILABLE
 
-    moment = find_snapshot_moment(team, survey, device)
-    if moment is None or not _may_view_recording(user_access_control, team, moment.session_id):
+    no_snapshot_key = _no_snapshot_cache_key(team, key)
+    if cache.get(no_snapshot_key):
         return UNAVAILABLE
-    profile = DEVICE_PROFILES[device]
+    moment = find_snapshot_moment(team, survey, device)
+    if moment is None:
+        cache.set(no_snapshot_key, True, timeout=NO_SNAPSHOT_TTL.total_seconds())
+        return UNAVAILABLE
+    if not _may_view_recording(user_access_control, team, moment.session_id):
+        return UNAVAILABLE
     asset = create_export_asset_async(
         team=team,
         created_by=user,
@@ -216,8 +248,8 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
         export_context={
             "session_recording_id": moment.session_id,
             "timestamp": moment.offset_seconds,
-            "width": profile.export_width,
-            "height": profile.export_height,
+            "width": moment.viewport_width,
+            "height": moment.viewport_height,
             "survey_site_snapshot": key,
             "page_url": moment.page_url,
         },
