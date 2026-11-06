@@ -579,6 +579,8 @@ depends_on = [
     "products.product_tours",
     "products.surveys", "products.access_control",
     "products.notifications",
+    # Facade-only: the flag code analysis starts and reads a read-only Tasks run.
+    "products.tasks",
     # Facade-only: feature flags declares its Today highlight sources against the Today facade contract.
     "products.today",
 ]
@@ -1230,7 +1232,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(actions|autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|review_hog|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # signals is not isolated, so it gets its own blocks instead of a place in the shared one above.

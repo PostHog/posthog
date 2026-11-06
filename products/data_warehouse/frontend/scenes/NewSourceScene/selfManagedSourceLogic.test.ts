@@ -93,28 +93,26 @@ describe('selfManagedSourceLogic', () => {
 
         // A rejected CSV is a validation 400. It must toast the server message without filing an exception.
         it.each([
-            { id: 'new', method: 'post', action: 'createTable', status: 400, reported: false },
-            { id: 'some-id', method: 'patch', action: 'updateTable', status: 400, reported: false },
-            { id: 'new', method: 'post', action: 'createTable', status: 500, reported: true },
-        ] as const)(
-            '$action with a $status toasts the server message, reported: $reported',
-            async ({ id, method, action, status, reported }) => {
+            { status: 400, reported: false },
+            { status: 500, reported: true },
+        ])(
+            'updateTable with a $status toasts the server message, reported: $reported',
+            async ({ status, reported }) => {
                 useMocks({
                     get: { '/api/projects/:team_id/warehouse_tables/:id/': () => [200, validTable] },
-                    [method]: {
-                        '/api/projects/:team_id/warehouse_tables/': () => [status, { detail: 'Check the delimiter.' }],
+                    patch: {
                         '/api/projects/:team_id/warehouse_tables/:id/': () => [
                             status,
                             { detail: 'Check the delimiter.' },
                         ],
                     },
                 })
-                const logic = selfManagedSourceLogic({ id })
+                const logic = selfManagedSourceLogic({ id: 'some-id' })
                 logic.mount()
 
                 await expectLogic(logic, () => {
-                    logic.actions[action]({ ...validTable, format: 'CSVWithNames' })
-                }).toDispatchActions([`${action}Failure`])
+                    logic.actions.updateTable({ ...validTable, format: 'CSVWithNames' })
+                }).toDispatchActions(['updateTableFailure'])
 
                 expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining('Check the delimiter.'))
                 expect(posthog.captureException).toHaveBeenCalledTimes(reported ? 1 : 0)

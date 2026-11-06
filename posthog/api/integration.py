@@ -115,6 +115,7 @@ from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
     GitLabIntegration,
+    GitLabIntegrationError,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -1081,9 +1082,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             project_id = config.get("project_id")
             project_access_token = config.get("project_access_token")
 
-            instance = GitLabIntegration.create_integration(
-                hostname, project_id, project_access_token, team_id, request.user
-            )
+            try:
+                instance = GitLabIntegration.create_integration(
+                    hostname, project_id, project_access_token, team_id, request.user
+                )
+            except GitLabIntegrationError as e:
+                raise ValidationError(str(e))
             return instance
 
         elif validated_data["kind"] == "anthropic":
