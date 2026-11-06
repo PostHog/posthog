@@ -394,8 +394,13 @@ def _revoke_credential(call: _Call, credential_id: str) -> TranslatedResponse:
 
 
 def _list_hoglake_credentials(call: _Call) -> TranslatedResponse:
-    """GET /hoglake-credentials -> v2 GET /warehouses/:id/hoglake-credentials (never a secret)."""
-    return call.send("GET", f"{call.warehouse}/hoglake-credentials")
+    """GET /hoglake-credentials -> v2 GET /warehouses/:id/hoglake-credentials (never a secret).
+
+    ``owner_user_uuid`` keeps only that member's personal credentials; nothing else is forwarded.
+    """
+    owner = (call.params or {}).get("owner_user_uuid")
+    params = {"owner_user_uuid": str(owner)} if owner else None
+    return call.send("GET", f"{call.warehouse}/hoglake-credentials", params=params)
 
 
 def _create_hoglake_credential(call: _Call) -> TranslatedResponse:
@@ -404,12 +409,19 @@ def _create_hoglake_credential(call: _Call) -> TranslatedResponse:
 
 
 def _hoglake_credential(call: _Call, method: str, credential_id: str, rotate: bool) -> TranslatedResponse:
-    """POST /hoglake-credentials/:cid/rotate (secret once) and DELETE /hoglake-credentials/:cid (revoke)."""
+    """POST /hoglake-credentials/:cid/rotate (secret once) and DELETE /hoglake-credentials/:cid (revoke).
+
+    ``owner_user_uuid`` (rotate: body, revoke: params) names the acting member, and hogtower then
+    acts only on that member's own credentials. Without it the call acts as an organization admin.
+    Nothing else is forwarded.
+    """
     path = f"{call.warehouse}/hoglake-credentials/{quote(credential_id, safe='')}"
     if rotate and method == "POST":
-        return call.send("POST", f"{path}/rotate")
+        owner = (call.json_body or {}).get("owner_user_uuid")
+        return call.send("POST", f"{path}/rotate", json_body={"owner_user_uuid": str(owner)} if owner else None)
     if not rotate and method == "DELETE":
-        return call.send("DELETE", path)
+        owner = (call.params or {}).get("owner_user_uuid")
+        return call.send("DELETE", path, params={"owner_user_uuid": str(owner)} if owner else None)
     return _not_supported(method, f"/hoglake-credentials/{credential_id}{'/rotate' if rotate else ''}")
 
 
