@@ -123,11 +123,28 @@ type CacheEntry<T> = {
     cacheUntil: number
     /** Past this, the next lookup returns the cached value and reloads in the background. */
     backgroundRefreshAfter?: number
+    /** The load that wrote this entry, so an earlier load finishing later cannot overwrite it. */
+    loadNumber: number
+}
+
+interface LoadBuffer {
+    keys: Set<string>
+    promise: Promise<void>
+    /** Fires the buffered load now; a no-op once the buffer timer has fired. */
+    flush: () => void
+}
+
+interface PendingReload {
+    load: Promise<void>
+    buffer: LoadBuffer | undefined
+    /** One reload shared by the callers that arrive after the running reload's query started. */
+    next?: Promise<void>
 }
 
 export class LazyLoader<T> {
     private cache: Record<string, CacheEntry<T> | undefined>
     private pendingLoads: Record<string, Promise<void> | undefined>
+    private pendingReloads: Record<string, PendingReload | undefined>
 
     private refreshAgeMs: number
     private refreshNullAgeMs: number
@@ -135,15 +152,9 @@ export class LazyLoader<T> {
     private refreshJitterMs: number
     private maxSize: number
     private cacheSize: number = 0
+    private loadsStarted: number = 0
 
-    private buffer:
-        | {
-              keys: Set<string>
-              promise: Promise<void>
-              /** Fires the buffered load now; a no-op once the buffer timer has fired. */
-              flush: () => void
-          }
-        | undefined
+    private buffer: LoadBuffer | undefined
 
     constructor(private readonly options: LazyLoaderOptions<T>) {
         // Keys come from callers and can be ingest tokens or distinct ids, so these maps have no
@@ -151,6 +162,7 @@ export class LazyLoader<T> {
         // instead of missing, and writing through it mutates a builtin the whole process shares.
         this.cache = Object.create(null)
         this.pendingLoads = Object.create(null)
+        this.pendingReloads = Object.create(null)
 
         this.refreshAgeMs = this.options.refreshAgeMs ?? 1000 * 60 * 5 // 5 minutes
         this.refreshNullAgeMs = this.options.refreshNullAgeMs ?? this.refreshAgeMs
@@ -183,6 +195,50 @@ export class LazyLoader<T> {
         return await this.loadViaCache(keys, options)
     }
 
+    /**
+     * Loads the key with a query that starts after this call, so a value written before the call is
+     * seen. A key has at most one running reload and one queued reload, which the callers that
+     * arrive while the running query is in flight share.
+     */
+    public async reload(key: string): Promise<void> {
+        const pending = this.pendingReloads[key]
+        if (!pending) {
+            return await this.startReload(key)
+        }
+        if (!this.queryStarted(pending)) {
+            return await pending.load
+        }
+        // A failed reload fails its queued callers too, rather than adding a query to a stalled pool.
+        pending.next ??= pending.load.then(
+            () => this.startReload(key),
+            (error: unknown) => {
+                if (this.pendingReloads[key] === pending) {
+                    delete this.pendingReloads[key]
+                }
+                throw error
+            }
+        )
+        return await pending.next
+    }
+
+    private queryStarted(pending: PendingReload): boolean {
+        return !pending.buffer || pending.buffer !== this.buffer
+    }
+
+    private startReload(key: string): Promise<void> {
+        const load = this.load([key], { startAfterNow: true })
+        const pending: PendingReload = {
+            buffer: this.buffer,
+            load: load.finally(() => {
+                if (this.pendingReloads[key] === pending && !pending.next) {
+                    delete this.pendingReloads[key]
+                }
+            }),
+        }
+        this.pendingReloads[key] = pending
+        return pending.load
+    }
+
     public markForRefresh(key: string | string[]): void {
         for (const k of Array.isArray(key) ? key : [key]) {
             const entry = this.cache[k]
@@ -202,10 +258,13 @@ export class LazyLoader<T> {
         this.updateCacheSizeMetric()
     }
 
-    private setValues(map: LazyLoaderMap<T>): void {
+    private setValues(map: LazyLoaderMap<T>, loadNumber: number): void {
         const now = Date.now()
         const keys = Object.keys(map)
         for (const key of keys) {
+            if ((this.cache[key]?.loadNumber ?? 0) > loadNumber) {
+                continue
+            }
             const value = map[key] ?? null
             const jitter = Math.floor(Math.random() * this.refreshJitterMs)
             const refreshAge = value === null ? this.refreshNullAgeMs : this.refreshAgeMs
@@ -219,7 +278,7 @@ export class LazyLoader<T> {
             if (this.cache[key] === undefined) {
                 this.cacheSize++
             }
-            this.cache[key] = { value, lastUsed: now, cacheUntil, backgroundRefreshAfter }
+            this.cache[key] = { value, lastUsed: now, cacheUntil, backgroundRefreshAfter, loadNumber }
         }
         this.evictLRU()
         this.updateCacheSizeMetric()
@@ -320,13 +379,13 @@ export class LazyLoader<T> {
      *
      * Loaded values land in `this.cache` via `setValues`; callers read them back from there.
      */
-    private async load(keys: string[], options?: LoadOptions): Promise<void> {
+    private async load(keys: string[], options?: LoadOptions & { startAfterNow?: boolean }): Promise<void> {
         const bufferMs = this.options.bufferMs ?? defaultConfig.LAZY_LOADER_DEFAULT_BUFFER_MS
         const keyPromises: Promise<void>[] = []
 
         for (const key of keys) {
-            let pendingLoad = this.pendingLoads[key]
-            if (pendingLoad) {
+            const pendingLoad = this.pendingLoads[key]
+            if (pendingLoad && (!options?.startAfterNow || this.buffer?.keys.has(key))) {
                 keyPromises.push(pendingLoad)
                 lazyLoaderQueuedCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
                 continue
@@ -342,11 +401,13 @@ export class LazyLoader<T> {
 
             // The values land in the cache via setValues, so callers read them from there.
             this.buffer.keys.add(key)
-            pendingLoad = this.buffer.promise.finally(() => {
-                delete this.pendingLoads[key]
+            const keyLoad: Promise<void> = this.buffer.promise.finally(() => {
+                if (this.pendingLoads[key] === keyLoad) {
+                    delete this.pendingLoads[key]
+                }
             })
-            this.pendingLoads[key] = pendingLoad
-            keyPromises.push(pendingLoad)
+            this.pendingLoads[key] = keyLoad
+            keyPromises.push(keyLoad)
         }
 
         if (options?.flush) {
@@ -361,8 +422,9 @@ export class LazyLoader<T> {
      * A buffer collects keys until its timer fires, or until `flush` fires it early, then calls
      * the loader once for all of them. Whichever fires first wins; the other is a no-op.
      */
-    private createBuffer(bufferMs: number): NonNullable<typeof this.buffer> {
+    private createBuffer(bufferMs: number): LoadBuffer {
         const keys = new Set<string>()
+        const loadNumber = ++this.loadsStarted
         let fired = false
         let fire: () => void = () => {}
 
@@ -379,7 +441,7 @@ export class LazyLoader<T> {
             }
         }).then(async (bufferedKeys) => {
             logger.debug('[LazyLoader]', this.options.name, 'Loading: ', bufferedKeys)
-            this.setValues(await this.invokeLoader(bufferedKeys))
+            this.setValues(await this.invokeLoader(bufferedKeys), loadNumber)
         })
 
         return { keys, promise, flush: () => fire() }

@@ -14,6 +14,19 @@ import { Team } from '~/types'
 
 import { OrganizationMembersService } from './organization-members.service'
 
+const idleClient = (): unknown => ({
+    query: () => Promise.resolve({ rows: [] }),
+    release: () => undefined,
+    on: () => undefined,
+    removeListener: () => undefined,
+})
+
+const routerFor = (select: jest.Mock): PostgresRouter =>
+    ({
+        connect: () => Promise.resolve(idleClient()),
+        query: (_tx: unknown, sql: string) => (sql.startsWith('SET LOCAL') ? Promise.resolve({ rows: [] }) : select()),
+    }) as unknown as PostgresRouter
+
 describe('OrganizationMembersService', () => {
     let postgres: PostgresRouter
     let service: OrganizationMembersService
@@ -89,7 +102,7 @@ describe('OrganizationMembersService', () => {
         await change(userId)
         const address = `  ${memberEmail.toUpperCase()} `
 
-        const blocked = await service.getBlockedRecipients(team.id, [address])
+        const blocked = await service.getBlockedRecipients(team.id, [address], { fresh: false })
 
         expect(blocked).toEqual(
             expected === 'allowed' ? [] : [{ address, unverifiedMember: expected === 'unverified' }]
@@ -102,7 +115,7 @@ describe('OrganizationMembersService', () => {
         await createMember(outsider, otherOrganizationId, true)
         await createMember(memberEmail, organizationId, true)
 
-        expect(await service.getBlockedRecipients(team.id, [memberEmail, outsider])).toEqual([
+        expect(await service.getBlockedRecipients(team.id, [memberEmail, outsider], { fresh: false })).toEqual([
             { address: outsider, unverifiedMember: false },
         ])
     })
@@ -110,35 +123,281 @@ describe('OrganizationMembersService', () => {
     type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
 
     it.each([
-        ['the pool hands over its connection after the deadline', { connectsLate: true, beginStalls: false }],
-        ['BEGIN stalls on a connection taken in time', { connectsLate: false, beginStalls: true }],
-    ])('fails at its deadline when %s, and frees the connection', async (_case, { connectsLate, beginStalls }) => {
-        jest.useFakeTimers()
-        try {
-            const client = Object.assign(new EventEmitter(), {
-                query: jest.fn(() => (beginStalls ? new Promise(() => undefined) : Promise.resolve({ rows: [] }))),
-                release: jest.fn(),
-            }) as FakeClient
-            let handOver: () => void = () => undefined
-            const connected = connectsLate ? new Promise<void>((resolve) => (handOver = resolve)) : Promise.resolve()
-            const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
-            jest.spyOn(router, 'connect').mockImplementation(() =>
-                connected.then(() => client as unknown as PoolClient)
-            )
-            const stalledService = new OrganizationMembersService(router)
+        ['the pool hands over its connections after the deadline', { connectsLate: true, beginStalls: false }],
+        ['BEGIN stalls on connections taken in time', { connectsLate: false, beginStalls: true }],
+    ])(
+        'fails at its deadline when %s, frees each connection, and leaves its lookup slots to the next check',
+        async (_case, { connectsLate, beginStalls }) => {
+            jest.useFakeTimers()
+            try {
+                let healthy = false
+                const clients: FakeClient[] = []
+                const newClient = (): FakeClient => {
+                    const stalls = beginStalls && !healthy
+                    const client = Object.assign(new EventEmitter(), {
+                        query: jest.fn(() => (stalls ? new Promise(() => undefined) : Promise.resolve({ rows: [] }))),
+                        release: jest.fn(),
+                    }) as FakeClient
+                    clients.push(client)
+                    return client
+                }
+                let handOver: () => void = () => undefined
+                const connected = connectsLate
+                    ? new Promise<void>((resolve) => (handOver = resolve))
+                    : Promise.resolve()
+                const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
+                jest.spyOn(router, 'connect').mockImplementation(() =>
+                    (healthy ? Promise.resolve() : connected).then(() => newClient() as unknown as PoolClient)
+                )
+                const stalledService = new OrganizationMembersService(router)
 
-            const check = stalledService.getBlockedRecipients(team.id, [memberEmail])
-            const outcome = expect(check).rejects.toThrow('The organization member lookup timed out')
-            await jest.advanceTimersByTimeAsync(3_000)
-            await outcome
-            handOver()
-            await jest.advanceTimersByTimeAsync(0)
+                const checks = Promise.allSettled(
+                    Array.from({ length: 5 }, () =>
+                        stalledService.getBlockedRecipients(team.id, [memberEmail], { fresh: true })
+                    )
+                )
+                await jest.advanceTimersByTimeAsync(3_000)
+                expect((await checks).map((outcome) => outcome.status)).toEqual(Array(5).fill('rejected'))
+                handOver()
+                await jest.advanceTimersByTimeAsync(0)
 
-            expect(client.query.mock.calls.map(([sql]) => sql)).toEqual(connectsLate ? [] : ['BEGIN'])
-            expect(client.release).toHaveBeenCalledTimes(1)
-            expect(client.release.mock.calls[0][0] instanceof Error).toBe(!connectsLate)
-        } finally {
-            jest.useRealTimers()
+                expect(clients.map((client) => client.query.mock.calls.map(([sql]) => sql))).toEqual(
+                    Array(5).fill(connectsLate ? [] : ['BEGIN'])
+                )
+                expect(
+                    clients.map((client) => client.release.mock.calls.map(([error]) => error instanceof Error))
+                ).toEqual(Array(5).fill([!connectsLate]))
+
+                healthy = true
+                const next = stalledService.getBlockedRecipients(team.id, [memberEmail], { fresh: true })
+                await jest.advanceTimersByTimeAsync(0)
+                await expect(next).resolves.toEqual([{ address: memberEmail, unverifiedMember: false }])
+            } finally {
+                jest.useRealTimers()
+            }
         }
+    )
+
+    describe('member snapshot cache', () => {
+        const memberRow = (email: string): { team_id: number; email: string; is_email_verified: boolean } => ({
+            team_id: 1,
+            email,
+            is_email_verified: true,
+        })
+
+        it('keeps at most five lookups open while the pool has no connection, and runs no query for them once it recovers', async () => {
+            jest.useFakeTimers()
+            try {
+                let recovered = false
+                const waitingForConnection: (() => void)[] = []
+                const lateClients: { query: jest.Mock; release: jest.Mock }[] = []
+                const lateClient = (): unknown => {
+                    const client = { ...(idleClient() as object), query: jest.fn(), release: jest.fn() }
+                    lateClients.push(client)
+                    return client
+                }
+                const query = jest.fn((_tx: unknown, sql: string) =>
+                    Promise.resolve({ rows: sql.startsWith('SET LOCAL') ? [] : [memberRow('member@example.com')] })
+                )
+                const memberSelects = (): number =>
+                    query.mock.calls.filter(([, sql]) => String(sql).includes('posthog_organizationmembership')).length
+                const pool = {
+                    connect: () =>
+                        recovered
+                            ? Promise.resolve(idleClient())
+                            : new Promise((resolve) => waitingForConnection.push(() => resolve(lateClient()))),
+                    query,
+                } as unknown as PostgresRouter
+                const service = new OrganizationMembersService(pool)
+
+                const checks = Array.from({ length: 20 }, () =>
+                    service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })
+                )
+                const outcomes = Promise.allSettled(checks)
+                await jest.advanceTimersByTimeAsync(3_000)
+
+                const settled = await outcomes
+                expect(settled.every((outcome) => outcome.status === 'rejected')).toBe(true)
+                expect(waitingForConnection).toHaveLength(5)
+
+                recovered = true
+                waitingForConnection.forEach((connect) => connect())
+                await jest.advanceTimersByTimeAsync(0)
+                expect(query).not.toHaveBeenCalled()
+                expect(
+                    lateClients.map((client) => [client.query.mock.calls.length, client.release.mock.calls.length])
+                ).toEqual(Array(5).fill([0, 1]))
+
+                await expect(service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })).resolves.toEqual(
+                    []
+                )
+                expect(memberSelects()).toBe(1)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('shares one member lookup with a send that starts while it runs and with later sends, and reloads it before it is a minute old', async () => {
+            const start = Date.now()
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+            let member = 'member@example.com'
+            let lookups = 0
+            let lookupStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => {
+                lookupStarted = resolve
+            })
+            let releaseLookup: () => void = () => {}
+            const held = new Promise<void>((resolve) => {
+                releaseLookup = resolve
+            })
+            const query = jest.fn(async () => {
+                lookups++
+                if (lookups === 1) {
+                    lookupStarted()
+                    await held
+                }
+                return { rows: [memberRow(member)] }
+            })
+            const service = new OrganizationMembersService(routerFor(query))
+            try {
+                const first = service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })
+                await started
+                const joining = service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })
+                releaseLookup()
+                expect(await Promise.all([first, joining])).toEqual([[], []])
+                expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([])
+                expect(query).toHaveBeenCalledTimes(1)
+
+                clock.mockReturnValue(start + 57_001)
+                member = 'new-member@example.com'
+                expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([
+                    { address: 'member@example.com', unverifiedMember: false },
+                ])
+            } finally {
+                clock.mockRestore()
+            }
+        })
+
+        it('reloads members for a fresh check inside the minute, and blocks later cached checks as well', async () => {
+            let member = 'member@example.com'
+            const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
+            const service = new OrganizationMembersService(routerFor(query))
+            const removed = [{ address: 'member@example.com', unverifiedMember: false }]
+
+            expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([])
+            member = 'new-member@example.com'
+
+            expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })).toEqual(removed)
+            expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual(removed)
+        })
+
+        it('reloads a cached block older than five seconds before reporting it, and reuses the reload for later blocks', async () => {
+            const start = Date.now()
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+            let members = ['member@example.com']
+            const query = jest.fn(() => Promise.resolve({ rows: members.map(memberRow) }))
+            const service = new OrganizationMembersService(routerFor(query))
+            const outsider = [{ address: 'outside@example.com', unverifiedMember: false }]
+            try {
+                expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([])
+                members = ['member@example.com', 'joined@example.com']
+                clock.mockReturnValue(start + 5_001)
+
+                expect(await service.getBlockedRecipients(1, ['joined@example.com'], { fresh: false })).toEqual([])
+                expect(await service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })).toEqual(
+                    outsider
+                )
+                expect(await service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })).toEqual(
+                    outsider
+                )
+                expect(query).toHaveBeenCalledTimes(2)
+            } finally {
+                clock.mockRestore()
+            }
+        })
+
+        it('shares one follow-up reload between blocked sends that arrive while a reload runs', async () => {
+            jest.useFakeTimers()
+            const start = Date.now()
+            let reloadStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => (reloadStarted = resolve))
+            let releaseReload: () => void = () => {}
+            const held = new Promise<void>((resolve) => (releaseReload = resolve))
+            const query = jest
+                .fn()
+                .mockResolvedValueOnce({ rows: [memberRow('member@example.com')] })
+                .mockImplementation(async () => {
+                    reloadStarted()
+                    await held
+                    return { rows: [memberRow('member@example.com')] }
+                })
+            const service = new OrganizationMembersService(routerFor(query))
+            const outsider = [{ address: 'outside@example.com', unverifiedMember: false }]
+            try {
+                const firstLoad = service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })
+                await jest.advanceTimersByTimeAsync(0)
+                expect(await firstLoad).toEqual([])
+                jest.setSystemTime(start + 5_001)
+
+                const first = service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })
+                await jest.advanceTimersByTimeAsync(0)
+                await started
+                const later = Array.from({ length: 5 }, () =>
+                    service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })
+                )
+                await jest.advanceTimersByTimeAsync(0)
+                expect(query).toHaveBeenCalledTimes(2)
+
+                releaseReload()
+                const results = Promise.all([first, ...later])
+                await jest.advanceTimersByTimeAsync(100)
+                expect(await results).toEqual(Array(6).fill(outsider))
+                expect(query).toHaveBeenCalledTimes(3)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('keeps serving the cached members to later sends when the reload of a cached block fails', async () => {
+            const start = Date.now()
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+            const query = jest
+                .fn()
+                .mockResolvedValueOnce({ rows: [memberRow('member@example.com')] })
+                .mockRejectedValue(new Error('primary unavailable'))
+            const service = new OrganizationMembersService(routerFor(query))
+            try {
+                expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([])
+                clock.mockReturnValue(start + 5_001)
+
+                await expect(
+                    service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })
+                ).rejects.toThrow()
+                expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([])
+                expect(query).toHaveBeenCalledTimes(2)
+            } finally {
+                clock.mockRestore()
+            }
+        })
+
+        it('does not let a fresh check join a lookup that started before it', async () => {
+            let finishEarlierLookup: (rows: unknown) => void = () => {}
+            const query = jest
+                .fn()
+                .mockReturnValueOnce(new Promise((resolve) => (finishEarlierLookup = resolve)))
+                .mockResolvedValue({ rows: [memberRow('new-member@example.com')] })
+            const service = new OrganizationMembersService(routerFor(query))
+
+            const earlierCheck = service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })
+            while (query.mock.calls.length === 0) {
+                await new Promise((resolve) => setImmediate(resolve))
+            }
+            const freshCheck = service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })
+            finishEarlierLookup({ rows: [memberRow('member@example.com')] })
+
+            expect(await earlierCheck).toEqual([])
+            expect(await freshCheck).toEqual([{ address: 'member@example.com', unverifiedMember: false }])
+            expect(query).toHaveBeenCalledTimes(2)
+        })
     })
 })

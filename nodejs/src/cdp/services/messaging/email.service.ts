@@ -702,7 +702,7 @@ export class EmailService {
             }
 
             const recipients = isSandbox ? sandboxRecipientsOf(params) : []
-            if (isSandbox && !(await this.checkSandboxRecipients(result, recipients, isTest))) {
+            if (isSandbox && !(await this.checkSandboxRecipients(result, recipients, isTest, { fresh: false }))) {
                 return result
             }
             if (isSandbox && (params.from.email || params.from.name || params.replyTo)) {
@@ -894,7 +894,7 @@ export class EmailService {
                         ...(route.ccAddresses ?? []),
                         ...(route.bccAddresses ?? []),
                     ]
-                    if (!(await this.checkSandboxRecipients(result, deliveryRecipients, isTest))) {
+                    if (!(await this.checkSandboxRecipients(result, deliveryRecipients, isTest, { fresh: true }))) {
                         return result
                     }
                     await this.sendEmailWithSES(result, deliveryParams, from, false, isTest, queueWait, files, route)
@@ -1148,12 +1148,11 @@ export class EmailService {
         result.invocation.state.vmState?.stack.push({ success: false })
     }
 
-    // Runs once before the send is prepared and again right before delivery, because a member can
-    // leave the organization while the send waits on suppression checks and rate limits.
     private async checkSandboxRecipients(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         recipients: string[],
-        isTest: boolean
+        isTest: boolean,
+        { fresh }: { fresh: boolean }
     ): Promise<boolean> {
         const { teamId } = result.invocation
         let blockedRecipients: string[]
@@ -1162,7 +1161,7 @@ export class EmailService {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
             }
-            const blocked = await this.organizationMembers.getBlockedRecipients(teamId, recipients)
+            const blocked = await this.organizationMembers.getBlockedRecipients(teamId, recipients, { fresh })
             blockedRecipients = blocked.map(({ address }) => address)
             reason = blocked.every(({ unverifiedMember }) => unverifiedMember)
                 ? 'recipient_unverified'

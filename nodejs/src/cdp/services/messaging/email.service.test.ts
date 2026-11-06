@@ -843,27 +843,33 @@ describe('EmailService', () => {
                 expectBlockedEvent('check_failed', false, 2)
             })
 
-            it('checks members again right before delivery', async () => {
+            it('blocks a member removed during preparation while the member snapshot is still fresh', async () => {
+                const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
                 const getBlockedRecipients = OrganizationMembersService.prototype.getBlockedRecipients
                 const lookup = jest.spyOn(OrganizationMembersService.prototype, 'getBlockedRecipients')
-                lookup.mockImplementationOnce(async function (this: OrganizationMembersService, ...args) {
-                    const blocked = await getBlockedRecipients.apply(this, args)
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
-                        [memberId],
-                        'test:revoke-sandbox-member-after-first-check'
-                    )
-                    return blocked
-                })
                 try {
                     service = createSandboxService(true)
+                    await service.executeSendEmail(invocation)
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    lookup.mockImplementationOnce(async function (this: OrganizationMembersService, ...args) {
+                        const blocked = await getBlockedRecipients.apply(this, args)
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
+                            [memberId],
+                            'test:revoke-sandbox-member-after-first-check'
+                        )
+                        return blocked
+                    })
+                    invocation.state.vmState = { stack: [] } as any
 
                     const result = await service.executeSendEmail(invocation)
 
-                    expectSkipped(result)
+                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                     expectBlockedEvent('recipient_not_member', false, 1)
                 } finally {
+                    clock.mockRestore()
                     lookup.mockRestore()
                 }
             })

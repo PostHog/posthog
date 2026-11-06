@@ -108,7 +108,7 @@ The worker sends through a `sandbox` email integration only when `WORKFLOWS_SAND
 Otherwise every send through it skips with a reason in the run log and a `workflows sandbox email blocked` event with reason `switch_off`.
 It sends workflow email steps and test sends only: a broadcast, a transactional API email, or a destination send through it skips with a reason in the run log and a blocked event with reason `not_workflow_step`.
 Every To, CC, and BCC address must belong to an active member of the team's active organization with a verified email address.
-The worker reads membership fresh before it prepares the send, and again right before delivery.
+The worker checks recipients against a membership snapshot at most one minute old when it prepares the send, reloading a snapshot older than 5 seconds before it blocks on it, and reads membership fresh right before delivery.
 A membership check that fails or takes longer than 3 seconds skips the send and lists the blocked addresses in the run log.
 The blocked event fires at most once an hour per team, reason, and send kind (workflow or test); `cdp_sandbox_email_blocked_total` counts every blocked send by reason.
 A send that passes every check goes out through the fixed SES tenant, configuration set, and From address, whatever the step's custom sender and Reply-To say.
