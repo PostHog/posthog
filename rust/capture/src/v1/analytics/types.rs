@@ -711,8 +711,9 @@ pub struct IngestionEvent<'a> {
 
 /// Consumers of the capture topics read these keys, so a rename breaks them.
 /// They override the property for each present key, but fill `$lib` /
-/// `$lib_version` from `req_lib` / `req_lib_version` only when `$lib` is missing
-/// or null, and `$lib_version` alone when `$lib` already equals `req_lib`.
+/// `$lib_version` from `req_lib` / `req_lib_version` only when `$lib` is not a
+/// non-empty string, and `$lib_version` alone when `$lib` already equals
+/// `req_lib` and `$lib_version` is not a non-empty string.
 #[derive(Debug, Default, Serialize, PartialEq)]
 pub struct OutboundOptions<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
