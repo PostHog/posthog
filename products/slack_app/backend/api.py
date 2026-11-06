@@ -51,12 +51,16 @@ from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
     is_slack_app_assistant_enabled,
     is_slack_app_oauth_enabled,
+    is_slack_app_onboarding_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.logic import interview_recruitment, reply_suggestions
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.onboarding import interactivity as onboarding_interactivity
+from products.slack_app.backend.logic.onboarding.actions import is_onboarding_action
+from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
 from products.slack_app.backend.logic.untagged_question import is_untagged_question_candidate
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
@@ -75,6 +79,7 @@ from products.slack_app.backend.services import (
 )
 from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
+    ResolutionResult,
     UserResolutionFailure,
     load_integrations,
     pick_a_project_message,
@@ -2472,6 +2477,8 @@ def _route_app_home_opened(
         _handle_app_home_opened(event, slack_team_id, integration=integration)
     except Exception:
         logger.exception("slack_app_home_opened_failed", slack_team_id=slack_team_id, event_id=event_id)
+    # Opening the Home tab or the DM is often a person's first contact with the app.
+    request_onboarding(integration, slack_user_id, may_start=True)
     return ROUTE_HANDLED_LOCALLY
 
 
@@ -3071,6 +3078,7 @@ def route_posthog_code_event_to_relevant_region(
                 posthog_user=attributed_user,
                 **unresolved_user_properties(resolution, probe),
             )
+            _start_onboarding_on_mention(event, slack_team_id, workspace_result)
             return ROUTE_HANDLED_LOCALLY
 
         posthog_user = resolution.user
@@ -3151,9 +3159,10 @@ def route_posthog_code_event_to_relevant_region(
                 candidate_count=len(candidates),
                 picker_shown=picker_shown,
             )
+            _start_onboarding_on_mention(event, slack_team_id, workspace_result)
             return ROUTE_HANDLED_LOCALLY
 
-        return _dispatch_mention_to_target(
+        route = _dispatch_mention_to_target(
             event,
             mention_target,
             slack_team_id,
@@ -3163,6 +3172,8 @@ def route_posthog_code_event_to_relevant_region(
             is_ext_shared_channel=is_ext_shared_channel,
             awaited_request_reply=awaited_request_reply,
         )
+        _start_onboarding_on_mention(event, slack_team_id, workspace_result)
+        return route
 
     if event_type == "member_joined_channel":
         return _route_member_joined_channel(
@@ -3725,6 +3736,11 @@ def _route_team_join(
 
     integration = next((c for c in workspace_result.candidates if is_slack_app_assistant_enabled(c)), None)
     if integration is None:
+        return ROUTE_HANDLED_LOCALLY
+
+    if is_slack_app_onboarding_enabled(integration):
+        # The onboarding thread opens with the same welcome, and its stored state replaces the dedupe below.
+        request_onboarding(integration, slack_user_id, may_start=True, spread_burst=True)
         return ROUTE_HANDLED_LOCALLY
 
     if not _claim_once(_team_join_onboarding_cache_key(slack_team_id, slack_user_id)):
@@ -4896,6 +4912,18 @@ def _report_slack_mention_dropped(
             reason=reason,
             exc_info=True,
         )
+
+
+def _start_onboarding_on_mention(event: dict, slack_team_id: str, workspace_result: ResolutionResult) -> None:
+    """Someone who only tags PostHog in channels may never open its DM, so their mention starts the onboarding.
+    It runs after the mention is handled, so a slow onboarding start never delays the answer. A guest from
+    another workspace in a shared channel gets no onboarding, because it would come from this workspace's app."""
+    slack_user_id = event.get("user")
+    if event.get("type") != "app_mention" or event.get("user_team", slack_team_id) != slack_team_id:
+        return
+    integration = workspace_result.resolved_or_first()
+    if integration is not None and isinstance(slack_user_id, str) and slack_user_id:
+        request_onboarding(integration, slack_user_id, may_start=True, start_only=True)
 
 
 def _start_mention_workflow(
@@ -6283,6 +6311,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         or (clicked_reply_suggestion.integration_id if clicked_reply_suggestion else None)
         or feature_tip_interactivity.feature_tip_integration_hint(payload)
         or interview_recruitment.interview_integration_hint(payload)
+        or onboarding_interactivity.onboarding_integration_hint(payload)
     )
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
@@ -6425,6 +6454,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return feature_tip_interactivity.handle_feature_tip_action(payload)
             if interview_recruitment.is_interview_action(action_id):
                 return interview_recruitment.handle_interview_action(payload)
+            if is_onboarding_action(action_id):
+                return onboarding_interactivity.handle_onboarding_action(payload)
             if reply_suggestions.is_reply_suggestion_action(action_id) and clicked_reply_suggestion:
                 return _handle_reply_suggestion_click(payload, clicked_reply_suggestion)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:

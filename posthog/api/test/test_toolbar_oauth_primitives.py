@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
 import requests
+from oauth2_provider.settings import oauth2_settings
 from parameterized import parameterized
 
 from posthog.api.oauth.toolbar_service import (
@@ -84,6 +85,14 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         with self.assertRaises(ToolbarOAuthError) as cm:
             get_or_create_toolbar_oauth_application(user=orphan)
         assert cm.exception.code == "no_organization"
+
+    def test_get_or_create_without_signing_key_raises_server_error_naming_the_setting(self):
+        with patch.object(oauth2_settings, "OIDC_RSA_PRIVATE_KEY", ""):
+            with self.assertRaises(ToolbarOAuthError) as cm:
+                get_or_create_toolbar_oauth_application(user=self.user)
+        assert cm.exception.code == "server_error"
+        assert cm.exception.status_code == 500
+        assert "OIDC_RSA_PRIVATE_KEY" in cm.exception.detail
 
     def test_callback_with_invalid_state_returns_error(self):
         response = self.client.get("/toolbar_oauth/callback?code=test_code&state=invalid_state")

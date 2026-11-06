@@ -71,6 +71,8 @@ class TestIncrementalRequestShaping:
             ("opportunities", "updated_at"),
             # Endpoints whose default sort key is already updated_at send no sort_by.
             ("people", None),
+            ("opportunity_stages", None),
+            ("opportunity_people", None),
         ],
     )
     def test_incremental_run_sorts_and_filters_on_updated_at(self, endpoint: str, expected_sort_by: str | None) -> None:

@@ -212,6 +212,14 @@ uv run manage.py backfill_report_actionability --team-id 1 --batch-size 100 --af
 
 Idempotent. It recomputes each report from its artefacts and writes only the rows that disagree.
 
+## Filling the cached Inbox ordering values
+
+`uv run manage.py backfill_inbox_sort_cache --team-id <id>` fills the priority and ranking cache in locked batches.
+Run it only after all API processes and workers use the cache writers.
+Keep `inbox-sort-cache` off until the backfill completes for every team in the organization.
+The command can run again after an interruption.
+See [Inbox ranking rollout](../../../../../docs/internal/inbox-ranking-training.md#cached-inbox-ordering) for the rollout and rollback steps.
+
 ## Filling the cached implementation PR flags
 
 `SignalReport.has_implementation_pr` and `has_active_implementation_pr` cache `implementation_pr_report_filter`, so the inbox filters on a column.
@@ -281,23 +289,23 @@ uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --dry-run
 uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --focus "checkout errors"
 ```
 
+Every candidate is tied to the person: routed to them, waiting on their input, or claimed by them.
+A person with no such report gets `status: empty` with no model call.
+
 An optional `pools` list in the payload replaces the default candidate pools, in merge order:
 
 ```json
 {
   "pools": [
-    { "source": "priority", "size": 5, "lowest_priority": "P1" },
+    { "source": "assigned", "size": 5 },
     { "source": "for_you_recommended", "size": 10 },
-    { "source": "assigned", "size": 0 },
-    { "source": "scored", "size": 10, "head": "fixed", "actionable_only": true, "has_pr": false, "window_days": 30 }
+    { "source": "for_you_updated", "size": 0 }
   ]
 }
 ```
 
-Each entry takes a `source` (`for_you_recommended`, `for_you_updated`, `assigned`, `scored` or `priority`), a `size` (0 turns it off) and an optional `name`.
-`scored` needs a `head` (`open`, `action` or `fixed`) and only joins for a person who can see the ranking model.
-`scored` and `priority` also take `actionable_only`, `has_pr` and `window_days`.
-The build logs and drops an invalid entry, and uses the default pools when no entry is valid.
+Each entry takes a `source` (`for_you_recommended`, `for_you_updated` or `assigned`), a `size` (0 turns it off) and an optional `name`.
+The build logs and drops an invalid entry, such as one with the removed `scored` or `priority` source, and uses the default pools when no entry is valid.
 
 A person with no ready activity summary gets a list in model order with no model call, marked `personalized: False` and `fallback_reason: no_activity_summary`.
 When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
@@ -344,8 +352,11 @@ The `tick` object of the `personal-inbox-ranking` payload holds its levers. With
 - **Unchanged inputs:** the pair activity compares the input hash first. A match calls no model and sets `checked_at` on the latest row, so the pair is not due again until `target_interval_minutes` passes, and `for_me` serves that row as fresh. An enabled tick raises `freshness_minutes` to at least `target_interval_minutes`, so a plain read does not rebuild a list inside the tick's interval. A row whose model call failed, timed out or answered outside the schema, or that skipped the model without AI approval, is built again instead.
 - **Limits:** a build that calls the model spends `max_tick_builds_per_day` (one Redis token bucket per region, closed when Redis is unreachable) and then the shared `max_builds_per_day`. `max_tick_builds_per_day` is limited to 80% of `max_builds_per_day`, so `refresh` and `focus` requests keep a reserve. To run the tick above that, raise the shared limit too. The tick stops at the first refusal, at `max_error_rate` after 10 model calls, and when 60% of its interval has passed.
 - **Locks:** the pair takes the same per-person lock as `for_me`, so a tick skips a person whose build is running.
+- **Concurrency:** the tick keeps `max_concurrency` pairs running and starts the next pair as soon as any pair finishes. A stop starts no further pair, and the pairs already running finish. The pairs never started stay due for the next tick.
+- **Bounds:** the payload can set `max_pairs_per_tick` up to 2000, `max_concurrency` up to 50, and `max_tick_builds_per_day` and `max_builds_per_day` up to 50000. Larger values clamp to these.
 
 Each enabled tick captures `personal inbox ranking tick` with the due pairs, the pairs it picked, a count per pair status (`built`, `failed`, `unchanged`, `running`, `not_enrolled`, `tick_limited`, `shared_limited`), the stop reason, `oldest_due_hours`, `fresh_share`, the enrolled organizations and teams, and the duration.
+It also carries `unchanged_pair_seconds_p50`, `unchanged_pair_seconds_p95`, `built_pair_seconds_p50` and `built_pair_seconds_p95`: the seconds from the start of a pair to its result, for sizing `max_concurrency` and `max_pairs_per_tick`.
 `personal inbox ranking built` and the model call's trace carry `trigger` (`tick` or `on_demand`), so cost can be split by what started a build.
 
 ## Tips

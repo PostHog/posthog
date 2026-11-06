@@ -24,6 +24,7 @@ from posthog.models.team import Team
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import clear_team_metadata_cache
 
+from products.cohorts.backend.models.team_access import RealtimeCohortTeamAccess
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 
 logger = structlog.get_logger(__name__)
@@ -104,6 +105,18 @@ def update_team_metadata_cache_on_flag_policy_save(
     _enqueue_team_metadata_update_on_commit(instance.team_id)
 
 
+def update_team_metadata_cache_on_realtime_cohort_access_save(
+    sender: type[RealtimeCohortTeamAccess], instance: RealtimeCohortTeamAccess, created: bool, **kwargs: Any
+) -> None:
+    """Refresh the cached team when its realtime cohort level changes, because the flags service reads it from that cache."""
+    if not settings.FLAGS_REDIS_URL:
+        return
+    if not _any_field_may_have_changed(kwargs.get("update_fields"), frozenset({"level"})):
+        return
+
+    _enqueue_team_metadata_update_on_commit(instance.team_id)
+
+
 def _enqueue_deleted_team_metadata_clear_on_commit(team_id: int, api_token: str) -> None:
     # The pre_delete clear runs before the commit and does not retry. A refresh in that gap can write the
     # entry back. The S3 copy has no TTL, so a retrying task clears the entry again after the commit.
@@ -161,6 +174,7 @@ def update_team_metadata_cache_on_project_save(
 def connect_signal_handlers() -> None:
     post_save.connect(update_team_metadata_cache_on_save, sender=Team)
     post_save.connect(update_team_metadata_cache_on_flag_policy_save, sender=TeamFeatureFlagPolicyConfig)
+    post_save.connect(update_team_metadata_cache_on_realtime_cohort_access_save, sender=RealtimeCohortTeamAccess)
     pre_delete.connect(clear_team_metadata_cache_on_delete, sender=Team)
     post_save.connect(update_team_metadata_cache_on_organization_save, sender=Organization)
     post_save.connect(update_team_metadata_cache_on_project_save, sender=Project)

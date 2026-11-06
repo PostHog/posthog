@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
+from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
@@ -20,8 +21,9 @@ from django.test import (
     RequestFactory,
     SimpleTestCase,
 )
-from django.urls import path, reverse
+from django.urls import path, resolve, reverse
 
+import requests
 import structlog
 from loginas import settings as la_settings
 from parameterized import parameterized
@@ -55,7 +57,7 @@ from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -519,6 +521,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         # Reset back to initial team/org for each test
         self.user.current_team = self.team
         self.user.current_organization = self.organization
+        # The page load reads a content type through Django's per-process cache. Without a reset, the query
+        # counts depend on whether an earlier test in the same process already filled that cache.
+        ContentType.objects.clear_cache()
 
     def app_context(self, response) -> dict:
         return response.context["posthog_app_context"]
@@ -622,7 +627,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_insights_api.status_code, 200)
 
     def test_project_switched_when_accessing_action_of_another_accessible_team(self):
-        action = Action.objects.create(team=self.second_team)
+        action = create_action(team=self.second_team)
 
         response_app = self.client.get(f"/action/{action.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
@@ -2536,6 +2541,21 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
                 ValidationError("Something else.", code="something_else"),
                 "/login?error_code=social_login_failure",
             ),
+            (
+                "provider_read_timeout",
+                "/complete/google-oauth2/",
+                requests.exceptions.ReadTimeout("Read timed out."),
+                "/login?error_code=social_login_failure",
+            ),
+            (
+                "provider_server_error",
+                "/complete/github/",
+                requests.exceptions.HTTPError(
+                    "500 Server Error: Internal Server Error for url: https://example.com",
+                    response=requests.Response(),
+                ),
+                "/login?error_code=social_login_failure",
+            ),
         ]
     )
     def test_redirects_with_expected_url(self, _name, path, exception, expected_url):
@@ -2732,7 +2752,14 @@ def _http_request_id_probe(request: HttpRequest) -> HttpResponse:
     return HttpResponse(str(get_query_tags().http_request_id))
 
 
-urlpatterns = [path("api/_http_request_id_probe/", _http_request_id_probe)]
+def _route_id_probe(request: HttpRequest, probe_id: int) -> HttpResponse:
+    return HttpResponse(get_query_tags().route_id)
+
+
+urlpatterns = [
+    path("api/_http_request_id_probe/", _http_request_id_probe),
+    path("api/_route_id_probe/<int:probe_id>/", _route_id_probe),
+]
 
 
 @pytest.mark.parametrize(
@@ -2750,6 +2777,13 @@ async def test_chqueries_middleware_tags_http_request_id_under_asgi(header_value
     response = await AsyncClient().get("/api/_http_request_id_probe/", headers={"X-Request-ID": header_value})
 
     assert response.content.decode() == expected_tag
+
+
+@override_settings(ROOT_URLCONF=__name__)
+async def test_chqueries_middleware_tags_route_id_under_asgi() -> None:
+    response = await AsyncClient().get("/api/_route_id_probe/1/")
+
+    assert response.content.decode() == "api/_route_id_probe/<int:probe_id>/"
 
 
 @parameterized.expand(
@@ -2781,6 +2815,7 @@ def test_chqueries_middleware_api_latency_histogram_scope(name, path, should_emi
     before = sample_count()
 
     request = RequestFactory().get(path)
+    request.resolver_match = resolve(request.path)
     request.user = MagicMock(pk=1, is_authenticated=False)
     request.session = MagicMock(session_key="abc123")
 
@@ -2827,6 +2862,7 @@ def test_chqueries_middleware_api_latency_labels(name, user_agent, access_method
         return HttpResponse("ok")
 
     request = RequestFactory().get("/api/projects/@current/query/", HTTP_USER_AGENT=user_agent)
+    request.resolver_match = resolve(request.path)
     request.user = MagicMock(pk=1, is_authenticated=False)
     request.session = MagicMock(session_key="abc123")
 
@@ -2865,6 +2901,7 @@ def test_chqueries_middleware_api_latency_status_class(name, status_code, expect
     before = sample_count()
 
     request = RequestFactory().get("/api/projects/@current/query/")
+    request.resolver_match = resolve(request.path)
     request.user = MagicMock(pk=1, is_authenticated=False)
     request.session = MagicMock(session_key="abc123")
 
@@ -2897,6 +2934,7 @@ def test_chqueries_middleware_api_latency_records_on_raise():
         raise RuntimeError("view exploded")
 
     request = RequestFactory().get("/api/projects/@current/query/")
+    request.resolver_match = resolve(request.path)
     request.user = MagicMock(pk=1, is_authenticated=False)
     request.session = MagicMock(session_key="abc123")
 
@@ -2921,7 +2959,6 @@ def test_chqueries_middleware_correlates_query_response(
     from django.contrib.auth.models import AnonymousUser
     from django.contrib.sessions.backends.signed_cookies import SessionStore
     from django.http.response import HttpResponseBase
-    from django.urls import path
 
     from rest_framework.request import Request
     from rest_framework.response import Response
@@ -2933,9 +2970,6 @@ def test_chqueries_middleware_correlates_query_response(
     analytics_props: dict[str, object] = {}
     view = QueryViewSet()
     view.headers = {}
-
-    class QueryResponseRoutes:
-        urlpatterns = [path("api/projects/@current/query/", QueryViewSet.as_view({"post": "create"}))]
 
     def get_response(request: HttpRequest) -> HttpResponseBase:
         assert "http_request_id" not in get_request_analytics_properties(request)
@@ -2950,10 +2984,7 @@ def test_chqueries_middleware_correlates_query_response(
     request = RequestFactory().get("/api/projects/@current/query/")
     request.user = AnonymousUser()
     request.session = SessionStore()
-    with (
-        override_settings(ROOT_URLCONF=QueryResponseRoutes),
-        structlog.contextvars.bound_contextvars(request_id=request_id),
-    ):
+    with structlog.contextvars.bound_contextvars(request_id=request_id):
         response = CHQueries(get_response)(request)
 
     assert isinstance(response, Response)

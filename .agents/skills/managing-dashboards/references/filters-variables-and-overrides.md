@@ -66,6 +66,6 @@ Show initial URL overrides through the same unsaved treatment as user edits. Do 
 
 - `products/dashboards/backend/api/dashboard.py`
 - `posthog/hogql_queries/apply_dashboard_filters.py`
-- `frontend/src/scenes/dashboard/DashboardFilters.tsx`
-- `frontend/src/scenes/dashboard/TileFiltersOverride.tsx`
+- `products/dashboards/frontend/DashboardFilters.tsx`
+- `products/dashboards/frontend/TileFiltersOverride.tsx`
 - `frontend/src/scenes/dashboard/dashboardLogic.tsx`

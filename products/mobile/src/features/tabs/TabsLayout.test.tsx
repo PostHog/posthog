@@ -1,12 +1,17 @@
+import { router as navigation, Stack } from 'expo-router'
 import { act, fireEvent, renderRouter, screen, within } from 'expo-router/testing-library'
 import { type ReactElement, useState } from 'react'
-import { Button, Dimensions, Text, View } from 'react-native'
+import { Button, Dimensions, Platform, Text, View } from 'react-native'
 
+import { ViewsToast } from '@/features/views/ViewsToast'
 import { setAnalyticsClient } from '@/lib/analytics'
 import { FEATURE_FLAGS, setFeatureFlags } from '@/lib/featureFlags'
 import { OverlayPortal } from '@/ui/OverlayPortal'
 
+import { changeNavPin } from './navPinActions'
 import { restoreNavPins, setNavPinned, useNavPinStore } from './navPinStore'
+import { useNavToasts } from './navToasts'
+import { TabScene } from './TabScene'
 import { TabsLayout } from './TabsLayout'
 import { type TabHeaderSlot, type TabKey, useTabHeader, useTabHeaderStore } from './tabHeaderStore'
 
@@ -35,23 +40,48 @@ jest.mock('@/features/status/usePostHogStatus', () => ({
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => null }))
 
 function InboxStub(): ReactElement {
-    return <View testID="inbox-screen" />
+    return (
+        <TabScene tab="inbox">
+            <View testID="inbox-screen" />
+        </TabScene>
+    )
 }
 
 function ChatsStub(): ReactElement {
-    return <View testID="chats-screen" />
+    return (
+        <TabScene tab="chats">
+            <View testID="chats-screen" />
+        </TabScene>
+    )
 }
 
 function ViewsStub(): ReactElement {
-    return <View testID="views-screen" />
+    const toasts = useNavToasts()
+    const focused = useTabHeaderStore((state) => state.focused === 'views')
+    return (
+        <TabScene tab="views">
+            <View testID="views-screen">
+                <Button title="Pin errors" onPress={() => changeNavPin('errors', true, 'views_row', toasts.show)} />
+            </View>
+            {focused ? <ViewsToast toast={toasts.toast} onHide={toasts.hide} /> : null}
+        </TabScene>
+    )
 }
 
 function ErrorsStub(): ReactElement {
-    return <View testID="errors-screen" />
+    return (
+        <TabScene tab="errors">
+            <View testID="errors-screen" />
+        </TabScene>
+    )
 }
 
 function ReplayStub(): ReactElement {
-    return <View testID="replay-screen" />
+    return (
+        <TabScene tab="replay">
+            <View testID="replay-screen" />
+        </TabScene>
+    )
 }
 
 // The layout always registers the pinnable lists' tabs.
@@ -69,21 +99,31 @@ function RefreshingTabStub({ tab }: { tab: TabKey }): ReactElement {
     const [refreshing, setRefreshing] = useState(false)
     useTabHeader(tab, { ...LIST_SLOT, refreshing })
     return (
-        <View testID={`${tab}-screen`}>
-            <Button title="Start refresh" testID="start-refresh" onPress={() => setRefreshing(true)} />
-            <Button title="Finish refresh" testID="finish-refresh" onPress={() => setRefreshing(false)} />
-        </View>
+        <TabScene tab={tab}>
+            <View testID={`${tab}-screen`}>
+                <Button title="Start refresh" testID="start-refresh" onPress={() => setRefreshing(true)} />
+                <Button title="Finish refresh" testID="finish-refresh" onPress={() => setRefreshing(false)} />
+            </View>
+        </TabScene>
     )
 }
 
 function PublishingInboxStub(): ReactElement {
     useTabHeader('inbox', { ...LIST_SLOT, filter: { active: true, onPress: () => undefined } })
-    return <View testID="inbox-screen" />
+    return (
+        <TabScene tab="inbox">
+            <View testID="inbox-screen" />
+        </TabScene>
+    )
 }
 
 function PublishingChatsStub(): ReactElement {
     useTabHeader('chats', LIST_SLOT)
-    return <View testID="chats-screen" />
+    return (
+        <TabScene tab="chats">
+            <View testID="chats-screen" />
+        </TabScene>
+    )
 }
 
 function PublishingViewsStub(): ReactElement {
@@ -92,22 +132,35 @@ function PublishingViewsStub(): ReactElement {
         status: 'Updated 2 min ago',
         editPins: { disabled: false, onPress: () => undefined },
     })
-    return <View testID="views-screen" />
+    return (
+        <TabScene tab="views">
+            <View testID="views-screen" />
+        </TabScene>
+    )
 }
 
 function InboxWithMenuStub(): ReactElement {
     return (
-        <View testID="inbox-screen">
-            <OverlayPortal>
-                <Text testID="scene-menu">Menu</Text>
-            </OverlayPortal>
-        </View>
+        <TabScene tab="inbox">
+            <View testID="inbox-screen">
+                <OverlayPortal>
+                    <Text testID="scene-menu">Menu</Text>
+                </OverlayPortal>
+            </View>
+        </TabScene>
     )
 }
 
 const ORIGINAL_WINDOW = Dimensions.get('window')
 
-describe('TabsLayout', () => {
+describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
+    const originalPlatform = Platform.OS
+    beforeAll(() => {
+        Platform.OS = platform
+    })
+    afterAll(() => {
+        Platform.OS = originalPlatform
+    })
     beforeEach(() => {
         restoreNavPins([])
         setFeatureFlags({ [FEATURE_FLAGS.errorTracking]: true, [FEATURE_FLAGS.sessionReplay]: true })
@@ -119,8 +172,8 @@ describe('TabsLayout', () => {
         setFeatureFlags({})
     })
 
-    test('exposes the regional status update from the main menu', () => {
-        renderRouter(
+    test('exposes the regional status update from the main menu', async () => {
+        await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': InboxStub,
@@ -138,11 +191,11 @@ describe('TabsLayout', () => {
 
     test.each(['inbox', 'chats', 'views'] as const)(
         'uses the %s logo as the refresh indicator only while the focused page refreshes',
-        (tab) => {
+        async (tab) => {
             useTabHeaderStore.setState({
                 slots: { inbox: LIST_SLOT, chats: LIST_SLOT, views: LIST_SLOT, errors: null, replay: null },
             })
-            renderRouter(
+            await renderRouter(
                 {
                     '(tabs)/_layout': TabsLayout,
                     '(tabs)/inbox': (): ReactElement => <RefreshingTabStub tab="inbox" />,
@@ -156,20 +209,20 @@ describe('TabsLayout', () => {
             act(() => useTabHeaderStore.getState().setSlot(otherTab, { ...LIST_SLOT, refreshing: true }))
             expect(screen.getByTestId('tabs-logomark').props.accessibilityState.busy).toBe(false)
 
-            fireEvent.press(screen.getByTestId('start-refresh'))
+            fireEvent.press(within(screen.getByTestId(`${tab}-screen`)).getByTestId('start-refresh'))
             expect(screen.getByTestId('tabs-logomark').props.accessibilityState.busy).toBe(true)
             expect(screen.queryByTestId(`${tab}-refresh`)).toBeNull()
             expect(screen.getByTestId('tabs-more')).toBeTruthy()
 
-            fireEvent.press(screen.getByTestId('finish-refresh'))
+            fireEvent.press(within(screen.getByTestId(`${tab}-screen`)).getByTestId('finish-refresh'))
             expect(screen.getByTestId('tabs-logomark').props.accessibilityState.busy).toBe(false)
         }
     )
 
-    test.each(['errors', 'replay'] as const)('hides a saved %s pin while its release flag is off', (pin) => {
+    test.each(['errors', 'replay'] as const)('hides a saved %s pin while its release flag is off', async (pin) => {
         setNavPinned(pin, true)
         setFeatureFlags({})
-        renderRouter(
+        await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': InboxStub,
@@ -194,23 +247,24 @@ describe('TabsLayout', () => {
         { width: 402, height: 874 },
         { width: 951, height: 669 },
         { width: 669, height: 951 },
-    ])('switches Inbox, Chats and Views under one bar at $width × $height', ({ width, height }) => {
+    ])('switches Inbox, Chats and Views under one bar at $width × $height', async ({ width, height }) => {
         const previous = Dimensions.get('window')
         Dimensions.set({ window: { ...previous, width, height } })
         const capture = jest.fn()
         setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
-        const router = renderRouter(
+        const router = await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': InboxStub,
                 '(tabs)/chats': ChatsStub,
                 '(tabs)/views': ViewsStub,
                 ...LIST_TABS,
+                settings: () => <View testID="settings-screen" />,
+                _layout: () => <Stack screenOptions={{ headerShown: false }} />,
             },
             { initialUrl: '/inbox' }
         )
         expect(router.getSegments()).toEqual(['(tabs)', 'inbox'])
-        const bar = screen.getByTestId('inbox-nav-views')
 
         fireEvent.press(screen.getByTestId('inbox-nav-chat'))
 
@@ -218,7 +272,7 @@ describe('TabsLayout', () => {
         expect(router.getSegments()).toEqual(['(tabs)', 'chats'])
         expect(screen.getByTestId('chats-screen')).toBeTruthy()
         expect(screen.getByTestId('inbox-nav-chat').props.accessibilityState).toEqual({ selected: true })
-        expect(screen.getByTestId('inbox-nav-views')).toBe(bar)
+        expect(screen.getAllByTestId('inbox-nav-views')).toHaveLength(1)
 
         fireEvent.press(screen.getByTestId('inbox-nav-views'))
 
@@ -227,6 +281,8 @@ describe('TabsLayout', () => {
         expect(screen.getByTestId('inbox-nav-views').props.accessibilityState).toEqual({ selected: true })
 
         fireEvent.press(screen.getByTestId('inbox-nav-home'))
+        act(() => navigation.push('/settings'))
+        act(() => navigation.back())
 
         expect(capture.mock.calls).toEqual([
             ['mobile_inbox_opened', undefined],
@@ -235,8 +291,8 @@ describe('TabsLayout', () => {
         ])
     })
 
-    test('keeps one More button across tabs, its menu offers Edit pins only on Views, and the filter shows only on Inbox', () => {
-        renderRouter(
+    test('keeps one More button across tabs, its menu offers Edit pins only on Views, and the filter shows only on Inbox', async () => {
+        await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': PublishingInboxStub,
@@ -246,7 +302,6 @@ describe('TabsLayout', () => {
             },
             { initialUrl: '/inbox' }
         )
-        const more = screen.getByTestId('tabs-more')
         const menuItems = (): { editPins: boolean; inbox: boolean } => {
             fireEvent.press(screen.getByTestId('tabs-more'))
             const menu = screen.getByTestId('nav-menu')
@@ -267,22 +322,22 @@ describe('TabsLayout', () => {
         fireEvent.press(screen.getByTestId('inbox-nav-views'))
 
         expect(screen.getByTestId('tabs-title').props.children).toBe('Views')
-        expect(screen.getByTestId('tabs-more')).toBe(more)
+        expect(screen.getAllByTestId('tabs-more')).toHaveLength(1)
         expect(menuItems()).toEqual({ editPins: true, inbox: false })
         expect(screen.queryByTestId('inbox-filter')).toBeNull()
 
         fireEvent.press(screen.getByTestId('inbox-nav-chat'))
 
         expect(screen.getByTestId('tabs-title').props.children).toBe('Chats')
-        expect(screen.getByTestId('tabs-more')).toBe(more)
+        expect(screen.getAllByTestId('tabs-more')).toHaveLength(1)
         expect(menuItems()).toEqual({ editPins: false, inbox: false })
         expect(screen.queryByTestId('inbox-filter')).toBeNull()
     })
 
-    test('gives a pinned list a slot after Views, keeps it while unpinned from the tab menu, and leaves its open event to the screen', () => {
+    test('gives a pinned list a slot after Views, keeps it while unpinned from the tab menu, and leaves its open event to the screen', async () => {
         const capture = jest.fn()
         setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
-        const router = renderRouter(
+        const router = await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': InboxStub,
@@ -310,14 +365,36 @@ describe('TabsLayout', () => {
         fireEvent.press(screen.getByTestId('inbox-nav-views'))
 
         expect(screen.queryByTestId('nav-pin-errors')).toBeNull()
+        fireEvent.press(screen.getByTestId('views-toast-undo'))
+        expect(useNavPinStore.getState().pins).toEqual(['errors'])
         expect(capture.mock.calls).toEqual([
             ['mobile_inbox_opened', undefined],
             ['mobile_nav_pin_changed', { pin: 'errors', pinned: false, source: 'list_menu', replaced: false }],
+            ['mobile_nav_pin_changed', { pin: 'errors', pinned: true, source: 'undo', replaced: false }],
         ])
     })
 
-    test('draws a screen overlay outside the tab scene, so it covers the bar', () => {
-        renderRouter(
+    test('keeps the separate Chat button opening compose from the inbox', async () => {
+        const router = await renderRouter(
+            {
+                '(tabs)/_layout': TabsLayout,
+                '(tabs)/inbox': InboxStub,
+                '(tabs)/chats': ChatsStub,
+                '(tabs)/views': ViewsStub,
+                chat: ChatsStub,
+                ...LIST_TABS,
+            },
+            { initialUrl: '/inbox' }
+        )
+
+        fireEvent.press(screen.getByTestId('inbox-chat'))
+
+        expect(router.getPathname()).toBe('/chat')
+        expect(router.getSearchParams()).toMatchObject({ entry: 'compose' })
+    })
+
+    test('draws a screen overlay outside the tab scene, so it covers the bar', async () => {
+        await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': InboxWithMenuStub,

@@ -13,6 +13,7 @@ interface FuseSearchable {
     searchKeywords?: string[]
     hiddenSearchText?: string
     matchedSearchKeyword?: string | null
+    hideMatchedKeyword?: boolean
 }
 
 export const SEARCH_TAB_CATEGORY = 'tabs'
@@ -64,7 +65,7 @@ export function filterSearchItems<T extends FuseSearchable>(items: T[], query: s
     }
     return fuse.search(trimmed).map((result) => ({
         ...(result.item as T),
-        matchedSearchKeyword: keywordOnlyMatch(result.matches),
+        matchedSearchKeyword: result.item.hideMatchedKeyword ? null : keywordOnlyMatch(result.matches),
     }))
 }
 

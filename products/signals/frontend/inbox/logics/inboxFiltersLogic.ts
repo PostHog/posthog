@@ -355,6 +355,7 @@ export interface inboxFiltersLogicValues {
         | 'monitoring'
         | 'needs-decision'
         | 'not-actionable'
+        | 'outcome-monitoring'
         | 'resolved'
     )[]
     timeWindowAvailable: boolean
@@ -458,7 +459,15 @@ export interface inboxFiltersLogicActions {
         source: string
     }
     toggleState: (state: InboxReportSectionKey) => {
-        state: 'closed' | 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
+        state:
+            | 'closed'
+            | 'dismissed'
+            | 'held-back'
+            | 'monitoring'
+            | 'needs-decision'
+            | 'not-actionable'
+            | 'outcome-monitoring'
+            | 'resolved'
     }
 }
 
@@ -500,6 +509,7 @@ export interface inboxFiltersLogicMeta {
                 | 'monitoring'
                 | 'needs-decision'
                 | 'not-actionable'
+                | 'outcome-monitoring'
                 | 'resolved'
             )[],
             user: UserType | null
@@ -512,6 +522,7 @@ export interface inboxFiltersLogicMeta {
                 | 'monitoring'
                 | 'needs-decision'
                 | 'not-actionable'
+                | 'outcome-monitoring'
                 | 'resolved'
             )[],
             priorityFilter: SignalReportPriority[],
@@ -905,9 +916,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         visibleStateFilter: [
             (s) => [s.stateFilter, s.user],
             (stateFilter: InboxReportSectionKey[], user: UserType | null): InboxReportSectionKey[] =>
-                user?.is_staff
-                    ? stateFilter
-                    : stateFilter.filter((key) => !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)),
+                stateFilter.filter((key) => user?.is_staff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)),
         ],
         // The window a ranking sort applies on its own is that sort's default, so it does not count.
         nonDefaultReportFilterCount: [

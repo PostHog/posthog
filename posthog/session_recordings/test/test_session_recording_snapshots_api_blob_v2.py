@@ -262,7 +262,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             assert urls == [None, None]
             assert body["block_token"] is None
         for flag_call in mock_feature_enabled.call_args_list:
-            assert flag_call.kwargs["person_properties"] == {"cloud_deployment": "DEV"}
+            assert flag_call.kwargs["person_properties"] == {"cloud_deployment": "DEV", "team_id": self.team.pk}
 
     @parameterized.expand(
         [

@@ -10,6 +10,7 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 
+from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.platform_cutover import CutoverSkip, RollbackSkip, cut_over_team, roll_back_team
 from products.alerts.backend.test.insight_alerts import create_insight_alert
@@ -30,6 +31,7 @@ class TestInsightPlatformCutover(APIBaseTest):
     @parameterized.expand(
         [
             ("quiet", {}, "not_firing"),
+            ("firing", {"state": AlertState.FIRING}, "firing"),
             ("errored", {"state": AlertState.ERRORED}, "errored"),
             (
                 "snoozed_keeps_checking_muted",
@@ -69,7 +71,6 @@ class TestInsightPlatformCutover(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("firing", {"state": AlertState.FIRING}, CutoverSkip.FIRING),
             ("check_due", {"next_check_at": NOW}, CutoverSkip.CHECK_DUE),
             ("never_scheduled", {"next_check_at": None}, CutoverSkip.CHECK_DUE),
         ]
@@ -103,10 +104,27 @@ class TestInsightPlatformCutover(APIBaseTest):
             ),
             ("notification_sent", InvestigationStatus.DONE, NOW, timedelta(minutes=10), None),
             ("past_the_horizon", InvestigationStatus.RUNNING, None, timedelta(hours=2), None),
+            ("firing_not_yet_notified", None, None, timedelta(minutes=5), CutoverSkip.NOTIFICATION_PENDING),
+            ("firing_notified", None, NOW, timedelta(minutes=5), None),
+            ("firing_past_its_workflow", None, None, timedelta(minutes=30), None),
+            (
+                "firing_not_renotified",
+                None,
+                None,
+                timedelta(minutes=5),
+                None,
+                {FIRING_NOT_RENOTIFIED_KEY: True},
+            ),
         ]
     )
-    def test_an_alert_moves_only_once_its_investigation_settles(
-        self, _name: str, status: str, sent_at: datetime | None, age: timedelta, reason: CutoverSkip | None
+    def test_an_alert_moves_only_once_its_last_firing_settles(
+        self,
+        _name: str,
+        status: str | None,
+        sent_at: datetime | None,
+        age: timedelta,
+        reason: CutoverSkip | None,
+        triggered_metadata: dict | None = None,
     ) -> None:
         alert = self._alert(investigation_agent_enabled=True, detector_config={"type": "zscore"})
         check = AlertCheck.objects.create(
@@ -114,6 +132,7 @@ class TestInsightPlatformCutover(APIBaseTest):
             state=AlertState.FIRING,
             investigation_status=status,
             notification_sent_at=sent_at,
+            triggered_metadata=triggered_metadata,
         )
         AlertCheck.objects.filter(id=check.id).update(created_at=NOW - age)
 

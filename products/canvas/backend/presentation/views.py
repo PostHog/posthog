@@ -22,7 +22,7 @@ from rest_framework.utils.urls import replace_query_param
 
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, WorkloadAccessTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
@@ -1791,8 +1791,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
 
     def _connector_actor(self, request: Request) -> User | None:
         """The viewer whose third-party connections a connector call may use.
-        A sandbox token acts for an agent, not a viewer, so it gets none."""
-        if self._is_sandbox_authenticated(request):
+        A sandbox token acts for an agent, not a viewer, so it gets none. A workload token acts as the
+        organization owner without the owner minting it, so it gets none either."""
+        if self._is_sandbox_authenticated(request) or isinstance(
+            request.successful_authenticator, WorkloadAccessTokenAuthentication
+        ):
             return None
         return self._request_user()
 
@@ -1995,7 +1998,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         user = self._connector_actor(request)
         if user is None:
             return Response(
-                {"detail": "Connector calls are made by viewers; sandbox tokens cannot use them."},
+                {"detail": "Connector calls are made by viewers; sandbox and workload tokens cannot use them."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         if not canvas_connectors_enabled(self.team.uuid):

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import * as Clipboard from 'expo-clipboard'
 import type { ReactElement } from 'react'
+import { Platform } from 'react-native'
 
 import { taskWebUrl } from '@/model/adapters/chats'
 import { OverlayHost } from '@/ui/OverlayPortal'
@@ -131,4 +132,12 @@ describe('ChatHeader', () => {
         expect(onArchive).toHaveBeenCalledTimes(2)
         expect(screen.getByTestId('chat-more').props.accessibilityState.expanded).toBe(false)
     })
+})
+
+const originalPlatform = Platform.OS
+beforeAll(() => {
+    Platform.OS = 'android'
+})
+afterAll(() => {
+    Platform.OS = originalPlatform
 })

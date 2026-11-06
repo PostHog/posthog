@@ -15,3 +15,18 @@ rules:
       owners: team-replay
     - match: '/surveys/'
       owners: conversations
+    - match:
+          - '/clickhouse/test/test_*.py'
+      owners: clickhouse
+    - match:
+          - '/clickhouse/views/test/test_*.py'
+      owners: team-experiments
+    - match:
+          - '/clickhouse/queries/test/test_*.py'
+      owners: team-feature-flags
+    - match:
+          - '/partners/stripe/api/provisioning/test/test_*.py'
+      owners: team-growth
+    - match:
+          - '/api/tests/test_*.py'
+      owners: team-surfaces

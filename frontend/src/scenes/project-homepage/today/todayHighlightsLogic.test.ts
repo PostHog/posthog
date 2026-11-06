@@ -110,6 +110,59 @@ describe('todayHighlightsLogic', () => {
         expect(shown()).toEqual(['insight:c', 'insight:e', 'insight:a'])
     })
 
+    it('waits for pins, puts pinned numbers first, keeps a hidden number the person pins, and marks a pin without a number', async () => {
+        let releasePins: () => void = () => undefined
+        useMocks({
+            get: {
+                '/api/projects/:team_id/today/pulse_pins/': () =>
+                    new Promise((resolve) => {
+                        releasePins = () =>
+                            resolve([
+                                200,
+                                {
+                                    pins: [
+                                        { key: 'insight:e', name: 'E', dashboard_id: null },
+                                        { key: 'insight:z', name: 'Z', dashboard_id: null },
+                                    ],
+                                },
+                            ])
+                    }),
+            },
+        })
+        const pulse = ['a', 'b', 'c', 'd', 'e'].map((key) => makePulseMetric({ key: `insight:${key}` }))
+        highlightResponses = [[200, makeHighlights({ pulse, pins: [{ key: 'insight:z', status: 'unavailable' }] })]]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        const projectId = logic.values.currentProjectId
+        logic.actions.setHiddenPulseMetrics({ [`${projectId}:insight:e`]: true, [`${projectId}:insight:a`]: true })
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadHighlightsSuccess'])
+            .toMatchValues({ pulseSlots: [], pulsePending: true })
+
+        releasePins()
+        await expectLogic(logic).toDispatchActions(['loadPulsePinsSuccess'])
+
+        expect(logic.values.pulseSlots.map((slot) => [slot.key, slot.status])).toEqual([
+            ['insight:e', 'ready'],
+            ['insight:z', 'error'],
+            ['insight:b', 'ready'],
+            ['insight:c', 'ready'],
+        ])
+
+        const [, b, c, d, e] = pulse
+        logic.actions.loadHighlightsSuccess(makeHighlights({ status: 'computing', pulse: [d, c, b, e], pins: [] }))
+        expect(logic.values.pulseSlots.map((slot) => [slot.key, slot.status])).toEqual([
+            ['insight:e', 'ready'],
+            ['insight:z', 'pending'],
+            ['insight:b', 'ready'],
+            ['insight:c', 'ready'],
+        ])
+
+        logic.actions.loadHighlightsSuccess(makeHighlights({ status: 'failed', pulse: [d, c, b, e], pins: [] }))
+        expect(logic.values.pulseSlots.map((slot) => slot.status)).toEqual(['ready', 'error', 'ready', 'ready'])
+    })
+
     it.each([
         { status: 404, failed: false },
         { status: 500, failed: true },
@@ -228,6 +281,38 @@ describe('todayHighlightsLogic', () => {
             })
         )
         expect(capture.mock.calls.some(([event]) => event === 'today pulse first number shown')).toBe(false)
+        logic.actions.pulseViewUnmounted()
+    })
+
+    it('waits for pins before it records an empty load', async () => {
+        let releasePins: () => void = () => undefined
+        useMocks({
+            get: {
+                '/api/projects/:team_id/today/pulse_pins/': () =>
+                    new Promise((resolve) => {
+                        releasePins = () =>
+                            resolve([200, { pins: [{ key: 'insight:p', name: 'P', dashboard_id: null }] }])
+                    }),
+            },
+        })
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        highlightResponses = [[200, makeHighlights({ pulse: [makePulseMetric({ key: 'insight:p' })] })]]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadHighlightsSuccess'])
+        logic.actions.pulseViewMounted(false)
+        logic.actions.pulseViewUpdated()
+        const finishedBeforePins = capture.mock.calls.some(([event]) => event === 'today pulse load finished')
+
+        releasePins()
+        await expectLogic(logic).toDispatchActions(['loadPulsePinsSuccess'])
+        logic.actions.pulseViewUpdated()
+
+        expect(finishedBeforePins).toBe(false)
+        expect(capture).toHaveBeenCalledWith(
+            'today pulse load finished',
+            expect.objectContaining({ outcome: 'ready', number_count: 1 })
+        )
         logic.actions.pulseViewUnmounted()
     })
 
