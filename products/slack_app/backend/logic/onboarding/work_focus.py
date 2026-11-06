@@ -395,6 +395,7 @@ def _start_workflow(integration: WorkspaceIntegration, slack_user_id: str) -> No
             id=slack_app_work_focus_workflow_id(integration.integration_id, slack_user_id),
             task_queue=settings.TASKS_TASK_QUEUE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+            # The stored outcome is what keeps the work focus to one run, so a cleared outcome can run again.
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         )
     )
