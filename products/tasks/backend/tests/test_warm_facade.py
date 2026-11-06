@@ -548,9 +548,12 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert response.json()["attr"] == attr
         mock_warm.assert_not_called()
 
+    @parameterized.expand([("origin_only", {}), ("with_a_stray_profile", {"profile": "user"})])
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.facade.api.warm_task_sandbox", return_value=None)
-    def test_warm_endpoint_throttles_report_warms_in_their_own_bucket(self, _mock_warm, _mock_warm_enabled):
+    def test_warm_endpoint_throttles_report_warms_in_their_own_bucket(
+        self, _name, extra_body, _mock_warm, _mock_warm_enabled
+    ):
         from django.core.cache import cache
 
         from products.signals.backend.models import SignalReport
@@ -562,7 +565,7 @@ class TestWarmTaskSandbox(APIBaseTest):
         def warm(report):
             return self.client.post(
                 "/api/projects/@current/tasks/warm/",
-                {"origin_product": "signal_report", "signal_report": str(report.id), "branch": None},
+                {"origin_product": "signal_report", "signal_report": str(report.id), "branch": None, **extra_body},
                 format="json",
             )
 
