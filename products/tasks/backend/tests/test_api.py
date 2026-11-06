@@ -15568,7 +15568,13 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload")
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_that_starts_a_turn_is_refused_on_a_done_task(
-        self, _name: str, runtime: str, method: str, params: dict, mock_post: MagicMock, mock_payload: MagicMock
+        self,
+        _name: str,
+        runtime: Task.Runtime,
+        method: str,
+        params: dict,
+        mock_post: MagicMock,
+        mock_payload: MagicMock,
     ) -> None:
         mock_payload.return_value = {"user": "enforce"}
         task = self.create_task(runtime=runtime)
