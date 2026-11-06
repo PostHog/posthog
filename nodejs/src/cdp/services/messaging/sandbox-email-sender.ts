@@ -413,11 +413,14 @@ function boundedTreeAdapter(maxAttributesPerTag = MAX_ATTRIBUTES_PER_TAG): Bound
 }
 
 function parseBounded(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
-    return AttributeBoundedParser.parse(html, { scriptingEnabled, treeAdapter: boundedTreeAdapter() })
+    return AttributeBoundedParser.parse<DefaultTreeAdapterMap>(html, {
+        scriptingEnabled,
+        treeAdapter: boundedTreeAdapter(),
+    })
 }
 
 function parseBuiltEmail(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
-    return AttributeBoundedParser.parse(html, {
+    return AttributeBoundedParser.parse<DefaultTreeAdapterMap>(html, {
         scriptingEnabled,
         treeAdapter: boundedTreeAdapter(MAX_ATTRIBUTES_PER_TAG + 1),
     })
@@ -427,7 +430,7 @@ function parseBoundedFragment(
     html: string,
     context: DefaultTreeAdapterMap['element'] | null
 ): DefaultTreeAdapterMap['documentFragment'] {
-    const parser = AttributeBoundedParser.getFragmentParser(context, {
+    const parser = AttributeBoundedParser.getFragmentParser<DefaultTreeAdapterMap>(context, {
         scriptingEnabled: false,
         treeAdapter: boundedTreeAdapter(),
     })
