@@ -1,4 +1,5 @@
 import json
+import hashlib
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
@@ -673,6 +674,40 @@ class UserAccessControl:
         """Org owners/admins bypass object- and resource-level access control."""
         org_membership = self._organization_membership
         return bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
+
+    def access_fingerprint(self) -> str:
+        """A digest of every input that this user's team-scoped access decisions read.
+
+        Two instances with the same digest resolve every object of this team to the same access
+        level, so a cache of results computed from those decisions can key on it. A change to the
+        user's org level, role memberships, the org's access-control features, or any access control
+        row of the team that applies to the user changes the digest.
+        """
+        org_membership = self._organization_membership
+        # `_get_access_controls` serves team-scoped lookups from this preload, and reads no rows
+        # when access controls are unavailable, so the digest skips the query in that case too.
+        rows = self._cached_access_controls if EE_AVAILABLE and self.access_controls_supported and self._team else []
+        payload = {
+            "team_id": self._team.id if self._team else None,
+            "org_level": org_membership.level if org_membership else None,
+            "role_ids": sorted(str(role_id) for role_id in self._user_role_ids),
+            "access_controls_supported": self.access_controls_supported,
+            "rbac_supported": self.rbac_supported,
+            "most_specific": self._is_most_specific_access_control_enabled,
+            # Every element is a string so that a null resource_id or subject sorts without a TypeError.
+            "rows": sorted(
+                [
+                    str(row.id),
+                    str(row.resource),
+                    str(row.resource_id),
+                    str(row.access_level),
+                    str(row.organization_member_id),
+                    str(row.role_id),
+                ]
+                for row in rows
+            ),
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
     def _is_creator(self, obj: Model) -> bool:
         # Compare ids so callers do not need created_by hydrated on the object.

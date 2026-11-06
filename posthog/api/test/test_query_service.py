@@ -56,6 +56,7 @@ class TestEditorAssistDatabase(SimpleTestCase):
             ("hog_json", "hogJson", False),
         ]
     )
+    @patch("posthog.api.services.query.feature_enabled_or_false", return_value=False)
     @patch("posthog.api.services.query.create_default_modifiers_for_team")
     @patch("posthog.api.services.query.resolve_database_for_connection", return_value=(None, MagicMock()))
     @patch("posthog.api.services.query.get_hogql_autocomplete")
@@ -67,6 +68,7 @@ class TestEditorAssistDatabase(SimpleTestCase):
         python_autocomplete: MagicMock,
         resolve_database: MagicMock,
         _modifiers: MagicMock,
+        _flag: MagicMock,
     ) -> None:
         query = HogQLAutocomplete.model_validate(
             {
@@ -80,9 +82,9 @@ class TestEditorAssistDatabase(SimpleTestCase):
         python_autocomplete.return_value = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
 
         response = process_query_model(
-            cast(Team, SimpleNamespace(pk=12, modifiers={})),
+            cast(Team, SimpleNamespace(pk=12, id=12, organization_id="org-1", modifiers={})),
             query,
-            user=cast(User, SimpleNamespace(pk=34)),
+            user=cast(User, SimpleNamespace(pk=34, distinct_id="user-34", email="user@example.com")),
         )
 
         assert response is python_autocomplete.return_value

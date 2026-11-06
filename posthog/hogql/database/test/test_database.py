@@ -4,7 +4,7 @@ import time
 import pickle
 import threading
 import dataclasses
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from contextlib import suppress
 from types import SimpleNamespace
 from typing import Any, cast
@@ -12,7 +12,7 @@ from typing import Any, cast
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import TestCase
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from django.conf import settings
 from django.db import connection
@@ -1717,6 +1717,67 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         ):
             after_ttl = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
         assert after_ttl.has_table("view_created_after_warm")
+
+    @parameterized.expand(
+        [
+            ("same_request_inputs", lambda test: {}, True),
+            ("other_user", lambda test: {"user": test._create_user("cache-other@posthog.com")}, False),
+            ("not_requested", lambda test: {"use_cached_database": False}, False),
+            ("timezone_changed", lambda test: test._set_team_timezone("Europe/Warsaw"), False),
+            ("sources_expired", lambda test: test._expire_sources_cache(), False),
+        ]
+    )
+    def test_cached_database_is_shared_until_its_inputs_change(
+        self, _name: str, change: Callable[["TestDatabase"], dict[str, Any]], expect_same: bool
+    ) -> None:
+        self._clock_offset = 0.0
+        warm = Database.create_for(team=self.team, user=self.user, use_cached_sources=True, use_cached_database=True)
+        overrides = change(self)
+        with patch(
+            "posthog.hogql.database.sources_cache._time_source", new=lambda: time.monotonic() + self._clock_offset
+        ):
+            second = Database.create_for(
+                **{
+                    "team": self.team,
+                    "user": self.user,
+                    "use_cached_sources": True,
+                    "use_cached_database": True,
+                    **overrides,
+                }
+            )
+
+        assert (second is warm) is expect_same
+
+    @patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=True)
+    def test_cached_database_hides_a_table_once_access_is_revoked(self, _feature_enabled: MagicMock) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="revoked_table", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
+        )
+
+        before = Database.create_for(team=self.team, user=self.user, use_cached_sources=True, use_cached_database=True)
+        AccessControl.objects.create(
+            team=self.team, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+        )
+        after = Database.create_for(team=self.team, user=self.user, use_cached_sources=True, use_cached_database=True)
+
+        assert before.has_table("revoked_table")
+        assert not after.has_table("revoked_table")
+
+    def _set_team_timezone(self, timezone: str) -> dict[str, Any]:
+        self.team.timezone = timezone
+        self.team.save()
+        return {}
+
+    def _expire_sources_cache(self) -> dict[str, Any]:
+        self._clock_offset = SOURCES_CACHE_TTL_SECONDS + 1
+        return {}
 
     def test_materialized_backing_filter_keeps_source_tables_but_hides_backing_tables(self):
         credential = DataWarehouseCredential.objects.create(

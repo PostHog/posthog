@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
+from posthog.hogql.database.database_cache import DatabaseCacheKey, get_or_build_database
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import (
     DATA_WAREHOUSE,
@@ -1878,6 +1879,7 @@ class Database(BaseModel):
         bypass_warehouse_access_control: bool = False,
         build_postgres_foreign_keys: bool = True,
         use_cached_sources: bool = False,
+        use_cached_database: bool = False,
         trigger: str = "direct",
         allowed_system_tables: Collection[str] | None = None,
         schema_table_names: set[str] | None = None,
@@ -1888,6 +1890,8 @@ class Database(BaseModel):
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
         ``include_flag_evaluations_table`` overrides the organization's flag_evaluations mode, which decides
         whether ``posthog.flag_evaluations`` is in the catalog. None follows the mode.
+        ``use_cached_database`` returns a database that other requests of the same user share, so only
+        a caller that never adds tables to it may pass it. It applies only when the sources cache applies.
         """
         build_started = time.perf_counter()
 
@@ -1911,7 +1915,9 @@ class Database(BaseModel):
                 SOURCES_CACHE_EVENTS.labels(result="bypass").inc()
 
         def fetch_fresh() -> HogQLDatabaseSources:
-            with _OTEL_DATABASE.timed_histogram_twin(HOGQL_DATABASE_BUILD_DURATION_SECONDS, {"phase": "fetch_sources"}):
+            with _OTEL_DATABASE.timed_histogram_twin(
+                HOGQL_DATABASE_BUILD_DURATION_SECONDS, {"phase": "fetch_sources", "trigger": trigger}
+            ):
                 return Database._fetch_sources(
                     team_id,
                     team=team,
@@ -1929,6 +1935,8 @@ class Database(BaseModel):
                     schema_table_names=schema_table_names,
                 )
 
+        cached_sources: HogQLDatabaseSources | None = None
+        fresh_access_control: Optional[UserAccessControl] = None
         if cache_key is None:
             sources = fetch_fresh()
         else:
@@ -1954,17 +1962,63 @@ class Database(BaseModel):
                 sources, include_flag_evaluations_table=include_flag_evaluations_table and connection_id is None
             )
 
-        with _OTEL_DATABASE.timed_histogram_twin(
-            HOGQL_DATABASE_BUILD_DURATION_SECONDS, {"phase": "build_from_sources"}
-        ):
-            database = Database._build_from_sources(
-                sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
+        def build() -> Database:
+            with _OTEL_DATABASE.timed_histogram_twin(
+                HOGQL_DATABASE_BUILD_DURATION_SECONDS, {"phase": "build_from_sources", "trigger": trigger}
+            ):
+                return Database._build_from_sources(
+                    sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
+                )
+
+        if use_cached_database and cached_sources is not None:
+            database = get_or_build_database(
+                Database._database_cache_key(
+                    sources_key=cast(SourcesCacheKey, cache_key),
+                    cached_sources=cached_sources,
+                    sources=sources,
+                    team=cast("Team", team),
+                    user=user,
+                    user_access_control=fresh_access_control,
+                    build_postgres_foreign_keys=build_postgres_foreign_keys,
+                ),
+                cached_sources,
+                build,
             )
+        else:
+            database = build()
 
         total_seconds = time.perf_counter() - build_started
-        HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="total").observe(total_seconds)
-        _OTEL_DATABASE.record_histogram_twin(HOGQL_DATABASE_BUILD_DURATION_SECONDS, total_seconds, {"phase": "total"})
+        HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="total", trigger=trigger).observe(total_seconds)
+        _OTEL_DATABASE.record_histogram_twin(
+            HOGQL_DATABASE_BUILD_DURATION_SECONDS, total_seconds, {"phase": "total", "trigger": trigger}
+        )
         return database
+
+    @staticmethod
+    def _database_cache_key(
+        *,
+        sources_key: SourcesCacheKey,
+        cached_sources: HogQLDatabaseSources,
+        sources: HogQLDatabaseSources,
+        team: Team,
+        user: Optional[User | SyntheticUser | SharedLinkUser],
+        user_access_control: Optional[UserAccessControl],
+        build_postgres_foreign_keys: bool,
+    ) -> DatabaseCacheKey:
+        """`sources` is the per-request copy that the build reads, so every field the copy replaces
+        on `cached_sources` comes from it."""
+        return DatabaseCacheKey(
+            sources_key=sources_key,
+            sources_id=id(cached_sources),
+            user_id=user.pk if user is not None else None,
+            access_fingerprint=user_access_control.access_fingerprint() if user_access_control is not None else "",
+            denied_system_table_names=frozenset(sources.denied_system_table_names),
+            warehouse_access_control_enabled=sources.is_hogql_warehouse_access_control_enabled,
+            include_flag_evaluations_table=sources.include_flag_evaluations_table,
+            build_postgres_foreign_keys=build_postgres_foreign_keys,
+            timezone=team.timezone,
+            week_start_day=team.week_start_day,
+        )
 
     @staticmethod
     def _sources_cache_key(

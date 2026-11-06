@@ -47,6 +47,7 @@ from posthog.hogql_queries.query_runner import (
     unwrapped_source,
 )
 from posthog.models import Team, User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
@@ -59,6 +60,26 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
 
 logger = structlog.get_logger(__name__)
+
+EDITOR_DATABASE_CACHE_FLAG = "hogql-editor-database-cache"
+
+
+def _editor_database_cache_enabled(team: Team, user: User | None) -> bool:
+    if user is None:
+        return False
+    # Local evaluation only, without flag events, because autocomplete runs on every keystroke.
+    return feature_enabled_or_false(
+        EDITOR_DATABASE_CACHE_FLAG,
+        str(user.distinct_id),
+        person_properties={"email": user.email},
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
 
 
 @dataclass(frozen=True)
@@ -342,6 +363,9 @@ def process_query_model(
                             modifiers=create_default_modifiers_for_team(team),
                             # Editor-assist only: query execution never reads cached sources.
                             use_cached_sources=True,
+                            # Autocomplete only resolves names, so it never adds tables to the shared database.
+                            use_cached_database=_editor_database_cache_enabled(team, user),
+                            trigger="editor_autocomplete",
                         )
                 with timings.measure("autocomplete"):
                     autocomplete_response = get_hogql_autocomplete(
