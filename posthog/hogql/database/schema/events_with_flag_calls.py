@@ -294,15 +294,7 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
     raw = ast.Call(name="JSONExtractRaw", args=[ast.Field(chain=read.chain[:-1]), ast.Constant(value=key)])
     # Events reads a JSON null as NULL from a JSON subcolumn. A restriction makes events read the key from the
     # `temporary_properties` text instead, and that text keeps the JSON null as `null`.
-    value = null_if_sentinels(raw, ("", "{}") if overlaps_restriction else ("", "{}", "null"))
-    # Events ingestion stores an integer outside the Int64 and UInt64 ranges as a JSON string. Such an integer has at
-    # least 20 characters, so the length check skips the match and the casts for every other value.
-    return parse_expr(
-        "if(length({value}) >= 20 AND match({value}, '^-?[0-9]+$') AND isNull(accurateCastOrNull({value}, 'Int64')) "
-        "AND isNull(accurateCastOrNull({value}, 'UInt64')), "
-        "concat('\"', {value}, '\"'), {value})",
-        {"value": value},
-    )
+    return null_if_sentinels(raw, ("", "{}") if overlaps_restriction else ("", "{}", "null"))
 
 
 def union_table_of(table_type: ast.Type | None) -> "EventsWithFlagCallsTable | None":
