@@ -11739,7 +11739,7 @@
         }
     },
     "provider-imports-create": {
-        "description": "Start a background import from another email tool, such as Resend, into the active project. Before the first call, tell the user the project's name and id and ask whether the data belongs there. Ask the user to create the API key themselves and treat it as a secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers. Returns at once with the run. Poll provider-imports-get until `status` is `completed` or `failed`. A second start while a run is active returns 409. Importing again adds what's new and leaves anything changed or deleted in PostHog as it is. Never creates people, and imported drafts never send on their own.",
+        "description": "Start a background import from another email tool, such as Resend or Postmark, into the active project. Before the first call, tell the user the project's name and id and ask whether the data belongs there. Ask the user to create the API key themselves and treat it as a secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers. Returns at once with the run. Poll provider-imports-get until `status` is `completed` or `failed`. A second start while a run is active returns 409. Importing again adds what's new and leaves anything changed or deleted in PostHog as it is. Never creates people, and imported drafts never send on their own.",
         "category": "Messaging",
         "feature": "messaging",
         "summary": "Start an import from another email tool",

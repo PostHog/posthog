@@ -1,13 +1,15 @@
 ---
 name: migrating-from-email-providers
-description: 'Move a team from an email API provider such as Resend to PostHog: import the suppression list, unsubscribes, topics, templates and automations with the provider-imports tools, then walk through DNS, template review and the cutover. Use when asked to migrate, move, switch, copy or import from Resend to PostHog, or to bring suppressions, unsubscribes or email templates from another provider. For Customer.io automations use migrating-from-customer-io.'
+description: 'Move a team from an email API provider such as Resend or Postmark to PostHog: import the suppression list, unsubscribes, topics, templates and automations with the provider-imports tools, then walk through DNS, template review and the cutover. Use when asked to migrate, move, switch, copy or import from Resend or Postmark to PostHog, or to bring suppressions, unsubscribes or email templates from another provider. For Customer.io automations use migrating-from-customer-io.'
 ---
 
 # Moving from another email provider
 
 PostHog copies a team's data in one background import. The team then sets up DNS, reviews what the import flagged, and moves its sending one email at a time.
 
-Call `provider-imports-providers` first. It lists the tools this project can import from, the steps of each, and the next steps to read out at the end. If Resend isn't listed, the import isn't turned on for this project, so stop and say so.
+Call `provider-imports-providers` first. It lists the tools this project can import from, the steps of each, and the next steps to read out at the end. If the team's tool isn't listed, the import isn't turned on for this project, so stop and say so.
+
+The sections below use Resend as the example. For Postmark, also read [Postmark](#postmark).
 
 ## What moves
 
@@ -46,3 +48,24 @@ An address someone removed from the suppression list, a person opted back in, an
 4. **Automations.** Each draft notes which events the app has to send to PostHog as well. Use the `building-workflows` skill to test and enable. Turn the automation off in Resend at the same moment, or people get both emails. Never enable a draft without the user's sign-off.
 5. **Volume.** Mailbox providers slow down a sudden jump, so move high volume over several days. Check the project's allowance with `workflows-reputation-get` first, because new projects start with a low limit on marketing email.
 6. **Clean up.** Once nothing sends through Resend, the user removes its DNS records and deletes the key.
+
+## Postmark
+
+Postmark has no automations and no contact list, so the steps are `streams`, `suppressions`, `templates`, `domains` and `webhooks`.
+
+| Data                          | In PostHog                                                             | What the team does                                                |
+| ----------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Servers, message streams      | A list. A broadcast stream the team added becomes a marketing category | Chooses the category on marketing email that used the stream      |
+| Hard bounces                  | Suppression list, blocks all email                                     | Reads the summary                                                 |
+| Spam complaints               | Suppression list, blocks marketing email                               | Reads the summary                                                 |
+| Added by the team or Postmark | Suppression list, blocks marketing email                               | Reads the summary                                                 |
+| Unsubscribed                  | Opted out of all marketing email                                       | Nothing                                                           |
+| Templates and layouts         | Library templates, each with its own copy of its layout                | Fixes what the notes mention, chooses a sender, then sends a test |
+| Domains, sender signatures    | A list only                                                            | Adds each domain and sender, and publishes new DNS records        |
+| Webhooks                      | A list only                                                            | Rebuilds them                                                     |
+
+1. **Choose the token.** Postmark has no read-only tokens. A server token imports one server, and `domains` then reports that it needs the account token. The account token imports every live server and also lists domains and senders, but it can change everything in the account, so offer the choice and say that. Sandbox servers are skipped with an account token, because their suppressions aren't real. Their own server token imports them.
+2. **Say what changes.** Suppressions belong to one stream in Postmark and to the whole project in PostHog. `transactional_block_lost` counts people Postmark blocks on a transactional stream for a reason other than a hard bounce. PostHog still sends them transactional email, so say the number. Someone who unsubscribed from one broadcast stream is opted out of all marketing email.
+3. **Templates.** The key is the alias, with characters PostHog doesn't allow replaced by `-`, or `postmark-<id>` when there is no alias. When two servers share an alias, the later one gets `<alias>-<server id>`. Postmark's `TemplateModel` becomes `message_data` values read as `variables.<name>`. A template doesn't name a sender in Postmark, so choose one on each.
+4. **Rendering.** Layouts are copied into each template. Postmark copies style-block CSS onto elements when it sends and PostHog doesn't, and PostHog prints `true` where Postmark prints `True`, so send a test and check it.
+5. **Code.** Change the app's Postmark calls to PostHog's send API with the `sending-transactional-emails` skill. PostHog has no SMTP service, so an app sending over SMTP has to change to the API too.

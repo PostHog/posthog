@@ -1,0 +1,482 @@
+[
+  {
+    "name": "variable and escaping",
+    "part": "html",
+    "mustachio": "<p>{{name}} {{{name}}} {{& name}}</p>",
+    "model": {
+      "name": "A & <b>B</b> 'q' \"d\""
+    },
+    "liquid": "<p>{{ variables.name }} {{ variables.name | raw }} {{ variables.name | raw }}</p>",
+    "expected": "<p>A &amp; &lt;b&gt;B&lt;/b&gt; &#39;q&#39; &quot;d&quot; A & <b>B</b> 'q' \"d\" A & <b>B</b> 'q' \"d\"</p>",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "missing variable",
+    "part": "html",
+    "mustachio": "[{{nope}}]",
+    "model": {},
+    "liquid": "[{{ variables.nope }}]",
+    "expected": "[]",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "dot path",
+    "part": "html",
+    "mustachio": "{{person.first_name}} {{ person.address.city }}",
+    "model": {
+      "person": {
+        "first_name": "Zoë",
+        "address": {
+          "city": "Kraków"
+        }
+      }
+    },
+    "liquid": "{{ variables.person.first_name }} {{ variables.person.address.city }}",
+    "expected": "Zo&#235; Krak&#243;w",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "section scopes names and hides outer",
+    "part": "html",
+    "mustachio": "{{#person}}[{{first_name}}|{{company}}|{{../company}}]{{/person}}",
+    "model": {
+      "person": {
+        "first_name": "Ana"
+      },
+      "company": "Acme"
+    },
+    "liquid": "{% if variables.person and variables.person != empty and variables.person != 0 %}[{{ variables.person.first_name }}|{{ variables.person.company }}|{{ variables.company }}]{% endif %}",
+    "expected": "[Ana||Acme]",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "section on missing value",
+    "part": "html",
+    "mustachio": "a{{#person}}x{{/person}}b",
+    "model": {},
+    "liquid": "a{% if variables.person and variables.person != empty and variables.person != 0 %}x{% endif %}b",
+    "expected": "ab",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "section on false null empties and zero",
+    "part": "html",
+    "mustachio": "{{#f}}f{{/f}}{{#n}}n{{/n}}{{#s}}s{{/s}}{{#a}}a{{/a}}{{#o}}o{{/o}}{{#z}}z{{/z}}",
+    "model": {
+      "f": false,
+      "n": null,
+      "s": "",
+      "a": [],
+      "o": {},
+      "z": 0
+    },
+    "liquid": "{% if variables.f and variables.f != empty and variables.f != 0 %}f{% endif %}{% if variables.n and variables.n != empty and variables.n != 0 %}n{% endif %}{% if variables.s and variables.s != empty and variables.s != 0 %}s{% endif %}{% if variables.a and variables.a != empty and variables.a != 0 %}a{% endif %}{% if variables.o and variables.o != empty and variables.o != 0 %}o{% endif %}{% if variables.z and variables.z != empty and variables.z != 0 %}z{% endif %}",
+    "expected": "",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "section on truthy values",
+    "part": "html",
+    "mustachio": "{{#t}}t{{/t}}{{#s}}s{{/s}}{{#w}}w{{/w}}{{#n}}n{{/n}}{{#sz}}sz{{/sz}}",
+    "model": {
+      "t": true,
+      "s": "x",
+      "w": " ",
+      "n": 5,
+      "sz": "0"
+    },
+    "liquid": "{% if variables.t and variables.t != empty and variables.t != 0 %}t{% endif %}{% if variables.s and variables.s != empty and variables.s != 0 %}s{% endif %}{% if variables.w and variables.w != empty and variables.w != 0 %}w{% endif %}{% if variables.n and variables.n != empty and variables.n != 0 %}n{% endif %}{% if variables.sz and variables.sz != empty and variables.sz != 0 %}sz{% endif %}",
+    "expected": "tswnsz",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "section current value",
+    "part": "html",
+    "mustachio": "{{#position}}Role: {{.}}{{/position}}",
+    "model": {
+      "position": "CTO"
+    },
+    "liquid": "{% if variables.position and variables.position != empty and variables.position != 0 %}Role: {{ variables.position }}{% endif %}",
+    "expected": "Role: CTO",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "section on array renders once with no iteration",
+    "part": "html",
+    "mustachio": "{{#items}}[{{name}}]{{/items}}",
+    "model": {
+      "items": [
+        {
+          "name": "a"
+        },
+        {
+          "name": "b"
+        }
+      ]
+    },
+    "liquid": "{% if variables.items and variables.items != empty and variables.items != 0 %}[{{ variables.items.name }}]{% endif %}",
+    "expected": "[]",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "inverted section",
+    "part": "html",
+    "mustachio": "{{^years}}none{{/years}}{{^name}}nameless{{/name}}{{^here}}x{{/here}}",
+    "model": {
+      "name": "",
+      "here": "y"
+    },
+    "liquid": "{% unless variables.years and variables.years != empty and variables.years != 0 %}none{% endunless %}{% unless variables.name and variables.name != empty and variables.name != 0 %}nameless{% endunless %}{% unless variables.here and variables.here != empty and variables.here != 0 %}x{% endunless %}",
+    "expected": "nonenameless",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "inverted scope needs parent path",
+    "part": "html",
+    "mustachio": "{{^name}}[{{job_title}}][{{../job_title}}]{{/name}}",
+    "model": {
+      "job_title": "Dr"
+    },
+    "liquid": "{% unless variables.name and variables.name != empty and variables.name != 0 %}[{{ variables.name.job_title }}][{{ variables.job_title }}]{% endunless %}",
+    "expected": "[][Dr]",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "section then inverted is if else",
+    "part": "html",
+    "mustachio": "{{#vip}}gold{{^vip}}plain{{/vip}}|{{#vip2}}gold{{^vip2}}plain{{/vip2}}",
+    "model": {
+      "vip": true
+    },
+    "liquid": "{% if variables.vip and variables.vip != empty and variables.vip != 0 %}gold{% endif %}{% unless variables.vip and variables.vip != empty and variables.vip != 0 %}plain{% endunless %}|{% if variables.vip2 and variables.vip2 != empty and variables.vip2 != 0 %}gold{% endif %}{% unless variables.vip2 and variables.vip2 != empty and variables.vip2 != 0 %}plain{% endunless %}",
+    "expected": "gold|plain",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "each over objects",
+    "part": "html",
+    "mustachio": "<ul>{{#each items}}<li>{{name}} x{{qty}}</li>{{/each}}</ul>",
+    "model": {
+      "items": [
+        {
+          "name": "Mug",
+          "qty": 2
+        },
+        {
+          "name": "Café ☕",
+          "qty": 1
+        }
+      ]
+    },
+    "liquid": "<ul>{% for item_1 in variables.items %}<li>{{ item_1.name }} x{{ item_1.qty }}</li>{% endfor %}</ul>",
+    "expected": "<ul><li>Mug x2</li><li>Caf&#233; ☕ x1</li></ul>",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "each over scalars",
+    "part": "html",
+    "mustachio": "{{#each tags}}<{{.}}>{{/each}}",
+    "model": {
+      "tags": [
+        "a",
+        "b & c"
+      ]
+    },
+    "liquid": "{% for item_1 in variables.tags %}<{{ item_1 }}>{% endfor %}",
+    "expected": "<a><b &amp; c>",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "each parent paths",
+    "part": "html",
+    "mustachio": "{{#each items}}[{{company}}|{{../company}}|{{../../company}}|{{../../../company}}]{{/each}}",
+    "model": {
+      "company": "Acme",
+      "items": [
+        {
+          "n": 1
+        }
+      ]
+    },
+    "liquid": "{% for item_1 in variables.items %}[{{ item_1.company }}||{{ variables.company }}|{{ variables.company }}]{% endfor %}",
+    "expected": "[||Acme|Acme]",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "nested each with inner reaching outer item",
+    "part": "html",
+    "mustachio": "{{#each groups}}{{name}}:{{#each members}}{{name}}@{{../../name}},{{/each}};{{/each}}",
+    "model": {
+      "groups": [
+        {
+          "name": "g1",
+          "members": [
+            {
+              "name": "m1"
+            },
+            {
+              "name": "m2"
+            }
+          ]
+        },
+        {
+          "name": "g2",
+          "members": []
+        }
+      ]
+    },
+    "liquid": "{% for item_1 in variables.groups %}{{ item_1.name }}:{% for item_2 in item_1.members %}{{ item_2.name }}@{{ item_1.name }},{% endfor %};{% endfor %}",
+    "expected": "g1:m1@g1,m2@g1,;g2:;",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "each inside section",
+    "part": "html",
+    "mustachio": "{{#order}}{{#each lines}}{{sku}}/{{../../id}} {{/each}}{{/order}}",
+    "model": {
+      "order": {
+        "id": 7,
+        "lines": [
+          {
+            "sku": "a"
+          },
+          {
+            "sku": "b"
+          }
+        ]
+      }
+    },
+    "liquid": "{% if variables.order and variables.order != empty and variables.order != 0 %}{% for item_1 in variables.order.lines %}{{ item_1.sku }}/{{ variables.order.id }} {% endfor %}{% endif %}",
+    "expected": "a/7 b/7 ",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "each on missing and empty",
+    "part": "html",
+    "mustachio": "a{{#each x}}x{{/each}}{{#each y}}y{{/each}}b",
+    "model": {
+      "y": []
+    },
+    "liquid": "a{% for item_1 in variables.x %}x{% endfor %}{% for item_2 in variables.y %}y{% endfor %}b",
+    "expected": "ab",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "section with dotted path parent is intermediate",
+    "part": "html",
+    "mustachio": "{{#person.address}}{{city}}/{{../name}}/{{../../top}}{{/person.address}}",
+    "model": {
+      "top": "T",
+      "person": {
+        "name": "N",
+        "address": {
+          "city": "C"
+        }
+      }
+    },
+    "liquid": "{% if variables.person.address and variables.person.address != empty and variables.person.address != 0 %}{{ variables.person.address.city }}/{{ variables.person.name }}/{{ variables.top }}{% endif %}",
+    "expected": "C/N/T",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "parent above root stays at root",
+    "part": "html",
+    "mustachio": "{{../../../top}}",
+    "model": {
+      "top": "T"
+    },
+    "liquid": "{{ variables.top }}",
+    "expected": "T",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "comment dropped",
+    "part": "html",
+    "mustachio": "a{{! a note }}b",
+    "model": {},
+    "liquid": "ab",
+    "expected": "ab",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "liquid looking text stays literal",
+    "part": "html",
+    "mustachio": "{% if x %}{{ name }}{% endif %}",
+    "model": {
+      "name": "n"
+    },
+    "liquid": "{{ \"{%\" }} if x %}{{ variables.name }}{{ \"{%\" }} endif %}",
+    "expected": "{% if x %}n{% endif %}",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "single brace css",
+    "part": "html",
+    "mustachio": "<style>a{color:red}@media x{b{c:d}}</style>{{name}}",
+    "model": {
+      "name": "n"
+    },
+    "liquid": "<style>a{color:red}@media x{b{c:d}}</style>{{ variables.name }}",
+    "expected": "<style>a{color:red}@media x{b{c:d}}</style>n",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "triple opening edge",
+    "part": "html",
+    "mustachio": "{ {{name}} }",
+    "model": {
+      "name": "n"
+    },
+    "liquid": "{ {{ variables.name }} }",
+    "expected": "{ n }",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "brace right before value",
+    "part": "html",
+    "mustachio": "x{{{name}}",
+    "model": {
+      "name": "n"
+    },
+    "liquid": "x{{ \"{\" }}{{ variables.name }}",
+    "expected": "x{n",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "subject is not escaped",
+    "part": "subject",
+    "mustachio": "Hi {{name}} & {{{name}}}",
+    "model": {
+      "name": "A & B <c>"
+    },
+    "liquid": "Hi {{ variables.name }} & {{ variables.name }}",
+    "expected": "Hi A & B <c> & A & B <c>",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "text is not escaped",
+    "part": "text",
+    "mustachio": "Hi {{name}}\n{{#each items}}- {{.}}\n{{/each}}",
+    "model": {
+      "name": "A & B",
+      "items": [
+        "x>y"
+      ]
+    },
+    "liquid": "Hi {{ variables.name }}\n{% for item_1 in variables.items %}- {{ item_1 }}\n{% endfor %}",
+    "expected": "Hi A & B\n- x>y\n",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "unicode names and values",
+    "part": "html",
+    "mustachio": "{{naïve}} {{名前}} 🦔",
+    "model": {
+      "naïve": "é",
+      "名前": "太郎"
+    },
+    "liquid": "{{ variables[\"naïve\"] }} {{ variables[\"名前\"] }} 🦔",
+    "expected": "&#233; 太郎 🦔",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "name with digit first",
+    "part": "html",
+    "mustachio": "{{1st}} {{a_b}}",
+    "model": {
+      "1st": "one",
+      "a_b": "ab"
+    },
+    "liquid": "{{ variables[\"1st\"] }} {{ variables.a_b }}",
+    "expected": "one ab",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "number and float print",
+    "part": "html",
+    "mustachio": "{{i}} {{f}}",
+    "model": {
+      "i": 3,
+      "f": 1.5
+    },
+    "liquid": "{{ variables.i }} {{ variables.f }}",
+    "expected": "3 1.5",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "bool print",
+    "part": "html",
+    "mustachio": "{{t}} {{f}}",
+    "model": {
+      "t": true,
+      "f": false
+    },
+    "liquid": "{{ variables.t }} {{ variables.f }}",
+    "expected": "True False",
+    "posthog_renders": "true false",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "object and array print blank",
+    "part": "html",
+    "mustachio": "[{{o}}][{{a}}]",
+    "model": {
+      "o": {
+        "x": 1
+      },
+      "a": [
+        1,
+        2
+      ]
+    },
+    "liquid": "[{{ variables.o }}][{{ variables.a }}]",
+    "expected": "[][]",
+    "posthog_renders": "[[object Object]][12]",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "this prefix",
+    "part": "html",
+    "mustachio": "{{this.name}}|{{#each xs}}{{this}}{{/each}}",
+    "model": {
+      "name": "n",
+      "xs": [
+        "a"
+      ]
+    },
+    "liquid": "{{ variables.this.name }}|{% for item_1 in variables.xs %}{{ item_1.this }}{% endfor %}",
+    "expected": "|",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "multiline tag",
+    "part": "html",
+    "mustachio": "{{\n name\n}}",
+    "model": {
+      "name": "n"
+    },
+    "liquid": "{{ variables.name }}",
+    "expected": "n",
+    "source": "Mustachio 2.1 from NuGet, run in .NET 8"
+  },
+  {
+    "name": "if and else from a migration guide",
+    "part": "html",
+    "mustachio": "{{#if plan}}On {{plan}}{{else}}No plan{{/if}}|{{#if nope}}x{{else}}y{{/if}}",
+    "model": {
+      "plan": "Pro"
+    },
+    "expected": "On Pro|y",
+    "source": "Postmark's Resend migration guide. Mustachio itself refuses this tag.",
+    "liquid": "{% if variables.plan and variables.plan != empty and variables.plan != 0 %}On {{ variables.plan }}{% else %}No plan{% endif %}|{% if variables.nope and variables.nope != empty and variables.nope != 0 %}x{% else %}y{% endif %}"
+  },
+  {
+    "name": "tag mustachio refuses stays visible",
+    "part": "html",
+    "mustachio": "a {{> footer }} b {{ first name }}",
+    "model": {},
+    "expected": "a {{> footer }} b {{ first name }}",
+    "source": "Invalid in Mustachio, so a person has to rewrite it.",
+    "liquid": "a {{ \"{{\" }}> footer }} b {{ \"{{\" }} first name }}"
+  }
+]
