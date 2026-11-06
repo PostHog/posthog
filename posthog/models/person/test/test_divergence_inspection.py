@@ -84,13 +84,14 @@ class TestDivergenceInspection(DivergenceFixturesMixin, ClickhouseTestMixin, Bas
             is_deleted=True,
             distinct_ids=["stray"],
         )
+        self._ch_person(deleted.uuid, 3, {}, deleted=True)
         self._ch_mapping("stray", deleted.uuid, 0)
 
         flavors = self._flavors(inspect_mappings(self.team.pk, ["moved", "stray"]))
 
         assert flavors == {
             "moved": ("diverged", "a_absent", "fold"),
-            "stray": ("stray", None, None),
+            "stray": ("stray", None, "detach"),
         }
 
     def test_inspect_mappings_leaves_ghosts_of_a_deleted_team_alone(self):

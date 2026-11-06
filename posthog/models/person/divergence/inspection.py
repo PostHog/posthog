@@ -186,13 +186,18 @@ def inspect_mappings(team_id: int, distinct_ids: Sequence[str]) -> list[Inspecti
     ch = observe.ch_mapping_states(team_id, dids)
     owners = sorted({c.winner_person_uuid for c in ch.values()})
     owner_states = observe.pg_person_states(team_id, owners) if team_exists and owners else {}
+    owner_ch = observe.owner_ch_states(team_id, pg, ch)
     history = _mapping_history(team_id, dids)
     results = []
     for distinct_id in dids:
         ch_state = ch.get(distinct_id)
         owner_state = observe.person_pg_state(owner_states, ch_state.winner_person_uuid) if ch_state else None
         verdict = classify_mapping(
-            pg.get(distinct_id), ch_state, ch_owner_pg_state=owner_state, team_exists=team_exists
+            pg.get(distinct_id),
+            ch_state,
+            ch_owner_pg_state=owner_state,
+            team_exists=team_exists,
+            owner_ch=owner_ch.get(distinct_id),
         )
         results.append(
             Inspection(
