@@ -556,7 +556,6 @@ class _Analysis:
         if isinstance(node, ast.Call) and node.name in self.functions:
             return self.return_taints.get(node.name, frozenset())
         if isinstance(node, ast.Call) and node.name in self.lambdas_only:
-            # The arguments reach the result only through the lambda's parameters.
             return self.taints.get(node.name, frozenset())
         taint = self._union_taint(_children(node))
         if isinstance(node, ast.Call) and node.name == "fetch":
