@@ -65,6 +65,7 @@ from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS
 from products.signals.backend.report_tags import coerce_report_tags
 from products.signals.backend.spend import (
     begin_report_spend,
+    finalized_signal_ids,
     finish_report_spend,
     lock_signal_spend,
     report_triggering_signal,
@@ -273,7 +274,7 @@ async def check_report_task_settlement_activity(input: SignalReportSummaryWorkfl
         return [
             str(run_id)
             for run_id in SignalSpend.objects.for_team(input.team_id)
-            .filter(signal_id=input.signal_id, task_run_id__isnull=False)
+            .filter(signal_id=input.spend_signal_id or input.signal_id, task_run_id__isnull=False)
             .values_list("task_run_id", flat=True)
         ]
 
@@ -320,7 +321,7 @@ class SignalReportSummaryWorkflow:
         return f"signals-report:{team_id}:{report_id}"
 
     async def _wait_for_task_settlement(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
-        if inputs.signal_id and workflow.patched("signals-wait-for-task-settlement"):
+        if (inputs.spend_signal_id or inputs.signal_id) and workflow.patched("signals-wait-for-task-settlement"):
             try:
                 await workflow.execute_activity(
                     check_report_task_settlement_activity,
@@ -333,7 +334,9 @@ class SignalReportSummaryWorkflow:
                 )
             except ActivityError:
                 # Billing failure must not rerun paid research or discard its result.
-                workflow.logger.exception("signals.spend.accounting_failed", extra={"signal_id": inputs.signal_id})
+                workflow.logger.exception(
+                    "signals.spend.accounting_failed", extra={"signal_id": inputs.spend_signal_id or inputs.signal_id}
+                )
 
     async def _publish_spend(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         try:
@@ -378,21 +381,29 @@ class SignalReportSummaryWorkflow:
             # Loop internally rather than spawning new workflows because summary workflows are
             # fire-and-forget (ParentClosePolicy.ABANDON), so there's no external caller to wait/restart them.
             if workflow.patched("signals-spend-explicit-owner"):
-                signal_id = inputs.signal_id or await workflow.execute_activity(
-                    report_spend_owner_activity,
-                    inputs,
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                if signal_id is None:
+                trial_pipeline = workflow.patched("self-driving-trial-v2")
+                signal_id = inputs.signal_id
+                # A fresh manual rerun is new work; its historical owner is not an admission.
+                if signal_id is None and (self._quota_admitted or not trial_pipeline):
+                    signal_id = await workflow.execute_activity(
+                        report_spend_owner_activity,
+                        inputs,
+                        start_to_close_timeout=timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                if signal_id is None and not trial_pipeline:
                     log.info("Report has no open spend owner, waiting for a new triggering signal")
                     return
+                pass_inputs = replace(
+                    inputs,
+                    signal_id=signal_id,
+                    spend_signal_id=(signal_id or str(workflow.uuid4())) if trial_pipeline else None,
+                )
                 try:
-                    should_loop = await self._run_once(replace(inputs, signal_id=signal_id), log)
+                    should_loop = await self._run_once(pass_inputs, log)
                 finally:
-                    if signal_id:
-                        await self._publish_spend(replace(inputs, signal_id=signal_id))
-                inputs = replace(inputs, signal_id=None)
+                    await self._publish_spend(pass_inputs)
+                inputs = replace(inputs, signal_id=None, spend_signal_id=None)
             else:
                 should_loop = await self._run_once(inputs, log)
             if not should_loop:
@@ -549,9 +560,10 @@ class SignalReportSummaryWorkflow:
                     MarkReportInProgressInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
-                        signal_id=inputs.signal_id,
+                        signal_id=inputs.spend_signal_id or inputs.signal_id,
                         preserve_pending_refresh=workflow.patched("signals-required-refresh-snapshot"),
                         trial_policy_version=1 if workflow.patched("self-driving-trial-v2") else 0,
+                        funding_signal_id=inputs.signal_id,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -592,10 +604,11 @@ class SignalReportSummaryWorkflow:
                     MarkReportInProgressInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
-                        signal_id=inputs.signal_id,
+                        signal_id=inputs.spend_signal_id or inputs.signal_id,
                         signal_count=signal_count,
                         source_products=source_products,
                         trial_policy_version=1 if workflow.patched("self-driving-trial-v2") else 0,
+                        funding_signal_id=inputs.signal_id,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -606,7 +619,7 @@ class SignalReportSummaryWorkflow:
                 SafetyJudgeInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
-                    signal_id=inputs.signal_id,
+                    signal_id=inputs.spend_signal_id or inputs.signal_id,
                     signals=fetch_result.signals,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
@@ -659,7 +672,7 @@ class SignalReportSummaryWorkflow:
                 SelectRepositoryInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
-                    signal_id=inputs.signal_id,
+                    signal_id=inputs.spend_signal_id or inputs.signal_id,
                     signals=fetch_result.signals,
                     github_optional=github_optional,
                 ),
@@ -700,7 +713,7 @@ class SignalReportSummaryWorkflow:
                     RunAgenticReportInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
-                        signal_id=inputs.signal_id,
+                        signal_id=inputs.spend_signal_id or inputs.signal_id,
                         signals=fetch_result.signals,
                         repo_selection=repo_result,
                         repo_selection_as_of=repo_selection_as_of,
@@ -1064,6 +1077,7 @@ class MarkReportInProgressInput:
     signal_id: str | None = None
     preserve_pending_refresh: bool = False
     trial_policy_version: int = 0
+    funding_signal_id: str | None = None
 
 
 @frozen
@@ -1097,7 +1111,7 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
         # Internal refreshes share admission; an explicitly restarted workflow gets a new run ID.
         operation_key = f"report-pass:{info.workflow_run_id}"
         paid_authorized = await database_sync_to_async_pool(report_pass_paid_authorized)(
-            team=team, report_id=input.report_id, operation_key=operation_key, signal_id=input.signal_id
+            team=team, report_id=input.report_id, operation_key=operation_key, signal_id=input.funding_signal_id
         )
     try:
 
@@ -1117,7 +1131,7 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
                     report_id=input.report_id,
                     operation_key=operation_key,
                     paid_authorized=paid_authorized,
-                    signal_id=input.signal_id,
+                    signal_id=input.funding_signal_id,
                 )
             if signal_id:
                 begin_report_spend(team_id=input.team_id, report_id=input.report_id, signal_id=signal_id)
@@ -1881,20 +1895,28 @@ async def publish_report_completed_activity(input: PublishReportCompletedInput) 
 @scoped_temporal()
 async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs) -> None:
     # Older histories did not snapshot their owner. New passes always supply it explicitly.
-    signal_id = input.signal_id or await database_sync_to_async(report_triggering_signal)(
-        team_id=input.team_id, report_id=input.report_id
+    signal_id = (
+        input.spend_signal_id
+        or input.signal_id
+        or await database_sync_to_async(report_triggering_signal)(team_id=input.team_id, report_id=input.report_id)
     )
     if signal_id:
         await database_sync_to_async(finish_report_spend)(
             team_id=input.team_id, report_id=input.report_id, signal_id=signal_id
         )
-        await submit_signal_metadata_updates(team_id=input.team_id, signal_ids=[signal_id])
+        if input.spend_signal_id is None or input.signal_id is not None:
+            await submit_signal_metadata_updates(team_id=input.team_id, signal_ids=[signal_id])
 
 
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
 async def report_spend_owner_activity(input: SignalReportSummaryWorkflowInputs) -> str | None:
-    return input.signal_id or await database_sync_to_async(report_triggering_signal)(
+    signal_id = input.signal_id or await database_sync_to_async(report_triggering_signal)(
         team_id=input.team_id, report_id=input.report_id
     )
+    if signal_id and not await database_sync_to_async(finalized_signal_ids)(
+        team_id=input.team_id, signal_ids=[signal_id]
+    ):
+        return signal_id
+    return None
