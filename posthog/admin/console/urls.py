@@ -92,6 +92,12 @@ urlpatterns = [
         for old, target in MOVED_DELETION_REQUEST_ACTIONS.items()
     ],
     path(
+        "admin/posthog/datadeletionrequest/add/",
+        MovedToConsole.page_redirect(
+            "Creating a deletion request", "/admin/console/tools/new-deletion-request/create/"
+        ),
+    ),
+    path(
         "admin/posthog/organization/bulk-deactivate/",
         MovedToConsole.page_redirect("Bulk deactivation", "/admin/console/tools/bulk-deactivate-organizations/"),
     ),

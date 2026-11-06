@@ -1,158 +1,17 @@
-import re
 from datetime import datetime, timedelta
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
-from django.contrib.auth.models import Group
-from django.contrib.messages.storage.fallback import FallbackStorage
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
-from django.utils import timezone
 
 from bs4 import BeautifulSoup
 from parameterized import parameterized
 
-from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin, dagster_run_url
-from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
-
-
-def _attach_messages(request) -> None:
-    request.session = {}
-    request._messages = FallbackStorage(request)
-
-
-def _fake_reverse(name, args=None, kwargs=None):
-    if args:
-        return f"/{name}/{'/'.join(str(a) for a in args)}/"
-    return f"/{name}/"
-
-
-@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
-class TestDataDeletionRequestAdminCreateForm(BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.user.is_staff = True
-        self.user.save()
-        clickhouse_team, _ = Group.objects.get_or_create(name="ClickHouse Team")
-        self.user.groups.add(clickhouse_team)
-
-        self.factory = RequestFactory()
-        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
-
-    @parameterized.expand([("clickhouse_team", True), ("outside_clickhouse_team", False)])
-    def test_create_form_offers_property_removal_only_to_clickhouse_team(self, _name, in_clickhouse_team):
-        if not in_clickhouse_team:
-            self.user.groups.clear()
-        http_request = self.factory.get("/admin/posthog/datadeletionrequest/add/")
-        http_request.user = self.user
-
-        form = self.admin.get_form(http_request)()
-
-        offered = TestDataDeletionRequestFormHidesUnsupportedTypes._type_values(form)
-        self.assertEqual(RequestType.PROPERTY_REMOVAL in offered, in_clickhouse_team)
-
-
-@time_machine.travel("2025-01-15 12:00:00", tick=False)
-@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
-class TestDataDeletionRequestAdminSaveModel(BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.user.is_staff = True
-        self.user.save()
-        self.factory = RequestFactory()
-        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
-
-    def _call_save(self, obj: DataDeletionRequest, changed_data: list[str] | None = None):
-        path = f"/admin/posthog/datadeletionrequest/{obj.pk}/change/"
-        http_request = self.factory.post(path)
-        http_request.user = self.user
-        _attach_messages(http_request)
-
-        class _FakeForm:
-            changed_data: list[str] = []
-
-        form = _FakeForm()
-        if changed_data is not None:
-            form.changed_data = changed_data
-        self.admin.save_model(http_request, obj, form, change=True)
-
-    def test_event_removal_clears_properties_on_save(self):
-        obj = DataDeletionRequest.objects.create(
-            team_id=self.team.id,
-            request_type=RequestType.EVENT_REMOVAL,
-            events=["$pageview"],
-            properties=["$ip"],
-            start_time=datetime.now() - timedelta(days=7),
-            end_time=datetime.now(),
-            status=RequestStatus.DRAFT,
-        )
-        self._call_save(obj)
-        obj.refresh_from_db()
-        self.assertEqual(obj.properties, [])
-
-    def test_event_removal_clears_person_properties_on_save(self):
-        obj = DataDeletionRequest.objects.create(
-            team_id=self.team.id,
-            request_type=RequestType.EVENT_REMOVAL,
-            events=["$pageview"],
-            person_properties=["email"],
-            start_time=datetime.now() - timedelta(days=7),
-            end_time=datetime.now(),
-            status=RequestStatus.DRAFT,
-        )
-        self._call_save(obj)
-        obj.refresh_from_db()
-        self.assertEqual(obj.person_properties, [])
-
-    def test_event_removal_clears_both_on_save(self):
-        obj = DataDeletionRequest.objects.create(
-            team_id=self.team.id,
-            request_type=RequestType.EVENT_REMOVAL,
-            events=["$pageview"],
-            properties=["$ip"],
-            person_properties=["email"],
-            start_time=datetime.now() - timedelta(days=7),
-            end_time=datetime.now(),
-            status=RequestStatus.DRAFT,
-        )
-        self._call_save(obj)
-        obj.refresh_from_db()
-        self.assertEqual(obj.properties, [])
-        self.assertEqual(obj.person_properties, [])
-
-    def test_property_removal_preserves_both_fields_on_save(self):
-        obj = DataDeletionRequest.objects.create(
-            team_id=self.team.id,
-            request_type=RequestType.PROPERTY_REMOVAL,
-            events=["$pageview"],
-            properties=["$ip"],
-            person_properties=["email"],
-            start_time=datetime.now() - timedelta(days=7),
-            end_time=datetime.now(),
-            status=RequestStatus.DRAFT,
-        )
-        self._call_save(obj)
-        obj.refresh_from_db()
-        self.assertEqual(obj.properties, ["$ip"])
-        self.assertEqual(obj.person_properties, ["email"])
-
-    def test_criteria_change_clears_property_removal_marker(self):
-        obj = DataDeletionRequest.objects.create(
-            team_id=self.team.id,
-            request_type=RequestType.PROPERTY_REMOVAL,
-            events=["$pageview"],
-            properties=["$ip"],
-            start_time=datetime.now() - timedelta(days=7),
-            end_time=datetime.now(),
-            status=RequestStatus.PENDING,
-            property_removal_marker=timezone.now(),
-        )
-        self._call_save(obj, changed_data=["properties"])
-        obj.refresh_from_db()
-        self.assertIsNone(obj.property_removal_marker)
+from posthog.admin.admins.data_deletion_request_admin import DataDeletionRequestAdmin, dagster_run_url
+from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType
 
 
 @time_machine.travel("2025-01-15 12:00:00", tick=False)
@@ -216,140 +75,16 @@ class TestDataDeletionRequestModelValidation(BaseTest):
             self.assertNotIn("person_properties", msg_dict)
 
 
+@time_machine.travel("2026-11-06T12:00:00Z", tick=False)
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
-class TestDataDeletionRequestAdminEditLock(BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.user.is_staff = True
-        self.user.save()
-        self.factory = RequestFactory()
-        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
-
-    def _make_request(self, status: str):
-        return DataDeletionRequest.objects.create(
-            team_id=self.team.id,
-            request_type=RequestType.EVENT_REMOVAL,
-            events=["$pageview"],
-            start_time=datetime.now() - timedelta(days=7),
-            end_time=datetime.now(),
-            status=status,
-        )
-
-    def _readonly_fields(self, obj):
-        http_request = self.factory.get("/admin/posthog/datadeletionrequest/")
-        http_request.user = self.user
-        return self.admin.get_readonly_fields(http_request, obj)
-
-    @parameterized.expand(
-        [
-            ("approved", RequestStatus.APPROVED),
-            ("in_progress", RequestStatus.IN_PROGRESS),
-            ("queued", RequestStatus.QUEUED),
-            ("completed", RequestStatus.COMPLETED),
-            ("failed", RequestStatus.FAILED),
-        ]
-    )
-    def test_locked_statuses_make_all_fields_readonly(self, _name, status):
-        obj = self._make_request(status)
-        readonly = self._readonly_fields(obj)
-        for field in EDITABLE_FIELDS:
-            self.assertIn(field, readonly)
-
-    @parameterized.expand(
-        [
-            ("draft", RequestStatus.DRAFT),
-            ("pending", RequestStatus.PENDING),
-        ]
-    )
-    def test_editable_statuses_keep_fields_editable(self, _name, status):
-        obj = self._make_request(status)
-        readonly = self._readonly_fields(obj)
-        # team_id is immutable once the request exists, so it stays readonly even when editable.
-        for field in EDITABLE_FIELDS:
-            if field == "team_id":
-                self.assertIn(field, readonly)
-            else:
-                self.assertNotIn(field, readonly)
-
-    def test_add_view_fields_editable(self):
-        readonly = self._readonly_fields(None)
-        for field in EDITABLE_FIELDS:
-            self.assertNotIn(field, readonly)
-
-
-@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
-class TestDataDeletionRequestAdminChangeViewLock(BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.user.is_staff = True
-        self.user.save()
-        self.factory = RequestFactory()
-        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
-
-    def _make_request(self, status: str = RequestStatus.DRAFT):
-        return DataDeletionRequest.objects.create(
-            team_id=self.team.id,
-            request_type=RequestType.EVENT_REMOVAL,
-            events=["$pageview"],
-            start_time=datetime.now() - timedelta(days=7),
-            end_time=datetime.now(),
-            status=status,
-        )
-
-    def _change_context(self, request: DataDeletionRequest):
-        http_request = self.factory.get(f"/admin/posthog/datadeletionrequest/{request.pk}/change/")
-        http_request.user = self.user
-        _attach_messages(http_request)
-
-        captured: dict = {}
-
-        def _capture_super(self_admin, http_req, object_id, form_url, extra_context):
-            captured.update(extra_context)
-            from django.http import HttpResponse
-
-            return HttpResponse(status=200)
-
-        with (
-            patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse),
-            patch("django.contrib.admin.ModelAdmin.change_view", _capture_super),
-        ):
-            self.admin.change_view(http_request, str(request.pk))
-        return captured
-
-    @parameterized.expand(
-        [
-            ("approved", RequestStatus.APPROVED),
-            ("in_progress", RequestStatus.IN_PROGRESS),
-            ("queued", RequestStatus.QUEUED),
-            ("completed", RequestStatus.COMPLETED),
-            ("failed", RequestStatus.FAILED),
-        ]
-    )
-    def test_change_view_hides_save_for_locked(self, _name, status):
-        ctx = self._change_context(self._make_request(status))
-        self.assertFalse(ctx.get("show_save", True))
-
-    @parameterized.expand(
-        [
-            ("draft", RequestStatus.DRAFT),
-            ("pending", RequestStatus.PENDING),
-        ]
-    )
-    def test_change_view_shows_save_for_editable(self, _name, status):
-        ctx = self._change_context(self._make_request(status))
-        self.assertTrue(ctx.get("show_save", True))
-
-
-@time_machine.travel("2025-01-15 12:00:00", tick=False)
-@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
-class TestDataDeletionRequestAdminChangeFormScripts(BaseTest):
+class TestDataDeletionRequestAdminChangePage(BaseTest):
     def setUp(self):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
         self.client.force_login(self.user)
 
-    def test_array_previews_are_wired_by_a_script_carrying_the_page_nonce(self):
+    def test_change_page_is_read_only_and_links_to_the_console(self):
         request = DataDeletionRequest.objects.create(
             team_id=self.team.id,
             request_type=RequestType.EVENT_REMOVAL,
@@ -360,26 +95,15 @@ class TestDataDeletionRequestAdminChangeFormScripts(BaseTest):
         )
 
         response = self.client.get(f"/admin/posthog/datadeletionrequest/{request.pk}/change/")
+        posted = self.client.post(f"/admin/posthog/datadeletionrequest/{request.pk}/change/", {"notes": "edited"})
 
         self.assertEqual(response.status_code, 200)
-        nonce = re.search(r"'nonce-([^']+)'", response["Content-Security-Policy"])
-        assert nonce is not None
         soup = BeautifulSoup(response.content, "html.parser")
-        inline_scripts = soup.select("script:not([src])")
-        self.assertEqual({script.get("nonce") for script in inline_scripts}, {nonce.group(1)})
-        self.assertTrue(
-            any(
-                "array-textarea-preview" in script.get_text() and "textareaId" in script.get_text()
-                for script in inline_scripts
-            )
-        )
-        self.assertEqual(
-            {preview.get("data-textarea-id") for preview in soup.select("div.array-textarea-preview")},
-            {
-                soup.select_one(f"textarea[name={field}]").get("id")
-                for field in ("events", "properties", "person_properties")
-            },
-        )
+        self.assertIsNone(soup.select_one("textarea, input[name=_save]"))
+        self.assertIsNotNone(soup.select_one(f'a[href="/admin/console/deletion-requests/{request.pk}/"]'))
+        self.assertEqual(posted.status_code, 403)
+        request.refresh_from_db()
+        self.assertEqual(request.notes, "")
 
     @parameterized.expand([("existing_team", True), ("deleted_team", False)])
     def test_change_view_shows_team_and_organization(self, _name, team_exists):
@@ -413,96 +137,6 @@ class TestDataDeletionRequestAdminChangeFormScripts(BaseTest):
         else:
             self.assertEqual(links, {})
             self.assertIn(f"{team_id} (team not found)", team_field.get_text())
-
-    @parameterized.expand(
-        [
-            ("naive", "2025-01-08 08:12:00", ("2025-01-08", "08:12:00")),
-            ("iso_utc", "2025-01-08T08:12:00Z", ("2025-01-08", "08:12:00")),
-            ("other_offset", "2025-01-08T10:12:00+02:00", ("2025-01-08", "08:12:00")),
-            ("unparseable", "next tuesday", ("", "")),
-            ("invalid_date", "2025-13-45 08:12:00", ("", "")),
-        ]
-    )
-    def test_add_view_prefills_datetimes_from_query_string(self, _name, value, expected):
-        response = self.client.get("/admin/posthog/datadeletionrequest/add/", {"start_time": value})
-
-        self.assertEqual(response.status_code, 200)
-        soup = BeautifulSoup(response.content, "html.parser")
-        rendered = tuple(soup.select_one(f"input[name=start_time_{i}]").get("value", "") for i in (0, 1))
-        self.assertEqual(rendered, expected)
-
-
-@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
-class TestDataDeletionRequestAdminDuplicate(BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.user.is_staff = True
-        self.user.save()
-        self.factory = RequestFactory()
-        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
-
-    def _call_duplicate(self, queryset):
-        http_request = self.factory.post("/admin/posthog/datadeletionrequest/")
-        http_request.user = self.user
-        _attach_messages(http_request)
-        with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
-            self.admin.duplicate_requests(http_request, queryset)
-
-    @parameterized.expand(
-        [
-            ("with_notes", "please be careful"),
-            ("without_notes", ""),
-        ]
-    )
-    @time_machine.travel("2026-01-15", tick=False)
-    def test_duplicate_copies_criteria_into_a_fresh_draft_with_link_note(self, _name, original_notes):
-        original = DataDeletionRequest.objects.create(
-            team_id=self.team.id,
-            request_type=RequestType.EVENT_REMOVAL,
-            events=["$pageview"],
-            start_time=datetime.now() - timedelta(days=7),
-            end_time=datetime.now(),
-            notes=original_notes,
-            status=RequestStatus.COMPLETED,
-            count=42,
-            approved=True,
-            approved_at=datetime.now(),
-            attempt_count=3,
-        )
-
-        self._call_duplicate(DataDeletionRequest.objects.filter(pk=original.pk))
-
-        copy = DataDeletionRequest.objects.exclude(pk=original.pk).get()
-        self.assertEqual(copy.team_id, original.team_id)
-        self.assertEqual(copy.events, ["$pageview"])
-        self.assertEqual(copy.status, RequestStatus.DRAFT)
-        self.assertIsNone(copy.count)
-        self.assertFalse(copy.approved)
-        self.assertEqual(copy.attempt_count, 0)
-        self.assertEqual(copy.created_by, self.user)
-        self.assertIn(str(original.pk), copy.notes)
-        self.assertIn("Copy of data deletion request", copy.notes)
-        if original_notes:
-            self.assertIn(original_notes, copy.notes)
-        else:
-            # No original notes — the copy note stands alone, no trailing separator.
-            self.assertFalse(copy.notes.endswith("\n"))
-
-    def test_duplicate_preserves_query_snapshot(self):
-        original = DataDeletionRequest.objects.create(
-            team_id=self.team.id,
-            request_type=RequestType.HOGQL_EVENT_REMOVAL,
-            hogql_query="SELECT uuid FROM events WHERE event = {event}",
-            hogql_variables={"event": "$pageview"},
-            execution_mode=ExecutionMode.DEFERRED,
-        )
-
-        self._call_duplicate(DataDeletionRequest.objects.filter(pk=original.pk))
-
-        copy = DataDeletionRequest.objects.exclude(pk=original.pk).get()
-        self.assertEqual(copy.hogql_query, original.hogql_query)
-        self.assertEqual(copy.hogql_variables, original.hogql_variables)
-        self.assertEqual(copy.execution_mode, ExecutionMode.DEFERRED)
 
 
 class TestDagsterRunLink(SimpleTestCase):
@@ -538,46 +172,3 @@ class TestDagsterRunLink(SimpleTestCase):
     def test_admin_renders_placeholder_when_never_executed(self):
         admin_obj = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
         self.assertEqual(admin_obj.last_dagster_run(DataDeletionRequest()), "—")
-
-
-class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
-    @staticmethod
-    def _type_values(form) -> list[str]:
-        from typing import cast
-
-        from django import forms
-
-        request_type = form.fields["request_type"]
-        assert isinstance(request_type, forms.ChoiceField)
-        choices = cast("list[tuple[str, str]]", request_type.choices)
-        return [value for value, _ in choices]
-
-    @parameterized.expand(
-        [
-            ("outside_clickhouse_team", False, [RequestType.EVENT_REMOVAL]),
-            ("clickhouse_team", True, [RequestType.PROPERTY_REMOVAL, RequestType.EVENT_REMOVAL]),
-        ]
-    )
-    def test_types_offered_on_a_new_request(self, _name, offer_clickhouse_team_types, expected_types):
-        from posthog.admin.admins.data_deletion_request_admin import PERSON_REMOVAL_FIELDS, DataDeletionRequestForm
-
-        form_class = type(
-            "Form", (DataDeletionRequestForm,), {"offer_clickhouse_team_types": offer_clickhouse_team_types}
-        )
-        form = form_class()
-        self.assertEqual(self._type_values(form), expected_types)
-        for field in PERSON_REMOVAL_FIELDS:
-            self.assertNotIn(field, form.fields)
-
-    @parameterized.expand(
-        [
-            (RequestType.HOGQL_EVENT_REMOVAL,),
-            (RequestType.PROPERTY_REMOVAL,),
-            (RequestType.PERSON_REMOVAL,),
-        ]
-    )
-    def test_existing_request_keeps_its_own_type_selectable(self, request_type):
-        from posthog.admin.admins.data_deletion_request_admin import DataDeletionRequestForm
-
-        form = DataDeletionRequestForm(instance=DataDeletionRequest(team_id=1, request_type=request_type))
-        self.assertIn(request_type, self._type_values(form))
