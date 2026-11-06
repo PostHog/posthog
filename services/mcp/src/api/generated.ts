@@ -27325,6 +27325,15 @@ export namespace Schemas {
       Invalid: 'invalid',
     } as const;
 
+    export interface ConditionCompanions {
+      /** Condition claims a policy may set only with a companion. */
+      claims: string[];
+      /** Claims of which a policy must set at least one beside them. */
+      companions: string[];
+      /** Why the claims need a companion, to show the person. */
+      reason: string;
+    }
+
     /**
      * Claim name to value. {value} stands for what the person types into the preset's field.
      */
@@ -118079,11 +118088,6 @@ export namespace Schemas {
     }
 
     /**
-     * Condition claims that a policy may set only together with at least one of the listed claims.
-     */
-    export type WorkloadProviderConditionClaimCompanions = {[key: string]: string[]};
-
-    /**
      * Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works.
      */
     export type WorkloadProviderSubjectLookupConditions = {[key: string]: string};
@@ -118107,8 +118111,8 @@ export namespace Schemas {
       required_condition_claims: string[];
       /** Common choices of conditions to offer before the raw claims, in display order. */
       condition_presets: ConditionPreset[];
-      /** Condition claims that a policy may set only together with at least one of the listed claims. */
-      readonly condition_claim_companions: WorkloadProviderConditionClaimCompanions;
+      /** Rules for condition claims that a policy may set only together with another claim. */
+      condition_companions: ConditionCompanions[];
       /** Whether PostHog can look up the subject from its name with resolve_subject. */
       readonly can_resolve_subject: boolean;
       /** Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works. */

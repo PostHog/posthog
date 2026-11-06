@@ -48,7 +48,7 @@ const PROVIDER = {
             default_value: 'production',
         },
     ],
-    condition_claim_companions: {},
+    condition_companions: [],
     can_resolve_subject: true,
     required_condition_claims: [],
     subject_lookup_conditions: {},
@@ -115,13 +115,13 @@ describe('workload condition presets', () => {
         [
             'a claim without its companion',
             { environment: 'production', event_name: 'push' },
-            'Event also matches runs you may not expect. Set Branch or tag too.',
+            'Event needs Branch or tag too. Why.',
         ],
     ])('checks a policy with %s', (_name, conditions: Record<string, string>, expected) => {
         const provider = {
             ...PROVIDER,
             required_condition_claims: ['environment'],
-            condition_claim_companions: { event_name: ['ref'] },
+            condition_companions: [{ claims: ['event_name'], companions: ['ref'], reason: 'Why.' }],
         } as WorkloadProviderApi
 
         expect(conditionsError(conditions, provider)).toEqual(expected)

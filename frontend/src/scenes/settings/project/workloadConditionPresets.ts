@@ -112,9 +112,10 @@ export function conditionsError(
     if (missing.length) {
         return `Set these conditions: ${missing.join(', ')}`
     }
-    for (const [claim, companions] of Object.entries(provider?.condition_claim_companions ?? {})) {
-        if (conditions[claim] && !companions.some((companion) => conditions[companion])) {
-            return `${labelOf(claim)} also matches runs you may not expect. Set ${companions.map(labelOf).join(' or ')} too.`
+    for (const rule of provider?.condition_companions ?? []) {
+        const alone = rule.claims.find((claim) => conditions[claim])
+        if (alone && !rule.companions.some((companion) => conditions[companion])) {
+            return `${labelOf(alone)} needs ${rule.companions.map(labelOf).join(' or ')} too. ${rule.reason}`
         }
     }
     // The required claims pin the account, not the runs, so a policy needs another condition too.

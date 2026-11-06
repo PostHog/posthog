@@ -23,6 +23,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
 from posthog.tasks.email import send_workload_trust_policy_changed
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+from posthog.workload_identity.providers import ConditionCompanions
 from posthog.workload_identity.subjects import (
     ResolvedWorkloadSubject,
     WorkloadSubjectLookupUnavailable,
@@ -34,6 +35,8 @@ from posthog.workload_identity.test.fixtures import (
     with_fake_workload_provider,
 )
 from posthog.workload_identity.trust_policy import DUPLICATE_POLICY_MESSAGE, normalize_workload_conditions
+
+REF_NEEDS_ENVIRONMENT = (ConditionCompanions(claims=("ref",), companions=("environment",), reason="Why."),)
 
 
 def _payload(**overrides: Any) -> dict[str, Any]:
@@ -249,12 +252,26 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
         self, _name: str, conditions: dict[str, str], expected_status: int
     ) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
-        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, condition_claim_companions=(("ref", ("environment",)),))
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, condition_companions=REF_NEEDS_ENVIRONMENT)
 
         with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
             response = self.client.post(self.url, _payload(conditions=conditions), format="json")
 
         assert response.status_code == expected_status, response.json()
+
+    def test_an_update_that_leaves_a_claim_without_its_companion_is_refused(self) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        policy = self._create_policy(conditions={"ref": "refs/heads/main", "environment": "production"})
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, condition_companions=REF_NEEDS_ENVIRONMENT)
+
+        with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
+            response = self.client.patch(
+                f"{self.url}{policy.id}/", {"conditions": {"ref": "refs/heads/main"}}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        policy.refresh_from_db()
+        assert policy.conditions == {"ref": "refs/heads/main", "environment": "production"}
 
     def test_rejects_a_second_policy_whose_conditions_differ_only_by_an_empty_value(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
@@ -503,6 +520,19 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         policy_request.refresh_from_db()
         assert policy_request.status == WorkloadTrustPolicyRequest.Status.PENDING
+
+    def test_a_request_without_a_companion_is_refused_and_an_old_one_cannot_be_approved(self) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, condition_companions=REF_NEEDS_ENVIRONMENT)
+        filed_before_the_rule = self._create_request(conditions={"ref": "refs/heads/main"})
+
+        with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
+            created = self.client.post(self.url, _payload(conditions={"ref": "refs/heads/main"}), format="json")
+            approved = self.client.post(f"{self.url}{filed_before_the_rule.id}/approve/")
+
+        assert created.status_code == status.HTTP_400_BAD_REQUEST, created.json()
+        assert approved.status_code == status.HTTP_400_BAD_REQUEST, approved.json()
+        assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
 
     @patch("posthog.workload_identity.trust_policy.send_workload_trust_policy_changed")
     def test_admin_approves_their_own_request_which_creates_the_policy(self, mock_send: MagicMock) -> None:

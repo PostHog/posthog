@@ -37,6 +37,17 @@ SNIPPET_PROJECT_ID = "{project_id}"
 
 
 @frozen
+class ConditionCompanions:
+    """Condition claims that match runs people don't expect on their own, so a policy that sets one of them
+    must also set one of the companions."""
+
+    claims: tuple[str, ...]
+    companions: tuple[str, ...]
+    # Why, in words the person who builds the policy understands.
+    reason: str
+
+
+@frozen
 class ConditionPreset:
     """A common choice of conditions, so people pick "Pushes to a branch" rather than claim names."""
 
@@ -88,8 +99,7 @@ class WorkloadProvider:
     # The registry pins the JWKS URL, so the cap against a hostile client key set can be raised here.
     jwks_max_keys: int | None = None
     claims_equal_to_subject: tuple[str, ...] = ()
-    # A condition claim that matches unexpected runs on its own, with the claims a policy must set beside it.
-    condition_claim_companions: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    condition_companions: tuple[ConditionCompanions, ...] = ()
     # The CI config a job needs, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
     setup_snippet: str = ""
 
@@ -114,9 +124,9 @@ class WorkloadProvider:
             raise ValueError(f"{self.key}: required condition claims must be condition claims.")
         if not {claim for claim, _ in self.subject_lookup_conditions} <= set(condition_names):
             raise ValueError(f"{self.key}: subject lookup conditions must use condition claims.")
-        for claim, companions in self.condition_claim_companions:
-            if not companions or not {claim, *companions} <= set(condition_names):
-                raise ValueError(f"{self.key}: companions of {claim} must be condition claims.")
+        for rule in self.condition_companions:
+            if not rule.claims or not rule.companions or not {*rule.claims, *rule.companions} <= set(condition_names):
+                raise ValueError(f"{self.key}: condition companions must name condition claims.")
         preset_keys = [preset.key for preset in self.condition_presets]
         if len(set(preset_keys)) != len(preset_keys):
             raise ValueError(f"{self.key}: condition presets must have unique keys.")
@@ -213,10 +223,12 @@ GITHUB_ACTIONS = WorkloadProvider(
     run_url_template="https://github.com/{repository}/actions/runs/{run_id}",
     docs_url="https://posthog.com/docs/api/workload-identity/github-actions",
     resolve_subject=resolve_github_repository,
-    # pull_request_target and issue_comment runs, fork pull requests among them, carry the base branch's ref.
-    condition_claim_companions=tuple(
-        (claim, ("event_name", "environment"))
-        for claim in ("ref", "ref_protected", "workflow_ref", "job_workflow_ref", "runner_environment")
+    condition_companions=(
+        ConditionCompanions(
+            claims=("ref", "ref_protected", "workflow_ref", "job_workflow_ref", "runner_environment"),
+            companions=("event_name", "environment"),
+            reason="Pull request and comment runs, including ones from forks, carry the base branch's ref and workflow, so without an event or an environment the policy can trust code from outside the repository.",
+        ),
     ),
     condition_presets=(
         ConditionPreset(
@@ -322,8 +334,18 @@ GITLAB = WorkloadProvider(
     resolve_subject=resolve_gitlab_project,
     # project_id names a merge request's source project, so a pipeline in another project would pair it with that project's environments.
     claims_equal_to_subject=("job_project_id",),
-    # A tag can carry a branch's short name, and only start jobs wait for deployment approval.
-    condition_claim_companions=(("ref", ("ref_type",)), ("environment", ("environment_action",))),
+    condition_companions=(
+        ConditionCompanions(
+            claims=("ref",),
+            companions=("ref_type",),
+            reason="GitLab names a branch or a tag by its short name, so without the ref type a tag with a protected branch's name also matches.",
+        ),
+        ConditionCompanions(
+            claims=("environment",),
+            companions=("environment_action",),
+            reason="Jobs that prepare, verify or access a protected environment don't wait for deployment approval, so without the action they also match.",
+        ),
+    ),
     condition_presets=(
         ConditionPreset(
             key="branch",
@@ -425,7 +447,6 @@ DEPOT_CI = WorkloadProvider(
     resolve_subject=resolve_github_repository,
     # The lookup asks GitHub, which knows nothing about another forge's repository IDs.
     subject_lookup_conditions=(("forge", "github"),),
-    condition_claim_companions=(("ref", ("event_name",)), ("workflow_ref", ("event_name",))),
     jwks_max_keys=32,
     condition_presets=(
         ConditionPreset(
