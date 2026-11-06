@@ -111,7 +111,7 @@ def _apply_sandbox_tenant_state(state: SandboxSenderTenantState, sending_status:
     transaction.on_commit(lambda: reload_sandbox_sender_state_on_workers(tenant_name), robust=True)
 
 
-def sync_sandbox_tenant_state(provider: SESProvider | None = None) -> None:
+def sync_sandbox_tenant_state() -> None:
     tenant_name = settings.SES_SANDBOX_TENANT_NAME
     if not tenant_name:
         return
@@ -128,7 +128,7 @@ def sync_sandbox_tenant_state(provider: SESProvider | None = None) -> None:
             ).inc()
             raise
         try:
-            tenant = (provider or SESProvider()).get_tenant_sending_state(tenant_name)
+            tenant = SESProvider().get_tenant_sending_state(tenant_name)
         except Exception as error:
             SANDBOX_TENANT_SYNC_FAILURES.labels(kind=_sandbox_sync_failure_kind(error)).inc()
             raise
