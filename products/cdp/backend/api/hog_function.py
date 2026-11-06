@@ -17,7 +17,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import exceptions, serializers, status, viewsets
@@ -349,6 +349,25 @@ def _raise_secret_reentry(errors: Any) -> None:
     refused = [key for key, error in inputs_errors.items() if getattr(error, "code", None) == "secret_reentry_required"]
     if refused:
         raise _secret_reentry_error(refused)
+
+
+def _draft_with_entered_secrets(draft: dict, entered: Optional[dict]) -> dict:
+    """The draft to publish, with the secrets the publisher entered again. Only secret inputs are
+    taken, so publishing can't change config the preview didn't show."""
+    if not entered:
+        return dict(draft)
+    secret_keys = {
+        schema["key"]
+        for schema in draft.get("inputs_schema") or []
+        if isinstance(schema, dict) and schema.get("secret") and "key" in schema
+    }
+    not_secret = sorted(entered.keys() - secret_keys)
+    if not_secret:
+        raise exceptions.ValidationError(
+            {"inputs": f"Only the draft's secret inputs can be entered when publishing: {', '.join(not_secret)}."}
+        )
+    entered_inputs = {key: {"value": item["value"]} for key, item in entered.items()}
+    return {**draft, "inputs": {**(draft.get("inputs") or {}), **entered_inputs}}
 
 
 def _comparable_inputs(items: Any) -> dict:
@@ -1307,6 +1326,23 @@ class HogFunctionRevisionRestoreRequestSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "object", "additionalProperties": {"type": "string"}}]})
+class EnteredSecretValueField(serializers.Field):
+    def to_internal_value(self, data: Any) -> Any:
+        if isinstance(data, str) or (isinstance(data, dict) and all(isinstance(v, str) for v in data.values())):
+            return data
+        raise serializers.ValidationError("Enter a string, or an object of strings for a dictionary secret.")
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+
+class HogFunctionPublishSecretInputSerializer(serializers.Serializer):
+    value = EnteredSecretValueField(
+        help_text="The secret's value: a string, or an object of string entries for a dictionary secret."
+    )
+
+
 class HogFunctionPublishRequestSerializer(serializers.Serializer):
     confirm = serializers.BooleanField(
         default=False,
@@ -1321,6 +1357,15 @@ class HogFunctionPublishRequestSerializer(serializers.Serializer):
             "From the preview response, and required when confirm=true on an enabled function. Expires "
             "after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you "
             "always publish the exact draft you previewed."
+        ),
+    )
+    inputs = serializers.DictField(
+        child=HogFunctionPublishSecretInputSerializer(),
+        required=False,
+        help_text=(
+            "Secret inputs entered again, keyed by input key, sent with confirm=true. Use it when publishing "
+            "returned code secret_reentry_required: the staged config sends a stored secret to a new address, "
+            "so the secret has to be entered to go live. Only the draft's secret inputs are accepted."
         ),
     )
 
@@ -2090,7 +2135,7 @@ class HogFunctionViewSet(
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
             serializer = self.get_serializer(
                 locked,
-                data=dict(locked.draft),
+                data=_draft_with_entered_secrets(locked.draft, param_serializer.validated_data.get("inputs")),
                 partial=True,
                 context={**self.get_serializer_context(), "live_encrypted_inputs": live_secrets},
             )
