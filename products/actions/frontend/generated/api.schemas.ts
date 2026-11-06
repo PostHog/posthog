@@ -446,7 +446,8 @@ export interface ActionStepJSONApi {
      */
     properties?: ActionStepPropertyFilterApi[] | null
     /**
-     * CSS selector to match the target element (e.g. 'div > button.cta').
+     * CSS selector to match the target element (e.g. 'div > button.cta'). At most 4096 characters.
+     * @maxLength 4096
      * @nullable
      */
     selector?: string | null
