@@ -367,31 +367,46 @@ class TestHogFunctionDrafts(DraftTestCase):
         )
         assert function.encrypted_inputs["token"]["allowed_origins"] == expected_origins
 
-    def test_draft_cannot_move_a_dictionary_secret_by_adding_an_entry(self):
+    @parameterized.expand(
+        [
+            (
+                "by_adding_an_entry",
+                "fetch(inputs.url, {'headers': inputs.secret_headers});",
+                {"Authorization": "Bearer live"},
+                {
+                    "url": {"value": MOVED_URL},
+                    "secret_headers": {"value": {"Authorization": "********", "X-Extra": "typed"}},
+                },
+                ["https://hooks.example.com"],
+            ),
+            (
+                "by_editing_its_own_url_entry",
+                "fetch(inputs.secret_headers.url, {'headers': {'Authorization': inputs.secret_headers.token}});",
+                {"url": SENDER_URL, "token": "Bearer live"},
+                {"url": {"value": SENDER_URL}, "secret_headers": {"value": {"url": MOVED_URL, "token": "********"}}},
+                "*",
+            ),
+        ]
+    )
+    def test_draft_cannot_move_a_dictionary_secret(
+        self, _name: str, hog: str, stored_headers: dict, staged_inputs: dict, expected_origins: list[str] | str
+    ):
         function_id = self._create(
-            hog="fetch(inputs.url, {'headers': inputs.secret_headers});",
+            hog=hog,
             inputs_schema=[
                 BASE_FUNCTION["inputs_schema"][0],
                 {"key": "secret_headers", "type": "dictionary", "label": "Secret headers", "secret": True},
             ],
-            inputs={"url": {"value": SENDER_URL}, "secret_headers": {"value": {"Authorization": "Bearer live"}}},
+            inputs={"url": {"value": SENDER_URL}, "secret_headers": {"value": stored_headers}},
         )
 
         with secret_host_binding_flag(True):
-            self._stage(
-                function_id,
-                {
-                    "inputs": {
-                        "url": {"value": MOVED_URL},
-                        "secret_headers": {"value": {"Authorization": "********", "X-Extra": "typed"}},
-                    }
-                },
-            )
+            self._stage(function_id, {"inputs": staged_inputs})
             published = self._publish(function_id)
 
         assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
         stored = HogFunction.objects.get(id=function_id).encrypted_inputs["secret_headers"]
-        assert stored["allowed_origins"] == ["https://hooks.example.com"]
+        assert stored["allowed_origins"] == expected_origins
 
     @parameterized.expand(
         [

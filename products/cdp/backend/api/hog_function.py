@@ -326,12 +326,12 @@ def _mapping_inputs(mappings: Any) -> list[dict]:
     return [mapping.get("inputs") or {} for mapping in mappings or [] if isinstance(mapping, dict)]
 
 
-def _analyzed_config(hog: Optional[str], inputs: dict, mappings: Any, without: str) -> tuple:
+def _analyzed_config(hog: Optional[str], inputs: dict, mappings: Any) -> tuple:
     def comparable(items: Any) -> dict:
         return {
             key: (item.get("value"), item.get("templating") or "hog")
             for key, item in (items or {}).items()
-            if isinstance(item, dict) and key != without
+            if isinstance(item, dict)
         }
 
     return hog or "", comparable(inputs), [comparable(mapping_inputs) for mapping_inputs in _mapping_inputs(mappings)]
@@ -948,15 +948,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         mappings = attrs.get("mappings", instance.mappings if instance else None)
         derived = secret_origins(hog or "", inputs, _mapping_inputs(mappings), secret_keys)
         entered = entered_secret_input_keys(self.initial_data.get("inputs"))
-        stored_inputs = {**((instance.inputs or {}) if instance else {}), **stored_secrets}
+        live_secrets = self.context.get("live_encrypted_inputs", stored_secrets)
+        stored_inputs = {**((instance.inputs or {}) if instance else {}), **live_secrets}
         stored_derived: Optional[dict[str, SecretOrigins]] = None
 
         refused = []
         outcomes = []
         for key in secret_keys:
             stored = stored_secrets.get(key)
-            unchanged = instance is not None and _analyzed_config(hog, inputs, mappings, key) == _analyzed_config(
-                instance.hog, stored_inputs, instance.mappings, key
+            unchanged = instance is not None and _analyzed_config(hog, inputs, mappings) == _analyzed_config(
+                instance.hog, stored_inputs, instance.mappings
             )
             baseline = None
             if isinstance(stored, dict) and instance is not None:
@@ -1561,9 +1562,11 @@ class HogFunctionViewSet(
             hog_function = None
 
         data = request.data
+        context = {**self.get_serializer_context(), "instance": hog_function}
         if data.get("use_draft"):
             data = {**data, "configuration": self._draft_test_configuration(hog_function)}
             if hog_function is not None:
+                context["live_encrypted_inputs"] = hog_function.encrypted_inputs or {}
                 # In memory only. Recovering staged secrets like live ones keeps them under the same
                 # origin check, which plaintext values in the configuration would skip as newly entered.
                 hog_function.encrypted_inputs = {
@@ -1573,9 +1576,7 @@ class HogFunctionViewSet(
         elif "configuration" not in data:
             raise exceptions.ValidationError({"configuration": "Required unless use_draft is true."})
 
-        serializer = HogFunctionInvocationSerializer(
-            data=data, context={**self.get_serializer_context(), "instance": hog_function}
-        )
+        serializer = HogFunctionInvocationSerializer(data=data, context=context)
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
@@ -1954,13 +1955,16 @@ class HogFunctionViewSet(
             # The draft's own staged secrets outrank the live ones while the draft is revalidated: the
             # serializer recovers secret inputs from `instance.encrypted_inputs`, and save() re-splits
             # whatever it recovered back into that column.
-            locked.encrypted_inputs = {
-                **(locked.encrypted_inputs or {}),
-                **(locked.draft_encrypted_inputs or {}),
-            }
+            live_secrets = locked.encrypted_inputs or {}
+            locked.encrypted_inputs = {**live_secrets, **(locked.draft_encrypted_inputs or {})}
             # The draft goes back through the normal serializer so publish revalidates strictly and
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
-            serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
+            serializer = self.get_serializer(
+                locked,
+                data=dict(locked.draft),
+                partial=True,
+                context={**self.get_serializer_context(), "live_encrypted_inputs": live_secrets},
+            )
             serializer.is_valid(raise_exception=True)
             serializer.save()
             self._record_revision(locked, before_update, before_content)
