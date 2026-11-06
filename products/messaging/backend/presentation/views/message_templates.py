@@ -97,7 +97,6 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     with_code_send_reason,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
-from products.messaging.backend.services.smtp_activity import SmtpActivityKind, record_smtp_activity
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
 from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
@@ -1279,50 +1278,17 @@ class SmtpCheckResponseSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(help_text="ID of the project the key sends for.")
 
 
-class SmtpActivitySerializer(serializers.Serializer):
-    kind = serializers.ChoiceField(
-        choices=SmtpActivityKind.choices, help_text="`refused` or `dropped_headers`, what happened to the message."
-    )
-    reply = serializers.CharField(
-        required=False, allow_blank=True, max_length=512, help_text="The reply line the SMTP client got."
-    )
-    # A malformed address is exactly what a refusal needs to show, so these aren't validated as addresses.
-    sender = serializers.CharField(
-        required=False, allow_blank=True, max_length=320, help_text="The envelope sender of the message."
-    )
-    to = serializers.ListField(
-        child=serializers.CharField(max_length=320),
-        required=False,
-        max_length=20,
-        help_text="The envelope recipients of the message, up to 20.",
-    )
-    message_id = serializers.CharField(
-        required=False, allow_blank=True, max_length=128, help_text="ID of the queued send, when one was queued."
-    )
-    dropped_headers = serializers.ListField(
-        child=serializers.CharField(max_length=128),
-        required=False,
-        max_length=20,
-        help_text="Names of the headers PostHog could not forward, up to 20.",
-    )
-
-    def get_fields(self) -> dict[str, serializers.Field]:
-        fields = super().get_fields()
-        fields["from"] = fields.pop("sender")
-        return fields
-
-
 class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = ["email", "smtp_check", "smtp_activity"]
+    psak_allowed_actions = ["email", "smtp_check"]
     transactional_email_send_actions = ("email",)
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
 
     def get_throttles(self):
-        if self.action in ("smtp_check", "smtp_activity"):
+        if self.action == "smtp_check":
             return [SmtpRelayCallThrottle()]
         return transactional_email_throttles()
 
@@ -1377,19 +1343,6 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         _require_flag(self.team, SMTP_RELAY_FLAG)
         require_email_from_code(self.team)
         return Response({"team_id": self.team_id})
-
-    @validated_request(
-        SmtpActivitySerializer,
-        responses={204: OpenApiResponse(description="Recorded")},
-        summary="Record what the SMTP relay did with a message",
-        description="Keeps a short per-project list of refused messages and dropped headers, so the SMTP setup page "
-        "can show why mail didn't arrive. Holds no message content. Needs the `transactional_email:write` scope.",
-    )
-    @action(detail=False, methods=["POST"], required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
-    def smtp_activity(self, request: Any, *args: Any, **kwargs: Any) -> Response:
-        _require_flag(self.team, SMTP_RELAY_FLAG)
-        record_smtp_activity(self.team_id, request.validated_data)
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _send_code_email(self, request: Any) -> Response:
         with transactional_email_stage("feature_flag"):

@@ -44,7 +44,6 @@ import type {
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
     SetPreferencesApi,
-    SmtpActivityApi,
     SmtpCheckResponseApi,
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
@@ -136,27 +135,6 @@ export const messagingSendEmailCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendEmailApi),
-    })
-}
-
-export const getMessagingSendSmtpActivityCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging/send/smtp_activity/`
-}
-
-/**
- * Keeps a short per-project list of refused messages and dropped headers, so the SMTP setup page can show why mail didn't arrive. Holds no message content. Needs the `transactional_email:write` scope.
- * @summary Record what the SMTP relay did with a message
- */
-export const messagingSendSmtpActivityCreate = async (
-    projectId: string,
-    smtpActivityApi: SmtpActivityApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getMessagingSendSmtpActivityCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(smtpActivityApi),
     })
 }
 

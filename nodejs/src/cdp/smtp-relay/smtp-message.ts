@@ -7,6 +7,7 @@ export const SMTP_TEMPLATE_KEY = 'smtp'
 export const MAX_TO_RECIPIENTS = 50
 export const MAX_COPY_RECIPIENTS = 10
 export const MAX_FORWARDED_HEADERS = 10
+const MAX_LISTED_RECIPIENTS = 20
 
 const TEMPLATE_KEY_RE = /^[a-zA-Z0-9_-]{1,400}$/
 const FORWARDED_HEADERS = new Set(['in-reply-to', 'references', 'list-unsubscribe', 'list-unsubscribe-post', 'list-id'])
@@ -187,6 +188,14 @@ function recipientsOf(
         }
     }
     return { to, cc, bcc }
+}
+
+/** Addresses the message's own headers show to its readers, so never a Bcc. Capped for the recent problems list. */
+export function visibleRecipients(parsed: ParsedMail, envelopeTo: string[]): string[] {
+    const named = new Set(
+        [...addressesIn(parsed.to), ...addressesIn(parsed.cc)].map(({ address }) => normalize(address))
+    )
+    return envelopeTo.filter((address) => named.has(normalize(address))).slice(0, MAX_LISTED_RECIPIENTS)
 }
 
 function idempotencyBase(parsed: ParsedMail): string | undefined {

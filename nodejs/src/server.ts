@@ -96,6 +96,14 @@ export class PluginServer implements NodeServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
 
+        // The relay's network policy only reaches Django, so waiting for Redis or Postgres would stop it from starting.
+        if (capabilities.cdpSmtpRelay) {
+            const relay = new SmtpRelayService(this.config)
+            await relay.start()
+            this.lifecycle.services.push(relay.service)
+            return
+        }
+
         const needsCdp = !!(
             capabilities.cdpProcessedEvents ||
             capabilities.cdpDataWarehouseEvents ||
@@ -269,14 +277,6 @@ export class PluginServer implements NodeServer {
                 const worker = new CdpCyclotronWorker(this.config, cdpDeps!, kafkaQueue)
                 await worker.start()
                 return worker.service
-            })
-        }
-
-        if (capabilities.cdpSmtpRelay) {
-            serviceLoaders.push(async () => {
-                const relay = new SmtpRelayService(this.config)
-                await relay.start()
-                return relay.service
             })
         }
 

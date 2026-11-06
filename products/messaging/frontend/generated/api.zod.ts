@@ -173,58 +173,6 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Keeps a short per-project list of refused messages and dropped headers, so the SMTP setup page can show why mail didn't arrive. Holds no message content. Needs the `transactional_email:write` scope.
- * @summary Record what the SMTP relay did with a message
- */
-export const messagingSendSmtpActivityCreateBodyReplyMax = 512
-
-export const messagingSendSmtpActivityCreateBodyToItemMax = 320
-
-export const messagingSendSmtpActivityCreateBodyToMax = 20
-
-export const messagingSendSmtpActivityCreateBodyMessageIdMax = 128
-
-export const messagingSendSmtpActivityCreateBodyDroppedHeadersItemMax = 128
-
-export const messagingSendSmtpActivityCreateBodyDroppedHeadersMax = 20
-
-export const messagingSendSmtpActivityCreateBodyFromMax = 320
-
-export const MessagingSendSmtpActivityCreateBody = /* @__PURE__ */ zod.object({
-    kind: zod
-        .enum(['refused', 'dropped_headers'])
-        .describe('\* `refused` - Refused\n\* `dropped_headers` - Dropped headers')
-        .describe(
-            '`refused` or `dropped_headers`, what happened to the message.\n\n\* `refused` - Refused\n\* `dropped_headers` - Dropped headers'
-        ),
-    reply: zod
-        .string()
-        .max(messagingSendSmtpActivityCreateBodyReplyMax)
-        .optional()
-        .describe('The reply line the SMTP client got.'),
-    to: zod
-        .array(zod.string().max(messagingSendSmtpActivityCreateBodyToItemMax))
-        .max(messagingSendSmtpActivityCreateBodyToMax)
-        .optional()
-        .describe('The envelope recipients of the message, up to 20.'),
-    message_id: zod
-        .string()
-        .max(messagingSendSmtpActivityCreateBodyMessageIdMax)
-        .optional()
-        .describe('ID of the queued send, when one was queued.'),
-    dropped_headers: zod
-        .array(zod.string().max(messagingSendSmtpActivityCreateBodyDroppedHeadersItemMax))
-        .max(messagingSendSmtpActivityCreateBodyDroppedHeadersMax)
-        .optional()
-        .describe('Names of the headers PostHog could not forward, up to 20.'),
-    from: zod
-        .string()
-        .max(messagingSendSmtpActivityCreateBodyFromMax)
-        .optional()
-        .describe('The envelope sender of the message.'),
-})
-
 export const messagingCategoriesCreateBodyKeyMax = 64
 
 export const messagingCategoriesCreateBodyNameMax = 128

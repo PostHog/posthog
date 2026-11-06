@@ -661,6 +661,15 @@ WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRETS = get_list(
     )
 )
 
+# Verifies the tokens the SMTP relay sends when it records a refused message. The dev/test value must match the plugin
+# server's minting default. Empty outside dev/test, so the route refuses every request until the secret is provisioned.
+SMTP_RELAY_ACTIVITY_JWT_SECRETS = get_list(
+    get_from_env(
+        "SMTP_RELAY_ACTIVITY_JWT_SECRET",
+        "local-dev-smtp-relay-activity-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
 # ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
 # Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every

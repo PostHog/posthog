@@ -5,17 +5,10 @@ import json
 import time
 from typing import Any
 
-from django.db import models
-
 from posthog.redis import get_client
 
 SMTP_ACTIVITY_LIMIT = 50
 SMTP_ACTIVITY_TTL_SECONDS = 7 * 24 * 60 * 60
-
-
-class SmtpActivityKind(models.TextChoices):
-    REFUSED = "refused", "Refused"
-    DROPPED_HEADERS = "dropped_headers", "Dropped headers"
 
 
 def _key(team_id: int) -> str:

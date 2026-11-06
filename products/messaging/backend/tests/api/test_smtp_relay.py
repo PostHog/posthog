@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -10,7 +12,12 @@ from rest_framework.test import APIClient
 from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
+from posthog.test.authentication_checks import covers_authentication
 
+from products.messaging.backend.presentation.views.smtp_activity import (
+    SMTP_RELAY_ACTIVITY_PURPOSE,
+    SmtpRelayActivityJWTAuthentication,
+)
 from products.messaging.backend.services.smtp_activity import SMTP_ACTIVITY_LIMIT, recent_smtp_activity
 
 SMTP_FLAGS = ["workflows-smtp-relay", "workflows-email-from-code"]
@@ -58,24 +65,20 @@ class TestSmtpRelayApi(APIBaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    @covers_authentication(SmtpRelayActivityJWTAuthentication)
+    @override_settings(SMTP_RELAY_ACTIVITY_JWT_SECRETS=["activity-key"])
     def test_activity_is_newest_first_capped_and_kept_per_project(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
-        url = f"/api/projects/{self.team.id}/messaging/send/smtp_activity/"
-        client = self._key_client(["transactional_email:write"])
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {SMTP_RELAY_ACTIVITY_PURPOSE.mint({'team_id': self.team.id})}")
 
-        with _flags_on(*SMTP_FLAGS):
-            for index in range(SMTP_ACTIVITY_LIMIT + 2):
-                response = client.post(
-                    url,
-                    {
-                        "kind": "refused",
-                        "reply": f"550 number {index}",
-                        "from": "a@example.com",
-                        "to": ["b@example.com"],
-                    },
-                    format="json",
-                )
-                assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        for index in range(SMTP_ACTIVITY_LIMIT + 2):
+            response = client.post(
+                f"/api/projects/{self.team.id}/internal/messaging/smtp_activity",
+                {"kind": "refused", "reply": f"550 number {index}", "from": "a@example.com", "to": ["b@example.com"]},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
 
         activity = recent_smtp_activity(self.team.id)
         other = recent_smtp_activity(other_team.id)
@@ -83,3 +86,19 @@ class TestSmtpRelayApi(APIBaseTest):
         assert activity[0]["reply"] == f"550 number {SMTP_ACTIVITY_LIMIT + 1}"
         assert activity[0]["from"] == "a@example.com"
         assert other == []
+
+    @override_settings(SMTP_RELAY_ACTIVITY_JWT_SECRETS=["activity-key"])
+    def test_activity_only_takes_the_relays_token_for_the_same_project(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        url = f"/api/projects/{self.team.id}/internal/messaging/smtp_activity"
+        body = {"kind": "refused", "reply": "550 made up"}
+        other_team_token = APIClient()
+        other_team_token.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {SMTP_RELAY_ACTIVITY_PURPOSE.mint({'team_id': other_team.id})}"
+        )
+
+        for client in (self._key_client(["transactional_email:write"]), other_team_token):
+            response = client.post(url, body, format="json")
+
+            assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN), response.content
+        assert recent_smtp_activity(self.team.id) == []

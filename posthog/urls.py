@@ -52,6 +52,7 @@ from products.early_access_features.backend.api import early_access_features
 from products.experiments.backend.routes import web_experiments
 from products.messaging.backend.presentation.views.customerio_webhook import CustomerIOWebhookView
 from products.messaging.backend.presentation.views.recipient_preferences import preferences_page, update_preferences
+from products.messaging.backend.presentation.views.smtp_activity import InternalSmtpActivityView
 from products.notebooks.backend.facade.sql_v2 import (
     notebook_sql_v2_callback,
     notebook_sql_v2_data_plane,
@@ -288,6 +289,11 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/customer_analytics/account/custom_property_values",
         csrf_exempt(CustomerAnalyticsInternalAccountCustomPropertiesView.as_view()),
+    ),
+    # Where the SMTP relay records refused messages (auth: scoped service JWT)
+    path(
+        "api/projects/<str:team_id>/internal/messaging/smtp_activity",
+        csrf_exempt(InternalSmtpActivityView.as_view()),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),

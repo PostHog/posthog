@@ -23,6 +23,8 @@ export enum PosthogJwtAudience {
     WORKFLOW_MESSAGE_OPT_OUT = 'posthog:workflows:message_opt_out',
     // Must match PosthogJwtAudience.CONVERSATIONS_TICKETS in posthog/jwt.py exactly.
     CONVERSATIONS_TICKETS = 'posthog:conversations:tickets',
+    // Must match PosthogJwtAudience.SMTP_RELAY_ACTIVITY in posthog/jwt.py exactly.
+    SMTP_RELAY_ACTIVITY = 'posthog:workflows:smtp_relay_activity',
     // Must match PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS in posthog/jwt.py exactly.
     CUSTOMER_ANALYTICS_ACCOUNTS = 'posthog:customer_analytics:accounts',
 }

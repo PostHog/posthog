@@ -1,3 +1,5 @@
+import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { internalFetch } from '~/common/utils/request'
@@ -18,6 +20,7 @@ export type SmtpActivity = {
 
 const AUTH_TIMEOUT_MS = 3_000
 const ACTIVITY_TIMEOUT_MS = 3_000
+const ACTIVITY_TOKEN_TTL_SECONDS = 60
 
 const responseJson = (text: string): Record<string, any> => {
     try {
@@ -28,9 +31,19 @@ const responseJson = (text: string): Record<string, any> => {
     }
 }
 
-/** The relay's only way into PostHog: the same API a customer's code calls, with the customer's own key. */
+/**
+ * The relay's way into PostHog. Sends use the same API a customer's code calls, with the customer's own key. The list
+ * of recent problems takes the relay's own token instead, so a customer's key can't add entries to it.
+ */
 export class SmtpSendApi {
-    constructor(private readonly apiUrl: string) {}
+    private readonly activityJwt: ScopedServiceJwt
+
+    constructor(
+        private readonly apiUrl: string,
+        activitySigningKeys: string
+    ) {
+        this.activityJwt = new ScopedServiceJwt(PosthogJwtAudience.SMTP_RELAY_ACTIVITY, activitySigningKeys)
+    }
 
     public async checkKey(apiKey: string): Promise<SmtpCredential> {
         let response
@@ -91,17 +104,21 @@ export class SmtpSendApi {
     }
 
     /** Best effort, so that a failure here never changes what the client is told. */
-    public async recordActivity(credential: SmtpCredential, activity: SmtpActivity): Promise<void> {
+    public async recordActivity(teamId: number, activity: SmtpActivity): Promise<void> {
+        if (!this.activityJwt.enabled) {
+            return
+        }
         try {
-            await internalFetch(`${this.apiUrl}/api/projects/${credential.teamId}/messaging/send/smtp_activity/`, {
+            const token = this.activityJwt.mint({ team_id: teamId }, ACTIVITY_TOKEN_TTL_SECONDS)
+            await internalFetch(`${this.apiUrl}/api/projects/${teamId}/internal/messaging/smtp_activity`, {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${credential.apiKey}`, 'Content-Type': 'application/json' },
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify(activity),
                 timeoutMs: ACTIVITY_TIMEOUT_MS,
             })
         } catch (error) {
             logger.warn('⚠️', 'SMTP relay could not record activity', {
-                team_id: credential.teamId,
+                team_id: teamId,
                 error: error instanceof Error ? error.message : String(error),
             })
         }

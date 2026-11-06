@@ -196,6 +196,17 @@ export type CdpConfig = ClickhouseConfig & {
     SMTP_RELAY_MAX_CONNECTIONS_PER_IP: number
     SMTP_RELAY_MAX_FAILED_LOGINS_PER_IP: number
     SMTP_RELAY_MAX_CONCURRENT_MESSAGES: number
+    SMTP_RELAY_MAX_CONCURRENT_MESSAGES_PER_TEAM: number
+    // Limits on the message bytes a relay pod holds. A message takes several times its size in memory while it is
+    // parsed and sent, so these stay well under the pod's memory limit.
+    SMTP_RELAY_MAX_IN_FLIGHT_BYTES: number
+    SMTP_RELAY_MAX_IN_FLIGHT_BYTES_PER_TEAM: number
+    // From the moment a connection opens until TLS finishes, whatever the client sends in that time.
+    SMTP_RELAY_TLS_DEADLINE_MS: number
+    // From DATA until the end of the message, whatever the client sends in that time.
+    SMTP_RELAY_DATA_DEADLINE_MS: number
+    // Signs the relay's calls that record refused messages. Empty turns off that recording.
+    SMTP_RELAY_ACTIVITY_JWT_SECRET: string
     SMTP_RELAY_SHUTDOWN_GRACE_MS: number
     SES_ENDPOINT: string
     SES_ACCESS_KEY_ID: string
@@ -475,7 +486,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         SMTP_RELAY_MAX_CLIENTS: 2_000,
         SMTP_RELAY_MAX_CONNECTIONS_PER_IP: 50,
         SMTP_RELAY_MAX_FAILED_LOGINS_PER_IP: 10,
-        SMTP_RELAY_MAX_CONCURRENT_MESSAGES: 20,
+        SMTP_RELAY_MAX_CONCURRENT_MESSAGES: 50,
+        SMTP_RELAY_MAX_CONCURRENT_MESSAGES_PER_TEAM: 10,
+        SMTP_RELAY_MAX_IN_FLIGHT_BYTES: 120 * 1024 * 1024,
+        SMTP_RELAY_MAX_IN_FLIGHT_BYTES_PER_TEAM: 45 * 1024 * 1024,
+        SMTP_RELAY_TLS_DEADLINE_MS: 10_000,
+        SMTP_RELAY_DATA_DEADLINE_MS: 180_000,
+        SMTP_RELAY_ACTIVITY_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-smtp-relay-activity-jwt' : '',
         SMTP_RELAY_SHUTDOWN_GRACE_MS: 25_000,
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',

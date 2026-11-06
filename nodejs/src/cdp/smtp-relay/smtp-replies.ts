@@ -31,11 +31,13 @@ function sanitizeReplyText(text: string): string {
 
 export const REPLIES = {
     tooManyConnections: () => new SmtpReply(421, '4.7.0 Too many connections from this address. Try again shortly.'),
+    tooManyClients: () => new SmtpReply(421, '4.3.2 PostHog is busy. Try again shortly.'),
     tooManyFailedLogins: () =>
         new SmtpReply(
-            421,
-            '4.7.0 Too many failed logins from this address. Check your key and try again in 5 minutes.'
+            454,
+            '4.7.0 Too many failed logins with this key from this address. Check your key and try again in 5 minutes.'
         ),
+    dataTooSlow: () => new SmtpReply(421, '4.4.2 This message took too long to arrive. Reconnect and retry.'),
     invalidCredentials: () =>
         new SmtpReply(535, `5.7.8 Invalid credentials. Use a project secret key as the password. ${SMTP_DOCS_URL}`),
     missingScope: () =>
