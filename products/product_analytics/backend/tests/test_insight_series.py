@@ -50,6 +50,12 @@ class TestBoundedInsightQuery(SimpleTestCase):
     @parameterized.expand(
         [
             ("pending", {"query_status": {"id": "q", "complete": False}}, InsightSeriesNotReady),
+            (
+                "stale_cache_recalculating",
+                {"results": [], "query_status": {"id": "q", "complete": False}},
+                InsightSeriesNotReady,
+            ),
+            ("fresh_cache", {"results": [], "query_status": {"id": "q", "complete": True}}, None),
             ("error", {"query_status": {"id": "q", "error": True}}, ValueError),
             ("empty", {"results": []}, None),
             ("top_level_error", {"results": None, "error": "Invalid query"}, ValueError),
@@ -116,6 +122,33 @@ class TestBoundedInsightQuery(SimpleTestCase):
         self.assertEqual(status.call_count, polls)
         self.assertLessEqual(clock[0], 0.6)
         self.assertEqual(run.call_args.kwargs["execution_mode"], ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+
+    def test_a_wait_replaces_a_stale_cached_result_with_the_recalculated_one(self) -> None:
+        stale = {"results": [_result("signed up")], "query_status": {"id": "query-1", "complete": False}}
+        fresh = {"results": [{**_result("signed up"), "data": [5]}]}
+
+        with (
+            patch("posthog.api.services.query.process_query_dict", return_value=stale),
+            patch.object(insight_series, "monotonic", return_value=0.0),
+            patch.object(insight_series, "sleep"),
+            patch.object(
+                insight_series,
+                "get_query_status",
+                return_value=QueryStatus(id="query-1", team_id=1, complete=True, results=fresh),
+            ),
+        ):
+            found = insight_series.insight_series(
+                cast(Team, SimpleNamespace(pk=1)),
+                cast(User, None),
+                short_id="abc",
+                name="Sign-ups",
+                query={"kind": "TrendsQuery", "series": [SIGNED_UP]},
+                dashboard=None,
+                blocking=True,
+                wait_until=0.6,
+            )
+
+        self.assertEqual([value for points in (found.series if found else {}).values() for _, value in points], [5.0])
 
 
 class TestVisibleResults(SimpleTestCase):

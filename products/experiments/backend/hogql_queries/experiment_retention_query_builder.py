@@ -100,7 +100,8 @@ class RetentionQueryBuilder:
         assert isinstance(start_event, (EventsNode, ActionsNode))
         assert isinstance(completion_event, (EventsNode, ActionsNode))
 
-        query_string = """
+        query_string = (
+            """
             SELECT
                 {entity_key} AS entity_id,
                 timestamp AS timestamp,
@@ -109,7 +110,9 @@ class RetentionQueryBuilder:
                 [
                     _toUInt8(if({start_event_filter}, 1, 0)),
                     _toUInt8(if({completion_event_filter}, 1, 0))
-                ] AS steps
+                ] AS steps"""
+            + self._b.context.precompute_distinct_id_column_sql("distinct_id")
+            + """
             FROM events
             WHERE timestamp >= {time_window_min}
                 AND timestamp < {time_window_max}
@@ -117,6 +120,7 @@ class RetentionQueryBuilder:
                 AND timestamp < {experiment_date_to} + toIntervalSecond({window_extension_seconds})
                 AND ({start_event_filter} OR {completion_event_filter})
         """
+        )
 
         placeholders: dict[str, ast.Expr] = {
             "entity_key": parse_expr(self._b.entity_key),

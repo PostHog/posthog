@@ -2050,6 +2050,97 @@ describe('replayScannerLogic', () => {
             logic.actions.startFromScratch()
             expect(logic.values.creationMethod).toEqual('scratch')
         })
+
+        it.each([
+            ['saved as drafted', {}, false, []],
+            [
+                'saved with an edited prompt and model',
+                {
+                    scanner_config: {
+                        prompt: 'Did the visitor browse or buy?',
+                        tags: ['browsing'],
+                        multi_label: false,
+                    },
+                    model: ScannerModelEnumApi.Gemini38Flash,
+                },
+                true,
+                ['prompt', 'model'],
+            ],
+            [
+                'saved with a changed experiment variant',
+                { experiment_targeting: { experiment_id: 7, variant: 'test' } },
+                true,
+                ['query'],
+            ],
+        ])('an AI draft %s reports what the person changed before create', async (_, edits, edited, changes) => {
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'User intent',
+                    description: 'Tags each session by intent.',
+                    scanner_type: 'classifier',
+                    scanner_config: {
+                        prompt: 'Classify the session by intent.',
+                        tags: ['browsing'],
+                        multi_label: false,
+                    },
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerGoal('new'))
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal({
+                    goal: 'why do people visit',
+                    spend: { monthlyCreditBudget: 2500 },
+                })
+            ).toFinishAllListeners()
+            logic.actions.setScannerValues(edits)
+            scannerEditorSceneLogic.actions.setStep('overview')
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_draft_saved', {
+                scanner_id: 'created-scanner',
+                draft_edited: edited,
+                draft_changes: changes,
+                drafted_scanner_type: 'classifier',
+                scanner_type: 'classifier',
+                entry_point: null,
+            })
+        })
+
+        it('an AI draft resumed after a reload still reports its changes', async () => {
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'User intent',
+                    scanner_type: 'monitor',
+                    scanner_config: { prompt: 'Did the visitor buy?' },
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerGoal('new'))
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal({
+                    goal: 'why do people visit',
+                    spend: { monthlyCreditBudget: 2500 },
+                })
+            ).toFinishAllListeners()
+            logic.actions.setScannerValues({ scanner_config: { prompt: 'Did the visitor buy twice?' } })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            scannerEditorSceneLogic.actions.setStep('overview')
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay_vision_scanner_draft_saved',
+                expect.objectContaining({ draft_edited: true, draft_changes: ['prompt'] })
+            )
+        })
     })
 
     describe('rebuildExperimentContext', () => {

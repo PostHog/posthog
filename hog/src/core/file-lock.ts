@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { z } from 'zod'
 
+import { parseJsonOrUndefined } from './json'
 import { hogFile } from './paths'
 import type { Runtime } from './runtime'
 
@@ -10,14 +12,13 @@ const LOCK_STALE_MS = 180_000
 const LOCK_REFRESH_MS = 60_000
 const LOCK_POLL_MS = 250
 
-interface LockContents {
-    id?: string
-    createdAt?: number
-}
+const LockContentsSchema = z.object({ id: z.string().optional(), createdAt: z.number().optional() })
+
+type LockContents = z.output<typeof LockContentsSchema>
 
 async function readLock(runtime: Runtime, lock: string): Promise<LockContents | undefined> {
     try {
-        return JSON.parse(await runtime.readFile(lock)) as LockContents
+        return parseJsonOrUndefined(await runtime.readFile(lock), LockContentsSchema)
     } catch {
         return undefined
     }

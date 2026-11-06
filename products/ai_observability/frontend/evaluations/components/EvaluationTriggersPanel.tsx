@@ -49,7 +49,7 @@ export function EvaluationTriggersPanel(): JSX.Element | null {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
-                <h4 className="mb-0 text-sm font-semibold">Which traffic</h4>
+                <h4 className="mb-0 text-sm font-semibold">Choose the traffic</h4>
                 <LemonMenu
                     items={QUICK_FILTERS.map(({ key, label }) => ({
                         label,

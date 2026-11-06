@@ -64,6 +64,7 @@ import {
     findSchemaByFieldName,
     generateUniqueName,
     getEnabledNativeMarketingSources,
+    getSourceMapId,
     sanitizeIntegrationFilter,
     validColumnsForTiles,
 } from './utils'
@@ -1124,14 +1125,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         const tableType = isDataWarehouse
                             ? DataWarehouseSettingsTab.Managed
                             : DataWarehouseSettingsTab.SelfManaged
-                        const sourceMap = sources_map?.[table.schema?.id || ''] ?? sources_map?.[table.id] ?? null
+                        const sourceMapId = getSourceMapId(table, sources_map)
 
                         externalTables.push({
                             ...table,
                             name: table.name,
                             url_pattern: table.url_pattern || '',
+                            // An adopted table reads PostHog's storage, so only its source names the provider.
                             source_type: table.source?.source_type || mapUrlToProvider(table.url_pattern),
-                            source_map_id: table.schema?.id || table.source?.id || table.id,
+                            source_map_id: sourceMapId,
                             source_prefix: table.source?.prefix || '',
                             columns: Object.keys(table.fields).map((field) => ({
                                 name: table.fields[field].hogql_value,
@@ -1141,7 +1143,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                                 `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`
                             ),
                             external_type: tableType,
-                            source_map: sourceMap,
+                            source_map: sources_map?.[sourceMapId] ?? null,
                             schema_name: table.schema?.name || table.name,
                             dw_source_type: tableType,
                             schema_status: table.schema?.status,

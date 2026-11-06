@@ -60,6 +60,8 @@ LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID = "usage-report-logs-distinct-patterns-que
 LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
 TRANSACTIONAL_EMAILS_QUERY_PATCH_ID = "usage-report-transactional-emails-query-2026-10"
 TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
+SIGNALS_SPEND_QUERY_PATCH_ID = "usage-report-signals-spend-query-2026-11"
+SIGNALS_SPEND_QUERY_NAME = "teams_with_signals_spend_credits_used_in_period"
 MCP_EVENT_COUNT_QUERY_PATCH_ID = "usage-report-mcp-event-count-query-2026-10"
 MCP_EVENT_COUNT_QUERY_NAME = "teams_with_mcp_event_count_in_period"
 REPLAY_VISION_SPEND_PROJECTION_QUERY_PATCH_ID = "usage-report-replay-vision-spend-projection-query-2026-10"
@@ -86,6 +88,12 @@ def _queries_for_transactional_emails_patch(queries: list[QuerySpec], patch_appl
     if patch_applied:
         return queries
     return [spec for spec in queries if spec.name != TRANSACTIONAL_EMAILS_QUERY_NAME]
+
+
+def _queries_for_signals_spend_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != SIGNALS_SPEND_QUERY_NAME]
 
 
 def _queries_for_mcp_event_count_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
@@ -182,6 +190,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             queries = _queries_for_replay_vision_spend_projection_patch(
                 queries, workflow.patched(REPLAY_VISION_SPEND_PROJECTION_QUERY_PATCH_ID)
             )
+            queries = _queries_for_signals_spend_patch(queries, workflow.patched(SIGNALS_SPEND_QUERY_PATCH_ID))
             queries = _queries_for_business_knowledge_usage_patch(
                 queries, workflow.patched(BUSINESS_KNOWLEDGE_USAGE_QUERY_PATCH_ID)
             )

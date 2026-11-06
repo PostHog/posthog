@@ -35,6 +35,43 @@ describe('LemonTable', () => {
 
     afterEach(cleanup)
 
+    it('updates bulk checkboxes without rendering data cells again', () => {
+        const renderCell = jest.fn((_: unknown, row: Row) => row.name)
+        const renderActions = jest.fn((_context: { selectedKeys: ReadonlyArray<string | number> }) => (
+            <span>Bulk actions</span>
+        ))
+        render(
+            <LemonTable
+                dataSource={DATA}
+                rowKey="id"
+                columns={[{ title: 'Name', render: renderCell }]}
+                bulkSelection={{
+                    rowAriaLabel: (row) => `Select ${row.name}`,
+                    headerAriaLabel: 'Select page',
+                    renderActions,
+                }}
+            />
+        )
+        renderCell.mockClear()
+
+        fireEvent.click(screen.getByLabelText('Select alpha'))
+
+        expect(screen.getByLabelText('Select alpha')).toBeChecked()
+        expect(screen.getByLabelText('Select beta')).not.toBeChecked()
+        expect(screen.getByLabelText('Select page').closest('.LemonCheckbox')).toHaveClass(
+            'LemonCheckbox--indeterminate'
+        )
+        expect(renderActions.mock.calls.at(-1)?.[0]).toMatchObject({ selectedKeys: [1] })
+        expect(renderCell).not.toHaveBeenCalled()
+
+        fireEvent.click(screen.getByLabelText('Select page'))
+        for (const row of DATA) {
+            expect(screen.getByLabelText(`Select ${row.name}`)).toBeChecked()
+        }
+        expect(screen.getByLabelText('Select page')).toBeChecked()
+        expect(renderCell).not.toHaveBeenCalled()
+    })
+
     it.each([
         { children: 'plain data', props: { title: 'data title' } },
         { props: { dangerouslySetInnerHTML: { __html: '<b>plain data</b>' } } },

@@ -979,7 +979,7 @@ class TestTicketAPI(APIBaseTest):
 
         # Person reads go through personhog, so both page sizes should use the same database queries.
         for limit in (2, 3):
-            with self.subTest(limit=limit), self.assertNumQueries(9):
+            with self.subTest(limit=limit), self.assertNumQueries(7):
                 response = self.client.get(f"{list_url}?limit={limit}")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(response.json()["count"], 3)
@@ -2789,24 +2789,30 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
         if expected_status == status.HTTP_200_OK:
             assert self.ticket.status == Status.RESOLVED
 
-    @parameterized.expand([("create", "post"), ("update", "patch")])
-    def test_scout_cannot_write_generic_ticket_comments(self, _name: str, method: str) -> None:
+    @parameterized.expand(
+        [
+            ("create", "post", "conversations_ticket", ""),
+            ("update", "patch", "conversations_ticket", "{id}/"),
+            ("send_to_slack", "post", "Ticket", "{id}/send_to_slack/"),
+        ]
+    )
+    @patch("posthog.api.comments.CommentViewSet._slack_mirror_flag_enabled", return_value=True)
+    def test_scout_cannot_write_generic_ticket_comments(
+        self, _name: str, method: str, scope: str, path: str, _flag: object
+    ) -> None:
         note = Comment.objects.create(
             team=self.team,
             created_by=self.user,
-            scope="conversations_ticket",
+            scope=scope,
             item_id=str(self.ticket.id),
             content="Original note",
             item_context={"author_type": "support", "is_private": True},
         )
         self._auth_with_scopes(["ticket:write", "signal_scout_internal:write"])
-        url = f"/api/projects/{self.team.id}/comments/"
-        if method == "patch":
-            url += f"{note.id}/"
         response = getattr(self.client, method)(
-            url,
+            f"/api/projects/{self.team.id}/comments/{path.format(id=note.id)}",
             {
-                "scope": "conversations_ticket",
+                "scope": scope,
                 "item_id": str(self.ticket.id),
                 "content": "Changed note",
                 "item_context": {"author_type": "customer"},
