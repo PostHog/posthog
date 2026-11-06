@@ -2844,11 +2844,13 @@ export type WorkflowImportRequestApiLayouts = { [key: string]: string }
 
 /**
  * * `customerio` - Customer.io
+ * * `resend` - Resend
  */
-export type WorkflowImportSourceEnumApi = (typeof WorkflowImportSourceEnumApi)[keyof typeof WorkflowImportSourceEnumApi]
+export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
-export const WorkflowImportSourceEnumApi = {
+export const ImportProviderKeyEnumApi = {
     Customerio: 'customerio',
+    Resend: 'resend',
 } as const
 
 /**
@@ -2888,8 +2890,9 @@ export interface CustomerioSegmentApi {
 export interface WorkflowImportRequestApi {
     /** The tool the automations come from.
      *
-     * * `customerio` - Customer.io */
-    source: WorkflowImportSourceEnumApi
+     * * `customerio` - Customer.io
+     * * `resend` - Resend */
+    source: ImportProviderKeyEnumApi
     /** The automations to import, at most 50. People are never read from these objects. */
     campaigns: CustomerioCampaignApi[]
     /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */

@@ -16,7 +16,7 @@ export function StepImportNotesList({
     }
     return (
         <div className="flex flex-col gap-1 text-xs" data-attr="workflow-step-import-notes-list">
-            <div className="font-semibold">From the Customer.io import</div>
+            <div className="font-semibold">From the import</div>
             <ul className="m-0 list-disc pl-4">
                 {notes.map((note, index) => (
                     <li key={index}>{note.message}</li>

@@ -72,6 +72,7 @@ class WorkflowIdeaSource(LabeledStrEnum):
 
 class WorkflowImportSource(LabeledStrEnum):
     CUSTOMERIO = "customerio", "Customer.io"
+    RESEND = "resend", "Resend"
 
 
 class WorkflowImportNoteLevel(LabeledStrEnum):

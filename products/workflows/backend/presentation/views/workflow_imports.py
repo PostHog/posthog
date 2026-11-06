@@ -101,6 +101,11 @@ class WorkflowImportRequestSerializer(serializers.Serializer):
         ),
     )
 
+    def validate_source(self, value: str) -> str:
+        if value != WorkflowImportSource.CUSTOMERIO:
+            raise serializers.ValidationError("This endpoint imports Customer.io automations only.")
+        return value
+
     def validate_campaigns(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not value:
             raise serializers.ValidationError("Pass at least one automation.")

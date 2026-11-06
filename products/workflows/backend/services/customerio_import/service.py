@@ -1,4 +1,4 @@
-"""The record that ties an imported Customer.io automation to its draft workflow."""
+"""The record that ties an imported automation to its draft workflow."""
 
 from dataclasses import asdict
 from uuid import UUID
@@ -11,12 +11,10 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.workflow_import import WorkflowImport
 
 
-def previous_import(team: Team, source_id: str) -> PreviousImport:
-    record = (
-        WorkflowImport.objects.for_team(team.id)
-        .filter(source=WorkflowImportSource.CUSTOMERIO.value, source_id=source_id)
-        .first()
-    )
+def previous_import(
+    team: Team, source_id: str, source: WorkflowImportSource = WorkflowImportSource.CUSTOMERIO
+) -> PreviousImport:
+    record = WorkflowImport.objects.for_team(team.id).filter(source=source.value, source_id=source_id).first()
     flow = (
         HogFlow.objects.filter(team_id=team.id, pk=record.hog_flow_id).only("id", "status", "created_by_id").first()
         if record is not None and record.hog_flow_id
@@ -39,12 +37,13 @@ def record_import(
     name: str,
     hog_flow_id: UUID,
     notes: tuple[ImportNote, ...],
+    source: WorkflowImportSource = WorkflowImportSource.CUSTOMERIO,
 ) -> None:
     stored_notes = [{**asdict(note), "level": note.level.value} for note in notes]
     if record_id is None:
         WorkflowImport.objects.create(
             team=team,
-            source=WorkflowImportSource.CUSTOMERIO.value,
+            source=source.value,
             source_id=source_id,
             source_name=name[:400],
             hog_flow_id=hog_flow_id,
