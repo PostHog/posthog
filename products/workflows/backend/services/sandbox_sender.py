@@ -37,6 +37,14 @@ def sandbox_sender_configured() -> bool:
     return bool(settings.SES_SANDBOX_TENANT_NAME) and is_sandbox_sender_domain(from_domain)
 
 
+def sandbox_sender_ids(team_id: int) -> set[str]:
+    # Not gated on the settings: a sandbox sender made before they were cleared still delivers only to members.
+    return {
+        str(sender.id)
+        for sender in IntegrationManager.email.credentials.list(team_id, where={"provider": SANDBOX_EMAIL_PROVIDER})
+    }
+
+
 def _sandbox_sender_enabled(team: Team) -> bool:
     # Deferred: posthog.permissions pulls DRF and posthog.auth onto the django.setup() path,
     # and the workflows facade imports this module at startup.
