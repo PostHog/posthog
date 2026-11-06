@@ -11484,6 +11484,14 @@ export namespace Schemas {
          */
         history_table_name: string | null;
         /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        drop_history_table?: boolean | undefined;
+        /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         */
+        registered_history_table_name: string | null;
+        /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          */
         source: Partial<{
@@ -16097,6 +16105,7 @@ export namespace Schemas {
         responses_limit: number | null;
         iteration_count: number | null;
         iteration_frequency_days: number | null;
+        repeat_until_stopped: boolean | null;
         iteration_start_dates: Array<string | null> | null;
         current_iteration: number | null;
         current_iteration_start_date: string | null;
@@ -17288,6 +17297,10 @@ export namespace Schemas {
         /**
          * Mixin for serializers to add user access control fields
          */
+        repeat_until_stopped?: (boolean | null) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         /**
          * Mixin for serializers to add user access control fields
@@ -17595,6 +17608,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
@@ -17648,6 +17662,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;

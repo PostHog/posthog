@@ -50,7 +50,7 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
     const { key, source } = credentials
     const { host, projectId } = key
     const { kind, scopes, expiresAt, rejected } = key.status()
-    const api = await ctx.posthog()
+    const api = (await ctx.posthog()).withoutStepUp()
     const [user, project] = await Promise.allSettled([
         api.get('/api/users/@me/', z.looseObject({ email: z.string(), first_name: z.string().nullish() })),
         api.get('', z.looseObject({ name: z.string().nullish() })),

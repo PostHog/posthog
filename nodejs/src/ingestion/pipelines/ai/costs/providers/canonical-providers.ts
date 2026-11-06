@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-06 10:03:58 UTC
+// Generated at: 2026-11-06 20:02:54 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -184,6 +184,7 @@ export type CanonicalProvider =
     | 'openai-fast'
     | 'openai-flex'
     | 'openai-ultrafast'
+    | 'parallel'
     | 'parasail'
     | 'parasail-bf16'
     | 'parasail-fast'
@@ -202,6 +203,7 @@ export type CanonicalProvider =
     | 'phala-nvfp4'
     | 'phala-us'
     | 'primalabs'
+    | 'primalabs-fp8'
     | 'primalabs-mxfp4'
     | 'primeintellect'
     | 'primeintellect-bf16'

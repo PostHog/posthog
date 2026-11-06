@@ -20,6 +20,11 @@ export namespace Schemas {
       cited: boolean;
       /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
       check_failed: boolean;
+      /**
+         * 1-based rank of the first target-domain URL among the answer's cited URLs. Null when the answer did not cite one.
+         * @nullable
+         */
+      target_best_position: number | null;
       /** When the check ran. */
       checked_at: string;
     }
@@ -188,6 +193,11 @@ export namespace Schemas {
       mentioned: number;
       /** Checks that day where the engine did not answer. */
       failed: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
     }
 
     export interface AEOPromptEngineDomainShare {
@@ -235,6 +245,11 @@ export namespace Schemas {
       mentioned: number;
       /** Checks where the engine did not answer. */
       failed: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** When the engine first ran the prompt. */
       first_checked_at: string;
       /** When the engine last ran the prompt. */
@@ -280,6 +295,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
     }
 
     export interface AEOPromptSetDomain {
@@ -316,6 +336,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
     }
@@ -343,6 +368,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** Topic the checks ran with. Empty for prompts that have no topic. A prompt moved to another topic keeps its past checks under the old one. */
       topic: string;
       /** Prompts that are on, not archived, and have this topic now. */
@@ -35657,9 +35687,9 @@ export namespace Schemas {
       is_verified: boolean;
       /** The scopes the token will carry if the person approves. */
       scopes: string[];
-      /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+      /** The requested scopes the person can't leave out: the client's required scopes, the scopes the client marked as required when it started the grant, such as the new scopes of a step-up, and identity scopes such as `openid`. */
       required_scopes: string[];
-      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones. */
       granted_scopes: GrantedScopes[];
       /** When the code expires. */
       expires_at: string;
@@ -48093,6 +48123,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly history_table_name: string | null;
+      /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+      drop_history_table?: boolean;
+      /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         * @nullable
+         */
+      readonly registered_history_table_name: string | null;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -58053,6 +58090,13 @@ export namespace Schemas {
       revoked: string;
     }
 
+    export interface HoglakeProject {
+      id: number;
+      name: string;
+      /** read or write: the most a credential gets on this project */
+      access: string;
+    }
+
     export interface HoneybadgerFaultSignalExtra {
       environment: string | null;
       component: string | null;
@@ -65551,6 +65595,18 @@ export namespace Schemas {
       readonly error_type: string;
       /** HTTP status ($mcp_error_status) when the failure carried one, otherwise empty. */
       readonly error_status: string;
+      /** Command an exec-style server ran ($mcp_exec_verb), such as call, info, search or unrecognized. Empty for direct tool calls. */
+      readonly exec_verb: string;
+      /** Tool the exec command named ($mcp_exec_target_tool). Empty when the command named none. */
+      readonly exec_target_tool: string;
+      /** Argument names the client sent ($mcp_input_keys), without values. Empty when not captured. */
+      readonly input_keys: readonly string[];
+      /** Specific failure code ($mcp_error_code) when the server set one, otherwise empty. */
+      readonly error_code: string;
+      /** Argument the failure points at ($mcp_error_field), otherwise empty. */
+      readonly error_field: string;
+      /** Model that made the call ($mcp_llm_model), otherwise empty. */
+      readonly llm_model: string;
     }
 
     /**
@@ -68328,6 +68384,39 @@ export namespace Schemas {
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
+    }
+
+    export interface MyHoglakeCredentialCreateRequest {
+      /**
+         * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+         * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+         */
+      name: string;
+      /** read lists and reads tables; write can also commit to them.
+       *
+       * * `read` - Read
+       * * `write` - Read & write */
+      scope: HoglakeCredentialScopeEnum;
+      /**
+         * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+         * @minimum 3600
+         * @maximum 31536000
+         */
+      ttl_seconds?: number;
+      /**
+         * The projects this credential reaches, each one you can see. Its tokens get your current access on each, so losing a project's access takes it out of the next token.
+         * @minItems 1
+         * @maxItems 200
+         * @items.minimum 1
+         */
+      team_ids: number[];
+    }
+
+    export interface MyHoglakeCredentialListResponse {
+      hoglake_credentials: HoglakeCredential[];
+      connect: HoglakeConnect;
+      /** The projects you can put in a credential */
+      projects: HoglakeProject[];
     }
 
     export interface NoMatchMetadata {
@@ -77041,6 +77130,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -83756,6 +83850,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly history_table_name?: string | null;
+      /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+      drop_history_table?: boolean;
+      /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         * @nullable
+         */
+      readonly registered_history_table_name?: string | null;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -89445,7 +89546,7 @@ export namespace Schemas {
        * * `external_survey` - external survey
        * * `api` - api */
       type?: SurveyTypeEnum;
-      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
        *
        * * `once` - once
        * * `recurring` - recurring
@@ -89610,7 +89711,7 @@ export namespace Schemas {
          */
       responses_limit?: number | null;
       /**
-         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
          * @minimum 1
          * @maximum 500
          * @nullable
@@ -89623,6 +89724,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -111141,6 +111247,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -111198,7 +111309,7 @@ export namespace Schemas {
        * * `external_survey` - external survey
        * * `api` - api */
       type: SurveyTypeEnum;
-      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
        *
        * * `once` - once
        * * `recurring` - recurring
@@ -111363,7 +111474,7 @@ export namespace Schemas {
          */
       responses_limit?: number | null;
       /**
-         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
          * @minimum 1
          * @maximum 500
          * @nullable
@@ -111376,6 +111487,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -129401,6 +129517,14 @@ export namespace Schemas {
     };
 
     export type ExternalDataSchemasCancelCreate400 = {
+      detail?: string;
+    };
+
+    export type ExternalDataSchemasHistoryTableDestroy400 = {
+      detail?: string;
+    };
+
+    export type ExternalDataSchemasHistoryTableDestroy503 = {
       detail?: string;
     };
 

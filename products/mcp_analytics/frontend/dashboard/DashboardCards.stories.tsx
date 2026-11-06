@@ -241,11 +241,64 @@ export const KeyMetricsInProgressBucket: Story = {
     ),
 }
 
+export const KeyMetricsLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={KPIS}
+                users={metric(0, 0, [], 'up')}
+                intentClusterCount={metric(6, 0, [], 'up')}
+                kpisLoading
+                usersLoading
+                showIntentClusters
+                theme={buildTheme()}
+                interval="day"
+                incompleteTail={false}
+            />
+        </div>
+    ),
+}
+
+export const KeyMetricsLoadError: Story = {
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={KPIS}
+                users={metric(1840, 1655, [], 'up')}
+                intentClusterCount={metric(6, 0, [], 'up')}
+                kpisLoading={false}
+                usersLoading={false}
+                kpisFailed
+                onRetryKpis={() => {}}
+                showIntentClusters
+                theme={buildTheme()}
+                interval="day"
+                incompleteTail={false}
+            />
+        </div>
+    ),
+}
+
 export const DailyCallsAndErrors: Story = {
     render: withTheme((theme) => (
         <ActivityChart
             daily={DAILY_ACTIVITY}
             loading={false}
+            theme={theme}
+            timezone="UTC"
+            interval="day"
+            incompleteTail={false}
+        />
+    )),
+}
+
+export const DailyCallsAndErrorsLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: withTheme((theme) => (
+        <ActivityChart
+            daily={{ labels: [], successes: [], errors: [] }}
+            loading
             theme={theme}
             timezone="UTC"
             interval="day"
@@ -422,9 +475,32 @@ export const ErrorRateByTool: Story = {
     render: withTheme((theme) => <ToolErrorRateChart rows={TOOL_ROWS} loading={false} theme={theme} />),
 }
 
+export const ErrorRateByToolLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: withTheme((theme) => <ToolErrorRateChart rows={[]} loading theme={theme} />),
+}
+
+export const ErrorRateByToolRefreshing: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: withTheme((theme) => <ToolErrorRateChart rows={TOOL_ROWS} loading theme={theme} />),
+}
+
+export const ErrorRateByToolLoadError: Story = {
+    render: withTheme((theme) => (
+        <ToolErrorRateChart rows={TOOL_ROWS} loading={false} failed onRetry={() => {}} theme={theme} />
+    )),
+}
+
 export const DailyToolBreakdown: Story = {
     render: withTheme((theme) => (
         <ToolUsageChart data={TOOL_DAILY} loading={false} theme={theme} timezone="UTC" interval="day" />
+    )),
+}
+
+export const DailyToolBreakdownLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: withTheme((theme) => (
+        <ToolUsageChart data={{ labels: [], tools: [] }} loading theme={theme} timezone="UTC" interval="day" />
     )),
 }
 
@@ -449,6 +525,24 @@ export const OverviewUnknownModels: Story = {
                                 query.kind === 'MCPModelBreakdownQuery' ? [{ model: 'Unknown', total_calls: 100 }] : [],
                         },
                     ]
+                },
+            },
+        }),
+    ],
+    render: () => (
+        <div className="w-[960px]">
+            <MCPAnalyticsDashboardOverview />
+        </div>
+    ),
+}
+
+export const OverviewLoadError: Story = {
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const { query } = (await request.json()) as { query: { kind: string } }
+                    return query.kind === 'HogQLQuery' ? [200, { results: [] }] : [504, { detail: 'Query timed out' }]
                 },
             },
         }),

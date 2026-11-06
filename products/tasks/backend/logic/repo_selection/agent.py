@@ -24,7 +24,7 @@ from products.tasks.backend.logic.repo_selection.types import RepoSelectionResul
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
 from products.tasks.backend.logic.services.sandbox import SandboxResources
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import TaskRun
 
 if TYPE_CHECKING:
     from products.tasks.backend.logic.services.custom_prompt_internals import OutputFn
@@ -690,14 +690,12 @@ async def select_repository(
     user_id: int,
     context: str,
     *,
-    profile: TaskProfile | None = None,
+    profile: TaskProfile,
     priority: Priority,
-    origin_product: Task.OriginProduct | None = None,
     source: TaskSource | None = None,
     github: GitHubIntegrationBase | None = None,
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
-    signal_report_id: str | None = None,
     spend_signal_id: str | None = None,
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
@@ -848,9 +846,6 @@ async def select_repository(
             output_fn=output_fn,
             profile=profile,
             source=source,
-            origin_product=origin_product,
-            signal_report_id=signal_report_id,
-            internal=True,
             spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
             on_task_run_created=_session_created,
