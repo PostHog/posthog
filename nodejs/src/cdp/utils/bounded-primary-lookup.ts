@@ -1,7 +1,7 @@
 import { PostgresRouter, TransactionClient } from '~/common/utils/db/postgres'
 
-import { DeadlineSlots } from './deadline-slots'
 import { runTransactionBeforeDeadline } from './deadline-transaction'
+import { Semaphore } from './sempahore'
 
 type BoundedPrimaryLookupOptions = {
     name: string
@@ -10,13 +10,13 @@ type BoundedPrimaryLookupOptions = {
 }
 
 export class BoundedPrimaryLookup {
-    private slots: DeadlineSlots
+    private slots: Semaphore
 
     constructor(
         private postgres: PostgresRouter,
         private readonly options: BoundedPrimaryLookupOptions
     ) {
-        this.slots = new DeadlineSlots(options.maxOpen)
+        this.slots = new Semaphore(options.maxOpen)
     }
 
     public async run<Result>(tag: string, read: (tx: TransactionClient) => Promise<Result>): Promise<Result> {
@@ -29,27 +29,26 @@ export class BoundedPrimaryLookup {
                 resolve()
             }, timeoutMs)
         })
-        let result: { value: Result } | undefined
-        const lookup = this.slots.run(deadline, async () => {
-            const value = await runTransactionBeforeDeadline(
-                this.postgres,
-                tag,
-                { reached: deadline, hasPassed: () => timedOut },
-                timeoutMs,
-                read
-            )
-            result = { value }
-        })
-        const ignoreFailureAfterDeadline = (): undefined => undefined
-        lookup.catch(ignoreFailureAfterDeadline)
+        const lookup = this.slots.run(
+            () =>
+                runTransactionBeforeDeadline(
+                    this.postgres,
+                    tag,
+                    { reached: deadline, hasPassed: () => timedOut },
+                    timeoutMs,
+                    read
+                ),
+            deadline
+        )
         try {
-            await Promise.race([lookup, deadline])
+            return await Promise.race([lookup, deadline.then(() => Promise.reject(new Error('timed out')))])
+        } catch (error) {
+            if (timedOut) {
+                throw new Error(`The ${name} lookup timed out`)
+            }
+            throw error
         } finally {
             clearTimeout(timer)
         }
-        if (!result) {
-            throw new Error(`The ${name} lookup timed out`)
-        }
-        return result.value
     }
 }
