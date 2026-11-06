@@ -687,10 +687,7 @@ export interface billingLogicMeta {
         productAnalyticsPlans: (billing: BillingType | null) => BillingPlanType[]
         productAnalyticsFreePlan: (productAnalyticsPlans: BillingPlanType[]) => BillingPlanType | null
         productAnalyticsPlanReplacingGrandfathered: (productAnalyticsPlans: BillingPlanType[]) => BillingPlanType | null
-        hasGrandfatheredEventsRetention: (
-            productAnalyticsPlans: BillingPlanType[],
-            productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
-        ) => boolean
+        hasGrandfatheredEventsRetention: (productAnalyticsPlans: BillingPlanType[]) => boolean
         productAnalyticsPlanAfterPackageDowngrade: (
             productAnalyticsPlans: BillingPlanType[],
             hasGrandfatheredEventsRetention: boolean,
@@ -1305,12 +1302,8 @@ export const billingLogic = kea<billingLogicType>([
                 ) ?? null,
         ],
         hasGrandfatheredEventsRetention: [
-            (s) => [s.productAnalyticsPlans, s.productAnalyticsPlanReplacingGrandfathered],
-            (
-                productAnalyticsPlans: BillingPlanType[],
-                productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
-            ): boolean =>
-                !!productAnalyticsPlanReplacingGrandfathered &&
+            (s) => [s.productAnalyticsPlans],
+            (productAnalyticsPlans: BillingPlanType[]): boolean =>
                 productAnalyticsPlans.some(
                     (plan) => !!plan.current_plan && plan.plan_key === GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
                 ),

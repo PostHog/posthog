@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 
 import type { WorkloadProvider } from '@/ci/providers/registry'
 import { HogError } from '@/core/errors'
 import { Telemetry } from '@/core/telemetry'
 import { FAKE_WORKLOAD_PROVIDER, fakeRuntime, type FakeRuntimeOptions } from '@/testing'
 
+import { PostHogApi } from './api'
 import { resolveCredentials } from './credentials'
 import { parseHost } from './host'
 import { KeySession } from './key-session'
@@ -204,6 +206,56 @@ describe('workload credentials', () => {
 
         expect((error as HogError).code).toBe('not_authenticated')
         expect((error as HogError).hint).toContain('Turn on OIDC tokens in Fake CI.')
+    })
+
+    test("a job's token never steps up, and a missing scope points to the trusted workload policy", async () => {
+        const runtime = runtimeWith({
+            env: IN_CI,
+            respond: (url) =>
+                url.endsWith('/oauth/token/')
+                    ? exchanged(WORKLOAD_TOKEN)
+                    : {
+                          status: 403,
+                          body: { detail: 'missing scope' },
+                          headers: { 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="query:read"' },
+                      },
+        })
+        const credentials = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] })
+        const stepUps: string[][] = []
+        const api = new PostHogApi(
+            new KeySession(runtime, credentials.key, credentials.storage),
+            runtime.fetch,
+            async (scopes) => {
+                stepUps.push([...scopes])
+                return true
+            }
+        )
+
+        const error = await api.get('/query', z.unknown()).catch((caught: unknown) => caught)
+
+        expect(stepUps).toEqual([])
+        expect(error).toMatchObject({
+            code: 'missing_scopes',
+            hint: expect.stringContaining('trusted workload policy'),
+        })
+    })
+
+    test('a provider token fixed for the run is not exchanged again before the PostHog token expires', async () => {
+        const lifetimes = [120, 59, 20]
+        let exchangeCount = 0
+        const runtime = runtimeWith({
+            env: IN_CI,
+            respond: () => exchanged(exchangeCount ? RENEWED_TOKEN : WORKLOAD_TOKEN, lifetimes[exchangeCount++]),
+        })
+        const credentials = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] })
+        const session = new KeySession(runtime, credentials.key, credentials.storage)
+
+        await runtime.sleep(61_000)
+        await session.token()
+        await runtime.sleep(39_000)
+        await session.token()
+
+        expect(exchangeCount).toBe(2)
     })
 
     test('a failed exchange fails every concurrent request instead of each one trying again', async () => {

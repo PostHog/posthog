@@ -75,7 +75,7 @@ describe('hog ci setup', () => {
             instructions: expect.not.stringContaining('Olive'),
             next: 'hog ci setup --wait',
             posthogJson: { projectId: 7 },
-            env: { HOG_HOST: HOST, HOG_PROJECT_ID: '7' },
+            host: HOST,
         })
         expect(readJson(run.files[PENDING_FILE] ?? '{}')).toMatchObject({ requestId: 'req-1', provider: 'fake_ci' })
     })
@@ -183,6 +183,21 @@ describe('hog ci setup', () => {
         expect(run.exitCode).not.toBe(0)
         expect(run.error().code).toBe(code)
         expect(run.requests.some((request) => request.url === REQUESTS)).toBe(false)
+    })
+
+    test('a token in the origin remote never reaches PostHog', async () => {
+        const run = await setup(['--branch', 'main', '--scope', 'query:read'], {
+            files: {
+                ...REPOSITORY,
+                '/work/.git/config':
+                    '[remote "origin"]\n\turl = https://bot:secret@ci.example.com/acme/web.git?token=secret\n',
+            },
+            respond: policyApi(),
+        })
+
+        expect(run.exitCode).toBe(0)
+        expect(JSON.stringify(run.requests)).not.toContain('secret')
+        expect(run.requests[0]?.url).toContain('subject_name=acme%2Fweb')
     })
 
     test('a repository PostHog can not look up points to --subject-id', async () => {

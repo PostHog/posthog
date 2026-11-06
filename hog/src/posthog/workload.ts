@@ -36,16 +36,8 @@ const ExchangeErrorBody = OAuthErrorBody.extend({
 const RetryAfterBody = z.object({ retry_after: z.number().int().nonnegative() })
 const MAX_RETRY_AFTER_SECONDS = 60
 
-const TRY_AGAIN = 'Run the job again in a minute.'
 const SET_HOST =
     'Put the address you open PostHog at in posthog.json as "host", like https://eu.posthog.com, or set HOG_HOST. A self-hosted PostHog needs HOG_HOST. hog asks for an OIDC token for that address and sends it there.'
-const NEXT_STEP: Record<string, string> = {
-    workload_invalid_request: SET_HOST,
-    workload_exchange_unavailable: TRY_AGAIN,
-    workload_issuer_not_allowed: `Use HOG_PERSONAL_API_KEY instead, with the project ID in posthog.json or HOG_PROJECT_ID. See ${WORKLOAD_DOCS_URL}`,
-    workload_provider_unavailable: TRY_AGAIN,
-    workload_rate_limited: TRY_AGAIN,
-}
 
 function exchangeHint(
     code: string,
@@ -62,11 +54,18 @@ function exchangeHint(
                 ? `Ask an organization admin to approve the request: ${body.approval_url}`
                 : 'Ask an organization admin to approve the request in PostHog.'
         case 'workload_token_invalid':
-            if (message.includes('audience')) {
-                return SET_HOST
-            }
+            return message.includes('audience') ? SET_HOST : `See ${WORKLOAD_DOCS_URL}`
+        case 'workload_invalid_request':
+            return SET_HOST
+        case 'workload_issuer_not_allowed':
+            return `Use HOG_PERSONAL_API_KEY instead, with the project ID in posthog.json or HOG_PROJECT_ID. See ${WORKLOAD_DOCS_URL}`
+        case 'workload_exchange_unavailable':
+        case 'workload_provider_unavailable':
+        case 'workload_rate_limited':
+            return 'Run the job again in a minute.'
+        default:
+            return `See ${WORKLOAD_DOCS_URL}`
     }
-    return NEXT_STEP[code] ?? `See ${WORKLOAD_DOCS_URL}`
 }
 
 function exchangeError(status: number, raw: unknown, provider: WorkloadProvider, projectId: ProjectId): HogError {
@@ -154,6 +153,9 @@ export class WorkloadKey implements AccessKey {
     readonly scopes: string[]
     readonly identifiesPerson = false
     readonly workload: WorkloadIdentity | undefined
+    // Some providers, like GitLab, give a job one OIDC token for the whole run. Once the PostHog token
+    // expires with it, another exchange gains nothing, so the key renews only when it has expired.
+    private expiresWithProviderToken = false
 
     constructor(fields: WorkloadKeyFields) {
         this.host = fields.host
@@ -176,7 +178,9 @@ export class WorkloadKey implements AccessKey {
 
     async fresh(runtime: Runtime, storage: AccessKeyStorage, rejectedToken?: string): Promise<AccessKey> {
         // A short-lived token renews at half its life, so it isn't exchanged on every request.
-        const margin = Math.min(RENEW_MARGIN_MS, (this.expiresAt - this.issuedAt) / 2)
+        const margin = this.expiresWithProviderToken
+            ? 0
+            : Math.min(RENEW_MARGIN_MS, (this.expiresAt - this.issuedAt) / 2)
         const needsRenewal =
             rejectedToken === undefined ? this.expiresAt - runtime.now() <= margin : this.accessToken === rejectedToken
         if (!needsRenewal) {
@@ -190,6 +194,7 @@ export class WorkloadKey implements AccessKey {
                 this.provider.missingTokenHint
             )
         }
+        renewed.expiresWithProviderToken = renewed.expiresAt <= this.expiresAt
         await storage.save(renewed)
         return renewed
     }
@@ -204,6 +209,7 @@ export class WorkloadKey implements AccessKey {
             scopes: this.scopes,
             expiresAt: this.expiresAt,
             rejected: `PostHog rejected the workload token. An admin may have disabled or deleted the trust policy for this ${this.provider.name} workload.`,
+            fix: 'hog ci setup',
             provider: this.provider.name,
         }
     }

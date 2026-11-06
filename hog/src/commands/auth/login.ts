@@ -1,4 +1,4 @@
-import { printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
+import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
@@ -7,14 +7,15 @@ import type { Prompts } from '@/core/prompts'
 import { validationError } from '@/core/schema'
 import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
 import type { StoreChoice } from '@/posthog/credential-store/types'
+import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
 import { cloudRegion, HostSchema, parseHost, REGIONS } from '@/posthog/host'
 import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
-import { loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
+import { LOGIN_COMMAND, loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
 import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
 
 type LoginResult =
-    | (Extract<ApprovalResult<never>, { status: 'pending' }> & { host: string })
+    | (PendingResult & { host: string })
     | {
           status: 'logged_in'
           host: string
@@ -91,7 +92,7 @@ export default defineCommand({
         readOnly: {
             type: 'boolean',
             description:
-                'Ask only for read access. To change something later, run `hog auth login` again without this flag',
+                'Ask only for read access. To change something later, run `hog auth add` with the write scopes you need',
         },
     },
     notes: [
@@ -118,13 +119,7 @@ export default defineCommand({
             return finish(ctx, await resumeApproval(ctx, loginWait(ctx.runtime)))
         }
 
-        if (!prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
-            throw new HogError(
-                'login_needs_a_person',
-                'hog auth login needs a person to approve it in a browser, so it does not run in CI.',
-                'Run `hog ci setup` on your machine so jobs use their OIDC token, or set HOG_PERSONAL_API_KEY and HOG_HOST instead, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.'
-            )
-        }
+        refuseInCi(ctx, LOGIN_COMMAND, CI_CREDENTIALS_HINT)
 
         let host =
             ctx.globals.host ??

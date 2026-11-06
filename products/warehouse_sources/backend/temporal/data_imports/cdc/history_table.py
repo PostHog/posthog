@@ -7,8 +7,15 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
+from django.db import transaction
 from django.db.models import Q, QuerySet
 
+from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+
+from products.warehouse_sources.backend.facade.contracts import HistoryTableDropRefusedError
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HISTORY_NAMING_OPTION, PH_HISTORY_NAMING, DataWarehouseTable
@@ -19,10 +26,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     companion_resource_name,
     is_history_table_mode,
 )
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     build_table_name,
     resolve_table_and_folder_names,
 )
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QUERY_FOLDER_STATE_KEY
 from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_source_flag_enabled
 
 # New history tables are named `<table>_history` with `_ph_valid_from` / `_ph_valid_to` while this flag is on
@@ -81,6 +90,29 @@ def registered_history_naming(schema: ExternalDataSchema) -> HistoryNaming | Non
     A stamped `_history` table wins over a table under the legacy name, which a source table can also
     carry. A legacy table predates the stamp and the marker, so its name is all it has.
     """
+    return _naming_of_registered(_registered_history_tables(schema))
+
+
+def registered_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
+    """The schema's registered history table, whether or not its mode still writes it."""
+    registered = _registered_history(schema)
+    return registered[0] if registered is not None else None
+
+
+def _registered_history(schema: ExternalDataSchema) -> tuple[DataWarehouseTable, HistoryNaming] | None:
+    tables = _registered_history_tables(schema)
+    naming = _naming_of_registered(tables)
+    if naming is None:
+        return None
+    table = tables[naming]
+    # The naming lookup also accepts an unmarked legacy name, which an unrelated table can carry. A delete
+    # can't be undone, so it takes only a table the sync marked.
+    if not table.is_history_table:
+        return None
+    return table, naming
+
+
+def _registered_history_tables(schema: ExternalDataSchema) -> dict[HistoryNaming, DataWarehouseTable]:
     source = schema.source
     names = {
         build_table_name(source, companion_resource_name(schema.name, naming)): naming
@@ -92,7 +124,7 @@ def registered_history_naming(schema: ExternalDataSchema) -> HistoryNaming | Non
         ),
         schema.id,
     )
-    return _naming_of_registered({names[table.name]: table for table in tables})
+    return {names[table.name]: table for table in tables}
 
 
 def _naming_of_registered(tables_by_naming: dict[HistoryNaming, DataWarehouseTable]) -> HistoryNaming | None:
@@ -274,3 +306,113 @@ def history_table_name(schema: ExternalDataSchema) -> str | None:
         return None
     naming = registered_history_naming(schema) or pinned_history_naming(schema) or new_history_naming(schema.source)
     return build_table_name(schema.source, companion_resource_name(schema.name, naming))
+
+
+HISTORY_TABLE_STILL_WRITTEN_ERROR = (
+    "This table still writes its history table. Switch it to the consolidated table only, or off change data "
+    "capture, before you delete the history table."
+)
+HISTORY_TABLE_CHECK_FAILED_ERROR = (
+    "PostHog couldn't check whether a sync of this table is still running. Try again in a few minutes."
+)
+HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR = (
+    "A sync of this table is still running and could still write to its history table. Try again once it "
+    "finishes, or cancel it first."
+)
+
+
+def assert_history_table_droppable(schema: ExternalDataSchema, *, keeps_history: bool) -> None:
+    """Raise `HistoryTableDropRefusedError` while the schema's history table can still be written.
+
+    `keeps_history` is whether the schema's mode writes the table, after a pending save when there is one.
+    A sync that read an earlier mode can still write the table while its workflow runs, and its batches can
+    still be in the load queue after that.
+    """
+    # Deferred: source_manager pulls in the pipeline.
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (  # noqa: PLC0415
+        running_sync_workflow_id,
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (  # noqa: PLC0415
+        has_queued_batches,
+    )
+
+    if keeps_history:
+        raise HistoryTableDropRefusedError(HISTORY_TABLE_STILL_WRITTEN_ERROR)
+    try:
+        in_flight = running_sync_workflow_id(schema) is not None or has_queued_batches(schema)
+    except Exception as e:
+        capture_exception(e)
+        raise HistoryTableDropRefusedError(HISTORY_TABLE_CHECK_FAILED_ERROR) from e
+    if in_flight:
+        raise HistoryTableDropRefusedError(HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR)
+
+
+def drop_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
+    """Delete the schema's registered history table: its files, its record and the schema's state for it.
+
+    Returns the dropped table, or None when the schema has no history table. Raises
+    `HistoryTableDropRefusedError` while the schema's mode writes the table, or while a sync could still
+    write to it. A storage error propagates and leaves the record, so a retry deletes the rest. A later
+    switch back to a history mode then creates a new history table under the naming new tables get at
+    that time.
+    """
+    registered = _registered_history(schema)
+    if registered is None:
+        return None
+    table, naming = registered
+    folder_name = NamingConvention.normalize_identifier(companion_resource_name(schema.name, naming))
+    query_folder_prefix = f"{folder_name}__query"
+    # Every mode save takes this row lock, so holding it from the checks until the record goes keeps a
+    # switch back to history from landing while the files are deleted. A storage error rolls back with
+    # the record still in place, so a retry deletes the rest.
+    with transaction.atomic():
+        locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
+        assert_history_table_droppable(locked, keeps_history=locked.keeps_history)
+        _delete_history_files(schema, folder_name)
+        config = locked.sync_type_config or {}
+        config.pop(HISTORY_NAMING_OPTION, None)
+        states = config.get(QUERY_FOLDER_STATE_KEY)
+        if isinstance(states, dict):
+            states.pop(query_folder_prefix, None)
+        locked.sync_type_config = config
+        update_fields = ["sync_type_config", "updated_at"]
+        # cdc_only links the schema to its history table.
+        if locked.table_id == table.id:
+            locked.table = None
+            update_fields.append("table")
+        locked.save(update_fields=update_fields, skip_activity_log=True)
+        table.soft_delete()
+        # As the table view logs a deleted table: the name only, because a reader may be denied the table.
+        log_activity(
+            organization_id=table.team.organization_id,
+            team_id=table.team_id,
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+            item_id=table.id,
+            scope="DataWarehouseTable",
+            activity="deleted",
+            detail=Detail(name=table.name),
+        )
+    schema.sync_type_config = locked.sync_type_config
+    schema.table = locked.table
+    return table
+
+
+def _delete_history_files(schema: ExternalDataSchema, folder_name: str) -> None:
+    """Delete the history table's Delta folder and its `<table>__query*` copies under the schema's folder."""
+    from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
+
+    s3 = get_s3_client()
+    s3.invalidate_cache()
+    try:
+        entries = s3.ls(f"{settings.BUCKET_URL}/{schema.folder_path()}", detail=False)
+    except FileNotFoundError:
+        return
+    # The folder holds only this schema's tables, so the prefix match can't reach another table's copies.
+    targets = [
+        entry
+        for entry in entries
+        if (leaf := entry.rstrip("/").rsplit("/", 1)[-1]) == folder_name or leaf.startswith(f"{folder_name}__query")
+    ]
+    if targets:
+        s3.rm(targets, recursive=True)
