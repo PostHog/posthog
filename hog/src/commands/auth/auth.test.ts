@@ -990,7 +990,7 @@ describe('hog auth login', () => {
     test.each([
         [['error-tracking', 'upload', 'dist'], 'error_tracking:write'],
         [['endpoints', 'push', 'endpoints/'], 'endpoint:write insight_variable:write'],
-        [['schema', 'pull'], 'event_definition:read'],
+        [['error-tracking', 'process', 'dist'], 'error_tracking:write'],
     ])('hog %j checks the login has %s before it starts', async (argv, scope) => {
         const result = await runHog(argv, { env: { CLAUDECODE: '1' }, ...OAUTH_LOGIN, respond: deviceFlow(0) })
 

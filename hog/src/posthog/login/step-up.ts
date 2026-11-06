@@ -1,6 +1,7 @@
 import { refuseInCi, runApproval, type PendingResult } from '@/core/approval'
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
+import type { AccessKey } from '@/posthog/access-key'
 import { stepUpRequired } from '@/posthog/api'
 import type { OAuthLogin } from '@/posthog/oauth'
 import { addToKeyHint, canStepUp } from '@/posthog/scope-challenge'
@@ -54,15 +55,26 @@ export async function promptStepUp(ctx: Context, scopes: readonly string[]): Pro
 }
 
 // At a terminal this waits for the approval and saves the login. Agents get the link.
-export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<StepUpResult> {
-    const credentials = await ctx.credentials()
+// The scopes the login holds and the wanted ones it lacks. Undefined when the credentials can't step up.
+async function loginScopes(
+    ctx: Context,
+    wanted: readonly string[]
+): Promise<{ key: AccessKey; held: string[]; missing: string[] } | undefined> {
     // The session, not the credentials, holds the login an earlier step-up in this command saved.
     const key = (await ctx.session()).current
     const held = key.status().scopes
-    if (!canStepUp(credentials) || held === null) {
+    if (!canStepUp(await ctx.credentials()) || held === null) {
+        return undefined
+    }
+    return { key, held, missing: scopesNotCovered(held, wanted) }
+}
+
+export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<StepUpResult> {
+    const login = await loginScopes(ctx, wanted)
+    if (!login) {
         throw keyCantStepUp(wanted)
     }
-    const added = scopesNotCovered(held, wanted)
+    const { key, held, missing: added } = login
     if (added.length === 0) {
         return {
             status: 'already_granted',
@@ -85,12 +97,7 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
 
 // Only a login knows its scopes without asking PostHog, so a personal API key meets the 403 instead.
 export async function ensureScopes(ctx: Context, scopes: readonly string[]): Promise<void> {
-    const credentials = await ctx.credentials()
-    const held = credentials.key.status().scopes
-    if (!canStepUp(credentials) || held === null) {
-        return
-    }
-    const missing = scopesNotCovered(held, scopes)
+    const missing = (await loginScopes(ctx, scopes))?.missing ?? []
     if (missing.length > 0 && !(await ctx.stepUp(missing))) {
         throw stepUpRequired(missing)
     }

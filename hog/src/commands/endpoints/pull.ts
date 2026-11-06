@@ -86,7 +86,6 @@ export default defineCommand({
         ...CONFIRM_OPTIONS,
     },
     scopes: SCOPES_READ,
-    checksScopesFirst: true,
     notes: 'An endpoint a local file already defines updates that file. Others go to <folder>/<name>.yaml. hog shows the changes and asks before it writes; agents and scripts pass --yes. Exits with code 1 when an endpoint is missing or a file is left alone.',
     examples: [
         'hog endpoints pull daily-signups',
