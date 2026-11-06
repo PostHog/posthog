@@ -135,8 +135,6 @@ class TestGetMaxSlotWalKeepSizeMb:
 
 @pytest.mark.django_db
 def test_the_wal_position_waits_for_transactions_running_when_it_was_read():
-    # Against a real server: a commit's WAL lands before the commit is visible, so the position is
-    # usable only once every transaction running when it was read has ended.
     from django.db import connection
 
     settings = connection.settings_dict
@@ -148,7 +146,7 @@ def test_the_wal_position_waits_for_transactions_running_when_it_was_read():
         "port": settings["PORT"],
     }
     with psycopg.connect(**params) as reader:
-        # A read before the other connection opens, so a per-transaction stats snapshot cannot hide it.
+        # Warms the per-transaction stats snapshot, which must not hide the connection opened next.
         get_visible_wal_lsn(reader, timeout=5)
         with psycopg.connect(**params) as other:
             other.execute("SELECT pg_current_xact_id()")

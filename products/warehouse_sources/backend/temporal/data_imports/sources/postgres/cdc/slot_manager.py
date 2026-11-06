@@ -273,16 +273,12 @@ def get_max_slot_wal_keep_size_mb(conn: psycopg.Connection) -> int | None:
     return value if value >= 0 else None
 
 
-# How long a snapshot waits for the transactions still running when it read the WAL position. One
-# that outlasts it, such as a long write or a prepared transaction, makes the position unusable.
 VISIBLE_WAL_WAIT_SECONDS = 30.0
 _VISIBLE_WAL_POLL_SECONDS = 0.5
-# On top of the wait, so a source that stops answering mid-statement cannot hold the snapshot past it.
 _VISIBLE_WAL_STATEMENT_GRACE_SECONDS = 10.0
 
-# Every transaction with an xid, prepared ones included, holds an exclusive lock on it until after it
-# becomes visible. A snapshot's own xip list would miss those at or past its xmax. Only this database's
-# transactions can change what the snapshot reads, and the caller's own never ends while it waits.
+# An xid's exclusive lock outlives the commit becoming visible, and prepared transactions hold one too.
+# A snapshot's xip list would miss xids at or past its xmax.
 _RUNNING_FROM = (
     "FROM pg_locks l "
     "LEFT JOIN pg_stat_activity a ON a.pid = l.pid "
@@ -292,8 +288,7 @@ _RUNNING_FROM = (
 )
 _RUNNING_XIDS = "SELECT coalesce(array_agg(DISTINCT l.transactionid::text::bigint), '{}') " + _RUNNING_FROM
 
-# The wait runs on the server, so it is one bounded statement. `pg_stat_activity` is read once per
-# transaction, which would hide a backend that connected since, so each check clears that snapshot.
+# `pg_stat_activity` is snapshotted once per transaction, so each check clears it to see new backends.
 _NOT_VISIBLE_MARKER = "posthog_wal_position_not_visible"
 _WAIT_FOR_XIDS = (
     "DO $wait$ DECLARE deadline timestamptz := clock_timestamp() + make_interval(secs => {timeout}); "
@@ -327,7 +322,6 @@ def get_visible_wal_lsn(conn: psycopg.Connection, *, timeout: float = VISIBLE_WA
         if row is None or row[0] is None:
             raise ValueError("The server reported no WAL position")
         lsn = str(row[0])
-        # Read after the position, so it holds every transaction that may have committed below it unseen.
         cur.execute("SELECT pg_stat_clear_snapshot()")
         cur.execute(_RUNNING_XIDS)
         row = cur.fetchone()

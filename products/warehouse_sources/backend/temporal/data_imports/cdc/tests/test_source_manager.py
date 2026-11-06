@@ -927,9 +927,7 @@ class TestBuildOutputLanes:
 
     @parameterized.expand(
         [
-            # The table holds only the seed, so the snapshot's position is all that says what it holds.
             ("seed_only", _NO_POSITION, [51, 4]),
-            # A buffered write has landed, so the table's own position and the rows it holds there decide.
             (
                 "buffered_write_landed",
                 LanePosition(position=25, applied=_held((51, "I")), key_columns=("id", CDC_OP_COLUMN)),
@@ -943,12 +941,9 @@ class TestBuildOutputLanes:
             [_NO_POSITION, history_position],
         )
 
-        # Captured before the snapshot read: an update, a delete of a row the snapshot never held,
-        # and a change at the snapshot's own position. Then two changes after it.
         batch = _ops([1, 3, 2, 51, 4], [10, 15, 20, 25, 30], ["U", "D", "U", "I", "U"])
         merged, history = (lane.transform(batch) for lane in lanes)
 
-        # The merge converges on the source either way, so it replays every change.
         assert merged.column("id").to_pylist() == [1, 3, 2, 51, 4]
         assert history.column("id").to_pylist() == expected
         assert floor is None
@@ -962,7 +957,6 @@ class TestBuildOutputLanes:
         assert floor == 20
 
     async def test_a_seed_only_history_table_settles_the_buffer_its_snapshot_holds(self):
-        # Otherwise a buffer holding only changes from before the snapshot is read again every run.
         _, floor = await self._build(
             _schema(cdc_table_mode="cdc_only", sync_type_config={CDC_SNAPSHOT_POSITION_KEY: 20}), [_NO_POSITION]
         )

@@ -3417,7 +3417,6 @@ class TestUpdateExternalDataSchema:
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
         assert "cdc_last_log_position" not in schema.sync_type_config
         assert "cdc_snapshot_lane" not in schema.sync_type_config
-        # The new snapshot reads its own position, and one from another server would hide its changes.
         assert "cdc_snapshot_position" not in schema.sync_type_config
         assert schema.initial_sync_complete is False
 

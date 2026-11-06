@@ -247,17 +247,15 @@ class TestSnapshotPosition:
             patch(_CONFIG_WRITE, write),
         ):
             _dispatch(schema, _inputs(reset_pipeline=reset), resumable=resumable)
-        # A position that cannot be read never stops the snapshot itself.
         snapshot.assert_called_once()
         return write
 
     @pytest.mark.parametrize(
         "cdc_table_mode, reset, recorded",
         [
-            ("both", False, False),
-            ("cdc_only", False, False),
-            # A reset rebuilds the table, so the position of the snapshot it replaces goes.
-            ("both", True, True),
+            pytest.param("both", False, False, id="first_snapshot_both"),
+            pytest.param("cdc_only", False, False, id="first_snapshot_cdc_only"),
+            pytest.param("both", True, True, id="reset_replaces_the_old_position"),
         ],
     )
     def test_a_snapshot_in_a_history_mode_records_the_position_before_it_reads(
@@ -274,12 +272,9 @@ class TestSnapshotPosition:
     @pytest.mark.parametrize(
         "cdc_table_mode, resuming, recorded",
         [
-            # The rows read before the resume predate any position read now.
-            ("both", True, False),
-            # A read that restarts without a checkpoint may follow an attempt that already wrote rows.
-            ("both", False, True),
-            # No history table, so nothing reads it.
-            ("consolidated", False, False),
+            pytest.param("both", True, False, id="resumed_read"),
+            pytest.param("both", False, True, id="restarted_read_after_an_earlier_attempt"),
+            pytest.param("consolidated", False, False, id="no_history_table"),
         ],
     )
     def test_the_recorded_position_is_left_alone(self, cdc_table_mode: str, resuming: bool, recorded: bool):
@@ -291,7 +286,6 @@ class TestSnapshotPosition:
         adapter.management_connection.assert_not_called()
 
     def test_a_position_that_cannot_be_read_is_recorded_as_unknown(self):
-        # Not dropped: a later attempt that is no rebuild would then record a position past rows already written.
         adapter = MagicMock()
         adapter.management_connection.side_effect = OSError("connection refused")
 
