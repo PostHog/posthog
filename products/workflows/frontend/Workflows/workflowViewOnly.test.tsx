@@ -305,6 +305,11 @@ describe('view-only workflow', () => {
             'Code',
             (el: HTMLElement): boolean => fireEvent.keyDown(el, { key: 'ArrowDown', altKey: true, shiftKey: true }),
         ],
+        [
+            'toggles a block comment in code',
+            'Code',
+            (el: HTMLElement): boolean => fireEvent.keyDown(el, { key: 'A', ctrlKey: true, shiftKey: true }),
+        ],
     ])('stops a viewer who %s inside a step', (_, label, interact) => {
         const onEdit = jest.fn()
         renderForViewer(

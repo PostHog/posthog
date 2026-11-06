@@ -51,13 +51,19 @@ function isCursorMove(event: React.KeyboardEvent): boolean {
     return TEXT_CURSOR_KEYS.has(event.key) && !isCodeLineMoveOrCopy(event) && isInTextField(event)
 }
 
-function isReadingKey(event: React.KeyboardEvent): boolean {
-    const isShortcut = event.metaKey || event.ctrlKey
+function isReadingShortcut(event: React.KeyboardEvent): boolean {
+    // Only plain Ctrl/Cmd+A and +C read. Monaco binds variants such as Ctrl+Shift+A, which toggles a block comment
+    // on Linux, to commands that edit the model without a beforeinput event.
     return (
-        FOCUS_KEYS.has(event.key) ||
-        isCursorMove(event) ||
-        (isShortcut && READING_SHORTCUTS.has(event.key.toLowerCase()))
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        READING_SHORTCUTS.has(event.key.toLowerCase())
     )
+}
+
+function isReadingKey(event: React.KeyboardEvent): boolean {
+    return FOCUS_KEYS.has(event.key) || isCursorMove(event) || isReadingShortcut(event)
 }
 
 function isFindShortcut(event: React.KeyboardEvent): boolean {
