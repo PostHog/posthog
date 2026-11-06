@@ -195,6 +195,9 @@ export function ExperimentMetricForm({
     const usesWarehouseNative = metricUsesWarehouseNativeSource(metric)
     // Keep an existing warehouse-native metric editable even if the team is no longer flagged in
     const showDataSource = warehouseNativeEnabled || usesWarehouseNative || !!warehouseExposure
+    const quantileMetricsEnabled = useFeatureFlag('EXPERIMENTS_QUANTILE_METRICS')
+    // A percentile metric that exists already must keep its type in the picker when the team is not flagged in
+    const showQuantileOption = quantileMetricsEnabled || isExperimentQuantileMetric(metric)
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
     // holds the custom start configuration while the exposure sentinel is selected, so switching back restores it
@@ -324,13 +327,18 @@ export function ExperimentMetricForm({
             description:
                 'Calculates the retention rate of users exposed to the experiment. Useful for measuring the percentage of users who return to the app after a certain period of time.',
         },
-        {
-            value: ExperimentMetricType.QUANTILE,
-            label: 'Percentile',
-            disabledReason: warehouseNativeTypeReason,
-            description:
-                'Calculates a percentile of a numeric property across all events, such as p90 page load time. Useful for measuring latency and other durations.',
-        },
+        ...(showQuantileOption
+            ? [
+                  {
+                      value: ExperimentMetricType.QUANTILE,
+                      label: 'Percentile',
+                      'data-attr': 'experiment-metric-type-quantile',
+                      disabledReason: warehouseNativeTypeReason,
+                      description:
+                          'Calculates a percentile of a numeric property across all events, such as p90 page load time. Useful for measuring latency and other durations.',
+                  },
+              ]
+            : []),
     ]
 
     // dependencies for the loadEventCount useEffect call
