@@ -561,15 +561,25 @@ class TestSandboxSenderValidation(APIBaseTest):
         if action_type == "function":
             action["config"]["template_id"] = "template-email"
         action["config"]["inputs"]["email"]["value"]["from"] = {"integrationId": "{inputs.sender}"}
+        action["config"]["inputs"]["email"]["value"]["replyTo"] = "stored-reply@example.com"
         stored = HogFlow.objects.create(
             team=self.team, name="Templated workflow", actions=workflow["actions"], edges=workflow["edges"]
         )
         return stored, deepcopy(workflow["actions"])
 
-    @parameterized.expand([("email_step_renamed", "function_email"), ("generic_step_renamed", "function")])
-    def test_stored_templated_sender_survives_edits_that_keep_it(self, _name: str, action_type: str) -> None:
+    @parameterized.expand(
+        [
+            ("email_step_renamed", "subject", "Renamed subject", "function_email"),
+            ("generic_step_renamed", "subject", "Renamed subject", "function"),
+            ("reply_to_changed", "replyTo", "new-reply@example.com", "function_email"),
+            ("reply_to_cleared", "replyTo", "", "function_email"),
+        ]
+    )
+    def test_stored_templated_sender_survives_edits_that_keep_it(
+        self, _name: str, field: str, value: str, action_type: str
+    ) -> None:
         stored, actions = self._stored_templated_workflow(action_type)
-        actions[1]["config"]["inputs"]["email"]["value"]["subject"] = "Renamed subject"
+        actions[1]["config"]["inputs"]["email"]["value"][field] = value
 
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{stored.id}", {"actions": actions})
 
@@ -581,7 +591,6 @@ class TestSandboxSenderValidation(APIBaseTest):
             ("duplicated_step", "add_step", "function_email"),
             ("other_step_switched_to_it", "switch_other_step", "function_email"),
             ("step_type_switched", "switch_type", "function"),
-            ("reply_to_added", "add_reply_to", "function_email"),
         ]
     )
     def test_stored_templated_sender_is_not_grandfathered_into_a_changed_sender(
@@ -608,7 +617,7 @@ class TestSandboxSenderValidation(APIBaseTest):
             actions[1]["type"] = action_type
             actions[1]["config"]["template_id"] = "template-email"
         else:
-            actions[1]["config"]["inputs"]["email"]["value"]["replyTo"] = "new-reply@example.com"
+            raise AssertionError(change)
 
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{stored.id}", {"actions": actions})
 

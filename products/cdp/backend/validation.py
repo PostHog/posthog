@@ -169,6 +169,10 @@ def _stored_email_values(context: dict[str, Any]) -> list[object]:
     return stored
 
 
+def _matches_stored_sender(email_value: dict, stored_values: list[object]) -> bool:
+    return any(isinstance(stored, dict) and email_value["from"] == stored.get("from") for stored in stored_values)
+
+
 def _matches_stored_email(email_value: dict, stored_values: list[object]) -> bool:
     return any(
         isinstance(stored, dict)
@@ -199,7 +203,7 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
         raise serializers.ValidationError({"input": f"At most {MAX_WORKFLOW_EMAIL_SENDERS} email senders are allowed."})
     sandbox_ids = _sandbox_email_sender_ids(context)
     stored_step_values = [*_stored_email_values(context), *(context.get("existing_action_email_values") or [])]
-    if templated_sender and sandbox_ids and not _matches_stored_email(email_value, stored_step_values):
+    if templated_sender and sandbox_ids and not _matches_stored_sender(email_value, stored_step_values):
         raise serializers.ValidationError(
             {
                 "input": "A templated sender is not supported while the project has the sandbox sender. "
