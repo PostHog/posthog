@@ -21,6 +21,7 @@ from .config import SuggestionSettings, is_enabled_for_organization
 VISIT_LOOKBACK = timedelta(days=14)
 MIN_DAYS_IN_28 = 4
 MIN_DAYS_IN_7 = 2
+TRAFFIC_BATCH = 500
 
 # Cross-team by design: one aggregate over the visited teams instead of one query per team.
 _GENERATION_DAYS_SQL = """
@@ -89,5 +90,12 @@ def eligible_team_ids(settings: SuggestionSettings, now: datetime | None = None)
             flagged[organization] = is_enabled_for_organization(organization)
         if flagged[organization]:
             candidates.append(team_id)
-    steady = steady_traffic_team_ids(candidates, now)
-    return [team_id for team_id in candidates if team_id in steady][: settings.max_teams_per_run]
+    # Most recently visited first, in batches, so a cap of a few teams never aggregates traffic for thousands.
+    eligible: list[int] = []
+    for start in range(0, len(candidates), TRAFFIC_BATCH):
+        batch = candidates[start : start + TRAFFIC_BATCH]
+        steady = steady_traffic_team_ids(batch, now)
+        eligible += [team_id for team_id in batch if team_id in steady]
+        if len(eligible) >= settings.max_teams_per_run:
+            break
+    return eligible[: settings.max_teams_per_run]

@@ -3,6 +3,7 @@
 Trace content stays inside this process. Temporal activities call it with ids and get counts back.
 """
 
+import time
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -47,6 +48,8 @@ logger = structlog.get_logger(__name__)
 WINDOW = timedelta(days=7)
 # Traces younger than this may still be receiving events, so the window stops short of now.
 SETTLE = timedelta(minutes=30)
+# A drafted body under the per-trace limit can still be slow on every trace, so measuring it has a total budget.
+DRAFT_MEASURE_BUDGET_SECONDS = 120
 DRAFT_ABORT_ERRORS = ("Execution timed out", "Memory limit exceeded")
 # Dedupe asks the model about each hand-written evaluation, so a team with many pays for this many at most.
 MAX_DEDUPED_EVALS = 50
@@ -188,9 +191,11 @@ def _drafted_proposals(
     # A drafted body can loop until the 10s Hog limit on some inputs and not others, so the first trace that
     # times out or runs out of memory stops the whole measurement.
     outcomes: dict[bool, list[Outcome]] = {False: [], True: []}
+    stop_at = time.monotonic() + DRAFT_MEASURE_BUDGET_SECONDS
     for sampled in sample.traces:
         [outcome] = run_check(bytecode, [sampled])
-        if outcome.failed is None and outcome.reasoning.startswith(DRAFT_ABORT_ERRORS):
+        too_slow = time.monotonic() > stop_at
+        if too_slow or (outcome.failed is None and outcome.reasoning.startswith(DRAFT_ABORT_ERRORS)):
             stages.set("drafting", "failed", detail="drafted Hog runs too long")
             return []
         outcomes[sampled.held_out].append(outcome)
@@ -207,10 +212,16 @@ def run_pipeline(
     include_paid: bool,
     settings: SuggestionSettings,
     now: datetime | None = None,
+    deadline: float | None = None,
 ) -> list[EvalSuggestion]:
     """Run every stage for one team and publish the result on `run`. Raises when a free stage fails, so
-    the caller can mark the run failed and the team keeps its previous suggestions."""
+    the caller can mark the run failed and the team keeps its previous suggestions.
+
+    `deadline` is a time.monotonic() value. A worker thread cannot be stopped from outside, so the run checks it
+    between stages and gives up on its own before Temporal times the attempt out and retries it.
+    """
     stages = _Stages()
+    _on_time(deadline)
     end = (now or timezone.now()) - SETTLE
     window = ProfileWindow(start=end - WINDOW, end=end)
 
@@ -227,7 +238,9 @@ def run_pipeline(
     profile = fetch_profile(team, window)
     if profile.generations == 0:
         stages.set("profile", "skipped", detail="no generations in the last 7 days")
+        _on_time(deadline)
         return publish(run, ranking.pick(dedupe(fixes, coverage, {}, {})), stages.record)
+    _on_time(deadline)
     sample = fetch_sample(team, window, profile)
     content = content_profile(sample)
     stages.set(
@@ -245,12 +258,14 @@ def run_pipeline(
         spanning_days_share=round(content.spanning_days_share, 3),
     )
 
+    _on_time(deadline)
     applicability = applicable(profile, content)
     stages.set(
         "applicability", "ok", checks=[c.key for c in applicability.checks], judges=applicability.screened_judges
     )
 
     measurements = measure(applicability.checks, sample)
+    _on_time(deadline)
     stages.set(
         "measure",
         "ok",
@@ -294,7 +309,7 @@ def run_pipeline(
                 reverse=True,
             )[:MAX_DEDUPED_EVALS]
             jeeves_matches = screening.dedupe(client, unmapped, candidate_options) if unmapped else {}
-            screened = screening.screen(client, applicability.screened_judges, sample.main)
+            screened = screening.screen(client, applicability.screened_judges, sample.main, deadline)
             stages.set(
                 "screening",
                 "ok",
@@ -326,6 +341,7 @@ def run_pipeline(
         )
     ]
 
+    _on_time(deadline)
     if not include_paid or not settings.llm_drafting:
         stages.set("drafting", "skipped", detail="free stages only" if not include_paid else "switched off")
     elif not screening.consented(team):
@@ -346,6 +362,7 @@ def run_pipeline(
     stages.set(
         "ranking", "ok", candidates=len(proposals), after_dedupe=len(best), picked=[p.dedupe_key for p in picked]
     )
+    _on_time(deadline)
     return publish(run, picked, stages.record)
 
 
@@ -359,6 +376,9 @@ def publish(run: EvalSuggestionRun, proposals: Sequence[Proposal], stages: dict[
         locked = EvalSuggestionRun.objects.unscoped().select_for_update().get(id=run.id)
         if locked.status == EvalSuggestionRunStatus.COMPLETED:
             return list(EvalSuggestion.objects.for_team(run.team_id).filter(run=run))
+        # The run was given up on while this attempt still ran, so its cards must not replace last week's.
+        if locked.status == EvalSuggestionRunStatus.FAILED:
+            return []
         rows = EvalSuggestion.objects.for_team(run.team_id).bulk_create(
             [
                 EvalSuggestion(
@@ -398,6 +418,15 @@ def publish(run: EvalSuggestionRun, proposals: Sequence[Proposal], stages: dict[
     return rows
 
 
+class RunDeadlinePassed(Exception):
+    pass
+
+
+def _on_time(deadline: float | None) -> None:
+    if deadline is not None and time.monotonic() >= deadline:
+        raise RunDeadlinePassed("The attempt ran out of time before publishing")
+
+
 def create_run(team: Team, trigger: str, batch_id: str = "", run_id: str | None = None) -> EvalSuggestionRun:
     """A new run, or with `run_id` the run a retried start already created, so a retry never leaves one orphaned."""
     runs = EvalSuggestionRun.objects.for_team(team.pk)
@@ -414,15 +443,20 @@ def fail_run(run_id: str, error: str) -> None:
     )
 
 
-def execute_run(run_id: str, *, include_paid: bool, settings: SuggestionSettings) -> int:
+def execute_run(run_id: str, *, include_paid: bool, settings: SuggestionSettings, deadline: float | None = None) -> int:
     """Run the pipeline for a stored run. A failure marks the run failed and re-raises, and the team keeps
     showing the suggestions of its last completed run."""
     run = EvalSuggestionRun.objects.unscoped().select_related("team").get(id=run_id)
     if run.status == EvalSuggestionRunStatus.COMPLETED:
         # Temporal retries an attempt whose result it lost after the run had published.
         return EvalSuggestion.objects.for_team(run.team_id).filter(run=run).count()
+    if run.status == EvalSuggestionRunStatus.FAILED:
+        # A retry after an attempt that gave up runs the stages again.
+        EvalSuggestionRun.objects.unscoped().filter(id=run.id, status=EvalSuggestionRunStatus.FAILED).update(
+            status=EvalSuggestionRunStatus.RUNNING, error="", completed_at=None
+        )
     try:
-        return len(run_pipeline(run.team, run, include_paid=include_paid, settings=settings))
+        return len(run_pipeline(run.team, run, include_paid=include_paid, settings=settings, deadline=deadline))
     except Exception as error:
         # An attempt that fails after another attempt published must not hide that attempt's suggestions.
         EvalSuggestionRun.objects.unscoped().filter(id=run.id).exclude(status=EvalSuggestionRunStatus.COMPLETED).update(

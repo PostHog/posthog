@@ -5,11 +5,20 @@ surface cues, and it is never asked about hallucination, claimed success or task
 """
 
 import re
+import time
 from collections.abc import Mapping, Sequence
 
 from django.conf import settings
 
-from posthog.llm.system_one import Answer, ChoiceAnswer, ChoiceQuestion, NoulAnswer, NoulQuestion, Question
+from posthog.llm.system_one import (
+    Answer,
+    ChoiceAnswer,
+    ChoiceQuestion,
+    NoulAnswer,
+    NoulQuestion,
+    Question,
+    SystemOneRequestFailed,
+)
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, SystemOneClient, build_system_one_client
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.shared_activities import consented_team_ids
@@ -25,6 +34,8 @@ FAILING_PROBABILITY = 0.9
 # A dedupe answer below this confidence keeps the candidate and labels it "similar to" the evaluation.
 DEDUPE_CONFIDENCE = 0.6
 MAX_SCREENED_TRACES = 128
+SCREENING_BUDGET_SECONDS = 300
+MAX_CONSECUTIVE_FAILURES = 3
 MAX_STATE_CHARS = 3000
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
@@ -82,7 +93,10 @@ def failing_probability(template_key: str, answer: Answer) -> tuple[float, str] 
 
 
 def screen(
-    client: SystemOneClient, template_keys: Sequence[str], traces: Sequence[SampledTrace]
+    client: SystemOneClient,
+    template_keys: Sequence[str],
+    traces: Sequence[SampledTrace],
+    deadline: float | None = None,
 ) -> list[ScreeningResult]:
     """Ask every template's question about the visible turn of each trace that has text.
 
@@ -92,20 +106,34 @@ def screen(
     readable = [t for t in traces if t.final_text.strip()][:MAX_SCREENED_TRACES]
     questions = {key: _question(key) for key in template_keys}
     flagged: dict[str, list[tuple[float, str, str]]] = {key: [] for key in template_keys}
+    # Calls run one after another, so the stage stops at its deadline and keeps what it screened. One failed call
+    # loses its trace, and a run of them means the gateway is down.
+    stop_at = min(time.monotonic() + SCREENING_BUDGET_SECONDS, float("inf") if deadline is None else deadline)
+    screened = failures = 0
     for sampled in readable:
+        if time.monotonic() >= stop_at or failures >= MAX_CONSECUTIVE_FAILURES:
+            break
         state = {"turn": clean_state(sampled.turn_text)}
         keys = list(questions)
-        for start in range(0, len(keys), GATEWAY_MAX_QUESTIONS):
-            batch = keys[start : start + GATEWAY_MAX_QUESTIONS]
-            answers = client.decide(state=state, questions={key: questions[key] for key in batch}).answers
-            for key in batch:
-                scored = failing_probability(key, answers[key])
-                if scored is not None and scored[0] >= FAILING_PROBABILITY:
-                    flagged[key].append((scored[0], sampled.trace.id, scored[1]))
+        try:
+            for start in range(0, len(keys), GATEWAY_MAX_QUESTIONS):
+                batch = keys[start : start + GATEWAY_MAX_QUESTIONS]
+                answers = client.decide(state=state, questions={key: questions[key] for key in batch}).answers
+                for key in batch:
+                    scored = failing_probability(key, answers[key])
+                    if scored is not None and scored[0] >= FAILING_PROBABILITY:
+                        flagged[key].append((scored[0], sampled.trace.id, scored[1]))
+        except SystemOneRequestFailed:
+            failures += 1
+            continue
+        failures = 0
+        screened += 1
+    if screened == 0 and failures:
+        raise SystemOneRequestFailed("Every screening call failed")
     return [
         ScreeningResult(
             template_key=key,
-            screened=len(readable),
+            screened=screened,
             flagged=[(trace_id, label) for _, trace_id, label in sorted(flagged[key], reverse=True)],
         )
         for key in template_keys

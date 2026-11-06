@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event
@@ -29,6 +29,7 @@ from products.ai_observability.backend.eval_suggestions.pipeline import (
     execute_run,
     fail_run,
     paid_draft,
+    publish,
     run_pipeline,
 )
 from products.ai_observability.backend.eval_suggestions.ranking import Proposal
@@ -342,6 +343,24 @@ class TestRunRecords(BaseTest):
         run.refresh_from_db()
         assert run.status == after
 
+    def test_an_attempt_publishes_nothing_once_the_run_was_given_up(self) -> None:
+        run = create_run(self.team, "scheduled")
+        fail_run(str(run.id), "Activity task timed out")
+
+        assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
+        run.refresh_from_db()
+        assert run.status == EvalSuggestionRunStatus.FAILED
+        assert not EvalSuggestion.objects.for_team(self.team.pk).exists()
+
+    def test_a_run_past_its_deadline_stops_before_publishing(self) -> None:
+        run = create_run(self.team, "scheduled")
+
+        with pytest.raises(pipeline.RunDeadlinePassed):
+            execute_run(str(run.id), include_paid=False, settings=SuggestionSettings(), deadline=0.0)
+
+        run.refresh_from_db()
+        assert run.status == EvalSuggestionRunStatus.FAILED
+
 
 def _existing(**overrides: Any) -> ExistingEval:
     fields: dict[str, Any] = {
@@ -440,7 +459,9 @@ def test_dedupe_drops_a_candidate_only_where_an_evaluation_already_runs(
 
 
 @parameterized.expand([("judge_draft", "llm_judge"), ("hog_draft", "hog")])
-def test_a_draft_replaces_the_templated_card_for_its_gap(_name: str, evaluation_type: str) -> None:
+def test_a_draft_replaces_the_templated_card_for_its_gap(
+    _name: str, evaluation_type: Literal["hog", "llm_judge"]
+) -> None:
     templated = _candidate("gap:review_lens=security:findings[].priority", [SECURITY_LENS], GAP_PROMPT)
     draft = drafting.Draft(evaluation_type=evaluation_type, name="Drafted", description="d", body="return true")
     hog_card = replace(_candidate("check:drafted_review_lens", []), kind="new_hog")
