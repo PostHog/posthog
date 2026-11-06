@@ -117,7 +117,7 @@ async fn fetch_team_functions(pool: &PgPool, keys: Vec<String>) -> LoadResult<Ve
         .filter_map(|k| k.parse::<i32>().ok().filter(|n| *n >= 1))
         .collect();
     let rows = sqlx::query(
-        "SELECT id::text AS id, team_id, type FROM posthog_hogfunction \
+        "SELECT id::text AS id, team_id::int4 AS team_id, type::text AS type FROM posthog_hogfunction \
          WHERE enabled = TRUE AND deleted = FALSE AND team_id = ANY($1)",
     )
     .bind(&team_ids)
@@ -145,12 +145,15 @@ async fn fetch_functions(
     fields: &EncryptedFields,
     ids: Vec<String>,
 ) -> LoadResult<Arc<HogFunction>> {
+    // A uuid array keeps the primary key index, which `id::text` would not.
+    let uuids: Vec<uuid::Uuid> = ids.iter().filter_map(|id| id.parse().ok()).collect();
     let rows = sqlx::query(
-        "SELECT id::text AS id, team_id, name, type, execution_order, created_at::text AS created_at, \
+        "SELECT id::text AS id, team_id::int4 AS team_id, name::text AS name, type::text AS type, \
+         execution_order::int4 AS execution_order, created_at::text AS created_at, \
          bytecode::text AS bytecode, inputs::text AS inputs, encrypted_inputs::text AS encrypted_inputs \
-         FROM posthog_hogfunction WHERE id::text = ANY($1) AND deleted = FALSE",
+         FROM posthog_hogfunction WHERE id = ANY($1) AND deleted = FALSE",
     )
-    .bind(&ids)
+    .bind(&uuids)
     .fetch_all(pool)
     .await
     .map_err(classify_pg_error)?;
