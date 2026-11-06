@@ -457,8 +457,6 @@ function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType
 
 type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | 'not_workflow_step'>
 
-// CC and BCC belong to the route because a route builder may parse them its own way, and SES must
-// deliver to exactly the list that builder checked.
 type SesRoute = {
     tenantName: string
     configurationSetName: string
@@ -647,16 +645,6 @@ export class EmailService {
                 )
             }
 
-            if (isSandbox && !isTest && !isWorkflowEmailStep(invocation)) {
-                this.skipSandboxSend(
-                    result,
-                    isTest,
-                    'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
-                    'sending_suspended'
-                )
-                await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'not_workflow_step', 0)
-                return result
-            }
             if (isSandbox && !this.sandboxSender?.canSend) {
                 this.skipSandboxSend(
                     result,
@@ -665,6 +653,16 @@ export class EmailService {
                     'sending_suspended'
                 )
                 await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'switch_off', 0)
+                return result
+            }
+            if (isSandbox && !isTest && !isWorkflowEmailStep(invocation)) {
+                this.skipSandboxSend(
+                    result,
+                    isTest,
+                    'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
+                    'sending_suspended'
+                )
+                await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'not_workflow_step', 0)
                 return result
             }
 
