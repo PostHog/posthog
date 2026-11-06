@@ -10,6 +10,7 @@ from posthog.models.utils import UUIDModel
 class ImportProviderKey(models.TextChoices):
     CUSTOMERIO = "customerio", "Customer.io"
     RESEND = "resend", "Resend"
+    MAILGUN = "mailgun", "Mailgun"
 
 
 def import_provider_choices() -> list[tuple[str, str | Promise]]:
@@ -59,6 +60,8 @@ class ProviderImportRun(TeamScopedRootMixin, UUIDModel):
     temporary_api_key = EncryptedTextField(null=True, blank=True)
     # Step keys in the order they run.
     steps = models.JSONField(default=list)
+    # The choices the provider asks for when the run starts, such as Mailgun's region. Setting key -> value.
+    settings = models.JSONField(default=dict)
     status = models.CharField(max_length=16, choices=ProviderImportStatus.choices, default=ProviderImportStatus.QUEUED)
     # Step key -> {"status", "processed", "imported", "warnings", "last_error", "checkpoint", "attempt"},
     # plus "counts" and "items" for a step that reports them.

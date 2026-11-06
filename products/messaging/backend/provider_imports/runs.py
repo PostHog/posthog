@@ -9,7 +9,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from django.conf import settings
+from django.conf import settings as django_settings
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -49,6 +49,10 @@ class ProviderImportAlreadyRunning(Exception):
     pass
 
 
+class InvalidImportSettings(Exception):
+    pass
+
+
 class InvalidImportSteps(Exception):
     pass
 
@@ -68,24 +72,30 @@ class _StepClaim:
 
 
 def start_run(
-    team_id: int, provider_key: str, steps: list[str], api_key: str | None, created_by_id: int | None
+    team_id: int,
+    provider_key: str,
+    steps: list[str],
+    api_key: str | None,
+    created_by_id: int | None,
+    settings: Mapping[str, str] | None = None,
 ) -> ProviderImportRun:
     """Check the credentials, claim a queued run, store the credentials, and start the run's workflow.
 
-    Raises UnknownImportProvider, InvalidImportSteps, ProviderImportAlreadyRunning, the ImportCredentials* errors and
-    ImportProviderUnavailable.
+    Raises UnknownImportProvider, InvalidImportSteps, InvalidImportSettings, ProviderImportAlreadyRunning, the
+    ImportCredentials* errors and ImportProviderUnavailable.
     """
     provider = get_provider(provider_key)
     ordered_steps = _order_steps(provider, steps)
+    resolved_settings = _resolve_settings(provider, settings or {})
 
     _fail_stale_runs(team_id)
     if _runs(team_id).filter(provider=provider.key, status__in=ACTIVE_IMPORT_STATUSES).exists():
         raise ProviderImportAlreadyRunning(f"A {provider.label} import is already running.")
 
-    credentials = provider.check_credentials(team_id, api_key)
+    credentials = provider.check_credentials(team_id, api_key, resolved_settings, ordered_steps)
     progress = {step: _new_step_progress() for step in ordered_steps}
     if provider.resumes_after_failure:
-        _continue_failed_steps(team_id, provider.key, progress, _key_id(credentials.api_key))
+        _continue_failed_steps(team_id, provider.key, progress, resolved_settings, _key_id(credentials.api_key))
     try:
         with transaction.atomic():
             # Create the run before storing the credentials. A concurrent start then waits on the active-run index
@@ -96,6 +106,7 @@ def start_run(
                 steps=ordered_steps,
                 created_by_id=created_by_id,
                 progress=progress,
+                settings=resolved_settings,
             )
             if provider.retains_credentials:
                 run.integration_id = provider.store_credentials(team_id, credentials, created_by_id)
@@ -133,6 +144,7 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         integration_id=run.integration_id,
         api_key=run.temporary_api_key,
         steps=tuple(run.steps),
+        settings=run.settings,
     )
     try:
         _check_required_steps(provider, run, step)
@@ -209,13 +221,33 @@ def _order_steps(provider: ImportProvider, steps: list[str]) -> list[str]:
     return [key for key in known if key in steps]
 
 
+def _resolve_settings(provider: ImportProvider, settings: Mapping[str, str]) -> dict[str, str]:
+    specs = {spec.key: spec for spec in provider.settings}
+    if unknown := sorted(set(settings) - set(specs)):
+        raise InvalidImportSettings(f"{provider.label} has no setting named {', '.join(unknown)}.")
+    resolved: dict[str, str] = {}
+    for key, spec in specs.items():
+        value = settings.get(key, spec.default)
+        if value is None:
+            raise InvalidImportSettings(f"Choose a value for {spec.label}.")
+        if value not in {choice.value for choice in spec.choices}:
+            raise InvalidImportSettings(f"{value} isn't a valid value for {spec.label}.")
+        resolved[key] = value
+    return resolved
+
+
 def _continue_failed_steps(
-    team_id: int, provider_key: str, progress: dict[str, dict[str, Any]], key_id: str | None
+    team_id: int,
+    provider_key: str,
+    progress: dict[str, dict[str, Any]],
+    settings: Mapping[str, str],
+    key_id: str | None,
 ) -> None:
     for step_progress in progress.values():
         step_progress["key_id"] = key_id
     latest = _runs(team_id).filter(provider=provider_key).order_by("-created_at").first()
-    if latest is None or latest.status != ProviderImportStatus.FAILED:
+    # A checkpoint only makes sense for the settings that wrote it, such as the Mailgun region it was reading.
+    if latest is None or latest.status != ProviderImportStatus.FAILED or latest.settings != settings:
         return
     for step, step_progress in progress.items():
         previous = latest.progress.get(step, {})
@@ -227,7 +259,7 @@ def _continue_failed_steps(
 def _key_id(api_key: str | None) -> str | None:
     if not api_key:
         return None
-    return hmac.new(settings.SECRET_KEY.encode(), api_key.encode(), hashlib.sha256).hexdigest()[:16]
+    return hmac.new(django_settings.SECRET_KEY.encode(), api_key.encode(), hashlib.sha256).hexdigest()[:16]
 
 
 def _fail_stale_runs(team_id: int) -> None:
