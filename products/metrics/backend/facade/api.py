@@ -18,8 +18,6 @@ from django.db import connection
 
 import structlog
 
-from rest_framework.request import Request
-
 from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
 from posthog.hogql import ast
@@ -29,6 +27,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team, User
 
@@ -465,9 +464,13 @@ def record_promql_query(*, team: Team, expr: str) -> None:
     _record_promql_query(team, expr)
 
 
-def report_prometheus_api_usage(*, request: Request, team: Team) -> None:
+def report_prometheus_api_usage(
+    *, team: Team, user: User, auth_method: str, client: str, analytics_props: AnalyticsProps
+) -> None:
     """Report use of the Prometheus-compatible API as an analytics event, at most once an hour for each team, user and client."""
-    _report_prometheus_api_usage(request, team)
+    _report_prometheus_api_usage(
+        team=team, user=user, auth_method=auth_method, client=client, analytics_props=analytics_props
+    )
 
 
 def run_promql_query(

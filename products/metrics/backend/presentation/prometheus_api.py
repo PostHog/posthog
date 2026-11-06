@@ -1,14 +1,31 @@
 import re
-from typing import Any
+from typing import Any, cast
 
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.snuffle_proxy import SnuffleProxyViewSet
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.event_usage import get_request_analytics_properties
+from posthog.models import User
 
 from products.metrics.backend.facade.api import record_promql_query, report_prometheus_api_usage
 
 _LABEL_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+
+
+def _auth_method(request: Request) -> str:
+    authenticator = request.successful_authenticator
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return "personal_api_key"
+    if isinstance(authenticator, SessionAuthentication):
+        return "session"
+    return "other"
+
+
+def _client(request: Request) -> str:
+    # Grafana sends `Grafana/<version>` as the user agent of data source requests.
+    return "grafana" if request.headers.get("User-Agent", "").startswith("Grafana/") else "other"
 
 
 class PrometheusQueryViewSet(SnuffleProxyViewSet):
@@ -44,5 +61,11 @@ class PrometheusQueryViewSet(SnuffleProxyViewSet):
 
     def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Any:
         if self.action == "proxy" and response.status_code < 400:
-            report_prometheus_api_usage(request=request, team=self.team)
+            report_prometheus_api_usage(
+                team=self.team,
+                user=cast(User, request.user),
+                auth_method=_auth_method(request),
+                client=_client(request),
+                analytics_props=get_request_analytics_properties(request),
+            )
         return super().finalize_response(request, response, *args, **kwargs)
