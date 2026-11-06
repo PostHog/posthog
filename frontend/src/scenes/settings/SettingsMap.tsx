@@ -1667,6 +1667,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
+                id: 'conversations-ai',
+                title: (
+                    <>
+                        AI agent
+                        <LemonTag type="highlight" size="small" className="ml-1">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                description:
+                    'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
+                component: <AISection />,
+                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION_ORGS',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
+            },
+            {
                 id: 'conversations-imports',
                 title: (
                     <>
@@ -1688,23 +1705,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <MacrosSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['macro', 'canned', 'reply', 'shortcut', 'template', 'support', 'conversation'],
-            },
-            {
-                id: 'conversations-ai',
-                title: (
-                    <>
-                        AI agent
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
-                description:
-                    'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
-                component: <AISection />,
-                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION_ORGS',
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
             },
         ],
     },
