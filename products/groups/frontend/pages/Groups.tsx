@@ -21,9 +21,11 @@ import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { GroupTypeIndex } from '~/types'
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
+import { GroupTypeOriginBanner } from 'products/groups/frontend/components/GroupTypeOriginBanner'
 
 import { groupsListLogic } from '../logics/groupsListLogic'
 import { groupsSceneLogic } from '../logics/groupsSceneLogic'
@@ -42,7 +44,7 @@ export function GroupsScene(): JSX.Element {
     const { setQuery } = useActions(mountedGroupsListLogic)
 
     const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
-    const { aggregationLabel } = useValues(groupsModel)
+    const { aggregationLabel, groupTypes } = useValues(groupsModel)
     const { baseCurrency } = useValues(teamLogic)
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -51,6 +53,8 @@ export function GroupsScene(): JSX.Element {
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
     }
+
+    const groupType = groupTypes.get(groupTypeIndex as GroupTypeIndex)
 
     if (shouldShowGroupsIntroduction) {
         return (
@@ -108,6 +112,8 @@ export function GroupsScene(): JSX.Element {
                     </>
                 }
             />
+
+            {groupType && <GroupTypeOriginBanner groupType={groupType} />}
 
             <Query
                 uniqueKey="groups-query"
