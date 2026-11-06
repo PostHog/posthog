@@ -88,6 +88,11 @@ describe('EmailTrackingService', () => {
                 'https://example.com/?a=1&b=2',
             ],
             [
+                'uppercase named entity &AMP;',
+                '<body><a href="https://example.com/?a=1&AMP;b=2">x</a></body>',
+                'https://example.com/?a=1&b=2',
+            ],
+            [
                 'plain URL with no entities',
                 '<body><a href="https://example.com/path">x</a></body>',
                 'https://example.com/path',
@@ -253,6 +258,8 @@ describe('EmailTrackingService', () => {
             ['https://example.com/?a=1&#38;b=2', 'https://example.com/?a=1&b=2'],
             ['https://example.com/?a=1&#x26;b=2', 'https://example.com/?a=1&b=2'],
             ['https://example.com/?a=1&amp;b=2&amp;c=3', 'https://example.com/?a=1&b=2&c=3'],
+            ['https://example.com/?a=1&AMP;b=2&#X26;c=3', 'https://example.com/?a=1&b=2&c=3'],
+            ['https://example.com/?a=1&Amp;b=2&APOS;c=3', 'https://example.com/?a=1&Amp;b=2&APOS;c=3'],
             ['https://example.com/path', 'https://example.com/path'],
             // Non-entity ampersands (legacy unencoded HTML) pass through untouched.
             ['https://example.com/?a=1&b=2', 'https://example.com/?a=1&b=2'],

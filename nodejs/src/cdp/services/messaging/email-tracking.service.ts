@@ -163,13 +163,15 @@ export const resolveEmailTrackingDistinctId = (
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.
-const HTML_ENTITY_REGEX = /&(?:(amp|lt|gt|quot|apos)|#(\d+)|#x([0-9a-fA-F]+));/g
+// HTML also defines the uppercase `&AMP;`, `&LT;`, `&GT;` and `&QUOT;` (but not `&APOS;`) and `&#X26;`.
+// A browser decodes them, so leaving one encoded makes a rewritten href escape its `&` a second time.
+const HTML_ENTITY_REGEX = /&(?:(amp|lt|gt|quot|apos|AMP|LT|GT|QUOT)|#(\d+)|#[xX]([0-9a-fA-F]+));/g
 const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 
 export const decodeHtmlEntitiesInHref = (value: string): string => {
     return value.replace(HTML_ENTITY_REGEX, (_match, named, dec, hex) => {
         if (named) {
-            return NAMED_ENTITIES[named]
+            return NAMED_ENTITIES[named.toLowerCase()]
         }
         const code = dec ? parseInt(dec, 10) : parseInt(hex, 16)
         // `String.fromCodePoint` throws RangeError above 0x10FFFF — `Number.isFinite` alone
