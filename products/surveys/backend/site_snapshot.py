@@ -20,6 +20,10 @@ from posthog.errors import ExposedCHQueryError
 from posthog.models import Team, User
 from posthog.session_recordings.models.session_recording import SessionRecording
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.api import (
     EXPORT_WORKFLOW_TIMEOUT,
@@ -32,6 +36,12 @@ from products.surveys.backend.models import Survey
 SNAPSHOT_WINDOW = timedelta(days=7)
 LONGEST_RECORDING = timedelta(days=1)
 NO_SNAPSHOT_TTL = timedelta(minutes=10)
+RENDER_CLAIM_TTL = timedelta(minutes=1)
+# The first pageview often fires before the recorder sends its first snapshot.
+RECORDER_START_DELAY_SECONDS = 60
+# The image exporter's own size caps. The viewport comes from ingested events, so a larger one is not rendered.
+MAX_EXPORT_WIDTH = 4000
+MAX_EXPORT_HEIGHT = 5000
 PAINT_DELAY_SECONDS = 3
 
 
@@ -53,7 +63,7 @@ class ViewportWidths:
 
 
 DEVICE_VIEWPORTS: dict[SnapshotDevice, ViewportWidths] = {
-    SnapshotDevice.DESKTOP: ViewportWidths(min_width=1024, max_width=10_000),
+    SnapshotDevice.DESKTOP: ViewportWidths(min_width=1024, max_width=MAX_EXPORT_WIDTH),
     SnapshotDevice.MOBILE: ViewportWidths(min_width=1, max_width=767),
 }
 
@@ -114,12 +124,13 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
             AND e.timestamp >= {pageviews_since}
             AND e.$session_id != ''
             AND toInt(e.properties.$viewport_width) BETWEEN {min_width} AND {max_width}
-            AND toInt(e.properties.$viewport_height) > 0
+            AND toInt(e.properties.$viewport_height) BETWEEN 1 AND {max_height}
             AND {url_condition}
         """,
         placeholders={
             "pageviews_since": ast.Constant(value=pageviews_since),
             "min_width": ast.Constant(value=viewport.min_width),
+            "max_height": ast.Constant(value=MAX_EXPORT_HEIGHT),
             "max_width": ast.Constant(value=viewport.max_width),
             "url_condition": _url_condition(survey),
         },
@@ -131,7 +142,7 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
             SELECT
                 r.session_id,
                 least(
-                    dateDiff('second', r.started_at, p.timestamp) + {paint_delay},
+                    greatest(dateDiff('second', r.started_at, p.timestamp), 0) + {paint_delay},
                     dateDiff('second', r.started_at, r.ended_at)
                 ) AS offset_seconds,
                 p.page_url,
@@ -149,12 +160,13 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
                 GROUP BY session_id
                 HAVING max(is_deleted) = 0
             ) AS r ON r.session_id = p.session_id
-            WHERE p.timestamp >= r.started_at AND p.timestamp <= r.ended_at
+            WHERE p.timestamp >= r.started_at - toIntervalSecond({recorder_start_delay}) AND p.timestamp <= r.ended_at
             ORDER BY p.timestamp DESC
             LIMIT 1
             """,
             placeholders={
                 "paint_delay": ast.Constant(value=PAINT_DELAY_SECONDS),
+                "recorder_start_delay": ast.Constant(value=RECORDER_START_DELAY_SECONDS),
                 "recordings_since": ast.Constant(value=pageviews_since - LONGEST_RECORDING),
                 "matching_pageviews": matching_pageviews,
             },
@@ -222,9 +234,14 @@ def _may_view_recording(user_access_control: UserAccessControl, team: Team, sess
     return recording is None or user_access_control.check_access_level_for_object(recording, required_level="viewer")
 
 
-def _no_snapshot_cache_key(team: Team, key: dict[str, str]) -> str:
+def _snapshot_cache_key(kind: str, team: Team, key: dict[str, str]) -> str:
     digest = hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()
-    return f"survey_site_snapshot_none:{team.id}:{digest}"
+    return f"survey_site_snapshot_{kind}:{team.id}:{digest}"
+
+
+def _may_see_page_urls(user: User, team: Team) -> bool:
+    restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.id)
+    return "$current_url" not in split_restricted_property_names(restrictions).event
 
 
 def _is_abandoned(asset: ExportedAsset) -> bool:
@@ -249,6 +266,8 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
         "session_recording", required_level="viewer"
     ):
         return UNAVAILABLE
+    if not _may_see_page_urls(user, team):
+        return UNAVAILABLE
 
     key = _snapshot_key(survey, device)
     cached = (
@@ -256,6 +275,7 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
             team_id=team.id,
             export_format=ExportedAsset.ExportFormat.PNG,
             export_context__survey_site_snapshot=key,
+            is_system=True,
             created_at__gte=timezone.now() - SNAPSHOT_WINDOW,
         )
         .order_by("-created_at")
@@ -268,9 +288,27 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
         if not _is_abandoned(cached) and not _recording_was_deleted(team, session_id):
             return _snapshot_of(cached)
 
-    no_snapshot_key = _no_snapshot_cache_key(team, key)
+    no_snapshot_key = _snapshot_cache_key("none", team, key)
     if cache.get(no_snapshot_key):
         return UNAVAILABLE
+    render_claim_key = _snapshot_cache_key("claim", team, key)
+    if not cache.add(render_claim_key, True, timeout=RENDER_CLAIM_TTL.total_seconds()):
+        return SiteSnapshot(status=SnapshotStatus.RENDERING)
+    try:
+        return _start_snapshot(team, survey, device, user, user_access_control, key, no_snapshot_key)
+    finally:
+        cache.delete(render_claim_key)
+
+
+def _start_snapshot(
+    team: Team,
+    survey: Survey,
+    device: SnapshotDevice,
+    user: User,
+    user_access_control: UserAccessControl,
+    key: dict[str, str],
+    no_snapshot_key: str,
+) -> SiteSnapshot:
     moment = find_snapshot_moment(team, survey, device)
     if moment is None:
         cache.set(no_snapshot_key, True, timeout=NO_SNAPSHOT_TTL.total_seconds())
