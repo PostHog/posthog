@@ -247,6 +247,24 @@ const GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH: Record<string, 
     loadPrComments: 'scenes.inbox.logics.inboxReportDetailLogic',
 }
 
+/*
+Write actions whose owning logic handles a 400 with code `secret_reentry_required`: it asks for the
+secret again in a dialog, or toasts the refusal with the input's name. It is a prompt for user input,
+so it is not reported as an exception. Owned by hogFunctionSecretReentryLogic's upsertHogFunctionFailure
+listener. The backend raises the code in products/cdp/backend/api/hog_function.py.
+*/
+const SECRET_REENTRY_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    upsertHogFunction: 'scenes.pipeline.hogFunctionConfigurationLogic',
+}
+
+function isSelfHandledSecretReentry(error: any, actionKey: string, logicPath: string): boolean {
+    return (
+        error?.status === 400 &&
+        error?.code === 'secret_reentry_required' &&
+        isOwnedByLogic(SECRET_REENTRY_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    )
+}
+
 // projectLogic toasts a duplicate project name 409 from these actions.
 const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     createProject: 'scenes.projectLogic',
@@ -256,6 +274,9 @@ const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
 function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
     if (error?.status === 404 && error?.code === 'content_expired') {
         return isOwnedByLogic(CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    if (isSelfHandledSecretReentry(error, actionKey, logicPath)) {
+        return true
     }
     if (error?.status === 404 && error?.code === 'github_repository_inaccessible') {
         return isOwnedByLogic(GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
@@ -390,7 +411,8 @@ export function initKea({
                         isFeatureFlagDuplicateKey ||
                         isHasDependentsError ||
                         isSelfHandledFieldError ||
-                        isSelfHandledValidationError
+                        isSelfHandledValidationError ||
+                        isSelfHandledSecretReentry(error, actionKey, logic.pathString)
                     ) {
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
