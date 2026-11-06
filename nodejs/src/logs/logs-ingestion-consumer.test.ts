@@ -1102,7 +1102,12 @@ describe('LogsIngestionConsumer', () => {
                 {
                     samplingRulesCache: dropEverything as SamplingRulesCache,
                     internalSourcePolicies: {
-                        hog_flow: { billed, teamRules: false, serviceName: 'posthog-internal-workflows' },
+                        hog_flow: {
+                            billed,
+                            teamRules: false,
+                            rateLimited: false,
+                            serviceName: 'posthog-internal-workflows',
+                        },
                     },
                 }
             )
@@ -1149,6 +1154,63 @@ describe('LogsIngestionConsumer', () => {
                 internalMetrics: !billed,
                 billedMetrics: billed,
             })
+        })
+
+        it("rate limits an opted-in source in its own bucket, apart from the team's logs and usage", async () => {
+            hub.LOGS_LIMITER_BUCKET_SIZE_KB = 2
+            hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 1
+            hub.LOGS_LIMITER_TTL_SECONDS = 3600
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(
+                hub,
+                {
+                    LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
+                    LOGS_INTERNAL_INGESTION_SIGNING_KEYS: SIGNING_KEY,
+                },
+                {
+                    internalSourcePolicies: {
+                        session_replay: {
+                            billed: false,
+                            teamRules: false,
+                            rateLimited: true,
+                            serviceName: 'posthog-internal-session-replay',
+                        },
+                    },
+                }
+            )
+            // Each message fills the 2 KB bucket, so a shared bucket would drop both internal ones.
+            const [billed, ...internal] = await createKafkaMessages(
+                [createLogMessage(), createLogMessage(), createLogMessage()],
+                { token: team.api_token, bytes_uncompressed: '1500', record_count: '1' }
+            )
+            for (const message of internal) {
+                message.headers!.push(
+                    internalLogsHeaders(signInternalLogs(SIGNING_KEY, 'session_replay', team.id, new Date(Date.now())))
+                )
+            }
+            const recordLogsReceivedSpy = jest.spyOn(otelMetrics, 'recordLogsReceived')
+            const recordInternalLogsSpy = jest.spyOn(otelMetrics, 'recordInternalLogs')
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([billed, ...internal]))
+
+            const produced = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
+            expect({
+                produced: produced.map((m) => m.headers?.[INTERNAL_SOURCE_HEADER] ?? 'billed').sort(),
+                received: recordLogsReceivedSpy.mock.calls,
+                internal: recordInternalLogsSpy.mock.calls,
+            }).toEqual({
+                produced: ['billed', 'session_replay'],
+                received: [[1500, 1]],
+                internal: [[team.id, 1500, 1]],
+            })
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                { reason: 'internal_rate_limited', team_id: team.id.toString() },
+                1
+            )
+            expect(logMessageDroppedCounterSpy).not.toHaveBeenCalledWith(
+                expect.objectContaining({ reason: 'rate_limited' }),
+                expect.anything()
+            )
         })
 
         it('drops a row past its stamped retention without crediting billing', async () => {

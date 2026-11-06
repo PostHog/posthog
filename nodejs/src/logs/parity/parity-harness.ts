@@ -413,7 +413,7 @@ export function buildParityConsumer(
             Object.fromEntries(
                 Object.entries(scenario.internal_source_policies).map(([source, policy]) => [
                     source,
-                    { ...policy, serviceName: `posthog-internal-${source}` },
+                    { ...policy, rateLimited: false, serviceName: `posthog-internal-${source}` },
                 ])
             ),
         tracingConfigCache: {

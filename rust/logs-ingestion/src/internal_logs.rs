@@ -22,6 +22,8 @@ pub struct InternalSourcePolicy {
     pub billed: bool,
     /// Runs the team's sampling, drop, transformation, metric and retention rules.
     pub team_rules: bool,
+    /// Runs this source through its own token bucket. Not enforced here yet, only in the Node consumer.
+    pub rate_limited: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +31,7 @@ pub struct InternalLogs {
     pub source: String,
     pub billed: bool,
     pub team_rules: bool,
+    pub rate_limited: bool,
 }
 
 pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolicy> {
@@ -38,6 +41,7 @@ pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolic
             InternalSourcePolicy {
                 billed: false,
                 team_rules: false,
+                rate_limited: false,
             },
         ),
         (
@@ -45,6 +49,7 @@ pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolic
             InternalSourcePolicy {
                 billed: false,
                 team_rules: false,
+                rate_limited: false,
             },
         ),
         (
@@ -52,6 +57,7 @@ pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolic
             InternalSourcePolicy {
                 billed: false,
                 team_rules: false,
+                rate_limited: true,
             },
         ),
     ])
@@ -253,6 +259,7 @@ impl InternalLogsVerifier {
             source: source.to_string(),
             billed: policy.billed,
             team_rules: policy.team_rules,
+            rate_limited: policy.rate_limited,
         })
     }
 
