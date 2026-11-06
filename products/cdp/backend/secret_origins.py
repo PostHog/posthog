@@ -143,14 +143,16 @@ def analyze_secret_origins(
     mapping_input_sets: list[dict[str, Any]],
     secret_keys: set[str],
     integration_configs: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    worker_calls: Optional[Mapping[str, frozenset[str]]] = None,
 ) -> SecretOriginsAnalysis:
     """With `integration_configs`, the keys are integration inputs and each maps to the config the worker
     resolves it to, so that `inputs.<key>.<field>` reads a value from it. The worker's by-name fetch
     options read the stored inputs, where an integration input holds only its id, so a string naming an
-    integration key does not reach its credentials."""
+    integration key does not reach its credentials. `worker_calls` names, for a key, the worker
+    functions it may be handed to, which resolve its credentials themselves."""
     reason: UnanalyzableReason
     try:
-        analysis = _Analysis(hog, [inputs, *mapping_input_sets], secret_keys, integration_configs)
+        analysis = _Analysis(hog, [inputs, *mapping_input_sets], secret_keys, integration_configs, worker_calls)
         return SecretOriginsAnalysis(origins=analysis.run())
     except _CannotAnalyze as error:
         reason = error.reason
@@ -168,8 +170,11 @@ def secret_origins(
     mapping_input_sets: list[dict[str, Any]],
     secret_keys: set[str],
     integration_configs: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    worker_calls: Optional[Mapping[str, frozenset[str]]] = None,
 ) -> dict[str, SecretOrigins]:
-    return analyze_secret_origins(hog, inputs, mapping_input_sets, secret_keys, integration_configs).origins
+    return analyze_secret_origins(
+        hog, inputs, mapping_input_sets, secret_keys, integration_configs, worker_calls
+    ).origins
 
 
 def mapping_inputs(mappings: Any) -> list[dict[str, Any]]:
@@ -281,8 +286,11 @@ class _Analysis:
         input_sets: list[dict[str, Any]],
         secret_keys: set[str],
         integration_configs: Optional[Mapping[str, Mapping[str, Any]]],
+        worker_calls: Optional[Mapping[str, frozenset[str]]] = None,
     ) -> None:
         self.secret_keys = frozenset(secret_keys)
+        self.worker_calls = worker_calls or {}
+        self.worker_call_names: frozenset[str] = frozenset().union(*self.worker_calls.values())
         self.evaluations_left = _MAX_EVALUATIONS
         self.resolvable_by_name = integration_configs is None
         self.integration_configs = integration_configs or {}
@@ -349,7 +357,7 @@ class _Analysis:
         self.exits += [expr for name, expr in self.assignments if name not in local]
         self.assigned_only = self.declarations - bound_elsewhere - {base for base, _, _ in self.member_assignments}
         self.exits += self._compared_exits(self.comparisons)
-        quiet = {"fetch", *_SAFE_CALLS, *self.functions, *self.lambdas_only}
+        quiet = {"fetch", *_SAFE_CALLS, *self.functions, *self.lambdas_only, *self.worker_call_names}
         self.exits += [
             arg for call in self.calls if call.name not in quiet and not _calls_back_inline(call) for arg in call.args
         ]
@@ -357,7 +365,8 @@ class _Analysis:
 
     def _rebinds_an_interpreted_name(self, variables: set[str]) -> bool:
         functions = set(self.functions)
-        return bool((variables | functions) & _INTERPRETED_NAMES or variables & functions)
+        interpreted = _INTERPRETED_NAMES | self.worker_call_names
+        return bool((variables | functions) & interpreted or variables & functions)
 
     def _hands_on_a_callee(self) -> bool:
         """Whether code passes `fetch` or one of its own functions as a value, to be called where the
@@ -607,6 +616,9 @@ class _Analysis:
         # stored by templates as a matter of course, and does not reveal it.
         unbound = set(_held(self._union_taint(self.exits) | (shared if self.exits else frozenset())))
         for call in self.calls:
+            if call.name in self.worker_call_names:
+                handed = _held(self._union_taint(call.args))
+                unbound |= {key for key in handed if call.name not in self.worker_calls.get(key, frozenset())}
             if call.name != "fetch":
                 continue
             carried = self._fetch_carries(call, self._union_taint(call.args) | shared)
@@ -726,6 +738,12 @@ class _Analysis:
             return _derived(self._fetch_carries(node, taint))
         if isinstance(node, ast.Call) and node.name in _DIGEST_CALLS:
             return _derived(taint)
+        if isinstance(node, ast.Call) and node.name in self.worker_call_names:
+            # The result reports what the worker did with the connection and does not hold its credentials.
+            return frozenset(
+                _Derived(key=item) if isinstance(item, str) and node.name in self.worker_calls.get(item, ()) else item
+                for item in taint
+            )
         if isinstance(node, ast.Call):
             taint |= self.taints.get(node.name, frozenset())
         return taint
