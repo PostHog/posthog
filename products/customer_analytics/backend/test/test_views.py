@@ -1918,6 +1918,28 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         create_response = self.client.post(url, {"title": "x"}, format="json")
         self.assertEqual(create_response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @parameterized.expand([("account_notebooks",), ("team_account_notes",)])
+    def test_account_grant_reaches_notes_when_customer_analytics_is_none(self, endpoint: str) -> None:
+        self._set_access_level(self.no_access_user, resource="customer_analytics", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(
+                user=self.no_access_user, organization=self.organization
+            ),
+        )
+        self.client.force_login(self.no_access_user)
+        url = {
+            "account_notebooks": f"{self.accounts_url}{self.account.id}/notebooks/",
+            "team_account_notes": f"/api/projects/{self.team.id}/account_notes/",
+        }[endpoint]
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
     def test_account_presence_404_when_object_access_denied(self) -> None:
         AccessControl.objects.create(
             team=self.team,

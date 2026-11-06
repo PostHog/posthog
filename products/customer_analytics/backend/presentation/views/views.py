@@ -61,6 +61,7 @@ from posthog.permissions import (
     is_service_auth,
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import (
@@ -2391,8 +2392,34 @@ def _account_tags_input(serializer) -> list[str] | None:
     return serializer.initial_data.get("tags")
 
 
+class AccountNoteAccessControlPermission(AccessControlPermission):
+    """Checks access rules on `account`, while the token scope check stays on `account_note`.
+
+    Access rules are written against accounts, never against notes. The base class looks up object
+    grants by the view's scope object, so on `account_note` it finds no grant. A member with
+    Customer analytics set to none and a grant on one account then gets 403 on that account's notes.
+    The facade still checks access to each parent account."""
+
+    def _get_scope_object(self, request: Request, view: Any) -> APIScopeObjectOrNotSupported:
+        return "account"
+
+
+class AccountNoteAccessMixin:
+    permission_classes: list[type[BasePermission]] = []
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        return [
+            IsAuthenticated(),
+            APIScopePermission(),
+            AccountNoteAccessControlPermission(),
+            TeamMemberAccessPermission(),
+            *(permission() for permission in self.permission_classes),
+        ]
+
+
 @extend_schema(tags=["customer_analytics"])
 class AccountNotebookViewSet(
+    AccountNoteAccessMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     mixins.CreateModelMixin,
@@ -2604,6 +2631,7 @@ def _parse_uuid_param(request: Request, name: str) -> UUID | None:
 
 @extend_schema(tags=["customer_analytics"])
 class AccountNotesViewSet(
+    AccountNoteAccessMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     mixins.ListModelMixin,
