@@ -74,7 +74,8 @@ SELECT
     countMatches(input, '"role":[[:space:]]*"user"') AS user_messages,
     match(input, '"role":[[:space:]]*"tool"|"type":[[:space:]]*"(tool_result|function_call_output)"') AS has_tool_results,
     if(length(output_choices) <= {max_output}, output_choices, '') AS output_choices,
-    if(length(output) <= {max_output}, output, '') AS output
+    if(length(output) <= {max_output}, output, '') AS output,
+    length(ai_events.output_choices) > {max_output} OR length(ai_events.output) > {max_output} AS output_too_long
 FROM posthog.ai_events AS ai_events
 WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding')
   AND trace_id IN {trace_ids}
@@ -172,6 +173,7 @@ def _sampled_trace(
     rows = sorted(rows, key=lambda row: row[3])
     events: list[LLMTraceEvent] = []
     generations: list[tuple[LLMTraceEvent, int, bool]] = []
+    final_output_too_long = False
     for (
         _,
         event_uuid,
@@ -184,6 +186,7 @@ def _sampled_trace(
         has_tool_results,
         output_choices,
         output,
+        output_too_long,
     ) in rows:
         merged = merge_heavy_properties(
             properties, {"input": last_input, "output_choices": output_choices, "output": output}
@@ -194,7 +197,9 @@ def _sampled_trace(
         events.append(trace_event)
         if event == "$ai_generation":
             generations.append((trace_event, int(user_messages or 0), bool(has_tool_results)))
-    if not generations:
+            final_output_too_long = bool(output_too_long)
+    # A final answer too long to read would leave the checks grading an earlier step as the answer.
+    if not generations or final_output_too_long:
         return None
 
     def text(event: LLMTraceEvent, side: str) -> str:
@@ -215,7 +220,6 @@ def _sampled_trace(
             createdAt=events[0].createdAt,
             distinctId=str(rows[0][4]),
             events=events,
-            totalCost=sum(float(g.properties.get("$ai_total_cost_usd") or 0) for g, _, _ in generations) or None,
         ),
         held_out=held_out,
         spans_days=spans_days,
