@@ -21,6 +21,7 @@ from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operat
 from posthog.admin.console.records import RECORD_TYPES, request_type_label
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
+from posthog.dataclasses import frozen
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     AUTO_APPROVE_MAX_EVENTS,
@@ -300,7 +301,13 @@ def _listed(values: list[str]) -> str:
     return f"{shown} and {hidden:,} more" if hidden > 0 else shown
 
 
-def _criteria_values(obj: DataDeletionRequest) -> list[tuple[str, str]]:
+@frozen
+class Criterion:
+    label: str
+    value: str
+
+
+def _criteria_values(obj: DataDeletionRequest) -> list[Criterion]:
     criteria = [
         ("Type", request_type_label(obj)),
         ("Team", str(obj.team_id)),
@@ -325,11 +332,14 @@ def _criteria_values(obj: DataDeletionRequest) -> list[tuple[str, str]]:
             if flag
         ]
         criteria.append(("Drops", ", ".join(dropped)))
-    return [(label, value) for label, value in criteria if value]
+    return [Criterion(label=label, value=value) for label, value in criteria if value]
 
 
 def _criteria_rows(obj: DataDeletionRequest) -> list[Row]:
-    return [Row(cells=(Cell(text=label), Cell(text=value, mono=True))) for label, value in _criteria_values(obj)]
+    return [
+        Row(cells=(Cell(text=criterion.label), Cell(text=criterion.value, mono=True)))
+        for criterion in _criteria_values(obj)
+    ]
 
 
 def _stats_block(obj: DataDeletionRequest) -> Notice | Table:
@@ -669,9 +679,9 @@ class DeletionRequestCriteriaPanel(Panel):
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
         facts = [
-            Fact(label=label, value=value, mono=True)
-            for label, value in _criteria_values(obj)
-            if label not in ("Type", "Team")
+            Fact(label=criterion.label, value=criterion.value, mono=True)
+            for criterion in _criteria_values(obj)
+            if criterion.label not in ("Type", "Team")
         ]
         if obj.criteria_updated_at is not None:
             editor = obj.criteria_updated_by.email if obj.criteria_updated_by else "a deleted user"
