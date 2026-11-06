@@ -45,9 +45,12 @@ def _minted(token: str = "phe_new") -> MagicMock:
     return _response(201, {"token": token, "expires_at": "2099-01-01T00:00:00Z", "cap_usd": "25"})
 
 
-def _status(token: str, remaining_usd: str) -> MagicMock:
+def _revoked(token: str, remaining_usd: str) -> MagicMock:
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    return _response(200, {"tokens": [{"token_hash": token_hash, "remaining_usd": remaining_usd}]})
+    return _response(
+        200,
+        {"revoked": True, "revoked_count": 1, "tokens": [{"token_hash": token_hash, "remaining_usd": remaining_usd}]},
+    )
 
 
 class _DevGatewaySettings(APIBaseTest):
@@ -333,18 +336,19 @@ class TestDevTokens(_DevGatewaySettings):
 
     @parameterized.expand(
         [
-            ("spent_part_of_the_cap", _status("phe_mine", "23"), "2", "2"),
-            ("spent_nothing", _status("phe_mine", "25"), "0", "0"),
-            ("charged_past_the_cap", _status("phe_mine", "-1.5"), "26.5", "26.5"),
-            ("gateway_omits_the_token", _response(200, {"tokens": []}), None, "25"),
-            ("status_unreachable", requests.ConnectionError(), None, "25"),
+            ("spent_part_of_the_cap", _revoked("phe_mine", "23"), "2", "2"),
+            ("spent_nothing", _revoked("phe_mine", "25"), "0", "0"),
+            ("charged_past_the_cap", _revoked("phe_mine", "-1.5"), "26.5", "26.5"),
+            ("used_rounds_up_to_match_the_mint_check", _revoked("phe_mine", "23.996"), "1.004", "1.01"),
+            ("gateway_omits_the_balance", _response(200, {"revoked": True, "revoked_count": 1}), None, "25"),
+            ("gateway_sends_an_unreadable_balance", _revoked("phe_mine", "unreadable"), None, "25"),
         ]
     )
-    def test_revoke_counts_only_what_the_token_spent(self, _name, status, spent, used):
+    def test_revoke_counts_only_what_the_token_spent(self, _name, revoked, spent, used):
         with patch(_POST, return_value=_minted("phe_mine")):
             self.client.post(URL)
 
-        with patch(_POST, side_effect=[status, _response(200, {"revoked": True, "revoked_count": 1})]):
+        with patch(_POST, return_value=revoked):
             assert self.client.post(f"{URL}revoke/", {}).status_code == 200
 
         row = self._rows(user=self.user).get()
@@ -355,11 +359,25 @@ class TestDevTokens(_DevGatewaySettings):
         with patch(_POST, return_value=_minted("phe_mine")):
             self.client.post(URL)
 
-        with patch(_POST, side_effect=[_status("phe_mine", "23"), _response(500)]):
+        with patch(_POST, return_value=_response(500)):
             assert self.client.post(f"{URL}revoke/", {}).status_code == 503
 
         row = self._rows(user=self.user).get()
         assert (row.revoked_at, row.spent_usd) == (None, None)
+
+    def test_overlapping_revoke_keeps_the_recorded_spend(self):
+        with patch(_POST, return_value=_minted("phe_mine")):
+            self.client.post(URL)
+        row = self._rows(user=self.user).get()
+
+        def other_revoke_wins(*_args, **_kwargs) -> MagicMock:
+            self._rows(pk=row.pk).update(revoked_at=timezone.now(), spent_usd=Decimal("2"))
+            return _response(200, {"revoked": False, "revoked_count": 0})
+
+        with patch(_POST, side_effect=other_revoke_wins):
+            assert self.client.post(f"{URL}revoke/", {}).status_code == 200
+
+        assert self._rows(pk=row.pk).get().spent_usd == Decimal("2")
 
     def _spent_token(self, spent_usd: str, hours_ago: int) -> DevGatewayToken:
         row = self._rows().create(

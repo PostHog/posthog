@@ -13,7 +13,7 @@ import hashlib
 import secrets
 import dataclasses
 from datetime import datetime, timedelta
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
 
 from django.conf import settings
 from django.db import transaction
@@ -298,7 +298,7 @@ def usage(user: User) -> DevTokenUsage:
         used = _used_usd(user.pk)
     return DevTokenUsage(
         daily_cap_usd=daily_cap_usd(),
-        used_usd=used,
+        used_usd=used.quantize(Decimal("0.01"), rounding=ROUND_CEILING),
         token_cap_usd=token_cap_usd(),
         token_cap_min_usd=TOKEN_CAP_MIN_USD,
         ttl_seconds=settings.DEV_GATEWAY_TOKEN_TTL_SECONDS,
@@ -456,6 +456,14 @@ def team_usage(viewer: User) -> DevTeamUsage:
     return DevTeamUsage(paying_team_id=team.pk, users=result, activity=_activity(team.pk, since, rows))
 
 
+def _revoked_balances(response: requests.Response) -> dict[str, Decimal]:
+    try:
+        return {item["token_hash"]: Decimal(item["remaining_usd"]) for item in response.json().get("tokens", [])}
+    except (ValueError, KeyError, TypeError, AttributeError, ArithmeticError):
+        logger.warning("ai_gateway_dev_revoke_balances_unreadable")
+        return {}
+
+
 def _spent_usd(row: DevGatewayToken, remaining: dict[str, Decimal]) -> Decimal | None:
     left = remaining.get(row.token_hash or "")
     if left is None:
@@ -476,10 +484,8 @@ def revoke(user: User, token_id: str | None) -> int:
             raise DevTokenRefused("not_found", f"Token {token_id} is already revoked or expired.", 404)
         if not targets:
             return 0
-        hashes = [row.token_hash for row in targets if row.token_hash]
-        remaining = _remaining_by_hash(hashes)
         try:
-            response = _gateway_post("/v1/tokens/revoke", {"token_hashes": hashes})
+            response = _gateway_post("/v1/tokens/revoke", {"token_hashes": [row.token_hash for row in targets]})
         except requests.RequestException as e:
             logger.warning("ai_gateway_dev_revoke_unreachable", user_id=user.pk, exc_info=True)
             raise DevTokenRefused("revoke_failed", "Couldn't reach the AI gateway. Try again in a minute.", 503) from e
@@ -500,13 +506,16 @@ def revoke(user: User, token_id: str | None) -> int:
             logger.warning(
                 "ai_gateway_dev_revoke_count_mismatch", user_id=user.pk, sent=len(targets), revoked=revoked_count
             )
+        remaining = _revoked_balances(response)
         revoked_at = timezone.now()
         for row in targets:
-            row.revoked_at = revoked_at
             row.spent_usd = _spent_usd(row, remaining)
-        DevGatewayToken.objects.bulk_update(targets, ["revoked_at", "spent_usd"])
-        # The bulk update skips save(), so each revoke is logged by hand.
-        for row in targets:
+            updated = DevGatewayToken.objects.filter(pk=row.pk, spent_usd__isnull=True).update(
+                revoked_at=revoked_at, spent_usd=row.spent_usd
+            )
+            if not updated:
+                continue
+            # The queryset update skips save(), so each revoke is logged by hand.
             _log(
                 user,
                 row,
