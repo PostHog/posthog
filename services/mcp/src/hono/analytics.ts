@@ -378,7 +378,7 @@ function readsEmailRecipients(toolName: string, input: unknown): boolean {
     )
 }
 
-function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
+export function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
         return false
     }

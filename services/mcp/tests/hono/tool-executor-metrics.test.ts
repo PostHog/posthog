@@ -19,7 +19,8 @@ vi.mock('@/hono/metrics', () => ({
     toolErrorsTotal: { inc: mockToolErrorsInc },
 }))
 
-vi.mock('@/hono/analytics', () => ({
+vi.mock('@/hono/analytics', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/hono/analytics')>()),
     trackToolCall: vi.fn(),
     trackExecuteSqlGeneration: vi.fn(),
     trackToolSpan: vi.fn(),
@@ -396,6 +397,16 @@ describe('ToolExecutor metrics', () => {
                 'Validation error: invalid_input (field: query): Unable to resolve field: <value>',
             ],
             [
+                'a PostHogValidationError, with a quote opened against a letter masked',
+                apiValidationError("Unable to resolve field: x'secret phrase here'", 'query'),
+                'Validation error: invalid_input (field: query): Unable to resolve field: x<value>',
+            ],
+            [
+                'a PostHogValidationError, with the token cut at the length cap masked',
+                apiValidationError(`${'\x0b'.repeat(2016)}Unable to resolve abcdefghijklmnopqrstuvwxyztoken`, 'query'),
+                'Validation error: invalid_input (field: query): Unable to resolve <value>',
+            ],
+            [
                 'a PostHogValidationError, with short numbers and long digit-free tokens masked',
                 apiValidationError('Pin 4821 and key correcthorsebatterystaple rejected', 'pin'),
                 'Validation error: invalid_input (field: pin): Pin <value> and key <value> rejected',
@@ -433,6 +444,28 @@ describe('ToolExecutor metrics', () => {
             )
 
             expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_message: expected })
+        })
+
+        // The detail can echo the caller's input, so it may only ride along where the
+        // tool span already captures that input; elsewhere it stays code and field only.
+        it.each([
+            ['execute-sql', { query: 'SELECT `my pass phrase` FROM events' }],
+            ['workflows-send-email', { body: 'private words' }],
+        ])('omits the API detail for %s, whose input the span does not capture', async (toolName, input) => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool(toolName, async () => {
+                    throw apiValidationError('Unable to resolve field: my pass phrase', 'query')
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: toolName, arguments: input },
+                makeToolExecutorState([{ name: toolName }])
+            )
+
+            expect(trackToolCallExtras(toolName)).toMatchObject({
+                $mcp_error_message: 'Validation error: invalid_input (field: query)',
+            })
         })
 
         // An API-layer rejection used to carry no structured field, so it was only

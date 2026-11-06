@@ -61,10 +61,11 @@ import { readRenderUiData, renderUiDataRequest } from '@/ui-apps/apps/render-ui-
 
 import {
     getModelMissingReason,
+    shouldCaptureToolSpan,
     trackExecuteSqlGeneration,
     trackToolCall,
-    trackToolSpan,
     trackToolsList,
+    trackToolSpan,
     type ToolCallAnalyticsMeta,
 } from './analytics'
 import {
@@ -604,7 +605,7 @@ export class ToolExecutor {
                 state,
                 {
                     ...inputShape,
-                    ...errorAnalyticsProperties(classification, error),
+                    ...errorAnalyticsProperties(classification, error, { toolName: tool.name, input: validation.data }),
                     ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
                     ...guidanceAnalyticsProperties(guidance),
                 },
@@ -612,7 +613,7 @@ export class ToolExecutor {
                 this.servedToolDescription(tool.name)
             )
 
-            const errorMessage = extractErrorMessage(error)
+            const errorMessage = extractErrorMessage(error, { toolName: tool.name, input: validation.data })
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
                 void trackExecuteSqlGeneration(
                     tool.name,
@@ -745,7 +746,10 @@ export class ToolExecutor {
             // the store never delivered — a miss is not a read.
             const innerFailure = execMetrics.innerFailure
             const failureShape = innerFailure
-                ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error)
+                ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error, {
+                      toolName: execToolName(),
+                      input: parseExecCallInnerArgs(validation.data.command),
+                  })
                 : undefined
             const guidance = await this.guidanceFor(state, {
                 toolName: execToolName(),
@@ -804,7 +808,10 @@ export class ToolExecutor {
                 {
                     ...execShape,
                     ...execInputShape,
-                    ...errorAnalyticsProperties(classification, error),
+                    ...errorAnalyticsProperties(classification, error, {
+                        toolName: metricTool,
+                        input: parseExecCallInnerArgs(validation.data.command),
+                    }),
                     ...execMetrics.commandMeta,
                     ...guidanceAnalyticsProperties(guidance),
                 },
@@ -897,7 +904,7 @@ export class ToolExecutor {
             }
             const errorMessage = properties.validation_error
                 ? properties.error_message
-                : extractErrorMessage(properties.error)
+                : extractErrorMessage(properties.error, { toolName, input: properties.input })
             if (toolName === EXECUTE_SQL_TOOL_NAME && properties.input) {
                 void trackExecuteSqlGeneration(
                     toolName,
@@ -1218,8 +1225,14 @@ function normalizeErrorField(attr: string): string | undefined {
  */
 const CONTROL_CHARACTERS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g
 
-function extractErrorMessage(error: unknown): string | undefined {
-    const raw = resolveSafeErrorMessage(error)
+/** The call an error came from, so its message can be held to what analytics already captures of that call. */
+interface FailedCall {
+    toolName: string
+    input: unknown
+}
+
+function extractErrorMessage(error: unknown, call?: FailedCall): string | undefined {
+    const raw = resolveSafeErrorMessage(error, call)
     if (!raw) {
         return undefined
     }
@@ -1228,7 +1241,7 @@ function extractErrorMessage(error: unknown): string | undefined {
     return sanitized || undefined
 }
 
-function resolveSafeErrorMessage(error: unknown): string | undefined {
+function resolveSafeErrorMessage(error: unknown, call: FailedCall | undefined): string | undefined {
     if (error instanceof MCPToolResultError) {
         return `Tool failed: ${error.errorType}`
     }
@@ -1259,7 +1272,9 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
         // so only its sentence survives: every value-shaped span is masked first.
         const code = apiError.code ? `: ${apiError.code}` : ''
         const field = apiError.attr ? ` (field: ${apiError.attr})` : ''
-        const detail = maskCallerValues(apiError.detail)
+        // The detail rides along only where the tool span already captures the caller's
+        // input: masking by shape cannot tell a caller-chosen identifier from prose.
+        const detail = call && shouldCaptureToolSpan(call.toolName, call.input) ? maskCallerValues(apiError.detail) : ''
         return `Validation error${code}${field}${detail ? `: ${detail}` : ''}`
     }
     if (apiError instanceof PostHogApiError) {
@@ -1281,8 +1296,12 @@ const QUOTE_PAIRS: [open: string, close: string][] = [
     ['„', '“'],
     ['`', '`'],
 ]
+// Run after the strict pass: a pair the strict pass skipped because a letter touched the
+// opening quote (`x'secret'`) is still a value.
+const LOOSE_APOSTROPHE_QUOTED_VALUE = /'[^'\n]*'(?!\w)/g
 const QUOTED_VALUE_PATTERNS = [
     APOSTROPHE_QUOTED_VALUE,
+    LOOSE_APOSTROPHE_QUOTED_VALUE,
     ...QUOTE_PAIRS.map(([open, close]) => new RegExp(`${open}(?:\\\\[\\s\\S]|[^${close}\\\\])*${close}`, 'g')),
 ]
 // A quote left open after the pairs are masked runs to the end, so a cut-off value never leaks.
@@ -1295,13 +1314,18 @@ function isValueShapedToken(token: string): boolean {
 }
 
 function maskCallerValues(detail: string): string {
-    // Capped first so masking cost stays bounded on a large API body; a value the cap
-    // cuts through is left unterminated and masked whole. Control characters go before
-    // tokenizing, or stripping them later would rejoin a token they split.
-    const quoted = QUOTED_VALUE_PATTERNS.reduce(
-        (text, pattern) => text.replace(pattern, MASKED_VALUE),
-        detail.slice(0, MAX_ERROR_MESSAGE_LENGTH).replace(CONTROL_CHARACTERS, '')
-    ).replace(UNTERMINATED_VALUE, MASKED_VALUE)
+    // Capped so masking cost stays bounded on a large API body. Control characters go
+    // first, or stripping them later would rejoin a token they split; the token the cap
+    // cuts through is masked, and a quote the cap cuts is left unterminated and masked whole.
+    const stripped = detail.replace(CONTROL_CHARACTERS, '')
+    const capped =
+        stripped.length > MAX_ERROR_MESSAGE_LENGTH
+            ? stripped.slice(0, MAX_ERROR_MESSAGE_LENGTH).replace(/\S*$/, MASKED_VALUE)
+            : stripped
+    const quoted = QUOTED_VALUE_PATTERNS.reduce((text, pattern) => text.replace(pattern, MASKED_VALUE), capped).replace(
+        UNTERMINATED_VALUE,
+        MASKED_VALUE
+    )
     return quoted.replace(/\S+/g, (token) => (isValueShapedToken(token) ? MASKED_VALUE : token)).trim()
 }
 
@@ -1385,8 +1409,12 @@ function execInputShapeAnalyticsProperties(
  * mode (error code + normalized field path, never values) so validation failures
  * are measurable per field instead of one undifferentiated `validation` bucket.
  */
-function errorAnalyticsProperties(classification: ToolErrorClassification, error: unknown): Record<string, unknown> {
-    const message = extractErrorMessage(error)
+function errorAnalyticsProperties(
+    classification: ToolErrorClassification,
+    error: unknown,
+    call?: FailedCall
+): Record<string, unknown> {
+    const message = extractErrorMessage(error, call)
     return {
         $mcp_error_type: classification.errorType,
         ...(classification.status !== undefined ? { $mcp_error_status: classification.status } : {}),
