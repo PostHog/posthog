@@ -20,10 +20,7 @@ from products.signals.backend.facade.github import (
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
-from products.tasks.backend.metrics import (
-    observe_github_webhook_task_lookup_shadow,
-    observe_github_webhook_task_run_lookup,
-)
+from products.tasks.backend.metrics import observe_github_webhook_task_lookup, observe_github_webhook_task_run_lookup
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.pr_urls import (
     canonical_github_pull_request_url,
@@ -75,8 +72,11 @@ def find_task_run(
         logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
         return None
 
-    task_run, leg = _find_task_run_by_run_state(pr_url, branch, repository, team_ids=team_ids)
-    _shadow_task_lookup(task_run, leg, pr_url=pr_url, branch=branch, repository=repository, team_ids=team_ids)
+    task_id = find_task_id_by_pull_request(pr_url, branch, repository, team_ids=team_ids)
+    task_run, leg = _find_task_run_by_run_state(pr_url, branch, repository, team_ids=team_ids, task_id=task_id)
+    if task_run is None and task_id is not None:
+        task_run, leg = _live_or_newest_run(task_id, team_ids=team_ids), "task_columns"
+    observe_github_webhook_task_lookup(leg=leg, by_task_columns=task_id is not None)
     return task_run
 
 
@@ -104,38 +104,28 @@ def find_task_id_by_pull_request(
     return None
 
 
-def _shadow_task_lookup(
-    task_run: TaskRun | None,
-    leg: str,
-    *,
-    pr_url: str | None,
-    branch: str | None,
-    repository: str | None,
-    team_ids: list[int],
-) -> None:
-    try:
-        with transaction.atomic():
-            task_id = find_task_id_by_pull_request(pr_url, branch, repository, team_ids=team_ids)
-    except Exception:
-        logger.warning("github_webhook_task_lookup_shadow_failed", exc_info=True)
-        return
-    run_task_id = task_run.task_id if task_run is not None else None
-    if run_task_id == task_id:
-        outcome = "match"
-    elif run_task_id is None:
-        outcome = "task_only"
-    elif task_id is None:
-        outcome = "run_only"
-    else:
-        outcome = "different"
-    observe_github_webhook_task_lookup_shadow(leg=leg, outcome=outcome)
+def _live_first(runs: QuerySet[TaskRun]) -> QuerySet[TaskRun]:
+    return runs.annotate(
+        terminal_rank=Case(
+            When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+    ).order_by("terminal_rank", "-created_at")
+
+
+def _live_or_newest_run(task_id: UUID, *, team_ids: list[int]) -> TaskRun | None:
+    runs = TaskRun.objects.filter(task_id=task_id, team_id__in=team_ids)
+    return _live_first(runs).select_related(*TASK_RUN_SELECT_RELATED).first()
 
 
 def _find_task_run_by_run_state(
-    pr_url: str | None, branch: str | None, repository: str | None, *, team_ids: list[int]
+    pr_url: str | None, branch: str | None, repository: str | None, *, team_ids: list[int], task_id: UUID | None
 ) -> tuple[TaskRun | None, str]:
     indexed_candidates = TaskRun.objects.filter(team_id__in=team_ids)
     candidates = TaskRun.objects.filter(team_id__in=team_ids)
+    if task_id is not None:
+        candidates = candidates.filter(task_id=task_id)
     # ReviewHog runs check out the PR head branch to review it, but they never author a PR, so no
     # leg below may return one. The exclusion belongs here rather than on each leg: a stale
     # ``verified_pr_urls`` claim, left on a ReviewHog run by an earlier wrong branch match, would
@@ -155,20 +145,7 @@ def _find_task_run_by_run_state(
         runs = candidates.filter(id__in=_indexed_candidate_ids(indexed_candidates.filter(verified_filter)))
         if repository:
             runs = runs.filter(_run_repository_filter(repository))
-        # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
-        # variant that must not leak into the plain-queryset legs below.
-        task_run: TaskRun | None = (
-            runs.annotate(
-                terminal_rank=Case(
-                    When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
-                    default=Value(0),
-                    output_field=IntegerField(),
-                )
-            )
-            .order_by("terminal_rank", "-created_at")
-            .select_related(*TASK_RUN_SELECT_RELATED)
-            .first()
-        )
+        task_run = _live_first(runs).select_related(*TASK_RUN_SELECT_RELATED).first()
         if task_run:
             return task_run, "verified_pr_url"
 

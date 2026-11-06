@@ -386,6 +386,7 @@ const tasksList = (): ToolBase<
                 sources: params.sources,
                 stage: params.stage,
                 status: params.status,
+                task_status: params.task_status,
             },
         })
         const filtered = {

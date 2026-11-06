@@ -1983,6 +1983,32 @@ class TestFindTaskRun(TestCase):
 
         self.assertEqual(task_id, self.task.id if found else None)
 
+    def test_task_columns_pick_the_live_run_when_no_run_claims_the_pr(self):
+        pr_url = "https://github.com/posthog/posthog/pull/88"
+        Task.objects.filter(pk=self.task.pk).update(pr_urls=[pr_url])
+        live_run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        self.assertEqual(find_task_run(team_ids=[self.team.id], pr_url=pr_url), live_run)
+
+    def test_task_columns_override_another_tasks_run_claim(self):
+        pr_url = "https://github.com/posthog/posthog/pull/89"
+        other_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Other task",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(
+            task=other_task, team=self.team, status=TaskRun.Status.COMPLETED, state={"verified_pr_urls": [pr_url]}
+        )
+        Task.objects.filter(pk=self.task.pk).update(pr_urls=[pr_url])
+        own_run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        self.assertEqual(find_task_run(team_ids=[self.team.id], pr_url=pr_url), own_run)
+
     def test_finds_by_pr_url(self):
         task_run = TaskRun.objects.create(
             task=self.task,

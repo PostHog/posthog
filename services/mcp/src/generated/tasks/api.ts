@@ -312,6 +312,12 @@ export const TasksListQueryParams = () => zod.object({
         .describe(
             'Filter tasks by the status of their most recent run.\n\n\* `not_started` - not_started\n\* `queued` - queued\n\* `in_progress` - in_progress\n\* `completed` - completed\n\* `failed` - failed\n\* `cancelled` - cancelled'
         ),
+    task_status: zod
+        .enum(['queued', 'running', 'idle', 'done'])
+        .optional()
+        .describe(
+            'Filter tasks by their own status: queued, running, idle or done.\n\n\* `queued` - Queued\n\* `running` - Running\n\* `idle` - Idle\n\* `done` - Done'
+        ),
 })
 
 /**
