@@ -257,6 +257,7 @@ fn text_stages() {
             InternalSourcePolicy {
                 billed: false,
                 team_rules: false,
+                attributes: vec![],
             },
         ),
         (
@@ -264,6 +265,7 @@ fn text_stages() {
             InternalSourcePolicy {
                 billed: true,
                 team_rules: true,
+                attributes: vec![],
             },
         ),
     ]);

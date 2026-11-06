@@ -609,6 +609,10 @@ pub fn scenario_parts(
                         InternalSourcePolicy {
                             billed: flag("billed"),
                             team_rules: flag("teamRules"),
+                            attributes: arr(get(v, "attributes"))
+                                .iter()
+                                .filter_map(|a| s(Some(a)))
+                                .collect(),
                         },
                     )
                 })

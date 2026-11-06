@@ -2,6 +2,7 @@ import { trace } from '@opentelemetry/api'
 
 import type { LogsSettings } from '~/types'
 
+import { makeInternalAttributesStage } from '../internal-attributes-stage'
 import { MESSAGE_KEYS } from '../log-pattern-mask'
 import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from '../log-pattern-stage'
 import { type PiiScrubStats } from '../log-pii-scrub'
@@ -116,6 +117,7 @@ export async function resolveLogBuffer(
     if (recordsTransform) {
         stages.push(makeTransformStage(recordsTransform))
     }
+    const internalAttributesStageAt = stages.length
     let shortestRetentionDays =
         message.verifiedAsInternalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
     if (useRetention && retentionRuleSet) {
@@ -143,6 +145,14 @@ export async function resolveLogBuffer(
             ? await retryOnDependencyUnavailable(context, () => keysCache.getMessageKeys(message.teamId))
             : MESSAGE_KEYS
         stages.push(makePatternMaskingStage(messageKeys))
+    }
+
+    // After transformations, which can write the prefix too. Passthrough batches skip it, so readers also check `internal_source`.
+    if (
+        message.verifiedAsInternalLogs !== undefined ||
+        bufferProcessingMode(logsSettings, stages.length, Boolean(onRecordsDecoded)) === 'decode_and_reencode'
+    ) {
+        stages.splice(internalAttributesStageAt, 0, makeInternalAttributesStage(message.verifiedAsInternalLogs))
     }
 
     trace.getActiveSpan()?.setAttributes({

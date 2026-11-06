@@ -3,10 +3,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use metrics::counter;
 
+use crate::avro::{AvroMap, AvroValue};
 use crate::content_weights::{
     BatchContext, DropStats, FilterResult, FilterStage, MutateStage, PipelineStage, StageDropStats,
     StagedRecord,
 };
+use crate::internal_logs::{InternalLogs, INTERNAL_ATTRIBUTE_PREFIX, INTERNAL_SOURCE_ATTRIBUTE};
+use crate::js::{json_stringify, JsValue};
 use crate::normalize::{buffer_processing_mode, BufferProcessingMode, LogsSettings};
 use crate::pattern::{stamp_pattern_batch, MESSAGE_KEYS};
 use crate::pii::PiiScrubStats;
@@ -102,6 +105,73 @@ impl MutateStage for PatternMaskingStage {
     }
 }
 
+struct InternalAttributesStage {
+    verified: Option<InternalLogs>,
+    allowed: Vec<String>,
+}
+
+impl InternalAttributesStage {
+    fn new(verified: Option<InternalLogs>) -> Self {
+        let allowed = verified
+            .iter()
+            .flat_map(|v| v.attributes.iter())
+            .map(|suffix| format!("{INTERNAL_ATTRIBUTE_PREFIX}{suffix}"))
+            .collect();
+        Self { verified, allowed }
+    }
+}
+
+#[async_trait]
+impl MutateStage for InternalAttributesStage {
+    fn name(&self) -> &str {
+        "internal_attributes"
+    }
+
+    async fn run(&self, records: &mut Vec<StagedRecord>) -> anyhow::Result<()> {
+        let mut dropped = 0u64;
+        for staged in records.iter_mut() {
+            let record = &mut staged.record;
+            if let Some(attributes) = record.get_map_mut("attributes") {
+                let doomed: Vec<String> = attributes
+                    .iter()
+                    .map(|(k, _)| k)
+                    .filter(|k| {
+                        k.starts_with(INTERNAL_ATTRIBUTE_PREFIX)
+                            && !self.allowed.iter().any(|a| a.as_str() == *k)
+                    })
+                    .map(str::to_string)
+                    .collect();
+                for key in &doomed {
+                    attributes.remove(key);
+                }
+                dropped += doomed.len() as u64;
+            }
+            if let Some(verified) = &self.verified {
+                if record.get_map("attributes").is_none() {
+                    record.set("attributes", AvroValue::Map(AvroMap::new()));
+                }
+                if let Some(attributes) = record.get_map_mut("attributes") {
+                    let source = json_stringify(&JsValue::string(&verified.source));
+                    attributes.define(
+                        INTERNAL_SOURCE_ATTRIBUTE.to_string(),
+                        AvroValue::String(source),
+                    );
+                }
+            }
+        }
+        if dropped > 0 {
+            let reason = if self.verified.is_some() {
+                "not_allowed"
+            } else {
+                "not_internal"
+            };
+            counter!("logs_ingestion_internal_attributes_dropped_total", "reason" => reason)
+                .increment(dropped);
+        }
+        Ok(())
+    }
+}
+
 async fn build_transform_stage(
     context: &LogsPipelineContext,
     message: &LogsIngestionMessage,
@@ -170,6 +240,7 @@ pub async fn resolve_log_buffer(
     if let Some(stage) = transform_stage {
         stages.push(stage);
     }
+    let internal_attributes_stage_at = stages.len();
     let mut shortest_retention_days = if message.internal_logs.is_some() {
         INTERNAL_LOGS_MIN_RETENTION_DAYS
     } else {
@@ -219,6 +290,19 @@ pub async fn resolve_log_buffer(
         stages.push(PipelineStage::Mutate(Box::new(PatternMaskingStage {
             message_keys,
         })));
+    }
+
+    // After transformations, which can write the prefix too. Passthrough batches skip it, so readers also check `internal_source`.
+    if message.internal_logs.is_some()
+        || buffer_processing_mode(settings, stages.len(), visitor.is_some())
+            == BufferProcessingMode::DecodeAndReencode
+    {
+        stages.insert(
+            internal_attributes_stage_at,
+            PipelineStage::Mutate(Box::new(InternalAttributesStage::new(
+                message.internal_logs.clone(),
+            ))),
+        );
     }
 
     let buffer = message.message.value.as_deref().unwrap_or_default();
