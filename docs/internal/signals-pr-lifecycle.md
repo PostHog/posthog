@@ -299,6 +299,63 @@ Without a repository, legacy ownership lookup is skipped. Existing human assignm
 
 ## Reviewer notifications
 
+### Local assignee scoring prototype
+
+`products/signals/scripts/score_assignees.py` previews one assignee for a repository path.
+It does not change report recipients, GitHub assignments, or the agent image.
+Run it from the repository root:
+
+```sh
+uv run python -m products.signals.scripts.score_assignees \
+    frontend/src/scenes/session-recordings/utils.ts --roster /tmp/assignee-roster.json
+```
+
+The roster is an explicit, complete snapshot of current membership for the owning team.
+Keep real rosters outside the repository.
+Use exact GitHub logins and explicit git email mappings from a trusted source; the script does not infer accounts from author names.
+For example, an invented roster has this shape:
+
+```json
+{
+  "generated_at": "2026-04-15T00:00:00Z",
+  "members": [
+    {
+      "login": "example-maintainer",
+      "emails": ["maintainer@example.com"],
+      "teams": ["team-replay"],
+      "active": true,
+      "excluded_paths": []
+    }
+  ]
+}
+```
+
+Use the snapshot's actual timestamp. `--now` accepts a timestamp with a timezone for repeatable evaluations.
+Snapshots older than seven days or more than five minutes ahead of the evaluation time cannot produce a recommendation.
+
+The prototype uses the existing `owners-yaml` resolver, including product manifest aliases, to identify the current owning team.
+Current owners are eligible; other contributors appear in the excluded list even when they have many recent commits.
+An inactive member or a member with a matching `excluded_paths` rule is ineligible.
+An owning team with no eligible roster member yields no recommendation.
+
+History starts at the supplied file or directory, then expands through at most four parent directories within the same ownership boundary.
+Changes to another team's files do not contribute to the score.
+The nearest scope with substantive work in the past 90 days takes precedence over broader directory activity.
+Original author dates control recency; merge and rebase dates do not refresh old work.
+Each commit contributes `2 ** (-age_in_days / 30)` once.
+The score multiplies bounded contribution mass `mass / (1 + mass)` by the same decay for the latest relevant change and by `0.5 ** directory_distance`.
+This limits the effect of a large burst of older commits.
+The script ignores merge commits and subjects that identify style, formatting, or lint chores; this is a heuristic, not a diff review.
+
+JSON output includes the owning team, ownership source, searched scopes, scored candidates, evidence commits, exclusions, and warnings.
+Stable code can still have a current owner with no recent commits.
+Equal scores yield no recommendation; alphabetical output order does not choose an assignee.
+An unowned path yields provisional contributors only.
+Shallow history or the 5,000-commit limit also makes scores provisional and prevents a recommendation.
+The script does not fetch history or call an external service.
+
+### Production selection
+
 With `signals-research-reviewer-selection` enabled, the research agent chooses report recipients in relevance order.
 Ownership files, CODEOWNERS, code history, report findings, and human corrections supply evidence for that choice.
 They cannot replace it with an ownership-first or commit-count selection.
@@ -307,13 +364,6 @@ It also reads relevant notes, older activity logs when available, and `reviewer:
 Corrections apply only to the affected area. Research does not save its own choices as reviewer memory.
 Research and scouts check each candidate against the affected behavior or entity.
 For code reports, they inspect specific ownership rules and substantive implementation or review work.
-Research compares each candidate's current teams and activity with the affected work, including the activity summary's age and stale marker.
-An explicit departure or transfer takes precedence over older authorship and an outdated ownership file.
-A different team or missing recent activity alone does not establish a departure; a current maintainer can own stable code without recent commits.
-Research retains original author dates and weights equally relevant changes by `2 ** (-max(0, age_in_days) / 30)`.
-This reduces historical commit evidence by half every 30 days, after checking relevance and current responsibility.
-It does not turn commit volume into ownership or refresh old evidence when a change merges or rebases.
-Selection reasons include the dates of cited changes and explain conflicts with current responsibility.
 Broad directory activity, commit counts, mechanical changes, and team roster order alone do not establish responsibility.
 Each reason names the affected behavior and cites its source. Responsibility and review expertise are distinct reasons to include someone.
 Recipients are ordered by relevance, with at most three. Agents can return fewer recipients or none when evidence is insufficient.
