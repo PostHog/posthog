@@ -131,7 +131,7 @@ def _has_templated_sender_id(from_value: dict) -> bool:
 
 
 def _sandbox_sender_configured() -> bool:
-    # Mirrors sandbox_sender_configured() in the workflows product, which imports this module.
+    # Mirrors _sandbox_sender_configured() in the workflows sandbox_sender service, which imports this module.
     from_domain = settings.SES_SANDBOX_FROM_ADDRESS.rpartition("@")[2]
     return bool(settings.SES_SANDBOX_TENANT_NAME) and is_sandbox_sender_domain(from_domain)
 
