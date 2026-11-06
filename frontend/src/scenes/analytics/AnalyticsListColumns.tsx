@@ -296,7 +296,10 @@ function ItemTitle({
                 render={<LinkPrimitive to={analyticsOpenHref(item, backUrl)} />}
                 className="min-w-0 shrink"
                 data-attr={`analytics-list-row-${item.type}`}
-                onClick={() => itemOpened(item, position)}
+                // Capture-phase, so Cmd/Ctrl-clicks count too: the link's own handler returns
+                // for those before it calls onClick. Middle-clicks only fire auxclick.
+                onClickCapture={() => itemOpened(item, position)}
+                onAuxClick={(event) => event.button === 1 && itemOpened(item, position)}
             >
                 <span className="truncate">{item.name}</span>
             </Button>
