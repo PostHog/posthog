@@ -17,6 +17,7 @@ import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from '
 import {
     EMAIL_SENDING_SUSPENDED_MESSAGE,
     NO_EMAIL_SENDER_MESSAGE,
+    SANDBOX_CANNOT_BROADCAST_MESSAGE,
     SANDBOX_ONLY_SENDER_MESSAGE,
     UNVERIFIED_SENDER_MESSAGE,
 } from '../Channels/emailSendingMessages'
@@ -34,9 +35,10 @@ export function emailSenderWarning(
         ? emailIntegrations.filter((integration) => !isSandboxEmailSender(integration))
         : emailIntegrations
     if (senders.length === 0) {
-        return emailIntegrations.length > 0 && destination !== 'broadcast'
-            ? SANDBOX_ONLY_SENDER_MESSAGE
-            : NO_EMAIL_SENDER_MESSAGE
+        if (emailIntegrations.length === 0) {
+            return NO_EMAIL_SENDER_MESSAGE
+        }
+        return destination === 'broadcast' ? SANDBOX_CANNOT_BROADCAST_MESSAGE : SANDBOX_ONLY_SENDER_MESSAGE
     }
     const verified = senders.some(
         (integration) => (integration.config as { verified?: boolean } | undefined)?.verified === true
@@ -132,9 +134,12 @@ export async function openMessageAudience(
                 onClick: navigate,
                 'data-attr': `message-audience-${audience.source}-continue`,
             },
-            secondaryButton: [NO_EMAIL_SENDER_MESSAGE, SANDBOX_ONLY_SENDER_MESSAGE, UNVERIFIED_SENDER_MESSAGE].some(
-                (message) => warnings.includes(message)
-            )
+            secondaryButton: [
+                NO_EMAIL_SENDER_MESSAGE,
+                SANDBOX_CANNOT_BROADCAST_MESSAGE,
+                SANDBOX_ONLY_SENDER_MESSAGE,
+                UNVERIFIED_SENDER_MESSAGE,
+            ].some((message) => warnings.includes(message))
                 ? { children: 'Set up email', onClick: () => router.actions.push(urls.workflows('channels')) }
                 : { children: 'Cancel' },
         })

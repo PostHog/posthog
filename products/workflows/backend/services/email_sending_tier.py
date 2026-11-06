@@ -391,6 +391,9 @@ def _fetch_daily_metrics(
 
     daily: dict[int, dict[str, dict[str, int]]] = {}
     for team_id, day, own, *others in rows:
+        # A day can sum to nothing once sandbox sends and the hour before the cutoff are left out.
+        if not own and not any(others):
+            continue
         counts = {SENT_METRIC: int(own), **{name: int(count) for name, count in zip(other_metrics, others)}}
         daily.setdefault(team_id, {})[day.strftime("%Y-%m-%d")] = counts
     return daily
