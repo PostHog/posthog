@@ -4141,9 +4141,9 @@ def create_imported_task(
     team_id: int,
     user_id: int,
     *,
+    profile: TaskProfile,
     title: str,
     origin_key: str,
-    internal: bool,
     created_at: datetime,
 ) -> contracts.TaskDetailDTO:
     """Create the task that hosts a transcript imported from elsewhere.
@@ -4158,9 +4158,10 @@ def create_imported_task(
             "title": title,
             "title_manually_set": False,
             "description": "",
-            "origin_product": Task.OriginProduct.POSTHOG_AI,
+            "origin_product": profile.origin_product,
+            "profile": profile.key,
             "origin_key": origin_key,
-            "internal": internal,
+            "internal": not profile.listed,
             "created_at": created_at,
         },
     )
