@@ -1887,8 +1887,6 @@ async def publish_report_completed_activity(input: PublishReportCompletedInput) 
 @temporalio.activity.defn
 @scoped_temporal()
 async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs) -> None:
-    if input.operator_rerun:
-        return
     # Older histories did not snapshot their owner. New passes always supply it explicitly.
     signal_id = input.signal_id or await database_sync_to_async(report_triggering_signal)(
         team_id=input.team_id, report_id=input.report_id

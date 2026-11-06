@@ -60,7 +60,7 @@ def report_funding(team: Team, report_id: UUID | str) -> TrialFunding | None:
     )
     if report is None:
         return None
-    if report["billing_exempt_reason"]:
+    if report["billing_exempt_reason"] and (report["self_driving_funding"] or {}).get("funding") != "operator":
         return TrialFunding(funding="existing")
     return TrialFunding.from_dict(report["self_driving_funding"])
 
