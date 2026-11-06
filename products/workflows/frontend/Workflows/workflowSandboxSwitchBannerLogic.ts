@@ -13,11 +13,15 @@ import { AccessControlLevel, AccessControlResourceType, IntegrationType } from '
 import { verifiedOwnEmailSenders } from '../Channels/defaultEmailSender'
 import { EmailAction, isEmailAction } from './hogflows/steps/types'
 import { HogFlow } from './hogflows/types'
-import { WorkflowLogicProps, workflowLogic, workflowLogicKey } from './workflowLogic'
-import type { WorkflowDraftAction } from './workflowLogic'
+import { type WorkflowDraftAction, WorkflowLogicProps, workflowLogic, workflowLogicKey } from './workflowLogic'
 
 const usesSender = (step: EmailAction, senderId: number): boolean =>
     selectedSenderIds(step.config.inputs?.email?.value?.from).includes(senderId)
+
+const draftActionReason: Record<WorkflowDraftAction, string> = {
+    publish: 'Publishing is in progress',
+    discard: 'Discarding is in progress',
+}
 
 const withSender = (step: EmailAction, integrationId: number): EmailAction => {
     const email = step.config.inputs.email
@@ -37,6 +41,8 @@ const withSender = (step: EmailAction, integrationId: number): EmailAction => {
 export interface workflowSandboxSwitchBannerLogicValues {
     ownEmailIntegrations: IntegrationType[] // integrationsLogic
     sandboxEmailSender: IntegrationType | null // integrationsLogic
+    autoSaveBlockedByValidation: boolean // workflowLogic
+    autoSaveEnabled: boolean // workflowLogic
     draftActionPending: WorkflowDraftAction | null // workflowLogic
     isSyncingExternalEdit: boolean // workflowLogic
     workflow: HogFlow // workflowLogic
@@ -91,7 +97,15 @@ export const workflowSandboxSwitchBannerLogic = kea<workflowSandboxSwitchBannerL
     connect((props: WorkflowLogicProps) => ({
         values: [
             workflowLogic(props),
-            ['workflow', 'workflowUserAccessLevel', 'workflowLoading', 'isSyncingExternalEdit', 'draftActionPending'],
+            [
+                'workflow',
+                'workflowUserAccessLevel',
+                'workflowLoading',
+                'isSyncingExternalEdit',
+                'draftActionPending',
+                'autoSaveEnabled',
+                'autoSaveBlockedByValidation',
+            ],
             integrationsLogic,
             ['ownEmailIntegrations', 'sandboxEmailSender'],
         ],
@@ -114,9 +128,8 @@ export const workflowSandboxSwitchBannerLogic = kea<workflowSandboxSwitchBannerL
                     AccessControlLevel.Editor,
                     workflowUserAccessLevel ?? undefined
                 ) ||
-                (workflowLoading || isSyncingExternalEdit || draftActionPending
-                    ? 'Wait for the workflow to finish syncing'
-                    : null),
+                (draftActionPending ? draftActionReason[draftActionPending] : null) ||
+                (workflowLoading || isSyncingExternalEdit ? 'Wait for the workflow to finish syncing' : null),
         ],
         verifiedOwnSenders: [
             (s) => [s.ownEmailIntegrations],
@@ -152,7 +165,15 @@ export const workflowSandboxSwitchBannerLogic = kea<workflowSandboxSwitchBannerL
             })
             actions.autoSaveWorkflow()
             posthog.capture('workflows sandbox sender switched', { email_step_count: sandboxEmailSteps.length })
-            const nextStep = values.workflow.status === 'active' ? ' Publish the changes to use this sender.' : ''
+            const autoSaves = values.autoSaveEnabled && !values.autoSaveBlockedByValidation
+            const active = values.workflow.status === 'active'
+            const nextStep = autoSaves
+                ? active
+                    ? ' Publish the changes to use this sender.'
+                    : ''
+                : active
+                  ? ' Save and publish the changes to use this sender.'
+                  : ' Save the workflow to keep this change.'
             lemonToast.success(
                 `Updated ${pluralize(sandboxEmailSteps.length, 'email step')} to ${sender.config.email ?? 'your own sender'}.${nextStep}`
             )
