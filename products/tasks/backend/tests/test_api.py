@@ -2232,7 +2232,13 @@ class TestTaskAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_schedule_after_a_failure_returns_the_cleared_status(self, _mock_workflow, _mock_internal_team) -> None:
         task = self.create_task()
-        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.FAILED, error_message="boom")
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.FAILED,
+            error_message="boom",
+            created_at=django_timezone.now() - timedelta(hours=1),
+        )
         Task.objects.filter(pk=task.pk).update(
             status=Task.Status.IDLE, status_reason=Task.StatusReason.UNEXPECTED_FAILURE, status_detail="boom"
         )
