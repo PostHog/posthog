@@ -1110,6 +1110,28 @@ class SourceConfigTeamCheck(Protocol):
     def __call__(self, *, team_id: int, edit: PlatformAlertConfigurationEdit) -> None: ...
 
 
+class SourceAdmission(Protocol):
+    """Decides whether a team may add an alert of the kind, or turn one on. The platform calls it on a
+    create, where `current` is None, and on an edit that turns the alert on, and on no other edit.
+
+    `check_interval_minutes` is the alert's stored cadence on an edit, and the kind's fixed cadence on
+    a native create. It is None on a create through the source, which sets the cadence itself.
+
+    It runs in the write's transaction, after the platform takes a lock for the team and kind, so two
+    concurrent writes cannot both pass a count. It raises `PlatformAlertCreateRefused` to refuse a
+    create and `InvalidPlatformAlertEdit` to refuse an edit.
+    """
+
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        current: PlatformAlertConfigurationEdit | None,
+        edit: PlatformAlertConfigurationEdit,
+        check_interval_minutes: int | None,
+    ) -> None: ...
+
+
 class NativeAlertRemoveDestinations(Protocol):
     """Removes the destinations of an alert that is about to be deleted.
 
@@ -1144,7 +1166,8 @@ class SourceConfigSpec:
 
     `model` validates `source_config`. `validate` raises `InvalidPlatformAlertEdit` for a rule that
     spans fields, such as one that reads `enabled`. `check_in_team` runs when a create or an edit
-    sets `source_config`. `mirror` runs in the edit's transaction. Without
+    sets `source_config`. `admit` runs on every create and every edit that turns an alert on through the
+    platform, and enforces the source's caps and plan entitlements. `mirror` runs in the edit's transaction. Without
     `create` or `delete`, the API cannot create or delete alerts of the kind, unless the kind is
     `native`: then the platform creates and deletes them itself, and the source keeps no row.
     """
@@ -1152,6 +1175,7 @@ class SourceConfigSpec:
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
     check_in_team: SourceConfigTeamCheck | None = None
+    admit: SourceAdmission | None = None
     mirror: SourceEditMirror | None = None
     create: SourceCreate | None = None
     delete: SourceDelete | None = None
