@@ -2405,15 +2405,13 @@ class AccountNoteAccessControlPermission(AccessControlPermission):
 
 
 class AccountNoteAccessMixin:
-    permission_classes: list[type[BasePermission]] = []
-
     def dangerously_get_permissions(self) -> list[BasePermission]:
         return [
             IsAuthenticated(),
             APIScopePermission(),
             AccountNoteAccessControlPermission(),
             TeamMemberAccessPermission(),
-            *(permission() for permission in self.permission_classes),
+            *(permission() for permission in getattr(self, "permission_classes", ())),
         ]
 
 
