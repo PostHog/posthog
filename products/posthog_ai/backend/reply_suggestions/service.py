@@ -5,6 +5,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 
+from products.posthog_ai.backend.turn_suggestions.service import MAX_TRANSCRIPT_LOG_BYTES, _history_is_whole
 from products.posthog_ai.backend.turn_suggestions.transcript import build_turn_transcript
 from products.tasks.backend.facade.api import (
     TaskClientProvenance,
@@ -24,8 +25,6 @@ REPLY_SUGGESTIONS_METHOD = "_posthog/reply_suggestions"
 REPLY_SUGGESTIONS_AI_PRODUCT = "posthog_ai"
 REPLY_SUGGESTIONS_FEATURE = "reply_suggestions"
 REPLY_SUGGESTIONS_REASONING_EFFORT = "none"
-
-MAX_TRANSCRIPT_LOG_BYTES = 16 * 1024 * 1024
 
 OutcomeStatus = Literal["emitted", "skipped", "failed"]
 
@@ -49,11 +48,6 @@ def _enabled(task_run: TaskRun, user: "User") -> bool:
         group_properties={"organization": {"id": organization_id}},
         send_feature_flag_events=False,
     )
-
-
-def _history_is_whole(task_run: TaskRun) -> bool:
-    oldest = task_run.get_resume_chain()[0]
-    return not (oldest.state or {}).get("resume_from_run_id")
 
 
 def generate_reply_suggestions(run_id: str, team_id: int) -> ReplySuggestionsOutcome:

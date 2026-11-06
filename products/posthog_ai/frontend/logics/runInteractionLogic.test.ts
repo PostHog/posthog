@@ -252,7 +252,7 @@ describe('runInteractionLogic', () => {
         const offer = (turnIndex: number): void =>
             (
                 stream.actions as unknown as { setStubReplySuggestions: (value: unknown) => void }
-            ).setStubReplySuggestions({ turnIndex, suggestions: [{ label: 'Write it', reply: REPLY }] })
+            ).setStubReplySuggestions({ turnIndex, replies: [REPLY] })
 
         it.each([
             ['offers the first reply when the agent waits', () => {}, REPLY],

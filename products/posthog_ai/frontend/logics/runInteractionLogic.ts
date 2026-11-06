@@ -1186,7 +1186,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ): string | null =>
                 !replySuggestions || isBusy || isSubmitting || replySuggestions.turnIndex === dismissedTurn
                     ? null
-                    : (replySuggestions.suggestions[0]?.reply ?? null),
+                    : (replySuggestions.replies[0] ?? null),
         ],
         // The agent is actively working a turn — a follow-up typed now should stage rather than send.
         isBusy: [
@@ -1871,7 +1871,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             posthog.capture('posthog ai reply suggestion shown', {
                 task_id: props.taskId,
                 turn_index: turnIndex,
-                suggestion_count: values.replySuggestions?.suggestions.length,
+                suggestion_count: values.replySuggestions?.replies.length,
             })
         },
         acceptReplySuggestion: ({ key, turnIndex }) => {

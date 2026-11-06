@@ -151,7 +151,7 @@ describe.each([
                 stream.actions.markTurnComplete()
                 stream.actions.setReplySuggestions({
                     turnIndex: 0,
-                    suggestions: [{ label: 'Yes, open the PR', reply: suggestion }],
+                    replies: [suggestion],
                 })
             })
         })

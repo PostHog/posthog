@@ -205,7 +205,7 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
     const replySuggestion =
         !inputValue && !threadLoading && !isSharedThread && !showFillInHint && sandboxReplySuggestions
             ? sandboxReplySuggestions.turnIndex !== dismissedReplySuggestionTurn
-                ? (sandboxReplySuggestions.suggestions[0]?.reply ?? null)
+                ? (sandboxReplySuggestions.replies[0] ?? null)
                 : null
             : null
     const replySuggestionTurn = replySuggestion !== null ? sandboxReplySuggestions?.turnIndex : undefined
@@ -215,7 +215,7 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
             posthog.capture('posthog ai reply suggestion shown', {
                 conversation_id: conversation?.id,
                 turn_index: replySuggestionTurn,
-                suggestion_count: sandboxReplySuggestions?.suggestions.length,
+                suggestion_count: sandboxReplySuggestions?.replies.length,
             })
         }
     }, [replySuggestionTurn]) // oxlint-disable-line react-hooks/exhaustive-deps

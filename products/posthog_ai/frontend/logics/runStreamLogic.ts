@@ -3040,8 +3040,7 @@ export interface runStreamLogicMeta {
         replySuggestions: (
             replySuggestionsFrame: ReplySuggestions | null,
             threadItems: ThreadItem[],
-            historyTurnBase: number,
-            turnComplete: boolean
+            historyTurnBase: number
         ) => ReplySuggestions | null
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
@@ -3909,14 +3908,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
             },
         ],
         replySuggestions: [
-            (s) => [s.replySuggestionsFrame, s.threadItems, s.historyTurnBase, s.turnComplete],
+            (s) => [s.replySuggestionsFrame, s.threadItems, s.historyTurnBase],
             (
                 frame: ReplySuggestions | null,
                 threadItems: ThreadItem[],
-                historyTurnBase: number,
-                turnComplete: boolean
+                historyTurnBase: number
             ): ReplySuggestions | null => {
-                if (!frame || !turnComplete) {
+                if (!frame) {
                     return null
                 }
                 const latestPromptIndex =

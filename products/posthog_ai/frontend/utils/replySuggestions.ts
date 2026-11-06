@@ -1,22 +1,6 @@
-export interface ReplySuggestion {
-    label: string
-    reply: string
-}
-
 export interface ReplySuggestions {
     turnIndex: number
-    suggestions: ReplySuggestion[]
-}
-
-function parseReplySuggestion(raw: unknown): ReplySuggestion | null {
-    if (!raw || typeof raw !== 'object') {
-        return null
-    }
-    const { label, reply } = raw as Record<string, unknown>
-    if (typeof reply !== 'string' || !reply.trim()) {
-        return null
-    }
-    return { label: typeof label === 'string' && label.trim() ? label : reply, reply }
+    replies: string[]
 }
 
 export function parseReplySuggestionsParams(params: unknown): ReplySuggestions | null {
@@ -27,6 +11,8 @@ export function parseReplySuggestionsParams(params: unknown): ReplySuggestions |
     if (typeof turnIndex !== 'number' || !Array.isArray(suggestions)) {
         return null
     }
-    const parsed = suggestions.map(parseReplySuggestion).filter((s): s is ReplySuggestion => s !== null)
-    return parsed.length ? { turnIndex, suggestions: parsed } : null
+    const replies = suggestions
+        .map((suggestion) => (suggestion as Record<string, unknown> | null)?.reply)
+        .filter((reply): reply is string => typeof reply === 'string' && !!reply.trim())
+    return replies.length ? { turnIndex, replies } : null
 }
