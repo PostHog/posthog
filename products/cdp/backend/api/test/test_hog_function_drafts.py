@@ -367,6 +367,32 @@ class TestHogFunctionDrafts(DraftTestCase):
         )
         assert function.encrypted_inputs["token"]["allowed_origins"] == expected_origins
 
+    def test_draft_cannot_move_a_dictionary_secret_by_adding_an_entry(self):
+        function_id = self._create(
+            hog="fetch(inputs.url, {'headers': inputs.secret_headers});",
+            inputs_schema=[
+                BASE_FUNCTION["inputs_schema"][0],
+                {"key": "secret_headers", "type": "dictionary", "label": "Secret headers", "secret": True},
+            ],
+            inputs={"url": {"value": SENDER_URL}, "secret_headers": {"value": {"Authorization": "Bearer live"}}},
+        )
+
+        with secret_host_binding_flag(True):
+            self._stage(
+                function_id,
+                {
+                    "inputs": {
+                        "url": {"value": MOVED_URL},
+                        "secret_headers": {"value": {"Authorization": "********", "X-Extra": "typed"}},
+                    }
+                },
+            )
+            published = self._publish(function_id)
+
+        assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
+        stored = HogFunction.objects.get(id=function_id).encrypted_inputs["secret_headers"]
+        assert stored["allowed_origins"] == ["https://hooks.example.com"]
+
     @parameterized.expand(
         [
             ("stored_secret", {"secret": True}, status.HTTP_400_BAD_REQUEST),

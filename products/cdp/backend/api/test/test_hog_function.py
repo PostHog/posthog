@@ -99,7 +99,7 @@ SECRET_SENDER: dict[str, Any] = {
     "hog": SENDER_HOG,
     "inputs_schema": [
         {"key": "url", "type": "string", "label": "URL", "required": True},
-        {"key": "token", "type": "string", "label": "Token", "secret": True, "required": True},
+        {"key": "token", "type": "string", "label": "Token", "secret": True, "required": False},
     ],
     "inputs": {"url": {"value": SENDER_URL}, "token": {"value": "I AM SECRET"}},
 }
@@ -1503,6 +1503,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "code_sends_it_elsewhere",
                 "patch",
                 {"hog": MOVED_SENDER_HOG},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                ["https://hooks.example.com"],
+            ),
+            (
+                "code_moves_a_secret_the_request_leaves_out",
+                "patch",
+                {"hog": MOVED_SENDER_HOG, "inputs": {"url": {"value": SENDER_URL}, "token": {"unused": 1}}},
                 True,
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
