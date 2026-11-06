@@ -108,7 +108,6 @@ _PAIR_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 _TIME_BUDGET_SHARE = 0.6
 # Ticks recorded before this marker ran pairs in waves and replay the wave loop.
 _SLIDING_WINDOW_PATCH = "personal-ranking-tick-sliding-window-2026-11"
-# The tick event carries pair durations for these statuses.
 _TIMED_STATUSES: tuple[PairStatus, ...] = ("unchanged", "built")
 
 
@@ -195,7 +194,7 @@ def _percentile(values: list[float], share: float) -> float:
     return ordered[max(0, math.ceil(share * len(ordered)) - 1)]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class _TickTally:
     statuses: dict[str, int] = dataclasses.field(default_factory=dict)
     changed_parts: dict[str, int] = dataclasses.field(default_factory=dict)
