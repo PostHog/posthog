@@ -8,6 +8,8 @@ export interface MCPErrorContext {
     errorType: string
     errorStatus?: string
     errorMessage?: string
+    errorCode?: string
+    errorField?: string
     timestamp?: string
     harness?: string
     intent?: string
@@ -58,14 +60,17 @@ export function formatErrorContext(ctx: MCPErrorContext): string {
     const errorType = inlineValue(ctx.errorType)
     const bucket = ctx.errorStatus ? `${errorType} (HTTP ${inlineValue(ctx.errorStatus)})` : errorType
     const lines = [`## MCP tool failure: ${inlineValue(ctx.toolName)}`, '', `- Error type: ${bucket}`]
-    if (ctx.timestamp) {
-        lines.push(`- When: ${inlineValue(ctx.timestamp)}`)
-    }
-    if (ctx.harness) {
-        lines.push(`- Harness: ${inlineValue(ctx.harness)}`)
-    }
-    if (ctx.sessionId) {
-        lines.push(`- Session: ${inlineValue(ctx.sessionId)}`)
+    const details: [string, string | undefined][] = [
+        ['Error code', ctx.errorCode],
+        ['Argument', ctx.errorField],
+        ['When', ctx.timestamp],
+        ['Harness', ctx.harness],
+        ['Session', ctx.sessionId],
+    ]
+    for (const [label, value] of details) {
+        if (value) {
+            lines.push(`- ${label}: ${inlineValue(value)}`)
+        }
     }
     lines.push(
         '',

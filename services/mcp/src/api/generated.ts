@@ -35687,9 +35687,9 @@ export namespace Schemas {
       is_verified: boolean;
       /** The scopes the token will carry if the person approves. */
       scopes: string[];
-      /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+      /** The requested scopes the person can't leave out: the client's required scopes, the scopes the client marked as required when it started the grant, such as the new scopes of a step-up, and identity scopes such as `openid`. */
       required_scopes: string[];
-      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones. */
       granted_scopes: GrantedScopes[];
       /** When the code expires. */
       expires_at: string;
@@ -65595,6 +65595,18 @@ export namespace Schemas {
       readonly error_type: string;
       /** HTTP status ($mcp_error_status) when the failure carried one, otherwise empty. */
       readonly error_status: string;
+      /** Command an exec-style server ran ($mcp_exec_verb), such as call, info, search or unrecognized. Empty for direct tool calls. */
+      readonly exec_verb: string;
+      /** Tool the exec command named ($mcp_exec_target_tool). Empty when the command named none. */
+      readonly exec_target_tool: string;
+      /** Argument names the client sent ($mcp_input_keys), without values. Empty when not captured. */
+      readonly input_keys: readonly string[];
+      /** Specific failure code ($mcp_error_code) when the server set one, otherwise empty. */
+      readonly error_code: string;
+      /** Argument the failure points at ($mcp_error_field), otherwise empty. */
+      readonly error_field: string;
+      /** Model that made the call ($mcp_llm_model), otherwise empty. */
+      readonly llm_model: string;
     }
 
     /**
