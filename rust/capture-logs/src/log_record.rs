@@ -236,7 +236,6 @@ pub fn override_timestamp_with_past_limit(
     }
 }
 
-/// Attribute that keeps a record's own timestamp when ingest replaces it with the ingest time.
 pub const ORIGINAL_TIMESTAMP_ATTRIBUTE: &str = "posthog.original_timestamp";
 
 /// `override_timestamp` plus the `ORIGINAL_TIMESTAMP_ATTRIBUTE` the consumer reads back; every intake

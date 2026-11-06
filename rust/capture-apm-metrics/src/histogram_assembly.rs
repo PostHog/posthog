@@ -30,7 +30,6 @@ use uuid::Uuid;
 
 const LE_LABEL: &str = "le";
 const QUANTILE_LABEL: &str = "quantile";
-/// Kafka can still hold rows from capture-logs builds that wrote the old name.
 const ORIGINAL_TIMESTAMP_LABELS: [&str; 2] = [ORIGINAL_TIMESTAMP_ATTRIBUTE, "$originalTimestamp"];
 const BUCKET_SUFFIX: &str = "_bucket";
 const COUNT_SUFFIX: &str = "_count";

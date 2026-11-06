@@ -36,8 +36,7 @@ fn resource_key_for(label: &str) -> Option<&'static str> {
 }
 
 /// The row builder adds this attribute per sample after it computes the
-/// fingerprint, so the recomputed fingerprint must leave it out too. Kafka can
-/// still hold rows from capture-logs builds that wrote the old name.
+/// fingerprint, so the recomputed fingerprint must leave it out too.
 const ORIGINAL_TIMESTAMP_ATTRIBUTES: [&str; 2] =
     [ORIGINAL_TIMESTAMP_ATTRIBUTE, "$originalTimestamp"];
 
