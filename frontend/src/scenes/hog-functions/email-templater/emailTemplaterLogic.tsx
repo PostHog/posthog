@@ -357,17 +357,19 @@ export interface EmailTemplaterLogicProps {
     sandboxSenderAllowed?: boolean
 }
 
-function sandboxSwitchDescription(replacedSenderNames: string[], emailTemplate: EmailTemplate): string {
+/** What switching to the sandbox sender drops, because it sends with a fixed identity. */
+function sandboxSwitchLosses(emailTemplate: EmailTemplate): string[] {
     const from = senderFrom(emailTemplate)
-    const removed = [
-        from.email || from.name ? 'your custom sender' : '',
+    return [
+        from.email || from.name ? 'your custom From address and name' : '',
         emailTemplate?.replyTo ? 'your Reply-To' : '',
     ].filter(Boolean)
+}
+
+function sandboxSwitchDescription(replacedSenders: string | null, losses: string[]): string {
     return [
-        replacedSenderNames.length > 1
-            ? `This replaces ${humanList(replacedSenderNames)} with the sandbox sender.`
-            : '',
-        removed.length > 0 ? `This removes ${humanList(removed)}.` : '',
+        replacedSenders ? `This replaces ${replacedSenders} with the sandbox sender.` : '',
+        losses.length > 0 ? `This removes ${humanList(losses)}.` : '',
         'The sandbox sender sends from its own address.',
     ]
         .filter(Boolean)
@@ -408,7 +410,6 @@ export interface emailTemplaterLogicValues {
     emailTemplateTouched: boolean
     emailTemplateTouches: Record<string, boolean>
     emailTemplateValidationErrors: DeepPartialMap<EmailTemplate, ValidationErrorType>
-    hasCustomSenderDetails: boolean
     hiddenAdvancedFields: EmailMetaField[]
     isEmailEditorReady: boolean
     isEmailTemplateSubmitting: boolean
@@ -580,7 +581,6 @@ export interface emailTemplaterLogicMeta {
             emailTemplate: EmailTemplate
         ) => IntegrationType | null
         isSandboxSenderSelected: (sandboxSender: IntegrationType | null, emailTemplate: EmailTemplate) => boolean
-        hasCustomSenderDetails: (emailTemplate: EmailTemplate) => boolean
         supportedFields: (arg: EmailTemplaterType, isSandboxSenderSelected: boolean) => EmailMetaField[]
         visibleFields: (
             supportedFields: EmailMetaField[],
@@ -841,13 +841,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             (sandboxSender: IntegrationType | null, emailTemplate: EmailTemplate): boolean =>
                 !!sandboxSender && selectedSenderIds(senderFrom(emailTemplate)).includes(sandboxSender.id),
         ],
-        hasCustomSenderDetails: [
-            (s) => [s.emailTemplate],
-            (emailTemplate: EmailTemplate): boolean => {
-                const from = senderFrom(emailTemplate)
-                return !!(from.email || from.name || emailTemplate?.replyTo)
-            },
-        ],
         // The sandbox sender always replies from its own identity, so it offers no Reply-To.
         supportedFields: [
             (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.isSandboxSenderSelected],
@@ -881,17 +874,24 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     actions.hideAdvancedField('replyTo')
                 }
                 const replacedSenderIds = selectedSenderIds(senderFrom(values.emailTemplate))
-                if (!values.hasCustomSenderDetails && replacedSenderIds.length < 2) {
+                const losses = sandboxSwitchLosses(values.emailTemplate)
+                if (losses.length === 0 && replacedSenderIds.length < 2) {
                     selectSandbox()
                     return
                 }
                 const integrations = integrationsLogic.isMounted() ? (integrationsLogic.values.integrations ?? []) : []
                 const replacedSenderNames = replacedSenderIds.map(
-                    (id) => integrations.find((sender) => sender.id === id)?.display_name || `sender ${id}`
+                    (id) => integrations.find((sender) => sender.id === id)?.display_name
                 )
+                const replacedSenders =
+                    replacedSenderIds.length < 2
+                        ? null
+                        : replacedSenderNames.every(Boolean)
+                          ? humanList(replacedSenderNames as string[])
+                          : 'your current senders'
                 LemonDialog.open({
                     title: 'Switch to the sandbox sender?',
-                    description: sandboxSwitchDescription(replacedSenderNames, values.emailTemplate),
+                    description: sandboxSwitchDescription(replacedSenders, losses),
                     primaryButton: { children: 'Switch sender', onClick: selectSandbox },
                     secondaryButton: { children: 'Cancel' },
                 })

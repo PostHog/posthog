@@ -81,11 +81,20 @@ describe('SendTestEmailModal', () => {
 
     it('warns that a recipient cannot be checked when the member list fails to load, and retries it', async () => {
         let membersAvailable = false
+        let releaseRetry: () => void = () => {}
+        const retryGate = new Promise<void>((resolve) => {
+            releaseRetry = resolve
+        })
         useMocks({
             get: {
                 '/api/projects/:team_id/integrations/': { results: [sandbox] },
-                '/api/organizations/:organization_id/members/': () =>
-                    membersAvailable ? [200, { results: [] }] : [500, { detail: 'Unavailable' }],
+                '/api/organizations/:organization_id/members/': async () => {
+                    if (!membersAvailable) {
+                        return [500, { detail: 'Unavailable' }]
+                    }
+                    await retryGate
+                    return [200, { results: [] }]
+                },
             },
         })
         openModal()
@@ -96,6 +105,10 @@ describe('SendTestEmailModal', () => {
 
         membersAvailable = true
         fireEvent.click(screen.getAllByText('Try again')[0])
+        await waitFor(() => expect(logic.values.membersLoading).toBe(true))
+        expect(screen.getByText(/Couldn't load your organization's members/)).toBeInTheDocument()
+
+        releaseRetry()
         expect(await screen.findByText(/isn't among the verified members you can see/)).toBeInTheDocument()
         expect(screen.queryByText(/Couldn't load your organization's members/)).toBeNull()
     })
@@ -212,6 +225,7 @@ describe('SendTestEmailModal', () => {
             },
         })
         openModal()
+        await waitFor(() => expect(logic.values.isSandboxSenderSelected).toBe(true))
         if (!loading) {
             await expectLogic(logic).toFinishAllListeners()
         }
