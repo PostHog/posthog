@@ -294,6 +294,20 @@ class TestPollSharedChannel(BaseTest):
         )
 
     @patch("products.conversations.backend.tasks.teams.requests.get")
+    def test_priming_resumes_from_cursor_without_reverifying(self, mock_get: MagicMock, *_: Any) -> None:
+        TeamConversationsTeamsChannelSync.objects.for_team(self.team.id).create(
+            team=self.team, teams_team_id=TEAMS_TEAM_ID, channel_id=CHANNEL_ID, delta_link="NEXT_PRIMING"
+        )
+        mock_get.return_value = _resp(status_code=429)
+
+        poll_team_shared_channels(self.team.id)
+
+        self.assertEqual(mock_get.call_args_list[0].args[0], "NEXT_PRIMING")
+        sync = self._sync()
+        self.assertFalse(sync.primed)
+        self.assertEqual(sync.delta_link, "NEXT_PRIMING")
+
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_unknown_future_value_passes_verification(self, mock_get: MagicMock, *_: Any) -> None:
         # Graph reports shared channels as "unknownFutureValue" in some tenants — must still poll.
         mock_get.side_effect = [

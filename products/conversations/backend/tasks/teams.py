@@ -606,13 +606,13 @@ def _poll_one_shared_channel(
     if _channel_denial_is_active(sync):
         return set()
 
-    # Until the first delta walk completes, verify via Graph that the channel is
+    # Until the first delta walk starts, verify via Graph that the channel is
     # actually shared. conversations_settings is client-mutable, so we don't trust its
     # membership_type — we confirm from the authoritative source before polling.
     # Graph returns "unknownFutureValue" for shared channels in some tenants, so we
     # reject only explicit standard/private channels rather than requiring "shared".
-    # A held channel keeps its unprimed row, so it is verified again after the hold.
-    if created or not sync.primed:
+    # A row with a delta_link passed this check already, and a failed check deletes the row.
+    if created or (not sync.primed and not sync.delta_link):
         ch_resp = requests.get(
             f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}",
             headers={"Authorization": f"Bearer {token}"},
@@ -667,9 +667,8 @@ def _poll_one_shared_channel(
             logger.warning("poll_teams_shared_channel_throttled", team_id=team.id, channel_id=channel_id)
             return set()
         if resp.status_code in (401, 402, 403):
-            # 401: token rejected. The next run refreshes a stale token, so retry then.
-            # 402: metered/payment gate. 403: lost channel membership or a missing scope.
-            # 402 and 403 do not clear on the next minute, so hold the channel.
+            # 401: the next run refreshes a stale token. 402 (payment gate) and 403 (lost
+            # membership or missing scope) persist past the next minute, so hold the channel.
             logger.warning(
                 "poll_teams_shared_channel_denied",
                 team_id=team.id,

@@ -51,7 +51,7 @@ class TestTeamsTokenStorage(BaseTest):
         assert settings["teams_enabled"] is True
 
     def test_save_clears_shared_channel_denial_holds(self):
-        sync = TeamConversationsTeamsChannelSync.objects.create(
+        sync = TeamConversationsTeamsChannelSync.objects.for_team(self.team.id).create(
             team=self.team,
             teams_team_id="group-1",
             channel_id="19:held@thread.tacv2",
