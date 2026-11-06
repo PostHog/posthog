@@ -8,7 +8,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, Project, PropertyDefinition, Team, User
+from posthog.models import Organization, OrganizationMembership, Project, Team, User
 from posthog.models.event.util import bulk_create_events
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
@@ -16,6 +16,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.models.provider_keys import LLMProvider
 from products.ai_observability.backend.models.taggers import Tagger, TaggerType
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 def _setup_team():

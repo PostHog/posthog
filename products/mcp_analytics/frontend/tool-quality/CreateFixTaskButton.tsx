@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconWrench } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
@@ -7,6 +8,8 @@ import api from 'lib/api'
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
@@ -32,10 +35,15 @@ export function CreateFixTaskButton({
             icon={<IconWrench />}
             tooltip="Create a task and start a fix agent on it"
             disabledReason={
-                githubIntegrations.length === 0
-                    ? 'Connect the GitHub integration (Settings → Integrations) to give the fix agent a repository'
-                    : undefined
+                githubIntegrations.length === 0 ? (
+                    <>
+                        Connect the GitHub integration in{' '}
+                        <Link to={urls.settings('project-integrations')}>project settings</Link> to give the fix agent a
+                        repository
+                    </>
+                ) : undefined
             }
+            disabledReasonInteractive
             onClick={() => openCreateFixTaskForm(context, githubIntegrations)}
         >
             Create fix task
@@ -49,7 +57,12 @@ function openCreateFixTaskForm(context: MCPErrorContext, githubIntegrations: Int
     // The button is disabled without an integration, but guard anyway: this function
     // dereferences the integration unconditionally and must not crash if reached.
     if (!defaultIntegration) {
-        lemonToast.error('Connect the GitHub integration (Settings → Integrations) before creating a fix task')
+        lemonToast.error('Connect the GitHub integration before creating a fix task', {
+            button: {
+                label: 'Open integrations',
+                action: () => router.actions.push(urls.settings('project-integrations')),
+            },
+        })
         return
     }
 
@@ -107,11 +120,12 @@ function openCreateFixTaskForm(context: MCPErrorContext, githubIntegrations: Int
                 lemonToast.error('Failed to create the task')
                 throw error
             }
+            const viewTask = { label: 'View task', action: () => router.actions.push(urls.taskDetail(task.id)) }
             try {
                 await api.tasks.run(task.id)
-                lemonToast.success('Fix task created and agent run started')
+                lemonToast.success('Fix task created and agent run started', { button: viewTask })
             } catch {
-                lemonToast.warning('Task created, but the agent run could not be started')
+                lemonToast.warning('Task created, but the agent run could not be started', { button: viewTask })
             }
         },
     })

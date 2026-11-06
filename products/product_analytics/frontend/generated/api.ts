@@ -21,7 +21,9 @@ import type {
     ElementsListParams,
     ElementsStatsRetrieveParams,
     ElementsValuesListParams,
+    EventsDeletedApi,
     EventsRetentionApi,
+    EventsRetentionDeletionCountParams,
     EventsRetentionUpdateApi,
     InsightApi,
     InsightBulkDeleteRequestApi,
@@ -53,6 +55,8 @@ import type {
     InsightsUpdateParams,
     InsightsViewedCreateParams,
     OrganizationEventsRetentionApi,
+    OrganizationEventsRetentionDeletionCountParams,
+    OrganizationEventsRetentionDowngradeDeletionCountParams,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
     PaginatedInsightListApi,
@@ -118,6 +122,77 @@ export const organizationEventsRetentionUpdate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(eventsRetentionUpdateApi),
     })
+}
+
+export const getOrganizationEventsRetentionDeletionCountUrl = (
+    organizationId: string,
+    params: OrganizationEventsRetentionDeletionCountParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/events_retention_setting/deletion_count/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/events_retention_setting/deletion_count/`
+}
+
+/**
+ * Counts the events that the next monthly cleanup deletes if the organization keeps events for retention_months, summed over the projects without their own period. Organization admins only.
+ * @summary Count the events the organization's period would delete
+ */
+export const organizationEventsRetentionDeletionCount = async (
+    organizationId: string,
+    params: OrganizationEventsRetentionDeletionCountParams,
+    options?: RequestInit
+): Promise<EventsDeletedApi> => {
+    return apiMutator<EventsDeletedApi>(getOrganizationEventsRetentionDeletionCountUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOrganizationEventsRetentionDowngradeDeletionCountUrl = (
+    organizationId: string,
+    params: OrganizationEventsRetentionDowngradeDeletionCountParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/events_retention_setting/downgrade_deletion_count/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/events_retention_setting/downgrade_deletion_count/`
+}
+
+/**
+ * Counts the events that the deletion pass after a plan downgrade deletes if the organization's events retention drops to retention_months, whether or not deletion is rolled out to the organization yet. Sums the projects whose period is longer than retention_months. Organization admins only.
+ * @summary Count the events a downgrade to a shorter period would delete
+ */
+export const organizationEventsRetentionDowngradeDeletionCount = async (
+    organizationId: string,
+    params: OrganizationEventsRetentionDowngradeDeletionCountParams,
+    options?: RequestInit
+): Promise<EventsDeletedApi> => {
+    return apiMutator<EventsDeletedApi>(
+        getOrganizationEventsRetentionDowngradeDeletionCountUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getColumnConfigurationsListUrl = (projectId: string, params?: ColumnConfigurationsListParams) => {
@@ -427,6 +502,37 @@ export const eventsRetentionUpdate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(eventsRetentionUpdateApi),
+    })
+}
+
+export const getEventsRetentionDeletionCountUrl = (projectId: string, params: EventsRetentionDeletionCountParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/events_retention/deletion_count/?${stringifiedParams}`
+        : `/api/projects/${projectId}/events_retention/deletion_count/`
+}
+
+/**
+ * Counts the project's events that the next monthly cleanup deletes if the project keeps events for retention_months. Organization admins only.
+ * @summary Count the events a project's period would delete
+ */
+export const eventsRetentionDeletionCount = async (
+    projectId: string,
+    params: EventsRetentionDeletionCountParams,
+    options?: RequestInit
+): Promise<EventsDeletedApi> => {
+    return apiMutator<EventsDeletedApi>(getEventsRetentionDeletionCountUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

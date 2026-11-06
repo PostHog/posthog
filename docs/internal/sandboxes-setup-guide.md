@@ -341,6 +341,8 @@ Automatic Flash uses your existing severity threshold and never resolves comment
 
 The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/review_hog/settings/`.
 Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `review_hog/project_settings`, `review_hog/installation_claims`, and `review_hog/repositories` endpoints.
+Any project member can turn a repository on through `review_hog/repositories`: include it into the project's selection, raise its exception, or turn its draft reviews on.
+Turning a repository down or removing it stays with admins.
 
 The Code review settings page calls automatic reviews **Standard** and requested reviews **Deep**.
 Project defaults appear beside personal preferences. Personal repository choices take priority over personal defaults and project rules.

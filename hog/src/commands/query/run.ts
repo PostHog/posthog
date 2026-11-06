@@ -5,10 +5,11 @@ import type { ColumnKind } from '@/core/output'
 import { plural } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 
+// HogQLQueryResponse declares `columns` and `types` optional.
 const QueryResponse = z.looseObject({
     columns: z.array(z.string()).nullish(),
-    results: z.array(z.array(z.unknown())).nullish(),
     types: z.array(z.tuple([z.string(), z.string()])).nullish(),
+    results: z.array(z.array(z.unknown())),
     hasMore: z.boolean().nullish(),
 })
 
@@ -40,37 +41,42 @@ export default defineCommand({
 
     async run({ args, ctx }) {
         const api = await ctx.posthog()
+        let response: z.output<typeof QueryResponse>
         try {
-            return await api.post(
-                'query',
-                { query: { kind: 'HogQLQuery', query: args.query }, refresh: 'blocking' },
-                QueryResponse
-            )
+            const body = { query: { kind: 'HogQLQuery', query: args.query }, refresh: 'blocking' }
+            response = await api.post('query', body, QueryResponse)
         } catch (error) {
             if (error instanceof ApiError && error.type === 'validation_error') {
                 throw error.withHint('Run `hog query check` on the query to see where it fails.')
             }
             throw error
         }
+        return {
+            columns: (response.columns ?? []).map((name, index) => ({ name, type: response.types?.[index]?.[1] })),
+            rows: response.results,
+            hasMore: response.hasMore === true,
+            response,
+        }
     },
 
+    raw: (result) => result.response,
+
     human({ result, out }) {
-        const rows = result.results ?? []
         out.table(
-            (result.columns ?? []).map((name, index) => ({ name, kind: kindOf(result.types?.[index]?.[1]) })),
-            rows
+            result.columns.map((column) => ({ name: column.name, kind: kindOf(column.type) })),
+            result.rows
         )
-        const count = plural(rows.length, 'row')
+        const count = plural(result.rows.length, 'row')
         out.line(out.style(result.hasMore ? `${count}, more available` : count, 'dim'))
     },
 
     agent({ result, out }) {
-        out.jsonLines(result.results ?? [])
+        out.jsonLines(result.rows)
     },
 
     telemetry: ({ result }) => ({
-        row_count: result.results?.length ?? 0,
-        column_count: result.columns?.length ?? 0,
-        has_more: result.hasMore === true,
+        row_count: result.rows.length,
+        column_count: result.columns.length,
+        has_more: result.hasMore,
     }),
 })
