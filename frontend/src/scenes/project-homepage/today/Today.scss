@@ -252,6 +252,15 @@ html[data-today-transition]::view-transition-new(root) {
     }
 }
 
+.TodayPulse__suggested {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-inline-end: 4px;
+    color: var(--today-faint);
+    vertical-align: -1px;
+}
+
 .TodayPulse__trigger {
     display: flex;
     flex-direction: column;

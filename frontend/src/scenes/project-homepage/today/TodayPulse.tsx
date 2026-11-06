@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { type RefObject, Suspense, lazy, useLayoutEffect, useRef } from 'react'
 
+import { IconSparkles } from '@posthog/icons'
 import { Button, Skeleton, Text } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
@@ -176,7 +177,10 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                 const change = pulseChange(metric)
                 const content = (
                     <>
-                        <span className="TodayPulse__name">{metric.name}</span>
+                        <span className="TodayPulse__name">
+                            {!pinned && <IconSparkles className="TodayPulse__suggested" aria-label="Suggested" />}
+                            <span>{metric.name}</span>
+                        </span>
                         <span className="TodayPulse__row">
                             <span className="TodayPulse__value" translate="no">
                                 {formatValue(metric.value)}
