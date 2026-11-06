@@ -837,6 +837,18 @@ def append_report_source_issues(
 SCOUT_PULL_REQUEST_LINK_AGENT = "PostHog scout"
 
 
+def decided_report_repository(report_id: str) -> str | None:
+    """The report's stored repository when it is a decision, or None.
+
+    A selection that is not `autostart_eligible` does not count, because that is the set
+    `_refresh_inferred_repository` re-derives from rewritten text after an edit commits.
+    """
+    selection = persisted_repo_selection(report_id)
+    if selection is None or not selection.autostart_eligible:
+        return None
+    return selection.repository
+
+
 def _linked_pull_request_keys(team_id: int, report_id: str) -> set[tuple[str, int]]:
     return set(
         SignalReportArtefact.objects.filter(
@@ -929,6 +941,15 @@ def link_scout_report_pull_requests(
         report = SignalReport.objects.select_for_update(no_key=True).filter(team_id=team_id, id=report_id).first()
         if report is None:
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        # The GitHub lookup ran before this lock, so a concurrent edit may have repointed the report since.
+        # An earlier write of this same edit is already visible here, so its own `repository` still counts.
+        repository = decided_report_repository(report_id)
+        for pr in pull_requests:
+            if repository is None or pr.repository != repository.lower():
+                raise InvalidScoutReportError(
+                    f"pull request {pr.url!r} is not in the report's repository {repository!r}; "
+                    "the report's repository changed during this edit"
+                )
         # Read again under the report lock, so two concurrent edits that name one pull request link it once.
         linked = _linked_pull_request_keys(team_id, report_id)
         new = {(pr.repository, pr.number): pr for pr in pull_requests if (pr.repository, pr.number) not in linked}

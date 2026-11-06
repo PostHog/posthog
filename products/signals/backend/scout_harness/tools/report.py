@@ -123,6 +123,7 @@ from products.signals.backend.scout_report import (
     append_report_note,
     append_report_source_issues,
     create_scout_report,
+    decided_report_repository,
     emit_appended_report_evidence,
     find_scout_report_by_idempotency_key,
     get_content_revision_count,
@@ -1093,19 +1094,14 @@ def _build_pull_requests(pull_requests: list[str] | None) -> list[str]:
 def _decided_repository_after_edit(report_id: str, repository: str | None) -> str | None:
     """The repository a pull request link is checked against, or None when the report has none decided.
 
-    A selection that is not `autostart_eligible` does not count, because that is the set the post-commit
-    `_refresh_inferred_repository` re-derives from rewritten text. A link checked against such a target
-    could resolve a report that ends up pointing at another repository. Naming `repository` in the same
-    edit gives the link a target no rewrite moves.
+    A link checked against an inferred target could resolve a report that a later rewrite repoints, so
+    only a decision counts. Naming `repository` in the same edit gives the link a target no rewrite moves.
     """
     if repository == NO_REPO:
         return None
     if repository is not None:
         return repository
-    selection = persisted_repo_selection(report_id)
-    if selection is None or not selection.autostart_eligible:
-        return None
-    return selection.repository
+    return decided_report_repository(report_id)
 
 
 def _build_metrics(metrics: list[ReportMetricInput] | None) -> list[ReportMetric]:

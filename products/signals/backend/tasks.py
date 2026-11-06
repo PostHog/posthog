@@ -150,7 +150,7 @@ def write_pull_request_to_support_tickets(self: Task, team_id: int, report_id: s
 @shared_task(
     bind=True,
     ignore_result=True,
-    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError),
+    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError, OperationalError),
     retry_backoff=True,
     max_retries=5,
 )

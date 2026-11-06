@@ -786,6 +786,47 @@ class TestScoutReportAPI(APIBaseTest):
         assert edited.status_code == status.HTTP_400_BAD_REQUEST, edited.json()
         assert not SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False).exists()
 
+    def test_edit_report_refuses_a_pull_request_when_the_report_is_repointed_during_the_lookup(self) -> None:
+        run = _make_run(self.team)
+        pr_url = "https://github.com/acme/widgets/pull/7"
+
+        def repoint_then_read(repository: str, number: int) -> dict:
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=RepoSelectionResult(repository="acme/gadgets", reason="Another edit repointed it."),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
+            return {"success": True, "url": pr_url, **_MERGED_PR}
+
+        github = MagicMock()
+        github.get_pull_request.side_effect = repoint_then_read
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=github),
+        ):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(already_addressed=True), format="json"
+            )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=RepoSelectionResult(repository="acme/widgets", reason="Named by a scout."),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
+            edited = self.client.post(
+                self._edit_url(str(run.id)), data={"report_id": report_id, "pull_requests": [pr_url]}, format="json"
+            )
+
+        assert edited.status_code == status.HTTP_400_BAD_REQUEST, edited.json()
+        assert not SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False).exists()
+        assert SignalReport.objects.get(id=report_id).status != "resolved"
+
     @parameterized.expand(
         [
             ("pull request", "https://github.com/acme/widgets/pull/42"),
