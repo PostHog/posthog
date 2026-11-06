@@ -297,7 +297,15 @@ def build_sending_histories(
 
 def team_own_sends_since(team_id: int, after: datetime) -> int:
     days = _fetch_daily_metrics(after=after, before=None, team_ids=[team_id], feature=Feature.QUERY).get(team_id, {})
-    return sum(counts.get(SENT_METRIC, 0) for counts in days.values())
+    return sum(day.own_sent for day in days.values())
+
+
+@frozen
+class _DailyEmailMetrics:
+    own_sent: int
+    hard_bounced: int
+    complained: int
+    auto_paused: bool
 
 
 @frozen
@@ -338,7 +346,7 @@ def _fetch_daily_metrics(
     team_ids: Optional[list[int]],
     workload: Workload = Workload.DEFAULT,
     feature: Feature = Feature.ENRICHMENT,
-) -> dict[int, dict[str, dict[str, int]]]:
+) -> dict[int, dict[str, _DailyEmailMetrics]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     other_metrics = list(dict.fromkeys([HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]))
     params: dict[str, Any] = {
@@ -389,27 +397,31 @@ def _fetch_daily_metrics(
     with tags_context(product=Product.WORKFLOWS, feature=feature):
         rows = sync_execute(query, params, workload=workload)
 
-    daily: dict[int, dict[str, dict[str, int]]] = {}
+    daily: dict[int, dict[str, _DailyEmailMetrics]] = {}
     for team_id, day, own, *others in rows:
         # A day can sum to nothing once sandbox sends and the hour before the cutoff are left out.
         if not own and not any(others):
             continue
-        counts = {SENT_METRIC: int(own), **{name: int(count) for name, count in zip(other_metrics, others)}}
-        daily.setdefault(team_id, {})[day.strftime("%Y-%m-%d")] = counts
+        counts = {name: int(count) for name, count in zip(other_metrics, others)}
+        daily.setdefault(team_id, {})[day.strftime("%Y-%m-%d")] = _DailyEmailMetrics(
+            own_sent=int(own),
+            hard_bounced=counts[HARD_BOUNCE_METRIC],
+            complained=counts[COMPLAINT_METRIC],
+            auto_paused=any(counts[metric] > 0 for metric in auto_pause_metrics),
+        )
     return daily
 
 
-def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSendingHistory:
+def _history_from_daily(team_id: int, days: dict[str, _DailyEmailMetrics]) -> TeamSendingHistory:
     # The tier decision only reads team totals, so metrics recorded under a batch job id and under
     # its parent workflow id sum the same either way and need no per-source resolution.
-    auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     return TeamSendingHistory(
         team_id=team_id,
-        sent=sum(counts.get(SENT_METRIC, 0) for counts in days.values()),
-        hard_bounced=sum(counts.get(HARD_BOUNCE_METRIC, 0) for counts in days.values()),
-        complained=sum(counts.get(COMPLAINT_METRIC, 0) for counts in days.values()),
-        auto_paused=any(counts.get(metric, 0) > 0 for counts in days.values() for metric in auto_pause_metrics),
-        daily_sends={day: sends for day, counts in days.items() if (sends := counts.get(SENT_METRIC, 0)) > 0},
+        sent=sum(day.own_sent for day in days.values()),
+        hard_bounced=sum(day.hard_bounced for day in days.values()),
+        complained=sum(day.complained for day in days.values()),
+        auto_paused=any(day.auto_paused for day in days.values()),
+        daily_sends={key: day.own_sent for key, day in days.items() if day.own_sent > 0},
     )
 
 
