@@ -2,7 +2,7 @@
 and an exit. The message template it was made from owns the content, so each content change writes a new version
 of the workflow through the same write path as the workflows UI, with its revision history."""
 
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from django.db import transaction
@@ -35,7 +35,7 @@ def _template_provenance(content: TransactionalEmailContent) -> dict[str, str]:
     return {"template_uuid": str(content.message_template_id)}
 
 
-def transactional_email_actions(content: TransactionalEmailContent, from_integration_id: int) -> list[dict]:
+def transactional_email_actions(content: TransactionalEmailContent, from_integration_id: int | None) -> list[dict]:
     return _actions(
         name=content.name,
         step_config={
@@ -56,6 +56,30 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
             "html": content.html,
         },
     )
+
+
+def code_sends_paused(team_id: int, hog_flow_id: UUID) -> bool:
+    flow = HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).only("status", "email_sending_paused_at").first()
+    return flow is not None and (flow.status != HogFlow.State.ACTIVE or flow.email_sending_paused_at is not None)
+
+
+def transactional_email_workflow_matches(team_id: int, hog_flow_id: UUID, content: TransactionalEmailContent) -> bool:
+    actions = HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).values_list("actions", flat=True).first()
+    sent_email = _email_value(actions or [])
+    sender_id = content.from_integration_id or (sent_email.get("from") or {}).get("integrationId")
+    return bool(sent_email) and sent_email == _email_value(transactional_email_actions(content, sender_id))
+
+
+def _email_value(actions: list) -> dict[str, Any]:
+    email_step = next(
+        (
+            action
+            for action in actions
+            if isinstance(action, dict) and action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID
+        ),
+        {},
+    )
+    return ((email_step.get("config") or {}).get("inputs") or {}).get("email", {}).get("value") or {}
 
 
 def code_email_actions(key: str) -> list[dict]:

@@ -81,7 +81,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+            "Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template. Once you upload a template under this key, these sends run through that template's workflow, so their metrics and logs group with the template from then on."
         ),
     distinct_id: zod
         .string()
@@ -1471,4 +1471,64 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe('Who the email is for, used to attribute engagement events.'),
+})
+
+/**
+ * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that is one of the last 100 different contents the template replaced changes nothing and answers `superseded`. An upload keeps the template's sender and never turns a paused template back on.
+ * @summary Upload a template by key
+ */
+export const messagingTemplatesByKeyUpdateBodyNameMax = 400
+
+export const messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault = false
+export const messagingTemplatesByKeyUpdateBodySourceOneRepositoryMax = 400
+
+export const messagingTemplatesByKeyUpdateBodySourceOnePathMax = 400
+
+export const messagingTemplatesByKeyUpdateBodySourceOneRefMax = 400
+
+export const MessagingTemplatesByKeyUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(messagingTemplatesByKeyUpdateBodyNameMax)
+        .describe('Template name shown in the template library.'),
+    subject: zod.string().describe('Email subject line. Supports Liquid, such as `{{ variables.first_name }}`.'),
+    html: zod
+        .string()
+        .describe('Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`.'),
+    text: zod
+        .string()
+        .optional()
+        .describe("Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one."),
+    preheader: zod
+        .string()
+        .optional()
+        .describe('Inbox preview text shown after the subject. Leaving it out removes the stored one.'),
+    if_not_superseded: zod
+        .boolean()
+        .default(messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault)
+        .describe(
+            'Set it on uploads a program makes on its own, such as a sync that may hold an older copy of the file. When newer content already replaced this content, the upload changes nothing and answers `superseded`. The check covers the last 100 different contents the template replaced. Content outside those 100 publishes. Leave it out to publish the content in any case, such as to roll back to earlier content.'
+        ),
+    source: zod
+        .object({
+            repository: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOneRepositoryMax)
+                .nullish()
+                .describe('Host and path of the repository the file is in, such as `github.com\/example\/app`.'),
+            path: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOnePathMax)
+                .nullish()
+                .describe('Path of the template file in the repository, such as `emails\/welcome.html`.'),
+            ref: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOneRefMax)
+                .nullish()
+                .describe('Commit or branch the file was uploaded from.'),
+        })
+        .optional()
+        .describe(
+            'Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored.'
+        ),
 })

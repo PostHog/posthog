@@ -66760,6 +66760,18 @@ export namespace Schemas {
       email?: EmailTemplate | null;
     }
 
+    /**
+     * * `gui` - GUI
+     * * `code` - Code
+     */
+    export type TemplateManagedByEnum = typeof TemplateManagedByEnum[keyof typeof TemplateManagedByEnum];
+
+
+    export const TemplateManagedByEnum = {
+      Gui: 'gui',
+      Code: 'code',
+    } as const;
+
     export interface MessageTemplate {
       readonly id: string;
       /**
@@ -66801,6 +66813,36 @@ export namespace Schemas {
       readonly transactional_hog_flow_id: string | null;
       /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
       draft_content?: MessageTemplateContent | null;
+      /**
+         * Stable identifier code uses to upload and send this template, unique within the project. Null for templates that have no key. Set once, by the first upload.
+         * @nullable
+         */
+      readonly key: string | null;
+      /** Who owns the content. `code` when it was uploaded from a repository, and the template changes through its next upload. `gui` or null when it is edited in PostHog.
+       *
+       * * `gui` - GUI
+       * * `code` - Code */
+      readonly managed_by: TemplateManagedByEnum | null;
+      /**
+         * Repository the template was last uploaded from, such as `github.com/example/app`.
+         * @nullable
+         */
+      readonly source_repository: string | null;
+      /**
+         * Path of the template file in the source repository.
+         * @nullable
+         */
+      readonly source_path: string | null;
+      /**
+         * Commit or branch the template was last uploaded from.
+         * @nullable
+         */
+      readonly source_ref: string | null;
+      /**
+         * Hash of the published subject, preheader, HTML and text, as `v1:` and 64 hex characters. Changes with every save that changes them.
+         * @nullable
+         */
+      readonly content_hash: string | null;
     }
 
     export interface MessagingError {
@@ -84989,6 +85031,36 @@ export namespace Schemas {
       readonly transactional_hog_flow_id?: string | null;
       /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
       draft_content?: MessageTemplateContent | null;
+      /**
+         * Stable identifier code uses to upload and send this template, unique within the project. Null for templates that have no key. Set once, by the first upload.
+         * @nullable
+         */
+      readonly key?: string | null;
+      /** Who owns the content. `code` when it was uploaded from a repository, and the template changes through its next upload. `gui` or null when it is edited in PostHog.
+       *
+       * * `gui` - GUI
+       * * `code` - Code */
+      readonly managed_by?: TemplateManagedByEnum | null;
+      /**
+         * Repository the template was last uploaded from, such as `github.com/example/app`.
+         * @nullable
+         */
+      readonly source_repository?: string | null;
+      /**
+         * Path of the template file in the source repository.
+         * @nullable
+         */
+      readonly source_path?: string | null;
+      /**
+         * Commit or branch the template was last uploaded from.
+         * @nullable
+         */
+      readonly source_ref?: string | null;
+      /**
+         * Hash of the published subject, preheader, HTML and text, as `v1:` and 64 hex characters. Changes with every save that changes them.
+         * @nullable
+         */
+      readonly content_hash?: string | null;
     }
 
     /**
@@ -106046,7 +106118,7 @@ export namespace Schemas {
       /** ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`. */
       template_id?: string;
       /**
-         * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.
+         * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template. Once you upload a template under this key, these sends run through that template's workflow, so their metrics and logs group with the template from then on.
          * @maxLength 400
          * @pattern ^[a-zA-Z0-9_-]+$
          */
@@ -113374,6 +113446,26 @@ export namespace Schemas {
       readonly retention_last_updated: string | null;
     }
 
+    export interface TemplateError {
+      /** Error class, such as `invalid_request`. */
+      type: string;
+      /** Stable error code to branch on, such as `invalid_template_key`. */
+      code: string;
+      /** What went wrong. */
+      detail: string;
+      /**
+         * The request field the error is about, if any.
+         * @nullable
+         */
+      attr: string | null;
+      /** Why PostHog refuses the request. */
+      why?: string;
+      /** What to change before you retry. */
+      fix?: string;
+      /** Documentation for this error code. */
+      docs_url?: string;
+    }
+
     export interface TemplateInfo {
       /** Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create.
        *
@@ -113396,6 +113488,43 @@ export namespace Schemas {
       /** Usage guidance and implementation notes. */
       notes: string;
     }
+
+    export interface TemplateSource {
+      /**
+         * Host and path of the repository the file is in, such as `github.com/example/app`.
+         * @maxLength 400
+         * @nullable
+         */
+      repository?: string | null;
+      /**
+         * Path of the template file in the repository, such as `emails/welcome.html`.
+         * @maxLength 400
+         * @nullable
+         */
+      path?: string | null;
+      /**
+         * Commit or branch the file was uploaded from.
+         * @maxLength 400
+         * @nullable
+         */
+      ref?: string | null;
+    }
+
+    /**
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `unchanged` - Unchanged
+     * * `superseded` - Superseded
+     */
+    export type TemplateUploadResultEnum = typeof TemplateUploadResultEnum[keyof typeof TemplateUploadResultEnum];
+
+
+    export const TemplateUploadResultEnum = {
+      Created: 'created',
+      Updated: 'updated',
+      Unchanged: 'unchanged',
+      Superseded: 'superseded',
+    } as const;
 
     /**
      * Anthropic text, image, or tool content blocks.
@@ -114961,6 +115090,54 @@ export namespace Schemas {
          * @maxItems 1000
          */
       results: ResultSubmission[];
+    }
+
+    export interface UploadTemplate {
+      /**
+         * Template name shown in the template library.
+         * @maxLength 400
+         */
+      name: string;
+      /** Email subject line. Supports Liquid, such as `{{ variables.first_name }}`. */
+      subject: string;
+      /** Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`. */
+      html: string;
+      /** Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one. */
+      text?: string;
+      /** Inbox preview text shown after the subject. Leaving it out removes the stored one. */
+      preheader?: string;
+      /** Set it on uploads a program makes on its own, such as a sync that may hold an older copy of the file. When newer content already replaced this content, the upload changes nothing and answers `superseded`. The check covers the last 100 different contents the template replaced. Content outside those 100 publishes. Leave it out to publish the content in any case, such as to roll back to earlier content. */
+      if_not_superseded?: boolean;
+      /** Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored. */
+      source?: TemplateSource;
+    }
+
+    export interface UploadTemplateResponse {
+      /** ID of the template. */
+      id: string;
+      /** Key of the template. */
+      key: string;
+      /** `created`: the upload made a new template. `updated`: it published the uploaded content. `unchanged`: the template already had this content, so nothing was published. `superseded`: the upload set `if_not_superseded` and newer content already replaced this content, so nothing was published.
+       *
+       * * `created` - Created
+       * * `updated` - Updated
+       * * `unchanged` - Unchanged
+       * * `superseded` - Superseded */
+      result: TemplateUploadResultEnum;
+      /** Hash of the published content, as `v1:` and 64 hex characters. After `superseded` it is the hash of the newer content. */
+      content_hash: string;
+      /** `code` after every upload except `superseded`, which changes nothing. After `superseded` it is what the template had, which is null for a template made in PostHog that no upload claimed yet.
+       *
+       * * `gui` - GUI
+       * * `code` - Code */
+      managed_by: TemplateManagedByEnum | null;
+      /**
+         * The workflow that sends this template. Each upload that changes the content writes a new version of it. Null only after `superseded`, on a template that is not transactional yet.
+         * @nullable
+         */
+      transactional_hog_flow_id: string | null;
+      /** Where the template file lives, as stored after the upload. */
+      source: TemplateSource;
     }
 
     export interface UploadVersionRequest {
