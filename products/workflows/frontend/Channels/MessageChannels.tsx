@@ -27,7 +27,7 @@ export function MessageChannels(): JSX.Element {
     const { setupModalOpen, userManagedIntegrations, setupModalType, selectedIntegration, sandboxEmailSender } =
         useValues(integrationsLogic)
     const { closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
-    const { sandboxSetupError, sandboxProvisionErrorLoading, sandboxRefreshPending } = useValues(channelCatalogLogic)
+    const { sandboxSetupError, sandboxSetupOutcomeLoading, sandboxRefreshPending } = useValues(channelCatalogLogic)
     const { setUpSandboxSender } = useActions(channelCatalogLogic)
     const { openImport } = useActions(pushTokenImportLogic)
     const supabaseAuthEmailsEnabled = useFeatureFlag('WORKFLOWS_SUPABASE_AUTH_EMAILS')
@@ -63,7 +63,7 @@ export function MessageChannels(): JSX.Element {
                         action={{
                             children: 'Try again',
                             onClick: () => setUpSandboxSender(),
-                            loading: sandboxProvisionErrorLoading || sandboxRefreshPending,
+                            loading: sandboxSetupOutcomeLoading || sandboxRefreshPending,
                         }}
                     >
                         {sandboxSetupError}
