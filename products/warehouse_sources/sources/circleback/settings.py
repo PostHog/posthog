@@ -58,6 +58,7 @@ CIRCLEBACK_ENDPOINTS: dict[str, CirclebackEndpointConfig] = {
         primary_keys=["id"],
         params={"assigneeType": "Anyone"},
         status_passes=("PENDING", "DONE"),
+        capture=False,
     ),
     "people": CirclebackEndpointConfig(
         name="people",

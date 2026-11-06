@@ -69,6 +69,8 @@ def _client_config(api_key: str, config: CirclebackEndpointConfig) -> ClientConf
         "headers": {"Accept": "application/json"},
         "auth": {"type": "bearer", "token": api_key},
         "paginator": HeaderLinkPaginator(),
+        "allowed_hosts": [],
+        "allow_redirects": False,
         "capture": config.capture,
     }
 
