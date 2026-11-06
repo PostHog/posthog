@@ -92,10 +92,10 @@ export interface schemaSceneLogicActions {
     cancelSchema: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
     }
-    deleteTable: (schema: ExternalDataSourceSchema) => {
+    deleteHistoryTable: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
     }
-    deleteHistoryTable: (schema: ExternalDataSourceSchema) => {
+    deleteTable: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
     }
     loadSchema: () => any

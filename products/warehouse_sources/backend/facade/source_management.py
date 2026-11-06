@@ -40,7 +40,6 @@ _LAZY = {
     "history_table_name": "cdc.history_table",
     "history_table_ids": "cdc.history_table",
     "is_another_schemas_history_table": "cdc.history_table",
-    "HistoryTableDropRefusedError": "cdc.history_table",
     "HISTORY_TABLE_STILL_WRITTEN_ERROR": "cdc.history_table",
     "HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR": "cdc.history_table",
     "drop_history_table": "cdc.history_table",

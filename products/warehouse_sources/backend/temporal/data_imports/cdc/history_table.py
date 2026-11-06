@@ -11,7 +11,10 @@ from django.conf import settings
 from django.db.models import Q, QuerySet
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 
+from products.warehouse_sources.backend.facade.contracts import HistoryTableDropRefusedError
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_sync_type_config_keys,
@@ -309,10 +312,6 @@ def history_table_name(schema: ExternalDataSchema) -> str | None:
     return build_table_name(schema.source, companion_resource_name(schema.name, naming))
 
 
-class HistoryTableDropRefusedError(Exception):
-    """The history table can't be dropped now. The message says why and can be shown to the user."""
-
-
 HISTORY_TABLE_STILL_WRITTEN_ERROR = (
     "This table still writes its history table. Switch it to the consolidated table only, or off change data "
     "capture, before you delete the history table."
@@ -376,11 +375,18 @@ def drop_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
         ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id, table_id=table.id).update(table=None)
         schema.table = None
 
-    # Deferred: the facade loads the data_warehouse presentation layer.
-    from products.data_warehouse.backend.facade.api import log_table_activity  # noqa: PLC0415
-
     table.soft_delete()
-    log_table_activity(table, "deleted")
+    # As the table view logs a deleted table: the name only, because a reader may be denied the table.
+    log_activity(
+        organization_id=table.team.organization_id,
+        team_id=table.team_id,
+        user=get_current_user(),
+        was_impersonated=get_was_impersonated(),
+        item_id=table.id,
+        scope="DataWarehouseTable",
+        activity="deleted",
+        detail=Detail(name=table.name),
+    )
     return table
 
 

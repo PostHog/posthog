@@ -44,7 +44,11 @@ from products.data_warehouse.backend.facade.api import (
     update_external_job_status,
 )
 from products.warehouse_sources.backend.facade.api import schema_needs_webhook, sources_missing_webhook
-from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
+from products.warehouse_sources.backend.facade.contracts import (
+    ConfigValueError,
+    HistoryTableDropRefusedError,
+    UndecryptedConfigError,
+)
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
@@ -76,7 +80,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR,
     AnySource,
     Config,
-    HistoryTableDropRefusedError,
     RowFilterValidationError,
     SourceRegistry,
     SourceSchema,

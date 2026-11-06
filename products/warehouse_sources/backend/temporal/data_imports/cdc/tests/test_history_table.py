@@ -9,6 +9,7 @@ from django.core.management import call_command
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.facade.contracts import HistoryTableDropRefusedError
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -19,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     HistoryNaming,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
-    HistoryTableDropRefusedError,
     HistoryTableNameTakenError,
     drop_history_table,
     history_naming,
