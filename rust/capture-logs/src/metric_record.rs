@@ -153,7 +153,7 @@ pub fn flatten_metric(
             for dp in hist.data_points {
                 let value = dp.sum.unwrap_or(0.0);
                 let count = dp.count as i64;
-                let (bounds, counts) = fold_trailing_infinite_bounds(
+                let (bounds, counts) = drop_trailing_infinite_bounds(
                     dp.explicit_bounds.clone(),
                     dp.bucket_counts.iter().map(|c| *c as i64).collect(),
                 );
@@ -412,26 +412,17 @@ fn hash_sorted_map(hasher: &mut SipHasher13, map: &HashMap<String, String>) {
 }
 
 /// prom-client histograms with an explicit `Infinity` bucket send `+Inf` as their last
-/// bound, which readers reject. Remote write drops the duplicate in `histogram_assembly`.
-fn fold_trailing_infinite_bounds(
+/// bound, followed by an empty overflow bucket. Readers reject the non-finite bound.
+fn drop_trailing_infinite_bounds(
     mut bounds: Vec<f64>,
     mut counts: Vec<i64>,
 ) -> (Vec<f64>, Vec<i64>) {
     if counts.len() != bounds.len() + 1 {
         return (bounds, counts);
     }
-    while let Some(&last) = bounds.last() {
-        if last.is_finite() || last == f64::NEG_INFINITY {
-            break;
-        }
-        let overflow = counts[counts.len() - 1];
-        let previous = counts.len() - 2;
-        let Some(folded) = counts[previous].checked_add(overflow) else {
-            break;
-        };
-        counts[previous] = folded;
-        counts.pop();
+    while bounds.last() == Some(&f64::INFINITY) && counts.last() == Some(&0) {
         bounds.pop();
+        counts.pop();
     }
     (bounds, counts)
 }
@@ -788,7 +779,7 @@ mod tests {
     }
 
     #[test]
-    fn test_histogram_trailing_infinite_bounds_fold_into_last_bucket() {
+    fn test_histogram_drops_trailing_empty_infinite_bound() {
         struct Case {
             name: &'static str,
             bounds: Vec<f64>,
@@ -812,11 +803,11 @@ mod tests {
                 want_counts: vec![1, 2],
             },
             Case {
-                name: "trailing NaN",
-                bounds: vec![16.0, f64::NAN],
-                counts: vec![1, 2, 3],
-                want_bounds: vec![16.0],
-                want_counts: vec![1, 5],
+                name: "count above Infinity unchanged",
+                bounds: vec![16.0, f64::INFINITY],
+                counts: vec![1, 2, 5],
+                want_bounds: vec![16.0, f64::INFINITY],
+                want_counts: vec![1, 2, 5],
             },
             Case {
                 name: "finite bounds unchanged",
