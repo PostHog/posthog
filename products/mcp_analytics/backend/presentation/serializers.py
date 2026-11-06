@@ -513,6 +513,11 @@ class MCPActivityOverviewQuerySerializer(serializers.Serializer):
         default=False,
         help_text=FILTER_TEST_ACCOUNTS_HELP_TEXT,
     )
+    refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Compute the overview again instead of serving the cached result, at most once every 5 seconds. The fresh result replaces the cached one.",
+    )
 
 
 class MCPActivityOverviewSerializer(serializers.Serializer):
