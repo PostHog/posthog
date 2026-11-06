@@ -41,7 +41,7 @@ export const SAMPLE_NEWS_EDITION: TodayNewsEdition = {
         change: -12,
         tone: 'risk',
         divePrompt: 'Why did checkout conversion fall after the address form change, and what should we fix first?',
-        metricLabel: 'Checkout conversion, last 14 days',
+        metricLabel: 'Checkout conversion',
         metricValue: '31.4%',
         series: SAMPLE_SERIES,
         seriesLabels: SAMPLE_SERIES.map((_, index) =>

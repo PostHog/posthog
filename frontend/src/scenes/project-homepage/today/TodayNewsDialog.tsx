@@ -1,15 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
-import { IconTelescope } from '@posthog/icons'
 import {
-    Badge,
     Button,
-    CardGroup,
     Dialog,
     DialogBody,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogHeader,
     DialogTitle,
     Text,
@@ -25,6 +22,7 @@ import { TodayNewsStoryRow } from './TodayNewsStoryRow'
 export function TodayNewsDialog(): JSX.Element {
     const { isNewsOpen, edition } = useValues(todayNewsLogic)
     const { closeNews, diveIn } = useActions(todayNewsLogic)
+    const popupRef = useRef<HTMLDivElement>(null)
 
     return (
         <Dialog
@@ -35,68 +33,58 @@ export function TodayNewsDialog(): JSX.Element {
                 }
             }}
         >
-            <DialogContent size="wide" data-attr="today-news-dialog">
+            <DialogContent
+                ref={popupRef}
+                initialFocus={popupRef}
+                size="wide"
+                className="sm:max-w-2xl"
+                data-attr="today-news-dialog"
+            >
                 <DialogHeader>
-                    <span className="flex items-center gap-2">
-                        <DialogTitle>This week in your project</DialogTitle>
-                        {edition.isSample ? <Badge>Sample</Badge> : null}
-                    </span>
+                    <DialogTitle className="font-medium">This week in your project</DialogTitle>
                     <DialogDescription>
-                        Changes across the whole project, including work you are not part of.
+                        {edition.isSample ? 'Sample edition. ' : ''}What changed across the whole project.
                     </DialogDescription>
                 </DialogHeader>
                 <DialogBody>
-                    <div className="@container flex flex-col gap-6">
-                        <div className="grid gap-6 @4xl:grid-cols-[3fr_2fr]">
-                            <TodayNewsLead story={edition.lead} onDiveIn={() => diveIn(edition.lead, 0)} />
-                            <CardGroup className="flex flex-col">
-                                {edition.stories.map((story, index) => (
-                                    <TodayNewsStoryRow
-                                        key={story.id}
-                                        story={story}
-                                        onDiveIn={() => diveIn(story, index + 1)}
-                                    />
-                                ))}
-                            </CardGroup>
-                        </div>
+                    <div className="flex flex-col">
+                        <TodayNewsLead story={edition.lead} onDiveIn={() => diveIn(edition.lead, 0)} />
+                        <ul className="m-0 flex list-none flex-col p-0">
+                            {edition.stories.map((story, index) => (
+                                <TodayNewsStoryRow
+                                    key={story.id}
+                                    story={story}
+                                    onDiveIn={() => diveIn(story, index + 1)}
+                                />
+                            ))}
+                        </ul>
                         {edition.briefs.length > 0 ? (
-                            <section className="flex flex-col gap-2 border-t pt-4">
-                                <Text size="xs" variant="muted" render={<h4 />} className="m-0 font-medium">
+                            <section className="flex flex-col gap-1 border-t py-3">
+                                <Text size="xs" variant="muted" render={<h4 />} className="m-0">
                                     Also this week
                                 </Text>
-                                <ul className="m-0 flex list-none flex-wrap gap-x-6 gap-y-1 p-0">
-                                    {edition.briefs.map((brief) => (
-                                        <li key={brief} className="flex items-center gap-2">
-                                            <span
-                                                aria-hidden
-                                                className="size-1 shrink-0 rounded-full bg-muted-foreground"
-                                            />
-                                            <Text size="xs" render={<span />}>
-                                                {brief}
-                                            </Text>
-                                        </li>
-                                    ))}
-                                </ul>
+                                {edition.briefs.map((brief) => (
+                                    <Text key={brief} size="sm" variant="muted" render={<p />} className="m-0">
+                                        {brief}
+                                    </Text>
+                                ))}
                             </section>
                         ) : null}
+                        <Text size="xs" variant="muted" render={<p />} className="m-0 border-t pt-3">
+                            {edition.isSample ? 'A scout will generate this news. ' : 'Generated by a scout. '}
+                            <Button
+                                variant="link-foreground"
+                                size="inline"
+                                nativeButton={false}
+                                render={<LinkPrimitive to={urls.inbox('scouts')} />}
+                                onClick={closeNews}
+                                data-attr="today-news-create-scout"
+                            >
+                                Create your own scout
+                            </Button>
+                        </Text>
                     </div>
                 </DialogBody>
-                <DialogFooter className="sm:items-center sm:justify-start">
-                    <Text size="xs" variant="muted" render={<p />} className="m-0 flex items-center gap-1.5">
-                        <IconTelescope className="size-3.5 shrink-0" />
-                        <span>{edition.isSample ? 'A scout will generate this news.' : 'Generated by a scout.'}</span>
-                        <Button
-                            variant="link"
-                            size="inline"
-                            nativeButton={false}
-                            render={<LinkPrimitive to={urls.inbox('scouts')} />}
-                            onClick={closeNews}
-                            data-attr="today-news-create-scout"
-                        >
-                            Create your own scout
-                        </Button>
-                    </Text>
-                </DialogFooter>
             </DialogContent>
         </Dialog>
     )

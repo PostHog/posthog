@@ -1,54 +1,49 @@
 import { Suspense, lazy } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
-import { Button, IconStack, IconStackItem, Skeleton, Text } from '@posthog/quill'
+import { Skeleton, Text } from '@posthog/quill'
 
 import { retryImport } from 'lib/utils/retryImport'
 
 import { TodayChange } from './TodayChange'
 import type { TodayNewsLeadStory } from './todayNewsEdition'
-import { productIcon } from './todayRowIcons'
 
 const TodaySparkline = lazy(() =>
     retryImport(() => import('./TodaySparkline').then((m) => ({ default: m.TodaySparkline })))
 )
 
 export function TodayNewsLead({ story, onDiveIn }: { story: TodayNewsLeadStory; onDiveIn: () => void }): JSX.Element {
-    const icon = productIcon(story.product)
-
     return (
-        <article className="flex flex-col gap-2">
-            <span className="flex items-center gap-2">
-                <IconStack className="TodayRow__icons">
-                    <IconStackItem color={icon.color}>{icon.glyph}</IconStackItem>
-                </IconStack>
+        <button
+            type="button"
+            onClick={onDiveIn}
+            aria-label={`Dive in: ${story.title}`}
+            className="group/story -mx-2 flex w-[calc(100%+1rem)] cursor-pointer flex-col gap-1 rounded-md px-2 pt-1 pb-3 text-start hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+            data-attr="today-news-dive-in"
+        >
+            <span className="flex items-center justify-between gap-2">
                 <Text size="xs" variant="muted" render={<span />}>
                     {story.productLabel}
                 </Text>
+                <IconArrowRight className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/story:opacity-100 group-focus-visible/story:opacity-100 motion-reduce:transition-none" />
             </span>
-            <Text render={<h3 />} className="m-0 text-xl font-semibold text-balance">
+            <Text render={<h3 />} className="m-0 text-base font-medium text-balance">
                 {story.title}
             </Text>
-            <Text size="sm" variant="muted" render={<p />} className="m-0">
+            <Text size="sm" variant="muted" render={<span />}>
                 {story.summary}
             </Text>
-            <div className="mt-1">
-                <Button variant="outline" onClick={onDiveIn} data-attr="today-news-dive-in">
-                    Dive in
-                    <IconArrowRight />
-                </Button>
-            </div>
-            <div className="mt-3 flex min-h-44 flex-1 flex-col rounded-lg border bg-card p-4">
-                <Text size="xs" variant="muted" render={<span />}>
-                    {story.metricLabel}
-                </Text>
-                <span className="flex items-baseline gap-2">
-                    <span className="text-2xl font-semibold" translate="no">
+            <span className="mt-2 flex items-center gap-4">
+                <span className="flex shrink-0 items-baseline gap-1.5">
+                    <Text size="xs" variant="muted" render={<span />}>
+                        {story.metricLabel}
+                    </Text>
+                    <Text size="sm" render={<span />} className="font-medium" translate="no">
                         {story.metricValue}
-                    </span>
+                    </Text>
                     <TodayChange change={story.change} tone={story.tone} />
                 </span>
-                <div className="mt-3 min-h-16 flex-1">
+                <span className="h-8 min-w-0 flex-1">
                     <Suspense fallback={<Skeleton className="h-full w-full" />}>
                         <TodaySparkline
                             values={story.series}
@@ -57,16 +52,8 @@ export function TodayNewsLead({ story, onDiveIn }: { story: TodayNewsLeadStory; 
                             emphasizeLast={5}
                         />
                     </Suspense>
-                </div>
-                <span className="mt-1 flex justify-between">
-                    <Text size="xs" variant="muted" render={<span />}>
-                        {story.seriesLabels[0]}
-                    </Text>
-                    <Text size="xs" variant="muted" render={<span />}>
-                        {story.seriesLabels[story.seriesLabels.length - 1]}
-                    </Text>
                 </span>
-            </div>
-        </article>
+            </span>
+        </button>
     )
 }
