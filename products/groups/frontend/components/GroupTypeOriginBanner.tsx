@@ -1,6 +1,5 @@
 import { combineUrl } from 'kea-router'
 
-import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -49,9 +48,8 @@ export function GroupTypeOriginBanner({ groupType }: GroupTypeOriginBannerProps)
                 'data-attr': 'group-type-origin-view-source-events',
             }}
         >
-            PostHog created this group type automatically
-            {groupType.created_at ? <> on {dayjs(groupType.created_at).format('MMM D, YYYY')},</> : null} when an event
-            first referenced "{groupType.group_type}". The source events show what sends them.{' '}
+            PostHog created this group type automatically when an event first referenced "{groupType.group_type}". The
+            source events show what sends them.{' '}
             <Link to="https://posthog.com/docs/product-analytics/group-analytics#how-to-create-groups">
                 Learn how groups are created
             </Link>

@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconPeople } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -85,7 +86,11 @@ export function GroupsScene(): JSX.Element {
 
             <SceneTitleSection
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
-                description={`A catalog of all ${groupTypeNamePlural} for this project`}
+                description={
+                    groupType?.created_at
+                        ? `A catalog of all ${groupTypeNamePlural} for this project. PostHog created this group type automatically on ${dayjs(groupType.created_at).format('MMM D, YYYY')}.`
+                        : `A catalog of all ${groupTypeNamePlural} for this project`
+                }
                 resourceType={groupTitle?.resourceType ?? { type: 'cohort' }}
                 actions={
                     <>
