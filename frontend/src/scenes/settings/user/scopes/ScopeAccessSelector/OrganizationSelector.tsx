@@ -1,7 +1,7 @@
 import { LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 
 import type { OrganizationSelectorProps } from './types'
-import { createOrganizationOption } from './utils'
+import { createOrganizationOption, organizationTooltip } from './utils'
 
 export const OrganizationSelector = ({
     organizations,
@@ -15,7 +15,11 @@ export const OrganizationSelector = ({
             data-attr="organizations"
             value={value?.[0]}
             onChange={(organizationId) => onChange?.(organizationId ? [organizationId] : [])}
-            options={organizations.map((org) => ({ value: org.id, label: org.name }))}
+            options={organizations.map((org) => ({
+                value: org.id,
+                label: org.name,
+                tooltip: organizationTooltip(org),
+            }))}
             loading={organizations === undefined}
             placeholder="Select an organization..."
         />
