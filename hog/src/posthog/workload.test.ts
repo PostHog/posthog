@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { WorkloadProvider } from '@/ci/providers'
+import type { WorkloadProvider } from '@/ci/providers/registry'
 import { HogError } from '@/core/errors'
 import { Telemetry } from '@/core/telemetry'
 import { fakeRuntime, type FakeRuntimeOptions } from '@/testing'
@@ -67,6 +67,18 @@ describe('workload credentials', () => {
         expect(credentials.source).toBe(source)
     })
 
+    test('a posthog.json host outside PostHog Cloud stops the job instead of getting a token', async () => {
+        const runtime = runtimeWith({ env: IN_CI, respond: () => exchanged(WORKLOAD_TOKEN) })
+
+        const error = await resolveCredentials(runtime, {
+            workloadProviders: [FAKE_PROVIDER],
+            configHost: parseHost('https://attacker.example'),
+        }).catch((e: unknown) => e)
+
+        expect((error as HogError).code).toBe('workload_host_not_allowed')
+        expect(runtime.requests).toEqual([])
+    })
+
     test('a job takes its project from posthog.json', async () => {
         const runtime = runtimeWith({ env: { ...IN_CI, HOG_PROJECT_ID: '' }, respond: () => exchanged(WORKLOAD_TOKEN) })
 
@@ -86,12 +98,6 @@ describe('workload credentials', () => {
             { host: 'https://ph.example.com' },
             'https://eu.posthog.com',
             'https://ph.example.com',
-        ],
-        [
-            'US Cloud over a posthog.json host that is no Cloud region',
-            {},
-            'https://attacker.example',
-            'https://us.posthog.com',
         ],
     ])('asks for a token for the host it sends it to: %s', async (_name, flags, configHost, expected) => {
         const runtime = runtimeWith({ env: IN_CI, respond: () => exchanged(WORKLOAD_TOKEN) })
