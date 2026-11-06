@@ -31,6 +31,7 @@ class TrialInboxReads:
         {
             "search",
             "created_after",
+            "created_before",
             "priority",
             "actionability",
             "already_addressed",
@@ -283,6 +284,11 @@ class TrialInboxReads:
             if query.get("created_after")
             else None
         )
+        created_before = (
+            serializers.DateTimeField().to_internal_value(query["created_before"])
+            if query.get("created_before")
+            else None
+        )
         priorities = [priority.upper() for priority in self._tokens(query.get("priority"))]
         actionabilities = self._tokens(query.get("actionability"))
         already_addressed = self.view._bool_query_param("already_addressed")
@@ -303,11 +309,12 @@ class TrialInboxReads:
                 continue
             if search and not any(search in str(document.get(field, "")).casefold() for field in ("title", "summary")):
                 continue
-            if (
-                created_after is not None
-                and datetime.fromisoformat(str(document["created_at"]).replace("Z", "+00:00")) < created_after
-            ):
-                continue
+            if created_after is not None or created_before is not None:
+                created_at = datetime.fromisoformat(str(document["created_at"]).replace("Z", "+00:00"))
+                if created_after is not None and created_at < created_after:
+                    continue
+                if created_before is not None and created_at >= created_before:
+                    continue
             if priorities and document.get("priority") not in priorities:
                 continue
             if actionabilities and document.get("actionability") not in actionabilities:

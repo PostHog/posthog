@@ -1929,6 +1929,7 @@ class TestSignalReportListAPI(APIBaseTest):
         [
             ("ordering", {"ordering": "-ranking_open,status"}, "ordering"),
             ("created_after", {"created_after": "last week"}, "created_after"),
+            ("created_before", {"created_before": "3 days ago"}, "created_before"),
         ]
     )
     def test_list_rejects_invalid_params_with_400(self, _name, query, attr):
@@ -1938,15 +1939,15 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == attr
 
-    def test_created_after_keeps_reports_created_since(self):
-        recent = self._create_report(title="Recent")
-        old = self._create_report(title="Old")
-        SignalReport.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=5))
+    @parameterized.expand([("created_after", "recent"), ("created_before", "old")])
+    def test_created_at_filters_split_reports_at_cutoff(self, param, expected):
+        reports = {"recent": self._create_report(title="Recent"), "old": self._create_report(title="Old")}
+        SignalReport.objects.filter(pk=reports["old"].pk).update(created_at=timezone.now() - timedelta(days=5))
         cutoff = (timezone.now() - timedelta(days=3)).isoformat()
 
-        response = self.client.get(self._list_url(created_after=cutoff, sort="newest"))
+        response = self.client.get(self._list_url(**{param: cutoff}, sort="newest"))
         assert response.status_code == status.HTTP_200_OK
-        assert [r["id"] for r in response.json()["results"]] == [str(recent.id)]
+        assert [r["id"] for r in response.json()["results"]] == [str(reports[expected].id)]
 
     @parameterized.expand(
         [

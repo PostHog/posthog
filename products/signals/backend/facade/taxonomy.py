@@ -20,8 +20,9 @@ __all__ = [
 def __getattr__(name: str) -> type["SignalRemediation"]:
     if name != "SignalRemediation":
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
     from products.signals.backend.contracts import (
-        SignalRemediation,  # noqa: PLC0415 - keep contract schemas off Django startup
+        SignalRemediation,  # noqa: PLC0415 - keeps payload schemas off Django startup
     )
 
     globals()[name] = SignalRemediation
