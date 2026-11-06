@@ -49,6 +49,41 @@ rules:
           category: maintainability
           subcategory: audit
           confidence: HIGH
+    - id: no-new-admin-workflow-hooks
+      message: |
+          Django admin stays for plain CRUD: a ModelAdmin declares fields, filters, inlines and
+          permissions, and saving writes the row and nothing else. Overriding a save or delete hook,
+          a page view or a response turns the admin page into a workflow, for example resetting a
+          status, notifying staff or starting a job. Put that workflow in a PostHog Admin console
+          operation instead; see posthog/admin/console/AGENTS.md.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [python]
+      severity: WARNING
+      patterns:
+          - pattern-inside: |
+                class $CLASS(...):
+                    ...
+          # Report the name, not the whole method, so editing a grandfathered method keeps the same finding.
+          - pattern: |
+                def $FUNC(self, ...):
+                    ...
+          - metavariable-regex:
+                metavariable: $FUNC
+                regex: ^(save_model|delete_model|save_related|save_formset|delete_queryset|add_view|change_view|changeform_view|changelist_view|delete_view|history_view|response_add|response_change|response_delete)$
+          - focus-metavariable: $FUNC
+      paths:
+          include:
+              - '**/admin.py'
+              - '**/admin/**/*.py'
+          exclude:
+              - posthog/admin/console/**
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      metadata:
+          category: maintainability
+          subcategory: audit
+          confidence: HIGH
     - id: no-new-custom-admin-templates
       message: |
           Django admin picks up a template under templates/admin/ by its path alone, so this file
