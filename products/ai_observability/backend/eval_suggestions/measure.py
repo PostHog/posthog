@@ -4,6 +4,7 @@ The sample is spread over the window by trace id hash rather than taken from the
 most recent day with traffic is held out so stage 6 can re-test each check on traces it was not picked on.
 """
 
+import json
 import math
 from collections import defaultdict
 from collections.abc import Sequence
@@ -60,29 +61,50 @@ ORDER BY cityHash64(trace_id)
 LIMIT {limit}
 """
 
-# Only the last message of each input is read: for the first call of a turn it is the user's message,
-# and the full history of a long conversation would cost far more than the checks need.
+# Only the last two messages of each input are read: the last is the user's message for the first call of a turn,
+# and the one before it is the assistant reply the user answers. Full histories cost far more than checks need.
+# Rows are deduplicated by uuid first, since ingestion can write an event twice, and one row past the cap is kept so
+# a trace with more events than the cap shows up as incomplete.
 _HYDRATE_SQL = """
 SELECT
     trace_id,
-    toString(uuid) AS event_uuid,
+    event_uuid,
     event,
     timestamp,
     distinct_id,
     properties,
-    if(startsWith(input, '['), concat('[', left(JSONExtractRaw(input, -1), {max_input}), ']'), left(input, {max_input})) AS last_input,
-    countMatches(input, '"role":[[:space:]]*"user"') AS user_messages,
-    match(input, '"role":[[:space:]]*"tool"|"type":[[:space:]]*"(tool_result|function_call_output)"') AS has_tool_results,
-    if(length(output_choices) <= {max_output}, output_choices, '') AS output_choices,
-    if(length(output) <= {max_output}, output, '') AS output,
-    length(ai_events.output_choices) > {max_output} OR length(ai_events.output) > {max_output} AS output_too_long
-FROM posthog.ai_events AS ai_events
-WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding')
-  AND trace_id IN {trace_ids}
-  AND timestamp >= {start}
-  AND timestamp < {end}
+    last_input,
+    user_messages,
+    has_tool_results,
+    output_choices,
+    output,
+    output_too_long,
+    previous_message
+FROM (
+    SELECT
+        trace_id,
+        toString(uuid) AS event_uuid,
+        event,
+        timestamp,
+        distinct_id,
+        properties,
+        if(startsWith(input, '['), concat('[', left(JSONExtractRaw(input, -1), {max_input}), ']'), left(input, {max_input})) AS last_input,
+        if(startsWith(input, '[') AND JSONLength(input) >= 2, left(JSONExtractRaw(input, -2), {max_input}), '') AS previous_message,
+        countMatches(input, '"role":[[:space:]]*"user"') AS user_messages,
+        match(input, '"role":[[:space:]]*"tool"|"type":[[:space:]]*"(tool_result|function_call_output)"') AS has_tool_results,
+        if(length(output_choices) <= {max_output}, output_choices, '') AS output_choices,
+        if(length(output) <= {max_output}, output, '') AS output,
+        length(ai_events.output_choices) > {max_output} OR length(ai_events.output) > {max_output} AS output_too_long
+    FROM posthog.ai_events AS ai_events
+    WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding')
+      AND trace_id IN {trace_ids}
+      AND timestamp >= {start}
+      AND timestamp < {end}
+    ORDER BY length(coalesce(ai_events.input, '')) + length(coalesce(ai_events.output_choices, '')) DESC
+    LIMIT 1 BY event_uuid
+)
 ORDER BY trace_id, timestamp DESC
-LIMIT {events_per_trace} BY trace_id
+LIMIT {rows_per_trace} BY trace_id
 LIMIT {max_rows}
 """
 
@@ -94,6 +116,8 @@ class SampledTrace:
     spans_days: bool
     # Normalized values of the team's segment properties, read off the trace's last generation.
     segments: dict[str, str]
+    # Every normalized value any generation sent. A trace evaluation runs when any generation matches its filter.
+    segment_values: dict[str, frozenset[str]]
     raw_segments: dict[str, str]
     final_text: str
     turn_text: str
@@ -156,8 +180,8 @@ def _hydrate(team: Team, trace_ids: Sequence[str], start: datetime, end: datetim
             "end": ast.Constant(value=end),
             "max_input": ast.Constant(value=MAX_INPUT_MESSAGE_BYTES),
             "max_output": ast.Constant(value=MAX_OUTPUT_BYTES),
-            "events_per_trace": ast.Constant(value=EVENTS_PER_TRACE),
-            "max_rows": ast.Constant(value=len(trace_ids) * EVENTS_PER_TRACE),
+            "rows_per_trace": ast.Constant(value=EVENTS_PER_TRACE + 1),
+            "max_rows": ast.Constant(value=len(trace_ids) * (EVENTS_PER_TRACE + 1)),
         },
         "EvalSuggestionsSampleHydration",
     )
@@ -167,11 +191,29 @@ def _hydrate(team: Team, trace_ids: Sequence[str], start: datetime, end: datetim
     return by_trace
 
 
+def _assistant_text(raw: str) -> str:
+    """The text of an assistant message as raw JSON, or "" for any other message."""
+    try:
+        message = json.loads(raw) if raw else None
+    except ValueError:
+        return ""
+    if not isinstance(message, dict) or message.get("role") != "assistant":
+        return ""
+    content = message.get("content")
+    if isinstance(content, list):
+        content = " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
+    return str(content or "")
+
+
 def _sampled_trace(
     trace_id: str, rows: list[tuple[Any, ...]], *, held_out: bool, spans_days: bool, segment_keys: Sequence[str]
 ) -> SampledTrace | None:
+    # A trace with more events than the cap would be graded on part of its history, which can hide a failure.
+    if len(rows) > EVENTS_PER_TRACE:
+        return None
     rows = sorted(rows, key=lambda row: row[3])
     events: list[LLMTraceEvent] = []
+    previous_replies: list[str] = []
     generations: list[tuple[LLMTraceEvent, int, bool]] = []
     final_output_too_long = False
     for (
@@ -187,6 +229,7 @@ def _sampled_trace(
         output_choices,
         output,
         output_too_long,
+        previous_message,
     ) in rows:
         merged = merge_heavy_properties(
             properties, {"input": last_input, "output_choices": output_choices, "output": output}
@@ -198,6 +241,7 @@ def _sampled_trace(
         if event == "$ai_generation":
             generations.append((trace_event, int(user_messages or 0), bool(has_tool_results)))
             final_output_too_long = bool(output_too_long)
+            previous_replies.append(_assistant_text(previous_message))
     # A final answer too long to read would leave the checks grading an earlier step as the answer.
     if not generations or final_output_too_long:
         return None
@@ -213,7 +257,17 @@ def _sampled_trace(
         for key in segment_keys
         if last_generation.properties.get(key) not in (None, "")
     }
+    segment_values: dict[str, frozenset[str]] = {
+        key: frozenset(
+            normalize_segment_value(g.properties[key])
+            for g, _, _ in generations
+            if g.properties.get(key) not in (None, "")
+        )
+        for key in segment_keys
+    }
     first = generations[0][0]
+    # The reply the user answered, so a correction reads against what the assistant said before it.
+    before = previous_replies[0][-TURN_TEXT_CHARS:]
     return SampledTrace(
         trace=LLMTrace(
             id=trace_id,
@@ -224,9 +278,11 @@ def _sampled_trace(
         held_out=held_out,
         spans_days=spans_days,
         segments={key: normalize_segment_value(value) for key, value in raw_segments.items()},
+        segment_values={key: values for key, values in segment_values.items() if values},
         raw_segments=raw_segments,
         final_text=final_text,
-        turn_text=f"User: {text(first, 'input')[-TURN_TEXT_CHARS:]}\n\nAssistant: {final_text[:TURN_TEXT_CHARS]}",
+        turn_text=(f"Assistant: {before}\n\n" if before else "")
+        + f"User: {text(first, 'input')[-TURN_TEXT_CHARS:]}\n\nAssistant: {final_text[:TURN_TEXT_CHARS]}",
         user_messages=max(user_messages for _, user_messages, _ in generations),
         has_tool_results=any(tool_results for _, _, tool_results in generations),
         input_tokens=sum(float(g.properties.get("$ai_input_tokens") or 0) for g, _, _ in generations),

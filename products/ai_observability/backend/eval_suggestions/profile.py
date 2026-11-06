@@ -31,10 +31,14 @@ MIN_SEGMENT_GENERATIONS = 50
 # then scale counts back. Shares need no scaling. The largest teams send tens of millions a week.
 PROFILE_SAMPLE_GENERATIONS = 200_000
 # The sample keeps whole traces. `$ai_trace_id` is materialized, so the filter runs before any JSON is parsed.
-NUMERIC_SUFFIX = re.compile(r"[-_ .#]?\d+$")
+# Shared by Python and the segments query, ASCII digits only, so both count the same normalized values.
+NUMERIC_SUFFIX_PATTERN = "[-_ .#]?[0-9]+$"
+NUMERIC_SUFFIX = re.compile(NUMERIC_SUFFIX_PATTERN)
 
 # Structured-output gaps: a field value one segment uses far more than its siblings.
 MIN_GAP_ITEMS = 30
+# Each side needs this many traces, so one long response cannot carry a gap alone.
+MIN_GAP_TRACES = 5
 MIN_GAP_RATIO = 3.0
 # A value joins the tested set when the segment uses it this much more; the set as a whole must reach MIN_GAP_RATIO.
 MIN_VALUE_RATIO = 1.5
@@ -68,6 +72,8 @@ class ProfileWindow:
 class TeamProfile:
     generations: int
     traces: int
+    # Distinct conversations, which a session judge runs once each.
+    sessions: int
     # Keyed by whole days before the window end, so bucket 0 is the last 24 hours.
     generations_by_days_ago: dict[int, int]
     traces_by_days_ago: dict[int, int]
@@ -87,6 +93,7 @@ class TeamProfile:
         return cls(
             generations=0,
             traces=0,
+            sessions=0,
             generations_by_days_ago={},
             traces_by_days_ago={},
             tool_call_share=0.0,
@@ -101,9 +108,9 @@ class TeamProfile:
         )
 
 
-# Reads only sort-key columns, so it costs little even on the largest teams.
+# Reads only sort-key and materialized columns, so it costs little even on the largest teams.
 _COUNT_SQL = """
-SELECT count()
+SELECT count(), uniqIf(toString(properties.$ai_session_id), notEmpty(toString(properties.$ai_session_id)))
 FROM events
 WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}
 """
@@ -168,7 +175,7 @@ FROM (
             SELECT
                 arrayJoin(JSONExtractKeysAndValues(properties, 'String')) AS kv,
                 tupleElement(kv, 1) AS key,
-                replaceRegexpAll(tupleElement(kv, 2), '[-_ .#]?[0-9]+$', '') AS value
+                replaceRegexpAll(tupleElement(kv, 2), {numeric_suffix}, '') AS value
             FROM events
             WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}
               AND cityHash64(toString(properties.$ai_trace_id)) % 1000 < {per_mille}
@@ -217,6 +224,7 @@ def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
     }
     count_rows = run_query(team, _COUNT_SQL, placeholders, "EvalSuggestionsProfileCount")
     generations = int(count_rows[0][0]) if count_rows else 0
+    sessions = int(count_rows[0][1]) if count_rows else 0
     if generations == 0:
         return TeamProfile.empty()
     per_mille = sample_per_mille(generations)
@@ -241,7 +249,11 @@ def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
         for key, value, count in run_query(
             team,
             _SEGMENTS_SQL,
-            {**sampled, "max_values": ast.Constant(value=MAX_SEGMENT_VALUES)},
+            {
+                **sampled,
+                "max_values": ast.Constant(value=MAX_SEGMENT_VALUES),
+                "numeric_suffix": ast.Constant(value=NUMERIC_SUFFIX_PATTERN),
+            },
             "EvalSuggestionsProfileSegments",
         )
     ]
@@ -251,6 +263,7 @@ def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
 
     return TeamProfile(
         generations=generations,
+        sessions=sessions,
         traces=round(sum(int(row[2]) for row in daily) * scale),
         generations_by_days_ago={int(row[0]): round(int(row[1]) * scale) for row in daily},
         traces_by_days_ago={int(row[0]): round(int(row[2]) * scale) for row in daily},
@@ -369,13 +382,16 @@ class SegmentRates:
     inside_total: int
     outside: int
     outside_total: int
+    # Traces that hold any item on each side. Items of one response are not independent observations.
+    inside_traces: int = 0
+    outside_traces: int = 0
 
 
 def _rates(
     outputs: Sequence[StructuredOutput], field: str, segment_key: str, segment_value: str, values: Sequence[str]
 ) -> SegmentRates:
     """Matching and total items inside the segment, and in its sibling segments."""
-    inside = inside_total = outside = outside_total = 0
+    inside = inside_total = outside = outside_total = inside_traces = outside_traces = 0
     for output in outputs:
         segment = output.segments.get(segment_key)
         if segment is None:
@@ -384,9 +400,18 @@ def _rates(
         matching = sum(1 for item in items if item in values)
         if segment == segment_value:
             inside, inside_total = inside + matching, inside_total + len(items)
+            inside_traces += bool(items)
         else:
             outside, outside_total = outside + matching, outside_total + len(items)
-    return SegmentRates(inside=inside, inside_total=inside_total, outside=outside, outside_total=outside_total)
+            outside_traces += bool(items)
+    return SegmentRates(
+        inside=inside,
+        inside_total=inside_total,
+        outside=outside,
+        outside_total=outside_total,
+        inside_traces=inside_traces,
+        outside_traces=outside_traces,
+    )
 
 
 def _over_represented(
@@ -428,6 +453,8 @@ def find_structured_gaps(outputs: Sequence[StructuredOutput]) -> list[Structured
                     continue
                 rates = _rates(outputs, field, segment_key, segment_value, flagged)
                 if rates.inside_total < MIN_GAP_ITEMS or rates.outside_total < MIN_GAP_ITEMS:
+                    continue
+                if rates.inside_traces < MIN_GAP_TRACES or rates.outside_traces < MIN_GAP_TRACES:
                     continue
                 inside_rate, outside_rate = rates.inside / rates.inside_total, rates.outside / rates.outside_total
                 if (
