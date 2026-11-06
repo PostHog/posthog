@@ -28,7 +28,8 @@ async function tableHasOwnRulesYouCanCopy(projectId: number | string, tableId: s
         )
         return response.user_can_edit_access_levels && response.access_controls.length > 0
     } catch {
-        return false
+        // Unknown, so ask: skipping the question would leave the history table on its source's rules.
+        return true
     }
 }
 
@@ -37,7 +38,7 @@ async function historyTableYouCannotManage(projectId: number | string, tableId: 
         const { history_table } = await warehouseTablesHistoryTableRetrieve(String(projectId), tableId)
         return !!history_table && !history_table.user_can_manage_access
     } catch {
-        return true
+        return false
     }
 }
 

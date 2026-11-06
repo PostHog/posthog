@@ -111,6 +111,20 @@ def copy_access_rules(user: User, table: DataWarehouseTable, history_table: Data
         )
 
 
+def copy_access_rules_now(user: User, table: DataWarehouseTable, history_table: DataWarehouseTable) -> None:
+    """Copy the rules on request, and end a request that waits for a registration.
+
+    A waiting request left behind would copy again at the next registration and overwrite rules edited since.
+    """
+    schema = ExternalDataSchema.objects.filter(team_id=table.team_id, table_id=table.id, deleted=False).first()
+    with transaction.atomic():
+        if schema is not None:
+            lock_schema_for_history_registration(schema.id, schema.team_id)
+        copy_access_rules(user, table, history_table)
+        if schema is not None:
+            update_sync_type_config_keys(schema.id, schema.team_id, removes=[PENDING_COPY_KEY])
+
+
 def check_access_rules_copy(schema: ExternalDataSchema, user: User) -> None:
     """Raise when the copy would be refused, before the schema change saves.
 
@@ -154,6 +168,22 @@ def request_access_rules_copy(schema: ExternalDataSchema, user: User) -> None:
         schema.sync_type_config = update_sync_type_config_keys(
             schema.id, schema.team_id, updates={PENDING_COPY_KEY: {"table_id": str(table.id), "user_id": user.id}}
         )
+
+
+def stage_access_rules_copy(schema: ExternalDataSchema, user: User | None, *, keeps_history: bool) -> None:
+    """Set or clear the waiting copy on the schema's unsaved `sync_type_config`.
+
+    The schema update saves it together with the mode change, before it starts any sync, so a registration
+    that sync runs finds the request. With a user the copy is requested; without one, a request made before
+    history was off or before the user declined is withdrawn.
+    """
+    config = schema.sync_type_config if schema.sync_type_config is not None else {}
+    schema.sync_type_config = config
+    table = schema.table
+    if user is not None and keeps_history and table is not None and not table.is_history_table:
+        config[PENDING_COPY_KEY] = {"table_id": str(table.id), "user_id": user.id}
+    elif user is None:
+        config.pop(PENDING_COPY_KEY, None)
 
 
 def lock_schema_for_history_registration(schema_id: UUID, team_id: int) -> None:

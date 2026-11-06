@@ -974,11 +974,11 @@ def copy_access_rules_to_history_table(
     """
     from posthog.models import User
 
-    from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import copy_access_rules
+    from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import copy_access_rules_now
 
     table = _live_table(team_id, table_id)
     history_table = _registered_history_table(table)
     if table is None or history_table is None:
         raise contracts.NoHistoryTableError("This table has no history table.")
-    copy_access_rules(User.objects.get(id=user_id), table, history_table)
+    copy_access_rules_now(User.objects.get(id=user_id), table, history_table)
     return _history_table_ref(history_table, user_access_control)

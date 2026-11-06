@@ -71,6 +71,16 @@ describe('confirmHistoryAccessRules', () => {
         expect(save.mock.calls).toEqual([[false]])
     })
 
+    it('asks when the lookups fail, rather than leaving the history table on its source rules', async () => {
+        jest.spyOn(api, 'get').mockRejectedValue(new Error('down'))
+        dwApi.warehouseTablesHistoryTableRetrieve.mockRejectedValue(new Error('down'))
+
+        await confirmHistoryAccessRules(1, 'table-1', save, cancel)
+
+        expect(dialog).toHaveBeenCalledTimes(1)
+        expect(save).not.toHaveBeenCalled()
+    })
+
     it.each<[string, ExternalDataSourceSchema['sync_type'], Mode, Mode, boolean]>([
         ['consolidated to both', 'cdc', 'consolidated', 'both', true],
         ['consolidated to cdc_only', 'cdc', 'consolidated', 'cdc_only', true],

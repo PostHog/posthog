@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.history_access_rul
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
 FACADE = "products.access_control.backend.facade.api"
+SCHEMA_VIEWS = "products.warehouse_sources.backend.presentation.views.external_data_schema"
 STAMPED = {"history_table": True, "history_naming": "ph_validity"}
 
 
@@ -273,3 +274,35 @@ class TestHistoryAccessRules(WarehouseAccessControlTestMixin):
         assert response.status_code == expected_status, response.json()
         if history is not None:
             assert self._rules(history) == (self._rules(self.table) if case == "can_manage_access" else set())
+
+    def test_a_sync_the_update_starts_finds_the_copy_request(self) -> None:
+        self.schema.sync_type_config = {"cdc_table_mode": "consolidated"}
+        self.schema.save()
+        self.client.force_login(self.user)
+        pending_when_sync_started: list[object] = []
+
+        def record_pending(_schema: ExternalDataSchema) -> None:
+            pending_when_sync_started.append(self._pending())
+
+        with patch(f"{SCHEMA_VIEWS}._reset_cdc_for_full_resnapshot", side_effect=record_pending):
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/external_data_schemas/{self.schema.id}/",
+                {"cdc_table_mode": "both", "copy_access_rules_to_history": True},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert pending_when_sync_started == [{"table_id": str(self.table.id), "user_id": self.user.id}]
+
+    def test_the_copy_endpoint_ends_a_waiting_request(self) -> None:
+        request_access_rules_copy(self.schema, self.user)
+        history = self._table("orders_history", STAMPED)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/warehouse_tables/{self.table.id}/copy_access_rules_to_history_table/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._rules(history) == self._rules(self.table)
+        assert self._pending() is None

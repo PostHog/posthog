@@ -89,7 +89,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     ambiguous_masked_columns,
     check_access_rules_copy,
     collision_alias_masked_columns,
-    drop_pending_access_rules_copy,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     fold_column_name,
     get_cdc_adapter,
@@ -111,6 +110,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     reserved_column_names,
     resnapshot_stays_in_buffer,
     source_type_supports_cdc,
+    stage_access_rules_copy,
     stage_handed_over_reset,
     tables_wait_for_repair,
     validate_and_coerce_row_filters,
@@ -2028,6 +2028,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             instance.sync_type_config.update({"reset_pipeline": True})
             validated_data["sync_type_config"].update({"reset_pipeline": True})
 
+        resulting_keeps_history = ExternalDataSchema(
+            sync_type=validated_data.get("sync_type", instance.sync_type), sync_type_config=instance.sync_type_config
+        ).keeps_history
+        if copy_access_rules_to_history and request is not None:
+            stage_access_rules_copy(instance, cast(User, request.user), keeps_history=resulting_keeps_history)
+        elif not resulting_keeps_history or history_mode_before is None:
+            # An editor who keeps history on can't withdraw an admin's request; turning history off or turning it
+            # on again without the copy does.
+            stage_access_rules_copy(instance, None, keeps_history=resulting_keeps_history)
+
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(
@@ -2177,14 +2187,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 request.user, updated_instance, history_mode_before=history_mode_before, request=request
             )
         if copy_access_rules_to_history and request is not None:
+            # A history table that is already registered gets the rules now; otherwise its registration does.
             try:
                 request_access_rules_copy(updated_instance, cast(User, request.user))
             except InvalidObjectAccessControlError as e:
                 raise ValidationError({"copy_access_rules_to_history": str(e)})
-        elif not updated_instance.keeps_history:
-            # No history table gets registered, and turning history on again asks again. Any other edit keeps
-            # the request, so an editor who can't manage access can't cancel it.
-            drop_pending_access_rules_copy(updated_instance)
 
         return updated_instance
 
