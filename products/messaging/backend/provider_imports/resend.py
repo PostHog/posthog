@@ -14,7 +14,11 @@ from django.utils.dateparse import parse_datetime
 
 from posthog.helpers.email_utils import email_domain
 
-from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
+from products.messaging.backend.models.message_preferences import (
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    MessageRecipientPreference,
+    PreferenceStatus,
+)
 from products.messaging.backend.models.message_suppression import SuppressionSource
 from products.messaging.backend.models.provider_import_run import ImportProviderKey
 from products.messaging.backend.provider_imports.base import (
@@ -70,6 +74,7 @@ class ResendImportProvider(ImportProvider):
     key = ImportProviderKey.RESEND.value
     label = ImportProviderKey.RESEND.label
     retains_credentials = False
+    resumes_after_failure = True
     feature_flag = "workflows-resend-import"
     api_key_label = "Resend API key"
     api_key_help = (
@@ -302,12 +307,12 @@ def _fetch_topic_opt_outs(
         yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
         return
     for page in client.pages("/contacts", _after(checkpoint)):
+        opted_out_of_all = _emails_opted_out_of_all(context.team_id, page.data)
         topics_by_email: dict[str, list[dict[str, Any]]] = {}
         for contact in page.data:
             email = _contact_email(contact.get("email"))
             contact_id = contact.get("id")
-            # Everyone unsubscribed is already out of every topic through the global opt-out.
-            if email and contact_id and contact.get("unsubscribed") is not True:
+            if email and contact_id and email not in opted_out_of_all:
                 topics_by_email[email] = [
                     topic
                     for topics in client.pages(f"/contacts/{contact_id}/topics")
@@ -319,6 +324,23 @@ def _fetch_topic_opt_outs(
             save=partial(_save_topic_opt_outs, context, topics_by_email, len(page.data)),
             checkpoint=_next_checkpoint(page.next_after),
         )
+
+
+def _emails_opted_out_of_all(team_id: int, contacts: list[dict[str, Any]]) -> set[str]:
+    """Who already left every topic, so their topic choices aren't worth a request. Reads what PostHog stored, because
+    the step that stores it may not have run."""
+    unsubscribed = [
+        email
+        for contact in contacts
+        if contact.get("unsubscribed") is True and (email := _contact_email(contact.get("email")))
+    ]
+    return {
+        identifier
+        for identifier, preferences in MessageRecipientPreference.objects.filter(
+            team_id=team_id, identifier__in=unsubscribed
+        ).values_list("identifier", "preferences")
+        if (preferences or {}).get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT.value
+    }
 
 
 def _save_topic_opt_outs(
