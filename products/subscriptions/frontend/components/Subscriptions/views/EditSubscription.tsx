@@ -41,6 +41,7 @@ import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTy
 import type { SubscriptionDeliveryApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from '../AiPromptFields'
+import { InsightCriteriaField } from '../InsightCriteriaField'
 import { InsightSelector } from '../InsightSelector'
 import { getNextDeliveryDate } from '../nextDeliveryDate'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
@@ -440,6 +441,8 @@ export function EditSubscription({
                                 onDefaultsApplied={applyDefaultSelectedInsights}
                             />
                         )}
+
+                        {dashboard?.tiles && !isAiPrompt && <InsightCriteriaField />}
 
                         {aiGate.showConsentHint && (
                             <LemonBanner type="info" className="text-sm">
