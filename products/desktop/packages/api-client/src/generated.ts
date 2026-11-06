@@ -15987,6 +15987,7 @@ export namespace Schemas {
         translations: unknown;
         _create_in_folder: string;
         form_content: unknown;
+        display_warning: string | null;
     }>;
     /**
      * * `not_started` - not_started
@@ -17215,6 +17216,10 @@ export namespace Schemas {
          * How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
          */
         search_match_type: SearchMatchTypeEnum | NullEnum;
+        /**
+         * Set when posthog-js won't show this survey on its own, because surveys are off in every environment of the project. Null when the survey can display.
+         */
+        display_warning: string | null;
     };
     /**
      * * `next_question` - next_question
@@ -17479,6 +17484,10 @@ export namespace Schemas {
         translations?: unknown | undefined;
         _create_in_folder?: string | undefined;
         form_content?: unknown | undefined;
+        /**
+         * Set when posthog-js won't show this survey on its own, because surveys are off in every environment of the project. Null when the survey can display.
+         */
+        display_warning: string | null;
     };
     export type SurveySerializerCreateUpdateOnlySchema = {
         id: string;
@@ -17532,6 +17541,10 @@ export namespace Schemas {
         translations?: unknown | undefined;
         _create_in_folder?: string | undefined;
         form_content?: unknown | undefined;
+        /**
+         * Set when posthog-js won't show this survey on its own, because surveys are off in every environment of the project. Null when the survey can display.
+         */
+        display_warning: string | null;
     };
     export type SurveyStatsResponse = {
         /**
