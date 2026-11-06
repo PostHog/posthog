@@ -33,7 +33,12 @@ import {
 } from './email-attachments.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailSkipReason, EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
+import {
+    EmailSkipReason,
+    EmailStatusReason,
+    EmailStatusService,
+    isTransactionalEmailSend,
+} from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
