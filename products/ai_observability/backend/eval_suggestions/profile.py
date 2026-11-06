@@ -27,8 +27,10 @@ MAX_SEGMENT_VALUES = 20
 # Absolute rather than a share of traffic: a property one AI feature sends, such as its review stage,
 # segments that feature even when other features send most of the team's generations.
 MIN_SEGMENT_GENERATIONS = 50
-# Segments are counted on a hash sample of about this many generations, then scaled back.
-SEGMENT_SAMPLE_GENERATIONS = 100_000
+# Aggregates that parse `properties` read whole traces from a hash sample of about this many generations,
+# then scale counts back. Shares need no scaling. The largest teams send tens of millions a week.
+PROFILE_SAMPLE_GENERATIONS = 200_000
+# The sample keeps whole traces. `$ai_trace_id` is materialized, so the filter runs before any JSON is parsed.
 NUMERIC_SUFFIX = re.compile(r"[-_ .#]?\d+$")
 
 # Structured-output gaps: a field value one segment uses far more than its siblings.
@@ -80,6 +82,31 @@ class TeamProfile:
     # Custom property -> normalized value -> generations, for properties that read as segments.
     segments: dict[str, dict[str, int]]
 
+    @classmethod
+    def empty(cls) -> "TeamProfile":
+        return cls(
+            generations=0,
+            traces=0,
+            generations_by_days_ago={},
+            traces_by_days_ago={},
+            tool_call_share=0.0,
+            tool_counts={},
+            dispatcher_tools=(),
+            session_share=0.0,
+            error_share=0.0,
+            mean_input_tokens=None,
+            models=(),
+            error_prefixes=(),
+            segments={},
+        )
+
+
+# Reads only sort-key columns, so it costs little even on the largest teams.
+_COUNT_SQL = """
+SELECT count()
+FROM events
+WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}
+"""
 
 _DAILY_SQL = """
 SELECT
@@ -93,7 +120,10 @@ SELECT
     countIf(isNotNull(toFloat(properties.$ai_input_tokens))) AS with_input_tokens,
     topK(3)(toString(properties.$ai_model)) AS models
 FROM events
-WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}
+WHERE event = '$ai_generation'
+  AND timestamp >= {start}
+  AND timestamp < {end}
+  AND cityHash64(toString(properties.$ai_trace_id)) % 1000 < {per_mille}
 GROUP BY days_ago
 """
 
@@ -105,6 +135,7 @@ FROM (
     WHERE event = '$ai_generation'
       AND timestamp >= {start}
       AND timestamp < {end}
+      AND cityHash64(toString(properties.$ai_trace_id)) % 1000 < {per_mille}
       AND notEmpty(toString(properties.$ai_tools_called))
 )
 GROUP BY tool
@@ -140,7 +171,7 @@ FROM (
                 replaceRegexpAll(tupleElement(kv, 2), '[-_ .#]?[0-9]+$', '') AS value
             FROM events
             WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}
-              AND cityHash64(toString(uuid)) % 1000 < {per_mille}
+              AND cityHash64(toString(properties.$ai_trace_id)) % 1000 < {per_mille}
         )
         WHERE NOT startsWith(key, '$') AND notEmpty(value) AND length(value) <= 64
         GROUP BY key, value
@@ -162,10 +193,10 @@ def dispatcher_tools(tool_counts: Mapping[str, int]) -> tuple[str, ...]:
     return tuple(tool for tool, calls in tool_counts.items() if total and calls / total > DISPATCHER_SHARE)
 
 
-def segment_sample_per_mille(generations: int) -> int:
-    if generations <= SEGMENT_SAMPLE_GENERATIONS:
+def sample_per_mille(generations: int) -> int:
+    if generations <= PROFILE_SAMPLE_GENERATIONS:
         return 1000
-    return max(1, math.ceil(1000 * SEGMENT_SAMPLE_GENERATIONS / generations))
+    return max(1, math.ceil(1000 * PROFILE_SAMPLE_GENERATIONS / generations))
 
 
 def segments_from_rows(rows: Iterable[tuple[Any, ...]]) -> dict[str, dict[str, int]]:
@@ -184,39 +215,45 @@ def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
         "start": ast.Constant(value=window.start),
         "end": ast.Constant(value=window.end),
     }
-    daily = run_query(team, _DAILY_SQL, placeholders, "EvalSuggestionsProfileDaily")
-    generations = sum(int(row[1]) for row in daily)
+    count_rows = run_query(team, _COUNT_SQL, placeholders, "EvalSuggestionsProfileCount")
+    generations = int(count_rows[0][0]) if count_rows else 0
+    if generations == 0:
+        return TeamProfile.empty()
+    per_mille = sample_per_mille(generations)
+    scale = 1000 / per_mille
+    sampled = {
+        **placeholders,
+        "per_mille": ast.Constant(value=per_mille),
+    }
+    daily = run_query(team, _DAILY_SQL, sampled, "EvalSuggestionsProfileDaily")
+    sampled_generations = sum(int(row[1]) for row in daily)
     with_tokens = sum(int(row[7]) for row in daily)
     models = Counter(model for row in daily for model in row[8] if model)
     tool_counts = {
-        tool.strip(): int(calls)
-        for tool, calls in run_query(team, _TOOLS_SQL, placeholders, "EvalSuggestionsProfileTools")
+        tool.strip(): round(int(calls) * scale)
+        for tool, calls in run_query(team, _TOOLS_SQL, sampled, "EvalSuggestionsProfileTools")
         if tool and tool.strip()
     }
+    # Errors are rare and filter on a materialized column, so they are counted on every row.
     error_rows = run_query(team, _ERRORS_SQL, placeholders, "EvalSuggestionsProfileErrors")
-    per_mille = segment_sample_per_mille(generations)
     segment_rows = [
-        (key, value, round(count * 1000 / per_mille))
+        (key, value, round(count * scale))
         for key, value, count in run_query(
             team,
             _SEGMENTS_SQL,
-            {
-                **placeholders,
-                "per_mille": ast.Constant(value=per_mille),
-                "max_values": ast.Constant(value=MAX_SEGMENT_VALUES),
-            },
+            {**sampled, "max_values": ast.Constant(value=MAX_SEGMENT_VALUES)},
             "EvalSuggestionsProfileSegments",
         )
     ]
 
     def share(column: int) -> float:
-        return sum(int(row[column]) for row in daily) / generations if generations else 0.0
+        return sum(int(row[column]) for row in daily) / sampled_generations if sampled_generations else 0.0
 
     return TeamProfile(
         generations=generations,
-        traces=sum(int(row[2]) for row in daily),
-        generations_by_days_ago={int(row[0]): int(row[1]) for row in daily},
-        traces_by_days_ago={int(row[0]): int(row[2]) for row in daily},
+        traces=round(sum(int(row[2]) for row in daily) * scale),
+        generations_by_days_ago={int(row[0]): round(int(row[1]) * scale) for row in daily},
+        traces_by_days_ago={int(row[0]): round(int(row[2]) * scale) for row in daily},
         tool_call_share=share(3),
         tool_counts=tool_counts,
         dispatcher_tools=dispatcher_tools(tool_counts),

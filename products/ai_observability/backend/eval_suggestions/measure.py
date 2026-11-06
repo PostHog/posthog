@@ -35,8 +35,9 @@ MAIN_SAMPLE_TRACES = 250
 HELD_OUT_SAMPLE_TRACES = 150
 # Discovery groups only a slice of the window's traces, sized so the hash order still has room to choose.
 DISCOVERY_OVERSAMPLE = 20
-# Degenerate traces (a shared or runaway trace id) say nothing about a check and cost the most to read.
-MAX_TRACE_GENERATIONS = 500
+# Degenerate traces (a shared or runaway trace id) say nothing about a check and cost the most to read:
+# hydration reads every generation's full input, often over 100 KB. Over 99.9% of traces have fewer.
+MAX_TRACE_GENERATIONS = 100
 EVENTS_PER_TRACE = 40
 MAX_OUTPUT_BYTES = 16384
 MAX_INPUT_MESSAGE_BYTES = 8192
