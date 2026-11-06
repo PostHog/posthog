@@ -28,11 +28,13 @@ async function finish(ctx: Context, approved: OAuthLogin): Promise<AddResult> {
     }
 }
 
-function keyCantStepUp(scopes: readonly string[]): HogError {
+// hog adds scopes by asking for a new browser approval, which only works for `hog auth login`. A personal
+// API key's scopes are set in PostHog, so hog can't change them.
+function personalKeyCantGainScopes(scopes: readonly string[]): HogError {
     return new HogError(
         'step_up_unavailable',
-        'hog can only add scopes to a login. A personal API key keeps the scopes it has in PostHog.',
-        `Add ${scopes.join(', ')} to the key in PostHog under Settings, Personal API keys. Or run \`hog auth login\` to log in with the browser instead.`
+        "You're using a personal API key, and hog can't add scopes to it. You choose a key's scopes in PostHog.",
+        `Add ${scopes.join(', ')} to the key in PostHog under Settings, Personal API keys. Or run \`hog auth login\` to log in with the browser, and hog can then add scopes for you.`
     )
 }
 
@@ -50,9 +52,9 @@ export default defineCommand({
         },
     },
     notes: [
-        'hog asks for the scopes your login has plus the new ones. The approval page keeps the new ones ticked, and you can remove any of the others.',
+        'hog asks for the scopes you already have plus the new ones. The approval page keeps the new ones ticked, and you can remove any of the others.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth add --wait`.',
-        'A personal API key keeps the scopes it has in PostHog. Add scopes to it under Settings, Personal API keys.',
+        "hog can't add scopes to a personal API key. Add them to the key in PostHog under Settings, Personal API keys.",
     ].join('\n'),
     examples: ['hog auth add insight:write', 'hog auth add insight:write dashboard:write', 'hog auth add --wait'],
 
@@ -84,7 +86,7 @@ export default defineCommand({
         const { key } = credentials
         const { kind, scopes: held } = key.status()
         if (credentials.source !== 'store' || kind !== 'oauth' || held === null) {
-            throw keyCantStepUp(wanted)
+            throw personalKeyCantGainScopes(wanted)
         }
         const added = scopesNotCovered(held, wanted)
         if (added.length === 0) {
@@ -124,7 +126,7 @@ export default defineCommand({
                 if (result.previousProjectId) {
                     out.line(
                         out.style(
-                            `The login now works in project ${result.projectId} instead of ${result.previousProjectId}.`,
+                            `You're now logged in to project ${result.projectId} instead of ${result.previousProjectId}.`,
                             'yellow'
                         )
                     )
@@ -132,7 +134,7 @@ export default defineCommand({
                 if (result.replacedRevoked === false) {
                     out.line(
                         out.style(
-                            "PostHog didn't revoke the login this one replaced. It stops working when it expires, or remove it under Settings, Connected apps.",
+                            "PostHog didn't revoke your previous login. It stops working when it expires, or you can remove it in PostHog under Settings, Connected apps.",
                             'yellow'
                         )
                     )

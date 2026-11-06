@@ -46,6 +46,9 @@ export function loginWait(runtime: Runtime, command = LOGIN_COMMAND): ApprovalWa
         command,
         noun: 'login',
         pending: PendingLoginSchema,
+        // `hog auth add` with no scopes is a usage error, so starting over has to name them.
+        restart: (pending) =>
+            pending.requiredScopes.length > 0 ? `${command} ${pending.requiredScopes.join(' ')}` : command,
         poll: (pending, timeoutMs) => pollDeviceLogin(runtime, pending, timeoutMs, command),
     }
 }
