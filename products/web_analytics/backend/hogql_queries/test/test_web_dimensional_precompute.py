@@ -140,6 +140,31 @@ class TestWebDimensionalPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert jobs_after_second == jobs_after_first
         assert set(second.job_ids) == set(first.job_ids)
 
+    @parameterized.expand(
+        [
+            ("bounce_duration", {"bounceRateDurationSeconds": 30}),
+            ("bounce_page_view_mode", {"bounceRatePageViewMode": "uniq_urls"}),
+            ("sessions_join_mode", {"sessionsV2JoinMode": "string"}),
+            # Never the team default, so the change is real in every persons-on-events CI mode.
+            ("persons_on_events_mode", {"personsOnEventsMode": "disabled"}),
+            ("materialization_mode", {"materializationMode": "legacy_null_as_string"}),
+        ]
+    )
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_a_team_settings_change_misses_the_existing_jobs(self, _name: str, team_modifiers: dict):
+        self._seed_two_sessions()
+        built = ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        assert built.ready
+
+        self.team.modifiers = team_modifiers
+        self.team.save()
+        after_change = ensure_web_bounces_dimensional_precomputed(
+            self.team, WINDOW_START, WINDOW_END, run_inserts=False
+        )
+
+        assert not after_change.ready
+        assert after_change.job_ids == []
+
     @parameterized.expand([("UTC",), ("Pacific/Honolulu",), ("Asia/Tokyo",)])
     def test_current_utc_day_refreshes_hourly_in_any_team_timezone(self, timezone: str):
         # 16:00 UTC is after local midnight in both non-UTC zones, so team-timezone TTL bands would
@@ -297,7 +322,7 @@ class TestColdBackfillSplitsByTtlBandNotPerDay(unittest.TestCase):
         # DIMENSIONAL_TTL_SECONDS has 3 entries (0d / 2d / default) -> 3 INSERTs,
         # oldest first. NOT 90.
         ttls = [ttl for _s, _e, ttl in bands]
-        assert ttls == [90 * 86400, 86400, 3600]
+        assert ttls == [90 * 86400, 86400, 45 * 60]
 
         # The bulk of history is ONE query covering many days, not one-per-day.
         oldest_start, oldest_end, _ = bands[0]

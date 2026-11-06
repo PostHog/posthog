@@ -210,7 +210,6 @@ response to user input, such as a malformed CSV, so it is not reported as an exc
 Every other failure on these actions still toasts and reports.
 */
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
-    createTable: 'products.dataWarehouse.selfManagedSourceLogic',
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
     setEnabled: 'scenes.subscriptions.subscriptionSceneLogic', // Toasts the refusal, or offers to take ownership
 }
