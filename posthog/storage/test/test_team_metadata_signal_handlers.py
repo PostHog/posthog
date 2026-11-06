@@ -135,18 +135,17 @@ class TestRetiredTokenTeamMetadataClear(BaseTest):
         assert team_metadata_hypercache.cache_client.get(cache_key) is None
         assert object_storage.read(cache_key, missing_ok=True) is None
 
+    @patch("posthog.tasks.team_metadata.clear_team_metadata_cache_for_token_task.delay")
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
-    def test_rolled_back_token_reset_keeps_the_live_entry(self, _mock_push_vercel: Mock) -> None:
-        update_team_metadata_cache(self.team)
-        cache_key = team_metadata_hypercache.get_cache_key(self.team.api_token)
-
+    def test_rolled_back_token_reset_does_not_enqueue_the_clear(
+        self, _mock_push_vercel: Mock, mock_clear: Mock
+    ) -> None:
         with self.captureOnCommitCallbacks(execute=True), self.assertRaises(RuntimeError):
             with transaction.atomic():
                 self.team.reset_token_and_save(user=self.user, is_impersonated_session=False)
                 raise RuntimeError("roll back the reset")
 
-        assert team_metadata_hypercache.cache_client.get(cache_key) is not None
-        assert object_storage.read(cache_key, missing_ok=True) is not None
+        mock_clear.assert_not_called()
 
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
