@@ -879,6 +879,8 @@ def stored_property_rule_floor(*, user: User, team_id: int) -> PropertyAccessLev
 
     The property-rule counterpart of ``UserAccessControl.stored_rule_floor``, with the same
     candidates per property: the user's member rows, else their role rows and the default rows.
+    Rows match as ``_resolve_access_level`` matches them: a row naming the user's membership is
+    a member row whatever its role, and a row naming one of the user's roles is a role row.
     It holds whether or not the organization is entitled to property access control or roles.
     ``None`` means no stored rule applies. This includes org admins, who bypass property rules.
     """
@@ -894,16 +896,14 @@ def stored_property_rule_floor(*, user: User, team_id: int) -> PropertyAccessLev
         .values_list("role_id", flat=True)
     )
     rows = PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).filter(
-        Q(organization_member=None, role=None)
-        | Q(organization_member_id=membership.id, role=None)
-        | Q(organization_member=None, role_id__in=role_ids)
+        Q(organization_member=None, role=None) | Q(organization_member_id=membership.id) | Q(role_id__in=role_ids)
     )
     rows_by_property: dict[UUID | None, list[PropertyAccessControl]] = {}
     for row in rows:
         rows_by_property.setdefault(row.property_definition_id, []).append(row)
     lowest: PropertyAccessLevel | None = None
     for property_rows in rows_by_property.values():
-        member_rows = [row for row in property_rows if row.organization_member_id is not None]
+        member_rows = [row for row in property_rows if row.organization_member_id == membership.id]
         for row in member_rows or property_rows:
             # A level outside the order is unknown: count it as no access.
             level = next((known for known in _PROPERTY_LEVEL_ORDER if known.value == row.access_level), None)

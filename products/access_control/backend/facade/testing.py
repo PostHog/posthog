@@ -60,13 +60,19 @@ def remove_role_member(*, organization_id: UUID, role_membership_id: UUID) -> No
 
 
 def create_property_access_control(
-    *, team_id: int, property_definition_id: UUID, access_level: str, organization_member_id: UUID | None = None
+    *,
+    team_id: int,
+    property_definition_id: UUID,
+    access_level: str,
+    organization_member_id: UUID | None = None,
+    role_id: UUID | None = None,
 ) -> UUID:
     return PropertyAccessControl.objects.create(
         team_id=team_id,
         property_definition_id=property_definition_id,
         access_level=access_level,
         organization_member_id=organization_member_id,
+        role_id=role_id,
     ).id
 
 

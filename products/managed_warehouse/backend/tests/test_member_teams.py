@@ -201,6 +201,27 @@ class TestMemberTeams(_MemberTeamsTest):
             )
         assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
 
+    def test_property_rows_naming_both_a_member_and_a_role_count(self) -> None:
+        # The property resolver applies a row naming the member whatever its role, and a row
+        # naming one of the member's roles whatever its member.
+        role_id = access_testing.create_role(organization_id=self.organization.id, name="Analysts")
+        access_testing.add_role_member(role_id=role_id, user_id=self.member.id)
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "testtest")
+        other_membership = OrganizationMembership.objects.get(organization=self.organization, user=other)
+        for team, member_id in (
+            (self.team, self.membership.id),
+            (Team.objects.create(organization=self.organization, name="t2"), other_membership.id),
+        ):
+            definition = PropertyDefinition.objects.create(team=team, name="email", type=2)
+            access_testing.create_property_access_control(
+                team_id=team.id,
+                property_definition_id=definition.id,
+                access_level="none",
+                organization_member_id=member_id,
+                role_id=role_id,
+            )
+        assert member_teams.member_teams(self.organization, self.member) == {}
+
     def test_a_stored_hidden_property_caps_without_the_feature(self) -> None:
         self._property_rule(self.team, "none")
         self.organization.available_product_features = []
