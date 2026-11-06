@@ -1511,7 +1511,9 @@ class TestSurveyToolsSaveThroughSurveyAPI(BaseTest):
     async def test_logs_activity_and_activates_the_already_answered_flag(self, tool_kind, kwargs, activity):
         content, artifact = await self._run(tool_kind, **kwargs)
 
-        survey = await Survey.objects.select_related("internal_targeting_flag").aget(id=artifact["survey_id"])
+        survey = await Survey.objects.select_related("internal_targeting_flag").aget(
+            id=artifact["survey_id"], team=self.team
+        )
         assert survey.internal_targeting_flag is not None, content
         assert survey.internal_targeting_flag.active is True
         assert await ActivityLog.objects.filter(
@@ -1533,9 +1535,10 @@ class TestSurveyToolsSaveThroughSurveyAPI(BaseTest):
 
         content, artifact = await self._run("create", name="Appearance", survey_type=survey_type)
 
-        survey = await Survey.objects.aget(id=artifact["survey_id"])
+        survey = await Survey.objects.aget(id=artifact["survey_id"], team=self.team)
+        assert survey.appearance is not None, content
         [key] = team_appearance
-        assert survey.appearance.get(key) == expected, content
+        assert survey.appearance.get(key) == expected
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -1563,7 +1566,7 @@ class TestSurveyToolsSaveThroughSurveyAPI(BaseTest):
             content, artifact = await edit_tool._arun_impl(survey_id=str(created["survey_id"]), wait_period_days=7)
 
         assert artifact["error"] == "approval_required", content
-        change_request = await ChangeRequest.objects.aget(id=artifact["change_request_id"])
+        change_request = await ChangeRequest.objects.aget(id=artifact["change_request_id"], team=self.team)
         assert change_request.action_key == "feature_flag.update"
 
     @pytest.mark.django_db
