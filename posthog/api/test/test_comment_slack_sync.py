@@ -16,6 +16,8 @@ from posthog.api.comments import _slack_thread_url
 from posthog.helpers.slack_thread_mirror import _discussion_card_blocks
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.tasks.comment_slack_sync import (
     BACKFILL_BATCH_SIZE,
     BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS,
@@ -164,9 +166,6 @@ class TestSendCommentToSlack(APIBaseTest):
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
     def test_a_token_with_comment_write_can_send_a_discussion(self, mock_slack, _flag, _backfill):
-        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-        from posthog.models.utils import generate_random_token_personal
-
         mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
         self._mock_channel_info(mock_slack)
         comment = self._comment()
@@ -350,14 +349,26 @@ class TestSendCommentToSlack(APIBaseTest):
         assert res.status_code == status.HTTP_400_BAD_REQUEST
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
 
+    @parameterized.expand(
+        [
+            ("ticket", "Ticket", status.HTTP_403_FORBIDDEN),
+            ("insight", "Insight", status.HTTP_200_OK),
+        ]
+    )
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
-    def test_only_the_author_can_send_a_ticket_discussion(self, _flag):
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_only_the_author_can_send_a_ticket_discussion(
+        self, _name, scope, expected_status, mock_slack, _flag, _backfill
+    ):
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
+        self._mock_channel_info(mock_slack)
         teammate = self._create_user("teammate@posthog.com")
 
-        res = self._send(self._comment(scope="Ticket", created_by=teammate).id)
+        res = self._send(self._comment(scope=scope, created_by=teammate).id)
 
-        assert res.status_code == status.HTTP_403_FORBIDDEN
-        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+        assert res.status_code == expected_status, res.json()
+        assert CommentSlackThread.objects.for_team(self.team.id).exists() is (expected_status == status.HTTP_200_OK)
 
 
 class TestCommentReplySlackSignal(APIBaseTest):
