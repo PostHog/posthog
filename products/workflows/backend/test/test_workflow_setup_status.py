@@ -88,7 +88,7 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
             expected_sandbox_only
         )
         assert [
-            c.kwargs["properties"]["source"]
+            c.kwargs["properties"]["provisioned_by"]
             for c in capture.call_args_list
             if c.kwargs.get("event") == "workflows sandbox sender provisioned"
         ] == (["setup_status"] if expected_sandbox_only else [])

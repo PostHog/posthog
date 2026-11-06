@@ -2959,7 +2959,7 @@ class IntegrationViewSet(
             report_user_action(
                 cast(User, request.user),
                 SANDBOX_SENDER_PROVISIONED_EVENT,
-                {"source": "endpoint"},
+                {"provisioned_by": "endpoint"},
                 team=self.team,
                 request=request,
             )
@@ -3181,7 +3181,7 @@ class IntegrationViewSet(
     # declared after it in this class body.
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if request.query_params.get("kind") in (None, "", "email"):
-            sandbox_email_sender_for_reads(self.team, reader=request.user, source="integrations_list")
+            sandbox_email_sender_for_reads(self.team, request=request, provisioned_by="integrations_list")
         # A GitHub row connected while GitHub was flaky may still carry the numeric installation id
         # as its account name. Healing here (throttled inside ensure_account_name) fixes the display
         # everywhere the row is listed, including surfaces that never open the repository picker.

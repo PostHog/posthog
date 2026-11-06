@@ -193,7 +193,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             sandbox_only = self._list()
         assert (sandbox_only["email_sender_ready"], sandbox_only["sandbox_sender_only"]) == (True, True)
         assert [
-            c.kwargs["properties"]["source"]
+            c.kwargs["properties"]["provisioned_by"]
             for c in capture.call_args_list
             if c.kwargs.get("event") == "workflows sandbox sender provisioned"
         ] == ["data_suggestions"]

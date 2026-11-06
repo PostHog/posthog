@@ -116,7 +116,8 @@ class WorkflowSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         own_sender_ready = all(done[key] for key in _REQUIRED_TO_SEND)
         sandbox_sender_only = (
             not own_sender_ready
-            and sandbox_email_sender_for_reads(self.team, reader=self.request.user, source="setup_status") is not None
+            and sandbox_email_sender_for_reads(self.team, request=self.request, provisioned_by="setup_status")
+            is not None
         )
         return Response(
             WorkflowSetupStatusSerializer(

@@ -101,13 +101,17 @@ class TestSandboxSenderAPI(APIBaseTest):
             flag_enabled and only_evaluate_locally
         )
 
-        responses = [self.client.get(f"/api/projects/{self.team.id}/integrations/{query}") for _ in range(2)]
+        responses = [
+            self.client.get(f"/api/projects/{self.team.id}/integrations/{query}", HTTP_X_POSTHOG_CLIENT="mcp")
+            for _ in range(2)
+        ]
 
         assert [response.status_code for response in responses] == [status.HTTP_200_OK] * 2
         assert self._sandbox_rows().exists() is provisions
-        assert [event.kwargs["properties"]["source"] for event in self._provisioned_events()] == (
-            ["integrations_list"] if provisions else []
-        )
+        assert [
+            (event.kwargs["properties"]["provisioned_by"], event.kwargs["properties"]["source"])
+            for event in self._provisioned_events()
+        ] == ([("integrations_list", "mcp")] if provisions else [])
         if provisions:
             listed = [row["id"] for row in responses[0].json()["results"] if row["kind"] == "email"]
             assert listed == [self._sandbox_rows().get().id]
