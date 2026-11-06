@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconExternal, IconSparkles } from '@posthog/icons'
+import { IconExternal } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
@@ -30,7 +30,7 @@ export function SessionRecordingContent(): JSX.Element {
     const { recordingStatus } = useValues(errorPropertiesLogic)
     const { recordingProps, recordingTimestamp, isTimestampOutsideRecording, sessionId } = useValues(sessionTabLogic)
     const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
-    const { onSetUpVisionScanner } = useValues(exceptionCardLogic)
+    const { renderRecordingActions } = useValues(exceptionCardLogic)
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
 
     useEffect(() => {
@@ -62,21 +62,7 @@ export function SessionRecordingContent(): JSX.Element {
     return (
         <div className="@container/recording-tab flex h-full min-w-0 flex-col overflow-hidden">
             <SubHeader className="shrink-0 justify-end">
-                {onSetUpVisionScanner ? (
-                    <Button
-                        variant="default"
-                        size="sm"
-                        onClick={onSetUpVisionScanner}
-                        data-attr="error-tracking-recording-tab-scan-with-vision"
-                    >
-                        <IconSparkles className="text-ai" />
-                        {/* The full label does not fit beside "Open in session replay" in the narrowest pane. */}
-                        <span className="hidden @xl/recording-tab:inline">
-                            Have AI watch every new session with this error
-                        </span>
-                        <span className="@xl/recording-tab:hidden">Watch with AI</span>
-                    </Button>
-                ) : null}
+                {renderRecordingActions?.()}
                 <Button variant="default" size="sm" render={<LinkPrimitive to={replayUrl} target="_blank" />}>
                     Open in session replay
                     <IconExternal />

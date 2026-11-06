@@ -2,7 +2,6 @@ import '../ErrorTrackingIssueScene/ErrorTrackingIssueScene.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -24,16 +23,13 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/quill'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ReplayTabs } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
-import { markScannerHandoffIntent } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffIntent'
 import { messageAudienceAccessDisabledReason } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
@@ -54,7 +50,7 @@ import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupProm
 import { StyleVariables } from '../../components/StyleVariables'
 import { SuppressSimilarIssuesDialog } from '../../components/SuppressSimilarIssues/SuppressSimilarIssuesDialog'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
+import { getIssueReplayDateRange, getIssueReplayFilterGroup } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingIssueSceneMenuBar } from './ErrorTrackingIssueSceneMenuBar'
 import { IssueEmailMenu } from './IssueEmailMenu'
@@ -62,6 +58,7 @@ import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
 import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { IssueSummary } from './IssueSummary'
+import { IssueRecordingTabVisionButton, IssueVisionScannerPopover } from './IssueVisionScannerPopover'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -107,28 +104,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             })
         )
     }, [issueId, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp])
-
-    // Prefill a Replay vision scanner scoped to this issue and open the wizard on its review-and-create
-    // overview. The overview blocks creation when no recordings match, so a sessionless issue can't
-    // launch a scanner that never runs.
-    const setUpVisionScanner = useCallback((): void => {
-        if (!issue?.name) {
-            return
-        }
-        markScannerHandoffIntent(
-            issueVisionScannerHandoff(
-                issueId,
-                issue.name,
-                getIssueReplayDateRange(issue.first_seen, lastSeen, selectedEvent?.timestamp ?? initialEventTimestamp)
-            )
-        )
-        void addProductIntentForCrossSell({
-            from: ProductKey.ERROR_TRACKING,
-            to: ProductKey.REPLAY_VISION,
-            intent_context: ProductIntentContext.ERROR_TRACKING_SCAN_WITH_VISION,
-        })
-        router.actions.push(urls.replayVisionScannerOverview('new'))
-    }, [issueId, issue?.name, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp])
 
     useAttachedContext(
         issueIdValid ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
@@ -196,59 +171,68 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                     />
                                                 </ButtonGroup>
                                                 {issue.name ? (
-                                                    <ButtonGroup>
-                                                        <Button
-                                                            variant="outline"
-                                                            onClick={openRecordings}
-                                                            data-attr="error-tracking-issue-view-recordings"
-                                                        >
-                                                            View recordings
-                                                            <IconRewindPlay />
-                                                        </Button>
-                                                        <DropdownMenu
-                                                            onOpenChange={(open) => {
-                                                                if (open) {
-                                                                    setEmailInOverflow(
-                                                                        !isDisplayed(inlineEmailMenuRef.current)
-                                                                    )
-                                                                }
-                                                            }}
-                                                        >
-                                                            <DropdownMenuTrigger
-                                                                render={
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="icon"
-                                                                        aria-label="More options"
-                                                                    />
-                                                                }
-                                                            >
-                                                                <IconChevronDown />
-                                                            </DropdownMenuTrigger>
-                                                            <DropdownMenuContent
-                                                                align="end"
-                                                                className="w-auto min-w-56"
-                                                            >
-                                                                <DropdownMenuItem
-                                                                    onClick={setUpVisionScanner}
-                                                                    data-attr="error-tracking-scan-with-vision"
+                                                    <IssueVisionScannerPopover
+                                                        issueId={issueId}
+                                                        issueName={issue.name}
+                                                        placement="header"
+                                                    >
+                                                        {({ toggle: toggleVisionScanner }) => (
+                                                            <ButtonGroup>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    onClick={openRecordings}
+                                                                    data-attr="error-tracking-issue-view-recordings"
                                                                 >
-                                                                    <IconSparkles className="text-ai" />
-                                                                    Have AI watch every new session with this error
-                                                                </DropdownMenuItem>
-                                                                {emailInOverflow &&
-                                                                    !messageAudienceAccessDisabledReason() && (
-                                                                        <>
-                                                                            <DropdownMenuSeparator />
-                                                                            <IssueEmailMenuItems
-                                                                                issueId={issue.id}
-                                                                                issueName={issue.name}
+                                                                    View recordings
+                                                                    <IconRewindPlay />
+                                                                </Button>
+                                                                <DropdownMenu
+                                                                    onOpenChange={(open) => {
+                                                                        if (open) {
+                                                                            setEmailInOverflow(
+                                                                                !isDisplayed(inlineEmailMenuRef.current)
+                                                                            )
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <DropdownMenuTrigger
+                                                                        render={
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="icon"
+                                                                                aria-label="More options"
                                                                             />
-                                                                        </>
-                                                                    )}
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    </ButtonGroup>
+                                                                        }
+                                                                    >
+                                                                        <IconChevronDown />
+                                                                    </DropdownMenuTrigger>
+                                                                    <DropdownMenuContent
+                                                                        align="end"
+                                                                        className="w-auto min-w-56"
+                                                                    >
+                                                                        <DropdownMenuItem
+                                                                            onClick={toggleVisionScanner}
+                                                                            data-attr="error-tracking-scan-with-vision"
+                                                                        >
+                                                                            <IconSparkles className="text-ai" />
+                                                                            Have AI watch every new session with this
+                                                                            error
+                                                                        </DropdownMenuItem>
+                                                                        {emailInOverflow &&
+                                                                            !messageAudienceAccessDisabledReason() && (
+                                                                                <>
+                                                                                    <DropdownMenuSeparator />
+                                                                                    <IssueEmailMenuItems
+                                                                                        issueId={issue.id}
+                                                                                        issueName={issue.name}
+                                                                                    />
+                                                                                </>
+                                                                            )}
+                                                                    </DropdownMenuContent>
+                                                                </DropdownMenu>
+                                                            </ButtonGroup>
+                                                        )}
+                                                    </IssueVisionScannerPopover>
                                                 ) : (
                                                     <Button
                                                         variant="outline"
@@ -316,7 +300,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             isMobile={isMobile}
                                             isOpen={mobileDetailOpen}
                                             onClose={() => setMobileDetailOpen(false)}
-                                            onSetUpVisionScanner={issue.name ? setUpVisionScanner : undefined}
                                         />
                                     </div>
                                 </div>
@@ -333,12 +316,10 @@ const RightHandColumn = ({
     isMobile,
     isOpen,
     onClose,
-    onSetUpVisionScanner,
 }: {
     isMobile: boolean
     isOpen: boolean
     onClose: () => void
-    onSetUpVisionScanner?: () => void
 }): JSX.Element | null => {
     const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
@@ -346,6 +327,11 @@ const RightHandColumn = ({
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
     const showOnlyWithRecording = useCallback(() => setOnlyWithRecording(true), [setOnlyWithRecording])
+    const issueName = issue?.name
+    const renderRecordingActions = useCallback(
+        () => (issueName ? <IssueRecordingTabVisionButton issueId={issueId} issueName={issueName} /> : null),
+        [issueId, issueName]
+    )
 
     if (isMobile && !isOpen) {
         return null
@@ -375,7 +361,7 @@ const RightHandColumn = ({
                     loading={issueLoading || initialEventLoading}
                     event={detailEvent ?? undefined}
                     onShowOnlyWithRecording={showOnlyWithRecording}
-                    onSetUpVisionScanner={onSetUpVisionScanner}
+                    renderRecordingActions={renderRecordingActions}
                     eventMarkerColor={
                         detailEvent
                             ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)
