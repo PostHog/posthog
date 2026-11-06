@@ -14,7 +14,7 @@ class TestEligibility(BaseTest):
     def test_traffic_is_checked_only_until_the_cap_is_filled(self) -> None:
         teams = [self.team, *(Team.objects.create(organization=self.organization, name=f"t{i}") for i in range(3))]
         for team in teams:
-            EvalSuggestionTeamState.objects.create(team=team, last_visited_at=timezone.now())
+            EvalSuggestionTeamState.objects.for_team(team.pk).create(team=team, last_visited_at=timezone.now())
 
         with (
             patch.object(eligibility, "is_enabled_for_organization", return_value=True),

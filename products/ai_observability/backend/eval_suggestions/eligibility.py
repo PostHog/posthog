@@ -39,7 +39,9 @@ GROUP BY team_id
 
 
 def record_visit(team: Team) -> None:
-    EvalSuggestionTeamState.objects.update_or_create(team=team, defaults={"last_visited_at": timezone.now()})
+    EvalSuggestionTeamState.objects.for_team(team.pk).update_or_create(
+        team=team, defaults={"last_visited_at": timezone.now()}
+    )
 
 
 def claim_first_visit_run(team: Team, today: date | None = None) -> bool:
@@ -49,7 +51,7 @@ def claim_first_visit_run(team: Team, today: date | None = None) -> bool:
         return False
     today = today or timezone.now().date()
     claimed = (
-        EvalSuggestionTeamState.objects.filter(team=team)
+        EvalSuggestionTeamState.objects.for_team(team.pk)
         .filter(Q(first_visit_run_on__isnull=True) | Q(first_visit_run_on__lt=today))
         .update(first_visit_run_on=today)
     )
@@ -78,7 +80,9 @@ def eligible_team_ids(settings: SuggestionSettings, now: datetime | None = None)
     4 of the last 28 days and 2 of the last 7. The most recently visited come first, up to the run cap."""
     now = now or timezone.now()
     visited = list(
-        EvalSuggestionTeamState.objects.filter(last_visited_at__gte=now - VISIT_LOOKBACK)
+        # The weekly plan reads every team that visited, by design.
+        EvalSuggestionTeamState.objects.unscoped()
+        .filter(last_visited_at__gte=now - VISIT_LOOKBACK)
         .order_by("-last_visited_at")
         .values_list("team_id", "team__organization_id")
     )
