@@ -68,15 +68,13 @@ def url_host(prefix: str, complete: bool) -> str | None:
     if end < 0 and not complete:
         return None
     authority = rest if end < 0 else rest[:end]
-    if not authority or _UNSAFE_AUTHORITY.search(authority):
+    # Python's IDNA codec and the WHATWG URL parser map some non-ASCII hosts differently.
+    if not authority or not authority.isascii() or _UNSAFE_AUTHORITY.search(authority):
         return None
     host, _, port = authority.lower().rpartition(":") if ":" in authority else (authority.lower(), "", "")
     if port and not port.isdigit():
         return None
-    try:
-        host = host.rstrip(".").encode("idna").decode("ascii")
-    except UnicodeError:
-        return None
+    host = host.rstrip(".")
     if not host:
         return None
     return host if not port or port == _DEFAULT_PORTS[scheme.group(1).lower()] else f"{host}:{port}"
@@ -178,7 +176,10 @@ class _Analysis:
         mentioned = frozenset(key for key in self.secret_keys if key in value)
         if templating == "liquid":
             dynamic = [index for index in (value.find("{{"), value.find("{%")) if index >= 0]
-            return frozenset({(value[: min(dynamic)], False) if dynamic else (value, True)}), mentioned
+            if not dynamic:
+                return frozenset({(value, True)}), mentioned
+            # Liquid can reach every input without naming one, as in `{{ inputs | json }}`.
+            return frozenset({(value[: min(dynamic)], False)}), self.secret_keys
         try:
             expr = parse_string_template(value)
         except BaseHogQLError:
@@ -188,8 +189,9 @@ class _Analysis:
         return self._value(expr), self._taint(expr)
 
     def _input_references(self, node: ast.AST) -> Iterator[str]:
-        if isinstance(node, ast.Field) and node.chain[0] == "inputs" and len(node.chain) > 1:
-            yield str(node.chain[1])
+        input_key = _input_key(node)
+        if input_key is not None:
+            yield input_key
         for child in _children(node):
             yield from self._input_references(child)
 

