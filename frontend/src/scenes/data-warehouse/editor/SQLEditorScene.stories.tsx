@@ -379,6 +379,8 @@ export const HarnessLogoInResults: Story = {
             await canvas.findByText('Claude Code', { selector: '.rdg span' }, { timeout: 15000 })
         ).toBeVisible()
         await expect(canvas.getByText('OpenAI Codex')).toBeVisible()
+        const logic = sqlEditorLogic({ tabId: 'default' })
+        dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })!.actions.setElapsedTime(180)
     },
 }
 

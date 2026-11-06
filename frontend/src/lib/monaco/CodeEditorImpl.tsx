@@ -180,7 +180,10 @@ export function CodeEditor({
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const isDarkModeOn = useBodyIsDark()
-    const scrollbarRendering = !inStorybookTestRunner() ? 'auto' : 'hidden'
+    const inTestRunner = inStorybookTestRunner()
+    const scrollbarRendering = inTestRunner ? 'hidden' : 'auto'
+    // Monaco blinks the cursor on a JS interval, so a snapshot of a focused editor catches either phase.
+    const cursorBlinking = inTestRunner ? 'solid' : 'blink'
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
@@ -460,6 +463,7 @@ export function CodeEditor({
             hideCursorInOverviewRuler: false,
             overviewRulerLanes: 3,
             overflowWidgetsDomNode: monacoRoot,
+            cursorBlinking,
             ...options,
             padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
             scrollbar: {
@@ -469,7 +473,7 @@ export function CodeEditor({
                 ...options?.scrollbar,
             },
         }),
-        [options, enableVimMode, scrollbarRendering, monacoRoot]
+        [options, enableVimMode, scrollbarRendering, cursorBlinking, monacoRoot]
     )
     const diffEditorOptions = useMemo<editor.IStandaloneDiffEditorConstructionOptions>(
         () => ({
