@@ -17,7 +17,7 @@ export function QuillInsertInNotebookPlaylistButton({ size }: { size: 'small' | 
 
     return (
         <Button
-            size="icon-xs"
+            size="icon-sm"
             tooltip="Comment in a notebook"
             aria-label="Comment in a notebook"
             onClick={() =>

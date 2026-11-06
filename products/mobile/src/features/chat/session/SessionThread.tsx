@@ -61,7 +61,6 @@ function statusLine(session: SessionThreadState): string | null {
         case 'working':
             return session.stage ?? 'Thinking…'
         case 'reconnecting':
-            return 'Reconnecting…'
         case 'idle':
             return null
     }

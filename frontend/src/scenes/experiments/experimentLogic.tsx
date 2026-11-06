@@ -113,7 +113,7 @@ import {
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { ExperimentHoldoutType, ExperimentIdType } from '../../types'
 import { experimentMetricsLogic } from './experimentMetricsLogic'
-import { featureFlagVariantProperty, getActivationConfig, resolvedExposureEvent } from './exposureContract'
+import { featureFlagVariantProperty, getExposureSource, resolvedExposureEvent } from './exposureContract'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
     addExposureToMetric,
@@ -1971,13 +1971,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // pinned: analytics event name and property values. A rename breaks dashboards.
             posthog.capture('experiment exposure criteria updated', {
                 experiment_id: values.experimentId,
-                exposure_source: warehouseExposure
-                    ? 'warehouse_native'
-                    : getActivationConfig(exposureCriteria)
-                      ? 'activation'
-                      : exposureCriteria?.exposure_config
-                        ? 'custom'
-                        : 'default',
+                exposure_source: getExposureSource(exposureCriteria),
             })
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },

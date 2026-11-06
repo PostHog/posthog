@@ -54,7 +54,7 @@ from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQuery
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
-from posthog.models import Person, PropertyDefinition
+from posthog.models import Person
 from posthog.models.element import chain_to_elements
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
@@ -64,6 +64,7 @@ from posthog.utils import relative_date_parse
 
 from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import ActionNotFound, ActionStep
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 
