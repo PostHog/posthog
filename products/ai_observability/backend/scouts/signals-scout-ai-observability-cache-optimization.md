@@ -135,7 +135,7 @@ Then:
 
 A run that re-checks a live report has a different job from a run that finds a new one.
 
-- Do the code check again. The data alone cannot tell you whether a fix shipped.
+- Do the Hog check again. The data alone cannot tell you whether a fix shipped.
 - Read the call site as it stands today, not as the report describes it. The report's linked pull request is one attempt, and a later attempt often lands under a different number.
 - Search the repository for merged commits that touch the file the report names, since the report's filing date. An unlinked merged fix is the most common reason a finding looks unchanged.
 - When a fix shipped and the metric did not move, say so and give the reason. Treat the finding as closed unless you can name what the fix left undone.

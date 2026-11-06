@@ -1,4 +1,4 @@
-"""Stage 4: fetch one bounded sample of a team's traces and run every applicable code check on it.
+"""Stage 4: fetch one bounded sample of a team's traces and run every applicable Hog check on it.
 
 The sample is spread over the window by trace id hash rather than taken from the latest traces, and the
 most recent day with traffic is held out so stage 6 can re-test each check on traces it was not picked on.

@@ -5,8 +5,8 @@ from posthog.models.utils import UUIDModel
 
 
 class EvalSuggestionKind(models.TextChoices):
-    NEW_CODE_CHECK = "new_code_check", "New code check"
-    NEW_JUDGE = "new_judge", "New judge"
+    NEW_HOG = "new_hog", "New Hog eval"
+    NEW_LLM_JUDGE = "new_llm_judge", "New LLM judge"
     FIX_EVAL = "fix_eval", "Fix an evaluation"
 
 
@@ -67,7 +67,8 @@ class EvalSuggestion(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
     )
-    run = models.ForeignKey(EvalSuggestionRun, on_delete=models.CASCADE, related_name="suggestions")
+    # The (run, dedupe_key) unique index covers lookups by run.
+    run = models.ForeignKey(EvalSuggestionRun, on_delete=models.CASCADE, db_index=False, related_name="suggestions")
     kind = models.CharField(max_length=16, choices=EvalSuggestionKind.choices)
     # Catalog template or adapted check this suggestion was built from.
     template_key = models.CharField(max_length=64, blank=True, default="")
@@ -84,7 +85,7 @@ class EvalSuggestion(TeamScopedRootMixin, UUIDModel):
     draft = models.JSONField(default=dict)
     filters = models.JSONField(default=list)
     rollout_percentage = models.FloatField(default=100)
-    # Only code checks carry a rate, because only they are measured exactly. Judges stay "possible".
+    # Only Hog checks carry a rate, because only they are measured exactly. Judges stay "possible".
     measured_failure_rate = models.FloatField(null=True, blank=True)
     sample_size = models.PositiveIntegerField(null=True, blank=True)
     # [{"trace_id": str, "reason": str}], one line each.
