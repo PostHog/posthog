@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -56,7 +56,7 @@ describe('createSetupDetectionLogic', () => {
     it.each([
         ['a 500', new ApiError('A server error occurred.', 500), 'detectStatusSuccess'],
         ['a 403', new ApiError('You do not have permission.', 403), 'detectStatusSuccess'],
-        ['a dropped connection', new TypeError('Failed to fetch'), 'detectStatusSuccess'],
+        ['a dropped connection', new NetworkError('network', new TypeError('Failed to fetch')), 'detectStatusSuccess'],
         [
             'a 404 for a route not yet deployed',
             new ApiError('Not found.', 404, undefined, { detail: 'Not found.' }),

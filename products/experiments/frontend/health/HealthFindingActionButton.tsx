@@ -35,7 +35,7 @@ export function HealthFindingActionButton({
     )
     const buttonProps = {
         size: 'small',
-        type: 'secondary',
+        type: 'primary',
         // pinned: `data-attr` value, so renaming it breaks autocapture insights
         'data-attr': `experiment-health-action-${actionKind}`,
     } as const

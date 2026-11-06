@@ -13,7 +13,8 @@ use logs_ingestion::pipeline::scenario::{
 use logs_ingestion::rate_limiter::{RedisTokenBucket, TokenBucketRedis};
 use sha2::{Digest, Sha256};
 
-const REDIS_URL: &str = "redis://127.0.0.1:6379";
+// Database 9 keeps the FLUSHDB away from the dev stack, which uses database 0.
+const REDIS_URL: &str = "redis://127.0.0.1:6379/9";
 
 fn obj(entries: Vec<(&str, JsValue)>) -> JsValue {
     let mut o = JsObject::new();

@@ -1596,6 +1596,16 @@
 
     // Bottom notice (DEBUG=1 mode)
 
+    // DebugNotice removes the fixed bar when it mounts in the classic navbar. A layout without DebugNotice keeps the
+    // bar, so the app layout subtracts this height to stop the bar from covering its bottom edge.
+    :root:has(#bottom-notice.tricolor) {
+        --bottom-notice-height: 1.5rem;
+
+        @media screen and (min-width: 750px) {
+            --bottom-notice-height: 2rem;
+        }
+    }
+
     #bottom-notice {
         position: fixed;
         bottom: 0;

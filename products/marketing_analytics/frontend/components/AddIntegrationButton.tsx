@@ -10,7 +10,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import {
     VALID_NON_NATIVE_MARKETING_SOURCES,
-    VALID_SELF_MANAGED_MARKETING_SOURCES,
     getEnabledNativeMarketingSources,
     nativeSourceDisplayLabel,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
@@ -55,7 +54,6 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
             ? [{ title: 'Organic search', sources: ['GoogleSearchConsole'] }]
             : []),
         { title: 'External sources', sources: VALID_NON_NATIVE_MARKETING_SOURCES },
-        { title: 'Self-managed sources', sources: VALID_SELF_MANAGED_MARKETING_SOURCES },
     ]
     const items: LemonMenuItems = [
         ...(showNewSourcesInMenu
