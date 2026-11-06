@@ -630,31 +630,33 @@ export const commentsLogic = kea<commentsLogicType>([
                         slug: discussionsSlug(props.scope, props.item_id),
                         is_task: asTask && !isReply,
                     })
-                    posthog.capture('comment created', { scope: props.scope, is_reply: isReply, is_emoji: false })
-
-                    values.itemContext?.callback?.({ sent: true })
-
                     // "Send to Slack" composer mode: mirror the new top-level comment to the chosen
                     // channel right away. Replies/tasks never mirror from here. The comment is created
                     // regardless; the Slack post is best-effort with its own toast.
-                    const composerChannelId = values.composerSlackChannel
-                        ? slackChannelId(values.composerSlackChannel)
-                        : null
-                    if (
-                        values.composerSendToSlack &&
-                        !isReply &&
-                        !asTask &&
-                        values.composerSlackIntegrationId &&
-                        composerChannelId &&
-                        values.currentProjectId
-                    ) {
+                    const integrationId = values.composerSlackIntegrationId
+                    const channelId = values.composerSlackChannel ? slackChannelId(values.composerSlackChannel) : null
+                    const projectId = values.currentProjectId
+                    const slackTarget =
+                        values.composerSendToSlack && !isReply && !asTask && integrationId && channelId && projectId
+                            ? { integrationId, channelId, projectId }
+                            : null
+                    posthog.capture('comment created', {
+                        scope: props.scope,
+                        is_reply: isReply,
+                        is_emoji: false,
+                        send_to_slack: !!slackTarget,
+                    })
+
+                    values.itemContext?.callback?.({ sent: true })
+
+                    if (slackTarget) {
                         let sentToSlack = false
                         try {
                             // The comments API is project-scoped — currentTeamId diverges from the
                             // project id for non-default environments and 404s.
-                            await commentsSendToSlackCreate(String(values.currentProjectId), newComment.id, {
-                                integration_id: values.composerSlackIntegrationId,
-                                channel_id: composerChannelId,
+                            await commentsSendToSlackCreate(String(slackTarget.projectId), newComment.id, {
+                                integration_id: slackTarget.integrationId,
+                                channel_id: slackTarget.channelId,
                             })
                             sentToSlack = true
                             lemonToast.success('Discussion sent to Slack')
@@ -668,6 +670,11 @@ export const commentsLogic = kea<commentsLogicType>([
                                     : 'Comment added, but sending to Slack failed'
                             )
                         }
+                        posthog.capture('discussion sent to slack', {
+                            scope: props.scope,
+                            source: 'composer',
+                            success: sentToSlack,
+                        })
                         if (sentToSlack) {
                             // Refetch and return the fresh list so the new comment shows its tracked-in-Slack
                             // state. We can't dispatch loadComments() here — it writes the same `comments`

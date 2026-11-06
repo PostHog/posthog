@@ -40,7 +40,7 @@ from posthog.models.comment.comment import (
     activity_log_scope_for,
     canonical_comment_scope,
 )
-from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
+from posthog.models.comment.slack_thread import evaluate_discussions_slack_sync_flag
 from posthog.models.comment.utils import (
     DESKTOP_COMMENT_SCOPES,
     build_comment_item_url,
@@ -900,18 +900,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         Keyed on the requesting user (plus org/project groups) so the gate agrees with the
         frontend's per-user flag evaluation during partial rollouts.
         """
-        team = self.team
-        flag_distinct_id = str(getattr(self.request.user, "distinct_id", None) or team.uuid)
-        try:
-            return bool(
-                posthoganalytics.feature_enabled(
-                    DISCUSSIONS_SLACK_SYNC_FLAG,
-                    flag_distinct_id,
-                    groups={"organization": str(team.organization_id), "project": str(team.id)},
-                )
-            )
-        except Exception:
-            return False
+        user = self.request.user if isinstance(self.request.user, User) else None
+        return bool(evaluate_discussions_slack_sync_flag(user, self.team))
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()

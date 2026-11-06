@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -133,11 +134,24 @@ export const sendCommentToSlackLogic = kea<sendCommentToSlackLogicType>([
                     integration_id: integrationId,
                     channel_id: channelId,
                 })
+                posthog.capture('discussion sent to slack', {
+                    scope: comment.scope,
+                    source: 'comment_menu',
+                    success: true,
+                })
                 actions.submitSuccess(comment)
             } catch (e) {
+                posthog.capture('discussion sent to slack', {
+                    scope: comment.scope,
+                    source: 'comment_menu',
+                    success: false,
+                })
                 // Surface the backend's actionable detail (bot not in channel, integration missing…)
                 actions.submitFailure(e instanceof ApiError ? e.detail : null)
             }
+        },
+        openModal: ({ comment }) => {
+            posthog.capture('discussion send to slack opened', { scope: comment.scope })
         },
         submitSuccess: () => {
             lemonToast.success('Discussion sent to Slack')

@@ -21,6 +21,7 @@ from posthog.tasks.comment_slack_sync import (
     BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS,
     SLACK_SYNCED_TS_KEY,
     backfill_comment_slack_thread,
+    ingest_slack_discussion_reply,
     mirror_comment_reply_to_slack,
 )
 
@@ -113,9 +114,11 @@ class TestSendCommentToSlack(APIBaseTest):
         mock_slack.return_value.client.chat_postMessage.assert_not_called()
 
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
-    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled")
     @patch("posthog.api.comments.SlackIntegration")
-    def test_creates_mirror_posts_root_and_enqueues_backfill(self, mock_slack, _flag, mock_backfill):
+    def test_creates_mirror_posts_root_and_enqueues_backfill(self, mock_slack, flag, mock_backfill):
+        # The gate must evaluate the requesting user, so a person-targeted rollout lets them send.
+        flag.side_effect = lambda _key, distinct_id, **_kwargs: distinct_id == str(self.user.distinct_id)
         mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
         self._mock_channel_info(mock_slack)
         comment = self._comment()
@@ -364,13 +367,20 @@ class TestReplyMirror(APIBaseTest):
             integration=self.integration,
             slack_channel_id="C1",
             slack_thread_ts="100.1",
+            created_by=self.user,
         )
 
+    @patch("posthog.tasks.comment_slack_sync.ph_background_capture")
     @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
-    def test_posts_reply_to_the_mirrored_thread(self, mock_slack):
+    def test_posts_reply_to_the_mirrored_thread(self, mock_slack, mock_capture):
         self._mirror()
         reply = Comment.objects.create(
-            team=self.team, scope="Insight", item_id="42", content="reply", source_comment=self.parent
+            team=self.team,
+            scope="Insight",
+            item_id="42",
+            content="reply",
+            source_comment=self.parent,
+            created_by=self.user,
         )
 
         mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})
@@ -378,6 +388,10 @@ class TestReplyMirror(APIBaseTest):
         client = mock_slack.return_value.client
         assert client.chat_postMessage.call_count == 1
         assert client.chat_postMessage.call_args.kwargs["thread_ts"] == "100.1"
+        capture = mock_capture.return_value
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "discussion reply sent to slack"
+        assert capture.call_args.kwargs["distinct_id"] == str(self.user.distinct_id)
 
     @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
     def test_noop_when_thread_has_no_mirror(self, mock_slack):
@@ -446,9 +460,19 @@ class TestReplyMirror(APIBaseTest):
 
         mock_slack.return_value.client.chat_postMessage.assert_not_called()
 
-    @patch("posthog.tasks.comment_slack_sync.posthoganalytics.feature_enabled", return_value=False)
+    @parameterized.expand(
+        [
+            # A person-targeted rollout (early access enrollment) must keep syncing the creator's threads.
+            ("enabled_for_mirror_creator", True, 1),
+            ("flag_off", False, 0),
+        ]
+    )
+    @patch("posthog.models.comment.slack_thread.posthoganalytics.feature_enabled")
     @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
-    def test_kill_switch_stops_reply_sync(self, mock_slack, _flag):
+    def test_kill_switch_follows_mirror_creator(self, _name, enabled_for_creator, expected_posts, mock_slack, flag):
+        flag.side_effect = lambda _key, distinct_id, **_kwargs: (
+            enabled_for_creator and distinct_id == str(self.user.distinct_id)
+        )
         self._mirror()
         reply = Comment.objects.create(
             team=self.team, scope="Insight", item_id="42", content="reply", source_comment=self.parent
@@ -456,7 +480,47 @@ class TestReplyMirror(APIBaseTest):
 
         mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})
 
-        mock_slack.assert_not_called()
+        assert mock_slack.return_value.client.chat_postMessage.call_count == expected_posts
+
+
+class TestIngestSlackReply(APIBaseTest):
+    @patch("posthog.tasks.comment_slack_sync.ph_background_capture")
+    @patch("posthog.tasks.comment_slack_sync.resolve_slack_user")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_saves_reply_and_captures_event(self, _mock_slack, mock_resolve, mock_capture):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", sensitive_config={"access_token": "t"}
+        )
+        parent = Comment.objects.create(team=self.team, scope="Insight", item_id="42", content="root")
+        mirror = CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="Insight",
+            item_id="42",
+            source_comment=parent,
+            integration=integration,
+            slack_channel_id="C1",
+            slack_thread_ts="100.1",
+            created_by=self.user,
+        )
+        mock_resolve.return_value = {"name": "Outside Person", "team_id": "T-other"}
+
+        ingest_slack_discussion_reply.apply(
+            kwargs={
+                "comment_slack_thread_id": str(mirror.id),
+                "slack_user_id": "U1",
+                "text": "from slack",
+                "blocks": None,
+                "message_ts": "100.2",
+            }
+        )
+
+        reply = Comment.objects.get(team=self.team, source_comment=parent)
+        assert reply.content == "from slack"
+        capture = mock_capture.return_value
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "discussion reply received from slack"
+        assert capture.call_args.kwargs["distinct_id"] == str(self.team.uuid)
+        assert capture.call_args.kwargs["properties"]["author_is_posthog_user"] is False
 
 
 class TestBackfill(APIBaseTest):
