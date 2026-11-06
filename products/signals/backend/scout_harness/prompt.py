@@ -650,7 +650,7 @@ _GH_IN_FLIGHT_EDIT_ONLY = (
 
 
 def _checkout_section(repositories: Sequence[str]) -> str:
-    """The working-tree section for a scout with repositories pinned to it.
+    """The working-tree section for a run that clones repositories, pinned or chosen by default.
 
     Named paths rather than "your checkout" because the agent starts in one directory and a run
     can hold several trees, so a vague pointer costs it turns finding them.
@@ -662,7 +662,7 @@ def _checkout_section(repositories: Sequence[str]) -> str:
     )
     return f"""# Your checkout
 
-This scout is pinned to repositories, and this sandbox already holds them:
+This sandbox already holds these repositories:
 
 {listing}
 

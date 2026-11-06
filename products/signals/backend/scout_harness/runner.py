@@ -90,6 +90,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
 from products.signals.backend.scout_report import scout_report_tags_in_use
+from products.signals.backend.scout_repositories import default_scout_repositories
 from products.signals.backend.spend import record_task_spend
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -996,16 +997,22 @@ async def _resolve_github_posture(
     mint, so without a mintable installation the clone would fail on every run. The pin is dropped
     in that case and the run goes ahead repo-less rather than wedging the lane on clone failures.
     The prompt reads this same list, so the agent is never told about a checkout it does not have.
+
+    The first-report scout runs during onboarding, before anyone could pin a repository. With no
+    pin it clones a cached default list instead (`scout_repositories.default_scout_repositories`).
     """
     repositories = [repository_override] if repository_override else list(config.repositories or [])
+    uses_default_repositories = skill.name == FIRST_REPORT_SCOUT and not repositories
     names_gh = skill_uses_report_channel(skill.allowed_tools) and await database_sync_to_async(
         github_read_access_for_team, thread_sensitive=False
     )(team.parent_team_id or team.id)
-    if not names_gh and not repositories:
+    if not names_gh and not repositories and not uses_default_repositories:
         return _GithubPosture(repositories=[], prompt_names_gh=False)
     can_mint = await database_sync_to_async(tasks_facade.can_mint_readonly_github_token, thread_sensitive=False)(
         team.id
     )
+    if uses_default_repositories and can_mint:
+        repositories = await database_sync_to_async(default_scout_repositories, thread_sensitive=False)(team.id)
     if repositories and not can_mint:
         # The public allowlist clones without a token, so `--repository posthog/.github` still
         # works on a team that never connected GitHub.
