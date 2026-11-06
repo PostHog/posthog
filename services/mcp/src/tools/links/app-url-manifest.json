@@ -1874,6 +1874,11 @@
         "params": [],
         "scope": "project"
     },
+    "transactionalSmtp": {
+        "template": "/transactional/smtp",
+        "params": [],
+        "scope": "project"
+    },
     "transactionalTemplate": {
         "template": "/transactional/library/templates/{id}",
         "params": ["id"],

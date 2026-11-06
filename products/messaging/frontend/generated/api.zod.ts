@@ -173,6 +173,26 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Connects to the SMTP relay as an app would, with the key in `password`, and sends one test email.
+ * @summary Send a test email through the SMTP relay
+ */
+export const messagingSmtpTestCreateBodyPasswordMax = 512
+
+export const messagingSmtpTestCreateBodyFromMax = 320
+
+export const MessagingSmtpTestCreateBody = /* @__PURE__ */ zod.object({
+    password: zod
+        .string()
+        .max(messagingSmtpTestCreateBodyPasswordMax)
+        .describe("Project secret key to log in with. PostHog doesn't store it."),
+    to: zod.email().describe('Who gets the test email.'),
+    from: zod
+        .string()
+        .max(messagingSmtpTestCreateBodyFromMax)
+        .describe('From address of the test email, on a verified domain.'),
+})
+
 export const messagingCategoriesCreateBodyKeyMax = 64
 
 export const messagingCategoriesCreateBodyNameMax = 128

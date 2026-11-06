@@ -106124,6 +106124,18 @@ export namespace Schemas {
       queries: string[];
     }
 
+    /**
+     * * `tls` - TLS
+     * * `starttls` - STARTTLS
+     */
+    export type SecurityEnum = typeof SecurityEnum[keyof typeof SecurityEnum];
+
+
+    export const SecurityEnum = {
+      Tls: 'tls',
+      Starttls: 'starttls',
+    } as const;
+
     export interface SendCalendarBatchJob {
       /** ID of the batch run. */
       readonly id: string;
@@ -108750,9 +108762,103 @@ export namespace Schemas {
       has_more?: boolean;
     }
 
+    /**
+     * * `refused` - Refused
+     * * `dropped_headers` - Dropped headers
+     */
+    export type SmtpActivityKindEnum = typeof SmtpActivityKindEnum[keyof typeof SmtpActivityKindEnum];
+
+
+    export const SmtpActivityKindEnum = {
+      Refused: 'refused',
+      DroppedHeaders: 'dropped_headers',
+    } as const;
+
+    export interface SmtpActivityEntry {
+      /** `refused` or `dropped_headers`, what happened to the message.
+       *
+       * * `refused` - Refused
+       * * `dropped_headers` - Dropped headers */
+      kind: SmtpActivityKindEnum;
+      /**
+         * The reply line the SMTP client got.
+         * @maxLength 512
+         */
+      reply?: string;
+      /**
+         * Up to 20 recipients named in the To and Cc headers. Bcc recipients are never listed.
+         * @maxItems 20
+         * @items.maxLength 320
+         */
+      to?: string[];
+      /**
+         * ID of the queued send, when one was queued.
+         * @maxLength 128
+         */
+      message_id?: string;
+      /**
+         * Names of the headers PostHog could not forward, up to 20.
+         * @maxItems 20
+         * @items.maxLength 128
+         */
+      dropped_headers?: string[];
+      /** When it happened, as Unix seconds. */
+      at: number;
+      /**
+         * The envelope sender of the message.
+         * @maxLength 320
+         */
+      from?: string;
+    }
+
     export interface SmtpCheckResponse {
       /** ID of the project the key sends for. */
       team_id: number;
+    }
+
+    export interface SmtpPort {
+      /** Port number. */
+      port: number;
+      /** The setting most tools expect on this port.
+       *
+       * * `tls` - TLS
+       * * `starttls` - STARTTLS */
+      security: SecurityEnum;
+      /** True for a port meant for hosts that block the usual ones. */
+      alternate: boolean;
+    }
+
+    export interface SmtpSetup {
+      /** Host name to connect to. Empty when this instance runs no SMTP relay. */
+      host: string;
+      /** Ports to connect on. */
+      ports: SmtpPort[];
+      /** Username to show in setup. Any username works. */
+      username: string;
+      /** Up to 50 recent refused messages and dropped headers, newest first. */
+      activity: SmtpActivityEntry[];
+    }
+
+    export interface SmtpTestRequest {
+      /**
+         * Project secret key to log in with. PostHog doesn't store it.
+         * @maxLength 512
+         */
+      password: string;
+      /** Who gets the test email. */
+      to: string;
+      /**
+         * From address of the test email, on a verified domain.
+         * @maxLength 320
+         */
+      from: string;
+    }
+
+    export interface SmtpTestResponse {
+      /** True when the relay accepted the test email. */
+      ok: boolean;
+      /** What the relay answered, or why PostHog couldn't reach it. */
+      reply: string;
     }
 
     /**

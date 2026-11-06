@@ -13,7 +13,7 @@ If an app can send email over SMTP, it can send through PostHog with no code cha
 | ---------- | --------------------------------------------------------------- |
 | Host       | Shown on the **SMTP** tab in **Transactional**                  |
 | Port       | `465` or `587`. If your host blocks them, use `2465` or `2587`. |
-| Encryption | TLS or STARTTLS. Both work on every port.                       |
+| Encryption | TLS or STARTTLS, version 1.2 or newer. Both work on every port. |
 | Username   | `posthog`. Any username works.                                  |
 | Password   | A project secret key with the `transactional_email:write` scope |
 
@@ -39,9 +39,9 @@ PostHog answers within a few seconds of the end of the message, for the whole me
 | Code         | What it means                                                              | What to do                                               |
 | ------------ | -------------------------------------------------------------------------- | -------------------------------------------------------- |
 | `250`        | Queued                                                                     | Nothing                                                  |
-| `421`        | Too many connections or failed logins, or PostHog is restarting            | Check your key, then reconnect shortly                   |
-| `451`        | Rate limit, quota, or PostHog couldn't confirm the send                    | Retry with the same message                              |
-| `454`        | PostHog couldn't check your key                                            | Retry shortly. Your key may be fine.                     |
+| `421`        | Too many connections, a slow upload, or PostHog is restarting              | Reconnect shortly                                        |
+| `451`        | Rate limit, quota, PostHog is busy, or it couldn't confirm the send        | Retry with the same message                              |
+| `454`        | PostHog couldn't check your key, or it failed too many times               | Follow the reply text                                    |
 | `530`, `538` | No login, or a login before TLS                                            | Turn on TLS or STARTTLS, and set a username and password |
 | `535`        | The key is wrong, lacks the scope, or SMTP isn't on for the project        | Check the key                                            |
 | `550`        | The sender isn't verified, or a recipient is suppressed or can't get email | Follow the reply text                                    |

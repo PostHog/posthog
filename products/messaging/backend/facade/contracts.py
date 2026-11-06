@@ -348,3 +348,9 @@ class TransactionalEmailResults:
 class SmtpActivityKind(LabeledStrEnum):
     REFUSED = "refused", "Refused"
     DROPPED_HEADERS = "dropped_headers", "Dropped headers"
+
+
+@frozen
+class SmtpTestResult:
+    ok: bool
+    reply: str

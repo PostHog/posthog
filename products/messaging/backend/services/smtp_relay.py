@@ -7,16 +7,10 @@ from email.message import EmailMessage
 
 from django.conf import settings
 
-from posthog.dataclasses import frozen
+from products.messaging.backend.facade.contracts import SmtpTestResult
 
 SMTP_TEST_TEMPLATE_KEY = "smtp-test"
 SMTP_TEST_TIMEOUT_SECONDS = 15
-
-
-@frozen
-class SmtpTestResult:
-    ok: bool
-    reply: str
 
 
 def smtp_relay_host() -> str:

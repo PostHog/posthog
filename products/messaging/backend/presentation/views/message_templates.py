@@ -52,6 +52,7 @@ from products.messaging.backend.facade.api import (
     render_design_html,
     validate_design,
 )
+from products.messaging.backend.facade.smtp import recent_smtp_activity, send_smtp_test, smtp_relay_host
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateMissing,
@@ -98,8 +99,6 @@ from products.messaging.backend.presentation.views.code_send_fields import (
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.messaging.backend.presentation.views.smtp_activity import SmtpActivitySerializer
-from products.messaging.backend.services.smtp_activity import recent_smtp_activity
-from products.messaging.backend.services.smtp_relay import send_smtp_test, smtp_relay_host
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
 from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
@@ -1344,7 +1343,7 @@ class SmtpTestThrottle(UserRateThrottle):
 
 class MessagingSmtpViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
-    scope_object_read_actions = ["setup"]
+    scope_object_read_actions = ["setup_details"]
     scope_object_write_actions = ["test"]
     records_have_object_access_rules = False
 
@@ -1352,12 +1351,14 @@ class MessagingSmtpViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return [SmtpTestThrottle()] if self.action == "test" else super().get_throttles()
 
     @extend_schema(
+        operation_id="messaging_smtp_setup_retrieve",
         responses={200: SmtpSetupSerializer},
         summary="Get SMTP setup details",
         description="The connection details for sending through the PostHog SMTP relay, and what it recently refused.",
     )
-    @action(detail=False, methods=["GET"])
-    def setup(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+    # Not named `setup`, because that replaces the method Django's View runs for every request.
+    @action(detail=False, methods=["GET"], url_path="setup")
+    def setup_details(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         _require_flag(self.team, SMTP_RELAY_FLAG)
         return Response(
             {

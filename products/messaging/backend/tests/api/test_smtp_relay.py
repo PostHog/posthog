@@ -6,8 +6,6 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from django.test import SimpleTestCase, override_settings
-
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient

@@ -205,6 +205,17 @@ export interface SmtpPortApi {
     alternate: boolean
 }
 
+/**
+ * * `refused` - Refused
+ * * `dropped_headers` - Dropped headers
+ */
+export type SmtpActivityKindEnumApi = (typeof SmtpActivityKindEnumApi)[keyof typeof SmtpActivityKindEnumApi]
+
+export const SmtpActivityKindEnumApi = {
+    Refused: 'refused',
+    DroppedHeaders: 'dropped_headers',
+} as const
+
 export interface SmtpActivityEntryApi {
     /** `refused` or `dropped_headers`, what happened to the message.
      *
@@ -217,7 +228,7 @@ export interface SmtpActivityEntryApi {
      */
     reply?: string
     /**
-     * The envelope recipients of the message, up to 20.
+     * Up to 20 recipients named in the To and Cc headers. Bcc recipients are never listed.
      * @maxItems 20
      * @items.maxLength 320
      */
