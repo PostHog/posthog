@@ -14,10 +14,6 @@ export interface TicketAiTraceDetailLogicProps {
 
 const CONVERSATION_EVENTS = ['$ai_generation', '$ai_embedding']
 
-/**
- * The LLM calls of a trace. A trace without any falls back to the spans that recorded an input or output state,
- * and then to the trace's own root state.
- */
 export function traceEventsToShow(trace: LLMTrace | null): LLMTraceEvent[] {
     if (!trace) {
         return []

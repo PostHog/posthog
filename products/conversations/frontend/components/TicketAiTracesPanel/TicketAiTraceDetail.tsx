@@ -91,6 +91,7 @@ export function TicketAiTraceDetail({ traceId, createdAt }: { traceId: string; c
                                     eventId={event.id}
                                     eventName={event.event}
                                     eventTimestamp={event.createdAt}
+                                    embedded
                                 />
                             </Suspense>
                         ),

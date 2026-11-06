@@ -11,6 +11,7 @@ import { useAIData } from '../hooks/useAIData'
 import { normalizeMessages } from '../messageNormalization'
 import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
 import { costContextFromProperties, selectAiValue } from '../utils'
+import { ConversationDisplayEmbeddedContext } from './conversationDisplayEmbedded'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
@@ -20,6 +21,8 @@ export interface ConversationDisplayProps {
     eventName?: string
     /** Event timestamp, needed to fetch heavy props via TraceQuery when they've been stripped from `events`. */
     eventTimestamp?: string
+    /** Set by a surface outside AI observability. See `ConversationDisplayEmbeddedContext`. */
+    embedded?: boolean
 }
 
 export function ConversationDisplay({
@@ -27,6 +30,7 @@ export function ConversationDisplay({
     eventId,
     eventName,
     eventTimestamp,
+    embedded = false,
 }: ConversationDisplayProps): JSX.Element {
     const rawInput =
         eventName === '$ai_generation' || eventName === '$ai_embedding'
@@ -62,7 +66,7 @@ export function ConversationDisplay({
     const inputSourceIndices = React.useMemo(() => buildInputSourceIndices(input, tools), [input, tools])
 
     return (
-        <>
+        <ConversationDisplayEmbeddedContext.Provider value={embedded}>
             <header className="mb-2 flex justify-between items-center">
                 <MetadataHeader
                     inputTokens={eventProperties.$ai_input_tokens}
@@ -109,6 +113,6 @@ export function ConversationDisplay({
                     eventId={eventId}
                 />
             )}
-        </>
+        </ConversationDisplayEmbeddedContext.Provider>
     )
 }

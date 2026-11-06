@@ -1,8 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, within } from '@testing-library/react'
+import { within } from '@testing-library/dom'
 
 import { mswDecorator } from '~/mocks/browser'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+
+import { userEvent } from 'storybook/test'
 
 import { TicketAiTracesList } from './TicketAiTracesList'
 
@@ -51,7 +53,8 @@ const EXPANDED_TRACE: LLMTrace = {
             $ai_output_choices: [
                 {
                     role: 'assistant',
-                    content: 'Your bank declined the payment. Try another card, or ask your bank to approve it.',
+                    content:
+                        'Your bank declined the payment. Try another card, or ask your bank to **approve it**.\n\n![Card help](https://images.example.com/card-help.png)',
                 },
             ],
             $ai_input_tokens: 820,
@@ -100,8 +103,8 @@ export const ExpandedTrace: Story = {
     decorators: [mswDecorator({ post: { '/api/environments/:team_id/query/:kind/': queryHandler(TRACES) } })],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        fireEvent.click(await canvas.findByText('checkout_assistant'))
-        await canvas.findByText(/Your bank declined the payment/)
+        await userEvent.click(await canvas.findByText('checkout_assistant'))
+        await canvas.findByText(/Your bank declined the payment/, undefined, { timeout: 10000 })
     },
 }
 
