@@ -4,7 +4,9 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia
+from posthog.models import ObjectMediaPreview, UploadedMedia
+
+from products.event_definitions.backend.models import EventDefinition
 
 
 class TestObjectMediaPreviewAPI(APIBaseTest):

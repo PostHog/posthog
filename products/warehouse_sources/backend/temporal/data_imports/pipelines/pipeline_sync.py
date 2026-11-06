@@ -14,10 +14,8 @@ import dlt
 import pyarrow
 import pendulum
 import dlt.common
-import dlt.extract
 import dlt.common.libs
 import dlt.common.libs.pyarrow
-import dlt.extract.incremental
 from clickhouse_driver.errors import ServerException
 from structlog.types import FilteringBoundLogger
 

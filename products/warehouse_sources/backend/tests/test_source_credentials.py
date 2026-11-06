@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.job
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-from products.workflows.backend.facade.contracts import WorkflowSummary
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 PG_FIELDS: dict[str, Any] = {
     "host": "db.example.com",
@@ -374,25 +374,27 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         pk = self._create(source, PG_FIELDS)
         if other_user == "source":
             self._referencing(pk)
-        workflows = (
-            [WorkflowSummary(id="wf1", name="Nightly sync", status="active")] if other_user == "workflow" else []
-        )
+        if other_user == "workflow":
+            create_workflow_for_test(
+                team_id=self.team.pk,
+                name="Nightly sync",
+                status="active",
+                actions=[
+                    {"id": "query", "type": "function", "config": {"inputs": {"db": {"value": {"integrationId": pk}}}}}
+                ],
+            )
 
-        with patch(
-            "products.workflows.backend.integration_usages.get_active_workflows_using_integration",
-            return_value=workflows,
-        ):
-            if outcome == "conflict":
-                with self.assertRaises(SharedCredentialsError) as raised:
-                    WarehouseSourceCredentialsStore.update(source, new_fields, allow_shared=allow_shared)
-                assert raised.exception.integration_id == pk
-                assert [usage.type for usage in raised.exception.usages] == [
-                    "workflow" if other_user == "workflow" else "warehouse_source"
-                ]
-                assert source.credentials_integration_id == str(pk)
-                assert WarehouseSourceCredentialsStore.get(source) == PG_FIELDS
-                return
-            reference = WarehouseSourceCredentialsStore.update(source, new_fields, allow_shared=allow_shared)
+        if outcome == "conflict":
+            with self.assertRaises(SharedCredentialsError) as raised:
+                WarehouseSourceCredentialsStore.update(source, new_fields, allow_shared=allow_shared)
+            assert raised.exception.integration_id == pk
+            assert [usage.type for usage in raised.exception.usages] == [
+                "workflow" if other_user == "workflow" else "warehouse_source"
+            ]
+            assert source.credentials_integration_id == str(pk)
+            assert WarehouseSourceCredentialsStore.get(source) == PG_FIELDS
+            return
+        reference = WarehouseSourceCredentialsStore.update(source, new_fields, allow_shared=allow_shared)
 
         new_pk = reference.legacy_id
         assert new_pk is not None

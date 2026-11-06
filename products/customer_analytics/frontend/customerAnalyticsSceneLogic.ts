@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 
 import { router, urlToAction } from 'kea-router'
 
 import { FunnelLayout } from 'lib/constants'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
@@ -9,6 +10,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { TodayPeopleStaticRowKey, todayPeopleRowLabel } from '~/layout/today/todayPeopleRows'
 import { groupsModel } from '~/models/groupsModel'
 import {
     ActionsNode,
@@ -110,6 +112,7 @@ export interface customerAnalyticsSceneLogicValues {
     signupEvent: AnyEntityNode // customerAnalyticsConfigLogic
     signupPageviewEvent: AnyEntityNode // customerAnalyticsConfigLogic
     subscriptionEvent: AnyEntityNode // customerAnalyticsConfigLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypesRaw: Array<GroupType> // groupsModel
     groupsEnabled: boolean // groupsModel
@@ -140,12 +143,15 @@ export interface customerAnalyticsSceneLogicValues {
     mauSeries: AnyEntityNode | null
     mineOnly: boolean
     paymentSeries: AnyEntityNode | null
+    sceneName: string | undefined
     selectedGroupType: number
     sessionInsights: InsightDefinition[]
     signupInsights: InsightDefinition[]
     signupPageviewSeries: AnyEntityNode | null
     signupSeries: AnyEntityNode | null
     subscriptionSeries: AnyEntityNode | null
+    todayPeopleRowKey: TodayPeopleStaticRowKey
+    todayRailTabName: string | null
     wauSeries: AnyEntityNode | null
 }
 
@@ -176,8 +182,27 @@ export interface customerAnalyticsSceneLogicActions {
 export interface customerAnalyticsSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeTab: (sceneKey: string | null) => ActiveTab
+        todayPeopleRowKey: (activeTab: ActiveTab) => TodayPeopleStaticRowKey
+        todayRailTabName: (
+            featureFlags: FeatureFlagsSet,
+            todayPeopleRowKey:
+                | 'accounts'
+                | 'announcements'
+                | 'cohorts'
+                | 'configure'
+                | 'feature_requests'
+                | 'feed'
+                | 'journeys'
+                | 'notes'
+                | 'overview'
+                | 'persons'
+                | 'support'
+                | 'tasks'
+        ) => string | null
+        sceneName: (todayRailTabName: string | null, activeTab: ActiveTab) => string | undefined
+        breadcrumbs: (todayRailTabName: string | null) => Breadcrumb[]
         customerLabel: (
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
             businessType: BusinessType,
             selectedGroupType: number
         ) => {
@@ -293,6 +318,8 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             ['aggregationLabel', 'groupsEnabled', 'groupTypesRaw'],
             sceneLogic,
             ['sceneKey'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions({
@@ -349,12 +376,28 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             (s) => [s.sceneKey],
             (sceneKey: string | null): ActiveTab => (sceneKey && SCENE_KEY_TO_TAB[sceneKey]) || 'dashboard',
         ],
+        /** The People pane row for the open tab. Under today-rail-nav those rows replace the tabs. */
+        todayPeopleRowKey: [
+            (s) => [s.activeTab],
+            (activeTab: ActiveTab): TodayPeopleStaticRowKey => (activeTab === 'dashboard' ? 'overview' : activeTab),
+        ],
+        todayRailTabName: [
+            (s) => [s.featureFlags, s.todayPeopleRowKey],
+            (featureFlags: FeatureFlagsSet, rowKey: TodayPeopleStaticRowKey): string | null =>
+                todayPeopleRowLabel(featureFlags, rowKey),
+        ],
+        sceneName: [
+            (s) => [s.todayRailTabName, s.activeTab],
+            (todayRailTabName: string | null, activeTab: ActiveTab): string | undefined =>
+                todayRailTabName ??
+                (activeTab === 'tasks' ? 'Tasks' : sceneConfigurations[Scene.CustomerAnalytics].name),
+        ],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
+            (s) => [s.todayRailTabName],
+            (todayRailTabName: string | null): Breadcrumb[] => [
                 {
                     key: Scene.CustomerAnalytics,
-                    name: sceneConfigurations[Scene.CustomerAnalytics].name,
+                    name: todayRailTabName ?? sceneConfigurations[Scene.CustomerAnalytics].name,
                     path: urls.customerAnalyticsDashboard(),
                     iconType: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                 },

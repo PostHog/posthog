@@ -24,6 +24,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
+QUOTA_EXHAUSTED_MARKER = "limit reached"
 # Aggregate pull requests cap the date range at ~1000 days.
 MAX_WINDOW_DAYS = 999
 # AppsFlyer doesn't finalize data until ~48h after the UTC day; re-fetch the
@@ -151,6 +152,11 @@ def _credentials_error(message: str, response: requests.Response, api_token: str
     return AppsFlyerCredentialsError(f"{message} AppsFlyer said: {reason}" if reason else message)
 
 
+def _is_quota_exhausted(response: requests.Response) -> bool:
+    """AppsFlyer answers 403 (sometimes 429) with a "limit reached" body once the daily report quota is spent."""
+    return response.status_code in (403, 429) and QUOTA_EXHAUSTED_MARKER in response.text.lower()
+
+
 def _normalize_header(header: str) -> str:
     """CSV headers like 'Media Source (pid)' become stable snake_case columns."""
     return re.sub(r"[^0-9a-zA-Z]+", "_", header).strip("_").lower()
@@ -266,7 +272,7 @@ def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Itera
 def _open_report(session: requests.Session, url: str, logger: FilteringBoundLogger) -> requests.Response:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    if response.status_code == 429 or response.status_code >= 500 or _is_quota_exhausted(response):
         response.close()
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}, url={url}")
 
@@ -321,6 +327,11 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         f"?{urlencode({'from': today, 'to': today})}",
         timeout=30,
     )
+    if _is_quota_exhausted(response):
+        raise AppsFlyerCredentialsError(
+            "Your AppsFlyer account has used up its daily report API quota. "
+            "Try connecting again after your daily quota resets."
+        )
     if response.status_code == 429 or response.status_code >= 500:
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}")
     if response.status_code == 200:
