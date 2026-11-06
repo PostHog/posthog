@@ -276,7 +276,7 @@ class S3ObjectStore(ObjectStore):
 
 def _preserve_gzip_encoding(request: AWSRequest, **kwargs: Any) -> None:
     # GCS must keep .gz objects compressed because the parsers use the filename suffix.
-    if urlsplit(request.url).path.lower().endswith(".gz"):
+    if request.url and urlsplit(request.url).path.lower().endswith(".gz"):
         request.headers["Accept-Encoding"] = "gzip"
 
 

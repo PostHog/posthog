@@ -20,6 +20,7 @@ import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
 from botocore.awsrequest import AWSResponse
+from botocore.compat import HTTPHeaders
 from botocore.exceptions import ClientError
 from botocore.response import StreamingBody
 from botocore.stub import Stubber
@@ -1446,10 +1447,12 @@ class TestS3Open:
             assert request.url.endswith(f"/exports/{path}")
             assert "Range" not in request.headers
             payload = gzip.compress(content) if request.headers.get("Accept-Encoding") in ("gzip", b"gzip") else content
+            headers = HTTPHeaders()
+            headers["content-length"] = str(len(payload))
             return AWSResponse(
                 request.url,
                 200,
-                {"content-length": str(len(payload))},
+                headers,
                 HTTPResponse(body=io.BytesIO(payload), preload_content=False),
             )
 
