@@ -20,6 +20,20 @@ _INCREMENTAL_FIELD_PREFERENCE = [
     "created",
 ]
 
+_TEMPORAL_FIELD_TYPES = {IncrementalFieldType.Timestamp, IncrementalFieldType.DateTime, IncrementalFieldType.Date}
+_TYPE_RANK = {
+    IncrementalFieldType.Timestamp: 2,
+    IncrementalFieldType.DateTime: 2,
+    IncrementalFieldType.Integer: 1,
+    IncrementalFieldType.Numeric: 1,
+    IncrementalFieldType.ObjectID: 1,
+}
+
+_TRACKS_UPDATES_NOTE = "Changes when a row is updated, so edited rows sync again."
+_TRACKS_INSERTS_ONLY_NOTE = "Only marks new rows. Edits to existing rows don't sync."
+_NOT_INDEXED_NOTE = "Not indexed, so each sync scans the whole table."
+_NULLABLE_NOTE = "Can be empty. Rows where it's empty never sync."
+
 
 @dataclass(frozen=False)
 class SourceSchema:
@@ -66,22 +80,65 @@ class SourceSchema:
     prefers_full_refresh: bool = False
 
 
-def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[IncrementalField]:
-    """Stable-sort candidate cursor fields so update-tracking columns come first.
+def _change_tracking_tier(field: IncrementalField) -> int:
+    """2 when the field advances on updates, 1 when only on inserts, 0 when the name tells nothing."""
+    name = field.get("field") or ""
+    field_type = field.get("field_type") or field.get("type")
+    if field_type in _TEMPORAL_FIELD_TYPES:
+        compact = "".join(ch for ch in name.lower() if ch.isalnum())
+        if "updat" in compact or "modif" in compact:
+            return 2
+        if "creat" in compact or "insert" in compact:
+            return 1
+        return 0
+    # A Mongo ObjectID and an integer `id` grow with each insert and never change on update.
+    if field_type == IncrementalFieldType.ObjectID or name.lower() == "id":
+        return 1
+    return 0
 
-    Several surfaces default to the first candidate (the schema picker response, the sync
-    settings modal), so for sources with arbitrary user columns the leading candidate must
-    be one that advances on writes rather than whichever column comes first in the table
-    definition. Fields not in the preference list keep their original relative order.
+
+def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[IncrementalField]:
+    """Sort candidate cursor fields best first, and mark the first one as recommended.
+
+    For sources with arbitrary user columns. Several surfaces default to the first candidate
+    (the schema picker response, the sync settings modal, the MCP), so it must be the field a
+    data engineer would pick, not whichever column comes first in the table definition.
+
+    The order of precedence: whether the field advances on updates, whether it is indexed,
+    whether it is non-nullable, then its type. The name check goes first because a field that
+    misses updates loses data without any error, while a full scan is only slow. Each field
+    gets `notes` that explain the trade-offs to the user or to an agent.
     """
 
-    def preference(field: IncrementalField) -> int:
+    def sort_key(field: IncrementalField) -> tuple[int, int, int, int, int]:
         name = (field.get("field") or "").lower()
-        if name in _INCREMENTAL_FIELD_PREFERENCE:
-            return _INCREMENTAL_FIELD_PREFERENCE.index(name)
-        return len(_INCREMENTAL_FIELD_PREFERENCE)
+        exact_preference = (
+            _INCREMENTAL_FIELD_PREFERENCE.index(name)
+            if name in _INCREMENTAL_FIELD_PREFERENCE
+            else len(_INCREMENTAL_FIELD_PREFERENCE)
+        )
+        return (
+            -_change_tracking_tier(field),
+            0 if field.get("is_indexed", True) else 1,
+            1 if field.get("nullable", False) else 0,
+            -_TYPE_RANK.get(field.get("field_type") or field["type"], 0),
+            exact_preference,
+        )
 
-    return sorted(incremental_fields, key=preference)
+    ranked: list[IncrementalField] = []
+    for position, candidate in enumerate(sorted(incremental_fields, key=sort_key)):
+        notes = []
+        tier = _change_tracking_tier(candidate)
+        if tier == 2:
+            notes.append(_TRACKS_UPDATES_NOTE)
+        elif tier == 1:
+            notes.append(_TRACKS_INSERTS_ONLY_NOTE)
+        if candidate.get("is_indexed") is False:
+            notes.append(_NOT_INDEXED_NOTE)
+        if candidate.get("nullable"):
+            notes.append(_NULLABLE_NOTE)
+        ranked.append({**candidate, "recommended": position == 0, "notes": notes})
+    return ranked
 
 
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:
@@ -89,6 +146,9 @@ def _select_incremental_field(incremental_fields: list[IncrementalField]) -> Inc
     candidates = [f for f in incremental_fields if f.get("field")]
     if not candidates:
         return None
+    recommended = next((f for f in candidates if f.get("recommended")), None)
+    if recommended is not None:
+        return recommended
     by_name = {f["field"].lower(): f for f in candidates}
     for name in _INCREMENTAL_FIELD_PREFERENCE:
         if name in by_name:
