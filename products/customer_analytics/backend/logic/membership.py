@@ -50,7 +50,7 @@ class MembershipExistence:
 
 def _parse_group_key(group_key: str) -> str:
     try:
-        return json.loads(f'"{group_key}"')
+        return json.loads(f'"{group_key}"').replace("\x00", "\ufffd")
     except json.JSONDecodeError:
         return group_key
 
