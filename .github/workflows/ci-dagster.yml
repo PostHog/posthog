@@ -417,10 +417,9 @@ jobs:
             test_paths: ${{ steps.classify.outputs.test_paths }}
             matrix_include: ${{ steps.classify.outputs.matrix_include }}
         steps:
+            # Fetch the working tree at depth 1 to avoid a second request for all its blobs.
+            # The selector adds blobless history after checkout, as backend discovery does.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
@@ -462,6 +461,7 @@ jobs:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
                   set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$GITHUB_SHA"
                   git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
                   uv run tools/dagster_test_selection.py --base-ref "origin/$BASE_REF" > /tmp/dagster-selection.json
 
