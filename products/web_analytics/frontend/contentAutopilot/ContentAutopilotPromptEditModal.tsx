@@ -34,7 +34,7 @@ export const ContentAutopilotPromptEditModal = (): JSX.Element | null => {
     return (
         <LemonModal
             isOpen={promptEditing}
-            onClose={close}
+            onClose={promptSaving ? undefined : close}
             title="Edit prompt"
             description="A text change adds a new version. Past checks keep the version they ran with."
             width={640}

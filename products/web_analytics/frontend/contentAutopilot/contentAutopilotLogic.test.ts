@@ -210,6 +210,7 @@ describe('contentAutopilotLogic', () => {
         // A row's draft button sends only that row, leaves the table selection alone,
         // and blocks every other draft trigger until the request settles.
         mountedLogic.actions.toggleOpportunitySelection(first.id)
+        mountedLogic.actions.setWorkspaceTab('prompts')
         const rowDraft = deferred<ContentAutopilotRunApi>()
         mockOpportunitiesDraft.mockReturnValueOnce(rowDraft.promise)
         mountedLogic.actions.draftOpportunities([second.id])
@@ -222,6 +223,8 @@ describe('contentAutopilotLogic', () => {
             opportunity_ids: [second.id],
         })
         expect(mountedLogic.values.selectedOpportunityIds).toEqual([first.id])
+        // Drafting from a prompt keeps the user on the Prompts tab.
+        expect(mountedLogic.values.workspaceTab).toBe('prompts')
     })
 
     it('sends typed run and profile payloads to the generated API clients', async () => {

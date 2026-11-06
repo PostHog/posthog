@@ -1410,7 +1410,14 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             if (!payload) {
                 actions.clearOpportunitySelection()
             }
-            actions.setWorkspaceTab('drafts')
+            if (!payload || values.workspaceTab === 'opportunities') {
+                actions.setWorkspaceTab('drafts')
+            } else {
+                // Drafting from a prompt keeps the user where they are.
+                lemonToast.success('Drafting started.', {
+                    button: { label: 'View drafts', action: () => actions.setWorkspaceTab('drafts') },
+                })
+            }
             actions.loadRuns()
             actions.loadOpportunities()
         },

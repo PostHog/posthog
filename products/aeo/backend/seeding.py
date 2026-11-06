@@ -105,11 +105,13 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
             updated_at=now,
         )
     with team_scope(team_id), transaction.atomic():
+        # Locked in hash order, so a concurrent import cannot overwrite evidence this one merged.
         existing = {
             key: (archived_at, evidence)
-            for key, archived_at, evidence in AEOPrompt.objects.filter(prompt_hash__in=rows.keys()).values_list(
-                "prompt_hash", "archived_at", "evidence"
-            )
+            for key, archived_at, evidence in AEOPrompt.objects.filter(prompt_hash__in=rows.keys())
+            .select_for_update()
+            .order_by("prompt_hash")
+            .values_list("prompt_hash", "archived_at", "evidence")
         }
         # An archived prompt stays archived, so re-importing its text neither revives nor duplicates it.
         archived = {key for key, (archived_at, _) in existing.items() if archived_at is not None}

@@ -165,7 +165,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     loading={promptsLoading}
                     emptyState={
                         needsImprovement
-                            ? 'No prompts need improvement. Every prompt answered in the last 30 days cited your site.'
+                            ? 'No prompts need improvement. A prompt shows here when an AI assistant answered it in the last 30 days without citing your site.'
                             : promptsTopic === null
                               ? 'No prompts to show'
                               : 'No prompts have this topic'

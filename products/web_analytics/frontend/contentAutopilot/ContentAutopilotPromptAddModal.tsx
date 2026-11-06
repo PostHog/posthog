@@ -38,7 +38,7 @@ export const ContentAutopilotPromptAddModal = (): JSX.Element => {
     return (
         <LemonModal
             isOpen={addPromptsOpen}
-            onClose={closeAddPrompts}
+            onClose={addPromptsSubmitting ? undefined : closeAddPrompts}
             title="Add prompts"
             description="Write each prompt the way a person would ask an AI assistant."
             width={640}
@@ -64,7 +64,10 @@ export const ContentAutopilotPromptAddModal = (): JSX.Element => {
             }
         >
             <div className="flex flex-col gap-4">
-                <LemonField.Pure label="Prompts" help="One prompt per line. A prompt already in the set is updated.">
+                <LemonField.Pure
+                    label="Prompts"
+                    help="One prompt per line. A prompt that is already tracked gets the topic below."
+                >
                     <LemonTextArea
                         value={text}
                         onChange={setText}
