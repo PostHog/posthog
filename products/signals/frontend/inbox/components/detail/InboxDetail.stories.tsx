@@ -184,7 +184,7 @@ const meta: Meta = {
         mockDate: '2026-06-11',
         featureFlags: {
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         },
     },
     decorators: [detailMocks],
@@ -462,7 +462,7 @@ export const ReportWithFollowUpMetric: Story = {
         mockDate: '2026-08-29',
         featureFlags: {
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         },
     },
     render: () => (
@@ -493,7 +493,7 @@ export const ReportWithFollowUpMetricHidden: Story = {
         mockDate: '2026-08-29',
         featureFlags: {
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: false,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false,
         },
     },
 }

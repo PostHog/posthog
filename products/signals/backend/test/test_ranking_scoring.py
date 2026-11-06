@@ -635,6 +635,9 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
         score = RankingScore.model_validate_json(rows[0].content)
         assert score.served_key == manifest.served.key
         assert score.results[candidate.key].status == "scored"
+        report = SignalReport.objects.get(id=scored)
+        assert report.ranking_scores == score.results[manifest.served.key].scores
+        assert report.ranking_open_score == score.results[manifest.served.key].scores["open"]
         assert sorted(
             (event["event"], event["properties"]["report_id"], event["properties"]["model_key"])
             for event in captured.events

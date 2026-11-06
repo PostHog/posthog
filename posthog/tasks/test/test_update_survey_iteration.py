@@ -6,9 +6,11 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase
 from django.utils.timezone import now
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
 from posthog.tasks.update_survey_iteration import update_survey_iteration
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
@@ -91,6 +93,46 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertEqual(change["field"], "end_date")
         self.assertEqual(change["action"], "created")
         self.assertIsNotNone(change["after"])
+        self.assertEqual(
+            log.detail["trigger"],
+            {
+                "job_type": "survey_schedule_ended",
+                "job_id": str(self.recurring_survey.id),
+                "payload": {"iteration_count": 3, "iteration_frequency_days": self.iteration_frequency_days},
+            },
+        )
+
+    @parameterized.expand(
+        [
+            # Resuming a survey the scheduler closed must stick, or it closes again on the next run.
+            ("resumed_after_schedule_ended", 2, False),
+            ("resumed_before_schedule_ended", 10, True),
+        ]
+    )
+    def test_person_resuming_survey(self, _name: str, resumed_days_ago: int, expect_closed: bool) -> None:
+        self.recurring_survey.start_date = now() - timedelta(days=self.iteration_frequency_days * 3 + 5)
+        self.recurring_survey.save()
+        log_activity(
+            organization_id=self.org.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=self.recurring_survey.id,
+            scope="Survey",
+            activity="updated",
+            detail=Detail(
+                name=self.recurring_survey.name,
+                changes=[Change(type="Survey", field="end_date", action="changed", before=now(), after=None)],
+            ),
+        )
+        ActivityLog.objects.filter(item_id=str(self.recurring_survey.id)).update(
+            created_at=now() - timedelta(days=resumed_days_ago)
+        )
+
+        update_survey_iteration()
+
+        self.recurring_survey.refresh_from_db()
+        self.assertEqual(self.recurring_survey.end_date is not None, expect_closed)
 
     def test_huge_iteration_frequency_does_not_crash_task(self) -> None:
         self.recurring_survey.iteration_count = 1
