@@ -203,10 +203,9 @@ tools:
             project has no verified email sender, so email workflows can be saved as drafts but cannot send until a
             sending domain is added and verified under Workflows > Channels. When sandbox_sender_only is true, say that
             email sends only to verified members of the organization, through the sandbox sender, until the project
-            verifies its own domain. Then offer the suggestions. Never show the
-            ids; the user picks by name or number, and you pass that suggestion's id to
-            workflows-data-suggestions-create. 'ai_not_approved' means the organization has not approved AI data
-            processing; 'unavailable' means there is nothing to suggest right now.
+            verifies its own domain. Then offer the suggestions. Never show the ids; the user picks by name or number,
+            and you pass that suggestion's id to workflows-data-suggestions-create. 'ai_not_approved' means the
+            organization has not approved AI data processing; 'unavailable' means there is nothing to suggest right now.
         ui_app: workflow-data-suggestions
         response:
             include:
@@ -651,8 +650,9 @@ tools:
             For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen
             in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it
             is. When sandbox_sender_only is true, email sends only through the sandbox sender, to verified members of
-            the organization: say so, and point to the channel and domain steps for sending to anyone else. Automations that only post to Slack or call webhooks need none of these steps. Offer
-            workflows-data-suggestions-list once setup is done.
+            the organization: say so, and point to the channel and domain steps for sending to anyone else. Automations
+            that only post to Slack or call webhooks need none of these steps. Offer workflows-data-suggestions-list
+            once setup is done.
         ui_app: workflow-setup-status
         feature_flag: workflows-mcp-onboarding
     workflows-stats:
