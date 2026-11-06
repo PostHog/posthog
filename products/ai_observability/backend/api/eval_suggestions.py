@@ -1,11 +1,10 @@
 import uuid
 from typing import Any
 
-from django.db.models import F, Q
+from django.db.models import F, Q, QuerySet
 from django.utils import timezone
 
 import structlog
-from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
@@ -13,14 +12,17 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import is_service_auth
+from posthog.rate_limit import AIObservabilityBackfillEstimateSustainedThrottle, AIObservabilityBackfillEstimateThrottle
 
 from ..eval_suggestions import accept as accept_logic
-from ..eval_suggestions.client import TEAM_TIMEOUT, start_first_visit_run
+from ..eval_suggestions.client import TEAM_TIMEOUT
 from ..eval_suggestions.config import is_enabled_for_organization
-from ..eval_suggestions.eligibility import claim_first_visit_run, record_visit
+from ..eval_suggestions.eligibility import claim_first_visit_run, queue_first_visit_run, record_visit
 from ..models.eval_suggestions import (
     EvalSuggestion,
     EvalSuggestionDismissReason,
@@ -29,7 +31,7 @@ from ..models.eval_suggestions import (
     EvalSuggestionRunStatus,
     EvalSuggestionStatus,
 )
-from ..models.evaluations import EvaluationTarget
+from ..models.evaluations import Evaluation, EvaluationTarget
 
 logger = structlog.get_logger(__name__)
 
@@ -264,13 +266,36 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     queryset = EvalSuggestion.objects.unscoped()
     serializer_class = EvalSuggestionSerializer
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        # The estimate runs the same ClickHouse counts as a backfill estimate, so it shares its limits.
+        if self.action == "accept_estimate":
+            return [
+                *super().get_throttles(),
+                AIObservabilityBackfillEstimateThrottle(),
+                AIObservabilityBackfillEstimateSustainedThrottle(),
+            ]
+        return super().get_throttles()
+
+    def _suggestions(self) -> QuerySet[EvalSuggestion]:
+        """The team's suggestions, without those that name an evaluation the user cannot read."""
+        suggestions = EvalSuggestion.objects.for_team(self.team_id)
+        if is_service_auth(self.request):
+            return suggestions
+        visible = self.user_access_control.filter_queryset_by_access_level(
+            Evaluation.objects.filter(team_id=self.team_id)
+        ).values("id")
+        return suggestions.filter(
+            Q(target_evaluation__isnull=True) | Q(target_evaluation_id__in=visible),
+            Q(similar_evaluation__isnull=True) | Q(similar_evaluation_id__in=visible),
+        )
+
     def _suggestion(self, pk: str) -> EvalSuggestion:
         try:
             suggestion_id = uuid.UUID(pk)
         except ValueError:
             raise NotFound("No suggestion with this id in this project.")
         suggestion = (
-            EvalSuggestion.objects.for_team(self.team_id)
+            self._suggestions()
             .select_related("target_evaluation", "similar_evaluation")
             .filter(id=suggestion_id)
             .first()
@@ -292,13 +317,13 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ).exists()
         if latest is None and not pending and claim_first_visit_run(self.team):
             try:
-                async_to_sync(start_first_visit_run)(self.team.pk)
+                queue_first_visit_run(self.team)
                 pending = True
             except Exception:
                 # The list still answers. The claim holds for the day, so the next day's visit tries again.
                 logger.exception("llma.eval_suggestions_first_visit_start_failed", team_id=self.team_id)
         results = (
-            EvalSuggestion.objects.for_team(self.team_id)
+            self._suggestions()
             .filter(run=latest, status=EvalSuggestionStatus.PROPOSED)
             .exclude(STALE_FIX)
             .select_related("target_evaluation", "similar_evaluation")

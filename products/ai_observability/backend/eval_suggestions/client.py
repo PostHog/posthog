@@ -68,14 +68,16 @@ class TeamRunInputs:
     trigger: str
     include_paid: bool
     batch_id: str = ""
+    # Set when the caller created the run row first, so the page sees the run before a worker picks it up.
+    run_id: str = ""
 
 
-async def start_first_visit_run(team_id: int) -> None:
+async def start_first_visit_run(team_id: int, run_id: str) -> None:
     """Start the free stages for one team. A run already in flight for the team absorbs the request."""
     client = await async_connect()
     await client.start_workflow(
         TEAM_WORKFLOW_NAME,
-        TeamRunInputs(team_id=team_id, trigger="first_visit", include_paid=False),
+        TeamRunInputs(team_id=team_id, trigger="first_visit", include_paid=False, run_id=run_id),
         id=f"{TEAM_WORKFLOW_NAME}-{team_id}-first-visit",
         task_queue=settings.LLMA_TASK_QUEUE,
         id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,

@@ -5,6 +5,8 @@ from datetime import date, datetime, timedelta
 from django.db.models import Q
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
@@ -16,6 +18,7 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionTeamState,
 )
 
+from .client import start_first_visit_run
 from .config import SuggestionSettings, is_enabled_for_organization
 from .queries import MAX_EXECUTION_TIME_SECONDS
 
@@ -60,6 +63,20 @@ def claim_first_visit_run(team: Team, today: date | None = None) -> bool:
         .update(first_visit_run_on=today)
     )
     return claimed == 1
+
+
+def queue_first_visit_run(team: Team) -> None:
+    """Start the free stages for a team's first visit.
+
+    The run row exists before the workflow starts, so the page reads the queued run as pending until a worker
+    finishes it.
+    """
+    run = EvalSuggestionRun.objects.for_team(team.pk).create(team=team, trigger="first_visit")
+    try:
+        async_to_sync(start_first_visit_run)(team.pk, str(run.id))
+    except Exception:
+        run.delete()
+        raise
 
 
 def steady_traffic_team_ids(team_ids: list[int], now: datetime) -> set[int]:

@@ -347,12 +347,15 @@ class TestEvalSuggestionsApi(APIBaseTest):
         self, _name: str, start_error: Exception | None, pending: bool, _flag: MagicMock
     ) -> None:
         self.suggestion_run.delete()
-        with patch(f"{API_MODULE}.start_first_visit_run", new=AsyncMock(side_effect=start_error)) as start:
+        with patch(
+            "products.ai_observability.backend.eval_suggestions.eligibility.start_first_visit_run",
+            new=AsyncMock(side_effect=start_error),
+        ) as start:
             first = self.client.get(f"{self.url}/").json()
             second = self.client.get(f"{self.url}/").json()
 
-        assert first["pending"] is pending
-        assert second["pending"] is False
+        # A queued run stays pending until a worker finishes it, and a start that failed leaves nothing pending.
+        assert first["pending"] is second["pending"] is pending
         assert start.await_count == 1
 
 
@@ -412,3 +415,27 @@ class TestEvalSuggestionsAccessControl(APIBaseTest):
         assert Evaluation.objects.filter(team=self.team).count() == 2
         target.refresh_from_db()
         assert target.conditions[0]["properties"][0]["value"] == ["signals"]
+
+    @parameterized.expand([("target_evaluation",), ("similar_evaluation",)])
+    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    def test_member_sees_no_suggestion_naming_an_evaluation_hidden_from_them(
+        self, field: str, _flag: MagicMock
+    ) -> None:
+        hidden = _evaluation(self.team, name="Hidden evaluation")
+        self._grant("editor")
+        self._grant("none", hidden)
+        suggestion = EvalSuggestion.objects.for_team(self.team.pk).create(
+            team=self.team,
+            run=self.suggestion_run,
+            kind=EvalSuggestionKind.FIX_EVAL if field == "target_evaluation" else EvalSuggestionKind.NEW_HOG,
+            dedupe_key="hidden:one",
+            headline="Suggestion",
+            reason="Reason",
+            draft=CHECK_DRAFT,
+            **{field: hidden},
+        )
+        self.client.force_login(self.member)
+        url = f"/api/projects/{self.team.id}/evaluation_suggestions"
+
+        assert self.client.get(f"{url}/").json()["results"] == []
+        assert self.client.get(f"{url}/{suggestion.id}/").status_code == status.HTTP_404_NOT_FOUND
