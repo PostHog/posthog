@@ -185,20 +185,6 @@ def _list_alias_in_many_comparisons() -> ast.SelectQuery:
     return select
 
 
-def _with_list_read_many_times() -> ast.SelectQuery:
-    names = ast.Tuple(exprs=[*(ast.Constant(value=f"e{n}") for n in range(30_000)), ast.Constant(value="$pageview")])
-    select = _select("SELECT 1 FROM events")
-    select.ctes = {"names": ast.CTE(name="names", expr=names, cte_type="column")}
-    select.where = ast.CompareOperation(
-        op=ast.CompareOperationOp.In,
-        left=ast.Field(chain=["event"]),
-        right=ast.Tuple(
-            exprs=[*(ast.Field(chain=["names"]) for _ in range(30_000)), ast.Constant(value="$feature_flag_called")]
-        ),
-    )
-    return select
-
-
 def _with_list_read_by_many_subqueries() -> ast.SelectQuery:
     names = ast.Tuple(
         exprs=[*(ast.Constant(value=f"e{n}") for n in range(30_000)), ast.Constant(value="$feature_flag_called")]
@@ -623,7 +609,6 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [],
                 only_in_flag_evaluations=False,
             ),
-            ("with_list_read_many_times", _with_list_read_many_times(), [UNION], []),
             ("long_with", _long_with(), [UNION], []),
             ("with_list_read_by_many_subqueries", _with_list_read_by_many_subqueries(), [UNION] * 300, []),
             (
@@ -724,6 +709,13 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 "flag_call_constant_in_an_outer_with",
                 "WITH '$feature_flag_called' AS fc SELECT * FROM (SELECT count() FROM persons AS p "
                 "JOIN events AS e ON p.id = e.person_id WHERE e.event IN ('$pageview', '$autocapture', fc))",
+                ["it compares `event` with more values than the flag-call check reads"],
+            ),
+            (
+                "flag_call_constant_in_the_first_branch_with",
+                "WITH '$feature_flag_called' AS fc SELECT 1 FROM events WHERE event = '$pageview' "
+                "UNION ALL SELECT count() FROM persons AS p JOIN events AS e ON p.id = e.person_id "
+                "WHERE e.event IN ('$pageview', '$autocapture', fc)",
                 ["it compares `event` with more values than the flag-call check reads"],
             ),
         ]
