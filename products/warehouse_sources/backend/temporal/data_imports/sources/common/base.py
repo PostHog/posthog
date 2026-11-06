@@ -619,6 +619,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Check for legacy OAuth tokens without network calls."""
         return False
 
+    def legacy_oauth_keys(self) -> tuple[str, ...]:
+        return ()
+
     def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
         """Prepare a grant for storage. This method can make network calls and raise LegacyOAuthGrantUnusable.
 
