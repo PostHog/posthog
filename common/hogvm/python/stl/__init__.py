@@ -271,6 +271,13 @@ def base64Decode(args: list[Any], team: Optional["Team"], stdout: Optional[list[
     return base64.b64decode(args[0].encode()).decode()
 
 
+def tryBase64Decode(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    try:
+        return base64Decode(args, team, stdout, timeout)
+    except ValueError:
+        return ""
+
+
 def encodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
     import urllib.parse
 
@@ -1045,6 +1052,7 @@ STL: dict[str, STLFunction] = {
     "JSONExtractBool": STLFunction(fn=JSONExtractBool, minArgs=1, maxArgs=None),
     "base64Encode": STLFunction(fn=base64Encode, minArgs=1, maxArgs=1),
     "base64Decode": STLFunction(fn=base64Decode, minArgs=1, maxArgs=1),
+    "tryBase64Decode": STLFunction(fn=tryBase64Decode, minArgs=1, maxArgs=1),
     "encodeURLComponent": STLFunction(fn=encodeURLComponent, minArgs=1, maxArgs=1),
     "decodeURLComponent": STLFunction(fn=decodeURLComponent, minArgs=1, maxArgs=1),
     "tryDecodeURLComponent": STLFunction(fn=tryDecodeURLComponent, minArgs=1, maxArgs=1),

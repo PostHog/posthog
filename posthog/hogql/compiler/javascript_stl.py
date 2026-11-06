@@ -1308,6 +1308,10 @@ function __setProperty(objectOrArray, key, value) {
         "function lessOrEquals(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a <= b }",
         [],
     ],
+    "max2": [
+        "function max2(a, b) { return a > b ? a : b }",
+        [],
+    ],
     "min2": [
         "function min2(a, b) { return a < b ? a : b }",
         [],

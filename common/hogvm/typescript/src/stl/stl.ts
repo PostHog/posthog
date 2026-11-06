@@ -258,6 +258,10 @@ function min2Fn([a, b]: any[]): any {
     return a < b ? a : b
 }
 
+function max2Fn([a, b]: any[]): any {
+    return a > b ? a : b
+}
+
 function plusFn([a, b]: any[]): any {
     return a + b
 }
@@ -1672,6 +1676,13 @@ export const STL: Record<string, STLFunction> = {
         fn: lessOrEqualsFn,
         description: 'Checks if first value is less or equal',
         example: 'lessOrEquals($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    max2: {
+        fn: max2Fn,
+        description: 'Returns maximum of two values',
+        example: 'max2($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },

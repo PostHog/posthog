@@ -155,7 +155,7 @@ def toDate(input):
     else:
         parsed = _parse_date_like(input)
         if parsed is None:
-            raise ValueError(f"Could not parse date: {input}")
+            return None
         dt = parsed
     return {
         "__hogDate__": True,
@@ -171,7 +171,7 @@ def toDateTime(input):
     else:
         parsed = _parse_date_like(input)
         if parsed is None:
-            raise ValueError(f"Could not parse date: {input}")
+            return None
         dt = parsed.timestamp()
     return {
         "__hogDateTime__": True,
