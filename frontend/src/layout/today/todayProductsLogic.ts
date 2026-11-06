@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
@@ -58,6 +59,17 @@ export interface todayProductsLogicActions {
         id: string
         successMessage: string | undefined
     } // projectTreeDataLogic
+    productOpened: (
+        item: FileSystemImport,
+        section: 'pinned' | 'starred' | 'all',
+        category: string | null,
+        position: number
+    ) => {
+        item: FileSystemImport
+        section: 'pinned' | 'starred' | 'all'
+        category: string | null
+        position: number
+    }
     setAllProductsOpen: (open: boolean) => {
         open: boolean
     }
@@ -142,6 +154,17 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
         setStarredOpen: (open: boolean) => ({ open }),
         setAllProductsOpen: (open: boolean) => ({ open }),
         toggleStarred: (item: FileSystemImport) => ({ item }),
+        productOpened: (
+            item: FileSystemImport,
+            section: 'pinned' | 'starred' | 'all',
+            category: string | null,
+            position: number
+        ) => ({
+            item,
+            section,
+            category,
+            position,
+        }),
     }),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
@@ -201,11 +224,23 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
                 return
             }
             const shortcut = findProductShortcut(item, values.shortcutData)
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today product star toggled', { product: item.href, starred: !shortcut?.id })
             if (shortcut?.id) {
                 actions.deleteShortcut(shortcut.id)
             } else {
                 actions.addShortcutItem(item as FileSystemEntry)
             }
+        },
+        productOpened: ({ item, section, category, position }) => {
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today product opened', {
+                product: item.href,
+                section,
+                category,
+                position,
+                starred: values.starredHrefs.has(item.href ?? ''),
+            })
         },
     })),
 ])
