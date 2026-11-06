@@ -179,6 +179,7 @@ tools:
                 - suggestions.*.trigger_event
                 - suggestions.*.weekly_count
                 - email_sender_ready
+                - sandbox_sender_only
     workflows-data-suggestions-list:
         operation: workflow_data_suggestions_generate
         enabled: true
@@ -197,7 +198,9 @@ tools:
             which one to create. Always let the user pick, even when they only asked to set up a workflow; create one
             without asking only when they already named it. When email_sender_ready is false, say that first: the
             project has no verified email sender, so email workflows can be saved as drafts but cannot send until a
-            sending domain is added and verified under Workflows > Channels. Then offer the suggestions. Never show the
+            sending domain is added and verified under Workflows > Channels. When sandbox_sender_only is true, say that
+            email sends only to verified members of the organization, through the sandbox sender, until the project
+            verifies its own domain. Then offer the suggestions. Never show the
             ids; the user picks by name or number, and you pass that suggestion's id to
             workflows-data-suggestions-create. 'ai_not_approved' means the organization has not approved AI data
             processing; 'unavailable' means there is nothing to suggest right now.
@@ -212,6 +215,7 @@ tools:
                 - suggestions.*.trigger_event
                 - suggestions.*.weekly_count
                 - email_sender_ready
+                - sandbox_sender_only
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
         enabled: true

@@ -1,5 +1,4 @@
 from django.conf import settings
-from django.core.cache import cache
 
 import structlog
 
@@ -15,7 +14,6 @@ SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
 SANDBOX_SENDER_FALLBACK_NAME = "PostHog sandbox"
 SANDBOX_SENDER_NAME_MAX_LENGTH = 40
 _SANDBOX_SENDER_NAME_PUNCTUATION = frozenset(" .,&'-")
-SANDBOX_SENDER_READ_CACHE_SECONDS = 60 * 60
 
 logger = structlog.get_logger(__name__)
 
@@ -73,18 +71,12 @@ def sandbox_email_sender_for_reads(team: Team) -> SandboxEmailSender | None:
     # Local evaluation only, so a flag condition the SDK can't evaluate in memory never adds a network call to a read.
     if not _sandbox_sender_configured() or not _sandbox_sender_enabled(team, only_evaluate_locally=True):
         return None
-    cache_key = f"workflows:sandbox_sender_ensured:{team.id}"
-    cached_id = cache.get(cache_key)
-    if isinstance(cached_id, int):
-        return SandboxEmailSender(integration_id=cached_id, created=False)
     try:
-        sender = _upsert_sandbox_email_sender(team)
+        return _upsert_sandbox_email_sender(team)
     except Exception as error:
         logger.exception("workflows.sandbox_sender.ensure_on_read_failed", team_id=team.id)
         capture_exception(error, {"team_id": team.id})
         return None
-    cache.set(cache_key, sender.integration_id, SANDBOX_SENDER_READ_CACHE_SECONDS)
-    return sender
 
 
 def _upsert_sandbox_email_sender(team: Team) -> SandboxEmailSender:

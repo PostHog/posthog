@@ -229,6 +229,7 @@ const workflowsDataSuggestionsGet = (): ToolBase<
                 'suggestions.*.trigger_event',
                 'suggestions.*.weekly_count',
                 'email_sender_ready',
+                'sandbox_sender_only',
             ]) as typeof result
             return filtered
         },
@@ -266,6 +267,7 @@ const workflowsDataSuggestionsList = (): ToolBase<
                 'suggestions.*.trigger_event',
                 'suggestions.*.weekly_count',
                 'email_sender_ready',
+                'sandbox_sender_only',
             ]) as typeof result
             return filtered
         },
