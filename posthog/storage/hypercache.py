@@ -355,7 +355,12 @@ class HyperCache:
         sees the cache as it is. (None, "redis") means Redis holds the "missing" marker.
         """
         cache_key = self.get_cache_key(key)
-        data = self.cache_client.get(cache_key)
+        try:
+            data = self.cache_client.get(cache_key)
+        except _REDIS_READ_ERRORS as e:
+            # A debug view must still show the S3 copy during a Redis outage, like get_from_cache_with_source does.
+            capture_exception(e)
+            data = None
         if data == _HYPER_CACHE_EMPTY_VALUE:
             return None, "redis"
         if data:
