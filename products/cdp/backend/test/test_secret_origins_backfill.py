@@ -105,27 +105,55 @@ class TestSecretOriginsBackfill(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_encrypted_inputs", None),
-            ("beside_an_encrypted_secret", {"token": KEPT_TOKEN}),
+            (
+                "no_encrypted_inputs",
+                {"value": "secret-legacy"},
+                None,
+                {"value": "secret-legacy", "allowed_origins": ["https://api.example.com"]},
+            ),
+            (
+                "beside_an_encrypted_secret",
+                {"value": "secret-legacy"},
+                {"token": KEPT_TOKEN},
+                {"value": "secret-legacy", "allowed_origins": ["https://api.example.com"]},
+            ),
+            ("already_bound", KEPT_TOKEN, None, KEPT_TOKEN),
         ]
     )
     def test_commit_moves_a_plaintext_secret_into_the_encrypted_column_and_binds_it(
-        self, _name: str, stored_secrets: dict[str, Any] | None
+        self,
+        _name: str,
+        plaintext: dict[str, Any],
+        stored_secrets: dict[str, Any] | None,
+        expected_secret: dict[str, Any],
     ) -> None:
-        hog_function = self._function(LIVE_HOG, {"api_key": {"value": "secret-legacy"}, **(stored_secrets or {})})
+        hog_function = self._function(LIVE_HOG, {"api_key": plaintext, **(stored_secrets or {})})
         HogFunction.objects.filter(pk=hog_function.pk).update(
-            inputs={"api_key": {"value": "secret-legacy"}}, encrypted_inputs=stored_secrets
+            inputs={"api_key": plaintext}, encrypted_inputs=stored_secrets
         )
 
         report = self._commit()
 
         hog_function.refresh_from_db()
         assert hog_function.inputs == {}
-        assert hog_function.encrypted_inputs == {
-            **(stored_secrets or {}),
-            "api_key": {"value": "secret-legacy", "allowed_origins": ["https://api.example.com"]},
-        }
+        assert hog_function.encrypted_inputs == {**(stored_secrets or {}), "api_key": expected_secret}
         assert (report.rows_written, report.rows_failed) == (1, 0)
+
+    def test_skips_a_row_whose_encrypted_inputs_no_key_decrypts(self) -> None:
+        hog_function = self._function(LIVE_HOG, {"api_key": {"value": "secret-legacy"}})
+        HogFunction.objects.filter(pk=hog_function.pk).update(inputs={"api_key": {"value": "secret-legacy"}})
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE posthog_hogfunction SET encrypted_inputs = %s WHERE id = %s",
+                [f"{FERNET_TOKEN_PREFIX}undecryptable", hog_function.pk],
+            )
+        before = self._stored()
+
+        report = self._commit()
+
+        assert self._stored() == before
+        assert report.outcomes == Counter({SecretOutcome.SKIPPED: 1})
+        assert (report.rows_written, report.rows_failed) == (0, 0)
 
     def test_commit_writes_only_the_encrypted_column_as_ciphertext(self) -> None:
         hog_function = self._function(LIVE_HOG, {"api_key": {"value": "secret-live"}}, enabled=True)
@@ -143,13 +171,19 @@ class TestSecretOriginsBackfill(BaseTest):
     def test_dry_run_writes_nothing_and_prints_no_secret_or_host(self) -> None:
         self._function(LIVE_HOG, {"api_key": {"value": "secret-live"}})
         self._function(EVENT_URL_HOG, {"api_key": {"value": "secret-a"}}, EVENT_URL_INPUTS, template_id="template-hook")
+        plaintext = self._function(LIVE_HOG, {"api_key": {"value": "secret-legacy"}})
+        HogFunction.objects.filter(pk=plaintext.pk).update(
+            inputs={"api_key": {"value": "secret-legacy"}}, encrypted_inputs=None
+        )
         before = self._stored()
 
         out = StringIO()
         call_command("backfill_secret_origins", "--team-id", str(self.team.pk), stdout=out)
 
         assert self._stored() == before
-        assert "rows to write: 2" in out.getvalue()
+        plaintext.refresh_from_db()
+        assert plaintext.inputs == {"api_key": {"value": "secret-legacy"}}
+        assert "rows to write: 3" in out.getvalue()
         assert "template-hook=1" in out.getvalue()
         assert "secret-" not in out.getvalue() and "example.com" not in out.getvalue()
 
@@ -185,11 +219,12 @@ class TestSecretOriginsBackfill(BaseTest):
         after = self._stored()
 
         rerun = self._commit()
+        dry_run = backfill_secret_origins(commit=False, team_id=self.team.pk)
 
         assert self._stored() == after
         assert rerun.outcomes == Counter({SecretOutcome.ALREADY_BOUND: 2})
         assert rerun.unbound_templates == Counter({"template-hook": 1})
-        assert rerun.rows_written == 0
+        assert (dry_run.rows_to_write, rerun.rows_written) == (0, 0)
 
     def test_a_failed_row_fails_the_command_after_the_other_rows_are_written(self) -> None:
         broken = self._function(LIVE_HOG, {"api_key": {"value": "secret-broken"}})

@@ -154,8 +154,7 @@ def backfill_secret_origins(*, commit: bool, team_id: Optional[int] = None, batc
     report = BackfillReport()
     rows_scanned = 0
     last_id = None
-    # Keyset pages instead of `.iterator()`: behind pgbouncer server-side cursors are off, so an iterator
-    # loads every row at once, and with them on, a commit inside the loop needs a holdable cursor.
+    # Keyset pages, because `.iterator()` behind pgbouncer has no server-side cursor and loads every row.
     while batch := list((queryset if last_id is None else queryset.filter(id__gt=last_id))[:batch_size]):
         for hog_function in batch:
             try:
