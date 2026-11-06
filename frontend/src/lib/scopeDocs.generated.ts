@@ -404,8 +404,7 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
     file_system: {
         name: 'File system',
         plural: 'file system items',
-        description:
-            'The project file tree: folders, saved items, moving and deleting items, search, and recently viewed files.',
+        description: 'The project file tree: folders, saved items, search, and recently viewed files.',
         group: 'Organization & account',
         actions: ['read'],
     },
@@ -499,13 +498,6 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
             'Project integrations with third-party services such as Slack, plus connections to other PostHog projects.',
         group: 'Setup & data management',
         actions: ['read'],
-    },
-    knowledge_writer: {
-        name: 'Knowledge writer',
-        plural: 'knowledge writer verdicts',
-        description: 'Reporting merged commits to the knowledge writer, which drafts docs changes from them.',
-        group: 'Developer experience',
-        actions: ['read', 'write'],
     },
     legal_document: {
         name: 'Legal document',
@@ -849,7 +841,7 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         name: 'Transactional email',
         plural: 'transactional emails',
         description:
-            "Sending transactional email from a template and reading a sent email's status, without editing templates.",
+            "Making a template transactional and sending email from it, and reading a sent email's status with a project secret key.",
         group: 'Messaging',
         actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/workflows/transactional-emails',
