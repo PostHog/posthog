@@ -11,6 +11,8 @@ if TYPE_CHECKING:
     from django.db.models import Model
     from django.http import HttpRequest, HttpResponse
 
+    from posthog.admin.console.tools import Page
+
 
 class Tone(StrEnum):
     DEFAULT = "default"
@@ -86,6 +88,15 @@ class OperationHandler(Protocol):
     def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form | None) -> "HttpResponse | None": ...
 
 
+class RecordPreviewHandler(Protocol):
+    """Shows what an operation would change on the record before it runs, as a `Page`. It must not change anything.
+
+    To refuse the input, add an error to the form; the console then shows the form again.
+    """
+
+    def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form) -> "Page": ...
+
+
 @frozen
 class Operation:
     """An action on a record. The handler returns None when it is done, and the console sends staff back to the record.
@@ -103,9 +114,13 @@ class Operation:
     description: str = ""
     undo_hint: str = ""
     gate: Gate | None = None
+    # Staff confirm on a page that shows what will change, for an action that is hard to take back.
+    preview: RecordPreviewHandler | None = None
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
+        if self.preview is not None and self.form_class is None:
+            raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
 
 
 class ReasonForm(forms.Form):
