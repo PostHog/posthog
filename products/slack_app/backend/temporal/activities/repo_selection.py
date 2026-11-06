@@ -11,6 +11,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
+from products.slack_app.backend.task_profiles import REPO_SELECTION
 from products.slack_app.backend.temporal.helpers import safe_react
 from products.slack_app.backend.temporal.types import (
     PostHogCodeRepoCascadeOutcome,
@@ -126,7 +127,6 @@ async def discover_posthog_code_repository_via_agent_activity(
     from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import post_quota_exhausted_denial
-    from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.repo_selection import (
         RepoSelectionRejectedError,
         RepoSelectionUnavailableError,
@@ -167,7 +167,7 @@ async def discover_posthog_code_repository_via_agent_activity(
                 team_id=integration.team_id,
                 user_id=user_id,
                 context=context_block,
-                origin_product=tasks_facade.TaskOriginProduct.SLACK,
+                profile=REPO_SELECTION,
                 # A person waits in the Slack thread for the answer.
                 priority=Priority.NORMAL,
                 on_research_session=_capture_research_session,
