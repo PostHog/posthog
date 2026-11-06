@@ -590,10 +590,12 @@ def _boxes_of_removed_worktrees(
 ) -> list[WorktreeBox]:
     """Registered boxes whose worktree is gone, limited to the selected repo and sources.
 
-    The admin directory in the shared git dir outlives a moved or unmounted
-    checkout, so only its absence shows that the worktree was removed. A
-    record without a worktree ID cannot tell its admin directory from a
-    reused one, so any directory at that path counts as its own.
+    The admin directory in the shared git dir survives a `git worktree move`,
+    and Claude Code deletes a worktree's folder without it. So a worktree
+    counts as removed when its admin directory is gone, or when `git worktree
+    prune` would delete that directory. A record without a worktree ID cannot
+    tell its admin directory from a reused one, so any directory at that path
+    counts as its own.
     """
     if repo_common is None:
         return []
@@ -601,12 +603,24 @@ def _boxes_of_removed_worktrees(
     for path, record in registry.items():
         admin_dir = Path(record.git_dir)
         admin_dir_is_its_own = record.tracks_worktree(admin_dir) if record.worktree_id else admin_dir.exists()
-        if Path(path).exists() or admin_dir_is_its_own or _resolve(admin_dir.parent.parent) != _resolve(repo_common):
+        worktree_is_live = admin_dir_is_its_own and not _git_would_prune(admin_dir)
+        if Path(path).exists() or worktree_is_live or _resolve(admin_dir.parent.parent) != _resolve(repo_common):
             continue
         if selected_sources is not None and _source_under(_resolve(Path(path)), repo_root) not in selected_sources:
             continue
         boxes.append(WorktreeBox(worktree_path=Path(path), record=record))
     return boxes
+
+
+def _git_would_prune(admin_dir: Path) -> bool:
+    """`git worktree prune`'s rule: the worktree is not locked, and its `gitdir` file is missing or names a missing path."""
+    if (admin_dir / "locked").exists():
+        return False
+    try:
+        checkout_git_file = Path((admin_dir / "gitdir").read_text().strip())
+    except OSError:
+        return True
+    return not (admin_dir / checkout_git_file).exists()
 
 
 def prune_boxes_of_removed_worktrees(

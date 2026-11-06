@@ -892,6 +892,8 @@ class TestWorktreeBoxes:
             ("removed", {"claude"}, True),
             ("removed", {"phw"}, False),
             ("moved", None, False),
+            ("folder-deleted", None, True),
+            ("folder-deleted-locked", None, False),
             ("admin-dir-reused", None, True),
             ("other-repo", None, False),
         ],
@@ -899,7 +901,9 @@ class TestWorktreeBoxes:
             "removed",
             "removed-source-selected",
             "source-not-selected",
-            "moved-or-unmounted",
+            "moved",
+            "folder-deleted-admin-dir-left-behind",
+            "locked-worktree-on-an-unmounted-drive",
             "admin-dir-reused-by-another-worktree",
             "other-repo",
         ],
@@ -913,9 +917,18 @@ class TestWorktreeBoxes:
         (common / "worktrees").mkdir(parents=True)
         (other_common / "worktrees").mkdir(parents=True)
         admin = (other_common if case == "other-repo" else common) / "worktrees" / "feature"
-        if case in ("moved", "admin-dir-reused"):
+        keeps_admin_dir = case in ("moved", "folder-deleted", "folder-deleted-locked")
+        if keeps_admin_dir or case == "admin-dir-reused":
             admin.mkdir()
-        worktree_id = devbox_config.ensure_worktree_id(admin) if case == "moved" else "id-of-the-removed-worktree"
+        if keeps_admin_dir:
+            checkout = tmp_path / ("moved" if case == "moved" else "deleted") / "feature"
+            if case == "moved":
+                checkout.mkdir(parents=True)
+                (checkout / ".git").write_text(f"gitdir: {admin}\n")
+            (admin / "gitdir").write_text(f"{checkout / '.git'}\n")
+        if case == "folder-deleted-locked":
+            (admin / "locked").write_text("")
+        worktree_id = devbox_config.ensure_worktree_id(admin) if keeps_admin_dir else "id-of-the-removed-worktree"
         record = _box("devbox-test-user-feature", git_dir=admin, worktree_id=worktree_id)
         registry = {str(repo / ".claude" / "worktrees" / "feature"): record}
 

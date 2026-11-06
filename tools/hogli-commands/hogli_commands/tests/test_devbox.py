@@ -1186,6 +1186,39 @@ class TestWorktreeAutoProvision:
 
         assert len(starts) == expected_starts
 
+    @pytest.mark.parametrize(
+        "saved_cleanup, expected_prunes",
+        [
+            pytest.param("delete", 1, id="saved-action-prunes"),
+            pytest.param(None, 0, id="no-saved-action-leaves-boxes-alone"),
+        ],
+    )
+    def test_auto_prunes_boxes_of_removed_worktrees_only_with_a_saved_action(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        saved_cleanup: str | None,
+        expected_prunes: int,
+    ) -> None:
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path)
+        if saved_cleanup is not None:
+            devbox_config.save_worktree_box_cleanup(saved_cleanup)
+        devbox_config.record_worktree_box(
+            tmp_path / "removed",
+            devbox_config.WorktreeBoxRecord(workspace="devbox-test-user-removed", git_dir=str(tmp_path / "admin")),
+        )
+        spawned: list[list[str]] = []
+        monkeypatch.setattr(
+            devbox_worktree.subprocess, "Popen", lambda command, **kwargs: spawned.append(command) or MagicMock()
+        )
+
+        result = runner.invoke(cli, ["devbox:worktree:auto"])
+
+        assert result.exit_code == 0, result.output
+        assert len([command for command in spawned if "devbox:worktree:prune" in command]) == expected_prunes
+
 
 class TestDevboxWorktreeCommand:
     @pytest.fixture

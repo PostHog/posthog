@@ -719,7 +719,10 @@ def _claim_auto_start(git_dir: Path) -> bool:
 
 @click.command(
     name="devbox:worktree:auto",
-    help="Start devbox:worktree in the background for this new worktree, if `devbox:worktree --auto` covers it",
+    help=(
+        "Start devbox:worktree in the background for this new worktree, if `devbox:worktree --auto` covers it, "
+        "and prune the boxes of removed worktrees, if `--on-clean` is saved"
+    ),
 )
 @click.option(
     "--source",
@@ -728,6 +731,7 @@ def _claim_auto_start(git_dir: Path) -> bool:
     help="The tool that created the worktree. Defaults to the tool whose folder holds it.",
 )
 def devbox_worktree_auto(source: str | None) -> None:
+    _prune_in_background()
     enabled = saved_worktree_auto_sources()
     if not enabled:
         return
@@ -755,3 +759,19 @@ def devbox_worktree_auto(source: str | None) -> None:
         (git_dir / _AUTO_STARTED_NAME).unlink(missing_ok=True)
         raise
     click.echo(f"hogli: creating a devbox for this worktree in the background. Log: {log_path}")
+
+
+def _prune_in_background() -> None:
+    """Act on the boxes of worktrees that a tool with no removal hook, such as Claude Code, already deleted."""
+    if saved_worktree_box_cleanup() is None or not load_worktree_boxes():
+        return
+    log_path = get_worktree_boxes_path().with_name(_TEARDOWN_LOG_NAME)
+    with log_path.open("ab") as log:
+        subprocess.Popen(
+            [sys.executable, "-P", "-m", "hogli", "devbox:worktree:prune"],
+            cwd=_detect_local_posthog_checkout(),
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
