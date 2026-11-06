@@ -18,10 +18,11 @@ import posthog from 'posthog-js'
 import { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { isNotNil } from 'lib/utils/guards'
 import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from 'scenes/data-warehouse/editor/IncrementalConfigFields'
 
-import { DataModelingSyncInterval } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DataModelingSyncInterval } from '~/types'
 
 import {
     warehouseSavedQueriesCheckIncrementalCreate,
@@ -71,11 +72,25 @@ export interface WarehouseSuggestionsLogicProps {
 }
 
 export const ROW_LEAVE_MS = 150
-const KIND_ORDER: Record<string, number> = { certify: 0, deprecate: 1 }
+const CATALOG_EDIT_ACCESS_REASON = 'You need edit access to the data catalog'
 
-const SURFACE_KINDS: Record<SuggestionSurface, string[]> = {
-    models: ['materialize', 'unmaterialize'],
-    catalog: ['certify', 'deprecate'],
+function canEditDataCatalog(): boolean {
+    return userHasAccess(AccessControlResourceType.DataCatalog, AccessControlLevel.Editor)
+}
+
+export function catalogEditBlockedReason(): string | undefined {
+    return canEditDataCatalog() ? undefined : CATALOG_EDIT_ACCESS_REASON
+}
+
+const KIND_ORDER: Record<string, number> = {
+    certify: MAIN_SAVING_KINDS.length,
+    deprecate: MAIN_SAVING_KINDS.length + 1,
+}
+
+const SHOWN_ON_SURFACE: Record<SuggestionSurface, (suggestion: WarehouseSuggestionApi) => boolean> = {
+    models: ({ kind, subject_kind }) =>
+        kind === 'materialize' || kind === 'unmaterialize' || (kind === 'deprecate' && subject_kind === 'saved_query'),
+    catalog: ({ kind }) => kind === 'certify' || kind === 'deprecate',
 }
 const VIEW_ON_MODEL_PAGE_KINDS = ['materialize', 'unmaterialize']
 const CONFLICT_STATUS = 409
@@ -641,7 +656,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                             (suggestion) =>
                                 suggestion.surfaced_at !== null &&
                                 !hiddenIds.includes(suggestion.id) &&
-                                SURFACE_KINDS[surface].includes(suggestion.kind)
+                                SHOWN_ON_SURFACE[surface](suggestion)
                         )
                         .sort(compareSuggestions)
                     return groupedByKind(byWorth).flatMap((group) => group.suggestions)
@@ -800,14 +815,19 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     })
                 },
                 openAcceptConfirm: ({ id }) => {
+                    if (values.acceptConfirmSuggestion?.kind === 'deprecate' && !canEditDataCatalog()) {
+                        actions.setDeleteView(true)
+                    }
                     posthog.capture('warehouse suggestion confirm opened', {
                         suggestion_id: id,
                         kind: values.acceptConfirmSuggestion?.kind,
+                        surface: props.surface,
                     })
                 },
                 closeAcceptConfirm: (_, __, ___, previousState) => {
                     posthog.capture('warehouse suggestion confirm cancelled', {
                         suggestion_id: selectors.acceptConfirmSuggestionId(previousState),
+                        surface: props.surface,
                     })
                 },
                 confirmAccept: () => {
@@ -888,7 +908,9 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     }
                     actions.setActionInFlight(id, true)
                     try {
-                        const accepted = await warehouseSuggestionsAcceptCreate(projectId(), id, options)
+                        const accepted = await warehouseSuggestionsAcceptCreate(projectId(), id, options, {
+                            surface: props.surface,
+                        })
                         actions.hideSuggestion(id)
                         actions.suggestionAccepted(accepted)
                         props.onAccepted?.(accepted)
@@ -915,7 +937,12 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     actions.setActionInFlight(id, true)
                     actions.hideSuggestion(id)
                     try {
-                        await warehouseSuggestionsDismissCreate(project, id, { reason, note })
+                        await warehouseSuggestionsDismissCreate(
+                            project,
+                            id,
+                            { reason, note },
+                            { surface: props.surface }
+                        )
                         lemonToast.success(dismissedMessage(reason, kind), {
                             toastId: `warehouse-suggestion-dismissed-${id}`,
                             button: {
