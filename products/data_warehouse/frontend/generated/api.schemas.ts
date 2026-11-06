@@ -267,6 +267,94 @@ export interface DeprovisionWarehouseResponseApi {
     org: string
 }
 
+export interface HoglakeCredentialApi {
+    /** The OAuth client_id, hlc_… */
+    client_id: string
+    name: string
+    /** read or write */
+    scope: string
+    /** org: reaches the whole catalog. team: a member's personal credential, limited to the projects in team_ids that its owner can still see. */
+    kind?: string
+    /** A personal credential's owner */
+    owner_user_uuid?: string
+    /** The owner's email, while they are a member */
+    owner_email?: string
+    /** The owner's name, while they are a member */
+    owner_name?: string
+    /** A personal credential's projects */
+    team_ids?: number[]
+    created_at: string
+    last_rotated_at: string
+    expires_at: string
+    /**
+     * Set once revoked
+     * @nullable
+     */
+    revoked_at?: string | null
+}
+
+export interface HoglakeConnectApi {
+    /** The hoglake catalog (warehouse) these credentials reach */
+    catalog: string
+    /** Hoglake's public REST catalog URL */
+    hoglake_url?: string
+    /** OAuth token endpoint (client_credentials grant) */
+    token_url?: string
+}
+
+export interface HoglakeCredentialListResponseApi {
+    hoglake_credentials: HoglakeCredentialApi[]
+    connect: HoglakeConnectApi
+}
+
+/**
+ * * `read` - Read
+ * * `write` - Read & write
+ */
+export type HoglakeCredentialScopeEnumApi =
+    (typeof HoglakeCredentialScopeEnumApi)[keyof typeof HoglakeCredentialScopeEnumApi]
+
+export const HoglakeCredentialScopeEnumApi = {
+    Read: 'read',
+    Write: 'write',
+} as const
+
+export interface HoglakeCredentialCreateRequestApi {
+    /**
+     * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+     * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+     */
+    name: string
+    /** read lists and reads tables; write can also commit to them.
+     *
+     * * `read` - Read
+     * * `write` - Read & write */
+    scope: HoglakeCredentialScopeEnumApi
+    /**
+     * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+     * @minimum 3600
+     * @maximum 31536000
+     */
+    ttl_seconds?: number
+}
+
+export interface HoglakeCredentialIssuedApi {
+    /** The OAuth client_id, hlc_… */
+    client_id: string
+    /** The client secret — returned only here, never again */
+    client_secret: string
+    name: string
+    scope: string
+    expires_at: string
+    /** org or team */
+    kind?: string
+}
+
+export interface HoglakeCredentialRevokedApi {
+    /** The revoked client_id */
+    revoked: string
+}
+
 export interface JobStatsBucketApi {
     /** Runs that completed in this bucket. */
     successful: number

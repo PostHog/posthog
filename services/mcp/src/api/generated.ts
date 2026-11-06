@@ -31477,12 +31477,17 @@ export namespace Schemas {
       readonly id: number;
       readonly short_id: string;
       /** @nullable */
-      readonly name: string | null;
+      readonly name?: string | null;
       /** @nullable */
-      readonly derived_name: string | null;
-      readonly result: unknown;
+      readonly derived_name?: string | null;
+      readonly result?: unknown;
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
-      readonly warnings: _InsightResultWarnings | null;
+      readonly warnings?: _InsightResultWarnings | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     /**
@@ -48887,7 +48892,7 @@ export namespace Schemas {
       value: unknown;
       /** Property type (person, group, etc.) */
       type: string;
-      /** Actual property value from user */
+      /** Actual property value from user. Null when the property is not set, or when property access control hides it from the requesting user. */
       actual_value: unknown;
       /** Whether this property condition matched */
       matched: boolean;
@@ -49111,7 +49116,7 @@ export namespace Schemas {
     }
 
     /**
-     * Person properties at the time of evaluation (for historical evaluations)
+     * Person properties at the time of evaluation (for historical evaluations). Properties that property access control hides from the requesting user are omitted.
      */
     export type FeatureFlagTestEvaluationResponsePersonProperties = { [key: string]: unknown };
 
@@ -49134,7 +49139,7 @@ export namespace Schemas {
       condition_index: number | null;
       /** Payload associated with the flag result, if any */
       payload: unknown;
-      /** Person properties at the time of evaluation (for historical evaluations) */
+      /** Person properties at the time of evaluation (for historical evaluations). Properties that property access control hides from the requesting user are omitted. */
       person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
       /**
          * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
@@ -57958,6 +57963,94 @@ export namespace Schemas {
       source: string;
       /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
       tags?: TagDefinition[];
+    }
+
+    export interface HoglakeConnect {
+      /** The hoglake catalog (warehouse) these credentials reach */
+      catalog: string;
+      /** Hoglake's public REST catalog URL */
+      hoglake_url?: string;
+      /** OAuth token endpoint (client_credentials grant) */
+      token_url?: string;
+    }
+
+    export interface HoglakeCredential {
+      /** The OAuth client_id, hlc_… */
+      client_id: string;
+      name: string;
+      /** read or write */
+      scope: string;
+      /** org: reaches the whole catalog. team: a member's personal credential, limited to the projects in team_ids that its owner can still see. */
+      kind?: string;
+      /** A personal credential's owner */
+      owner_user_uuid?: string;
+      /** The owner's email, while they are a member */
+      owner_email?: string;
+      /** The owner's name, while they are a member */
+      owner_name?: string;
+      /** A personal credential's projects */
+      team_ids?: number[];
+      created_at: string;
+      last_rotated_at: string;
+      expires_at: string;
+      /**
+         * Set once revoked
+         * @nullable
+         */
+      revoked_at?: string | null;
+    }
+
+    /**
+     * * `read` - Read
+     * * `write` - Read & write
+     */
+    export type HoglakeCredentialScopeEnum = typeof HoglakeCredentialScopeEnum[keyof typeof HoglakeCredentialScopeEnum];
+
+
+    export const HoglakeCredentialScopeEnum = {
+      Read: 'read',
+      Write: 'write',
+    } as const;
+
+    export interface HoglakeCredentialCreateRequest {
+      /**
+         * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+         * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+         */
+      name: string;
+      /** read lists and reads tables; write can also commit to them.
+       *
+       * * `read` - Read
+       * * `write` - Read & write */
+      scope: HoglakeCredentialScopeEnum;
+      /**
+         * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+         * @minimum 3600
+         * @maximum 31536000
+         */
+      ttl_seconds?: number;
+    }
+
+    export interface HoglakeCredentialIssued {
+      /** The OAuth client_id, hlc_… */
+      client_id: string;
+      /** The client secret — returned only here, never again */
+      client_secret: string;
+      name: string;
+      scope: string;
+      expires_at: string;
+      /** org or team */
+      kind?: string;
+    }
+
+    export interface HoglakeCredentialListResponse {
+      hoglake_credentials: HoglakeCredential[];
+      connect: HoglakeConnect;
+    }
+
+    export interface HoglakeCredentialRevoked {
+      /** The revoked client_id */
+      revoked: string;
     }
 
     export interface HoneybadgerFaultSignalExtra {
