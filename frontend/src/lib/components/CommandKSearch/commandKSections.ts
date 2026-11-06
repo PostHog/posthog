@@ -243,7 +243,6 @@ export interface SectionsInput extends SectionsQuery {
     remote: RemoteSlots
     stale: boolean
     personsFirst: boolean
-    unifiedRanking: boolean
     searchCorrection: SearchCorrection | null
     expandedGroups?: string[]
 }
@@ -343,10 +342,6 @@ const plainName = (item: SearchItem): string =>
         .replace(/\s*\([^)]*\)\s*$/, '')
         .trim()
 
-// The unified scorer splits words on underscores, so the settings it ranks are matched the same way.
-export const settingsQuery = (localQuery: string, unifiedRanking: boolean): string =>
-    unifiedRanking ? localQuery.replace(/_/g, ' ') : localQuery
-
 export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
     const productDestinations = new Set(
         local.products.filter((item) => !item.parentName).map((item) => `${plainName(item)}|${item.href ?? ''}`)
@@ -364,14 +359,14 @@ function rankedResultsSections(
     state: CommandKSection['state'],
     persons: SearchItem[],
     accounts: SearchItem[],
-    unifiedRanking: boolean,
     themeItem: SearchItem | null,
     expandedGroups: string[]
 ): CommandKSection[] {
     const words = freeWords(query)
-    const rankedSettingsQuery = settingsQuery(localQuery, unifiedRanking)
+    // The scorer splits words on underscores, so the settings it ranks are matched the same way.
+    const rankedSettingsQuery = localQuery.replace(/_/g, ' ')
     const rankable = rankableSettings(local, rankedSettingsQuery)
-    // The unified scorer reads punctuation, so a domain or an email address keeps it.
+    // The scorer reads punctuation, so a domain or an email address keeps it.
     const freeText = query.replace(FILTER_TOKEN, ' ').replace(/\s+/g, ' ').trim()
     return buildRankedResults({
         persons,
@@ -381,13 +376,12 @@ function rankedResultsSections(
             (item) => !rankable.some((ranked) => ranked.id === item.id)
         ),
         expandedGroups,
-        query: unifiedRanking ? freeText : words.join(' '),
+        query: freeText,
         highlightWords: words,
         results,
         products: localQuery ? local.products : [],
         state,
         scoped: (query.match(FILTER_TOKEN) ?? []).some((token) => token.trim().startsWith('type:')),
-        unifiedRanking,
     })
 }
 
@@ -543,7 +537,6 @@ function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
             state,
             leadingPersons,
             accountsQuery ? remote.accounts.cache[accountsQuery] : [],
-            input.unifiedRanking,
             input.themeItem,
             input.expandedGroups ?? []
         )

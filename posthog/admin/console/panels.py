@@ -49,6 +49,16 @@ class OperationHandler(Protocol):
     def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form | None) -> "HttpResponse | None": ...
 
 
+def check_danger_contract(*, key: str, danger: bool, form_class: type[forms.Form] | None, undo_hint: str) -> None:
+    # The console writes the reason to the audit log, so nobody runs a destructive action without saying why.
+    if danger and (form_class is None or "reason" not in form_class.base_fields):
+        raise ValueError(f"Danger operation {key!r} needs a form with a reason field")
+    if danger and not undo_hint.strip():
+        raise ValueError(
+            f"Danger operation {key!r} needs an undo_hint that says how to undo it, or that it cannot be undone"
+        )
+
+
 @frozen
 class Operation:
     """An action on a record. The handler returns None when it is done, and the console sends staff back to the record.
@@ -61,17 +71,13 @@ class Operation:
     handler: OperationHandler
     danger: bool = False
     form_class: type[forms.Form] | None = None
+    # Starting values for the form, usually the record's current state, so an unchanged submit changes nothing.
+    form_initial: dict[str, object] | None = None
     description: str = ""
     undo_hint: str = ""
 
     def __post_init__(self) -> None:
-        # The console writes the reason to the audit log, so nobody runs a destructive action without saying why.
-        if self.danger and (self.form_class is None or "reason" not in self.form_class.base_fields):
-            raise ValueError(f"Danger operation {self.key!r} needs a form with a reason field")
-        if self.danger and not self.undo_hint.strip():
-            raise ValueError(
-                f"Danger operation {self.key!r} needs an undo_hint that says how to undo it, or that it cannot be undone"
-            )
+        check_danger_contract(key=self.key, danger=self.danger, form_class=self.form_class, undo_hint=self.undo_hint)
 
 
 class ReasonForm(forms.Form):
