@@ -108,9 +108,14 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
         # no response body to match on, so it needs its own entry alongside the 500 case. Without it,
         # the activity's classifier (import_data_sync.py) treats the 503 as an unclassified failure
         # and reports it to error tracking on every attempt instead of retrying quietly.
+        # A 502 "Bad Gateway" is the same gateway-level outage, raised from the same place.
         return {
             "500 Server Error": (
                 "Google Play's reporting API had an internal error, so this sync couldn't finish. "
+                "This is on Google's side, and the next sync runs on schedule."
+            ),
+            "502 Server Error": (
+                "Google Play's reporting API was unavailable, so this sync couldn't finish. "
                 "This is on Google's side, and the next sync runs on schedule."
             ),
             "503 Server Error": (
