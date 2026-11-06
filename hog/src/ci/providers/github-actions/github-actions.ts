@@ -1,5 +1,5 @@
-import { fetchActionsIdToken } from './actions-id-token'
-import type { WorkloadProvider } from './providers'
+import { fetchActionsIdToken } from '../actions-id-token'
+import type { WorkloadProvider } from '../registry'
 
 const NAME = 'GitHub Actions'
 
@@ -18,13 +18,6 @@ export const GITHUB_ACTIONS: WorkloadProvider = {
     // trust code from the fork. Only pushes run code that is on the branch.
     branchConditions: (branch) => ({ event_name: 'push', ref: `refs/heads/${branch}` }),
     environmentConditions: (environment) => ({ environment }),
-    snippet: ({ host, projectId }) =>
-        [
-            'permissions:',
-            '  id-token: write # lets hog get an OIDC token for PostHog',
-            '  contents: read',
-            'env:',
-            `  HOG_HOST: ${host}`,
-            `  HOG_PROJECT_ID: "${projectId}"`,
-        ].join('\n'),
+    snippet: () =>
+        ['permissions:', '  id-token: write # lets hog get an OIDC token for PostHog', '  contents: read'].join('\n'),
 }

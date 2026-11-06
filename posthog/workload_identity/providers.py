@@ -10,6 +10,8 @@ from __future__ import annotations
 import string
 from enum import StrEnum
 
+from django.db import models
+
 from posthog.dataclasses import frozen
 from posthog.workload_identity.resolvers import resolve_github_repository
 from posthog.workload_identity.subjects import SubjectResolver
@@ -64,6 +66,10 @@ class ConditionPreset:
         return any(PRESET_VALUE in value for _, value in self.conditions)
 
 
+class WorkloadProviderKey(models.TextChoices):
+    GITHUB_ACTIONS = "github_actions", "GitHub Actions"
+
+
 @frozen
 class WorkloadProvider:
     key: str
@@ -94,7 +100,7 @@ class WorkloadProvider:
     resolve_subject: SubjectResolver | None = None
     condition_presets: tuple[ConditionPreset, ...] = ()
     condition_companions: tuple[ConditionCompanions, ...] = ()
-    # The CI config a job needs, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
+    # The CI config that gives a job an OIDC token, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
     setup_snippet: str = ""
 
     def setup_snippet_for(self, *, host: str, project_id: int) -> str:
@@ -129,7 +135,7 @@ class WorkloadProvider:
 
 
 GITHUB_ACTIONS = WorkloadProvider(
-    key="github_actions",
+    key=WorkloadProviderKey.GITHUB_ACTIONS,
     name="GitHub Actions",
     issuer="https://token.actions.githubusercontent.com",
     jwks_url="https://token.actions.githubusercontent.com/.well-known/jwks",
@@ -232,12 +238,9 @@ GITHUB_ACTIONS = WorkloadProvider(
             default_value="production",
         ),
     ),
-    setup_snippet=f"""permissions:
+    setup_snippet="""permissions:
   id-token: write # lets hog get an OIDC token for PostHog
   contents: read
-env:
-  HOG_HOST: {SNIPPET_HOST}
-  HOG_PROJECT_ID: "{SNIPPET_PROJECT_ID}"
 """,
 )
 

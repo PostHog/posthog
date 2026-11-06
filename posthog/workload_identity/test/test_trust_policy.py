@@ -1,3 +1,4 @@
+import json
 import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -8,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -123,6 +125,27 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
             "Branch or tag",
             "Environment",
         ]
+
+    @parameterized.expand(
+        [
+            ("cloud", "https://eu.posthog.com", True),
+            ("self_hosted", "https://posthog.example.com", False),
+        ]
+    )
+    def test_job_settings_put_only_a_cloud_host_in_posthog_json(
+        self, _name: str, site_url: str, host_in_file: bool
+    ) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+
+        with override_settings(SITE_URL=site_url):
+            settings = self.client.get(f"{self.url}providers/").json()["job_settings"]
+
+        assert settings["host"] == site_url
+        assert settings["host_in_posthog_json"] is host_in_file
+        assert json.loads(settings["posthog_json"]) == {
+            **({"host": site_url} if host_in_file else {}),
+            "projectId": self.team.project_id,
+        }
 
     def test_members_can_neither_read_nor_change_policies(self) -> None:
         policy = self._create_policy()

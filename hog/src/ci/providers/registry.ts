@@ -3,7 +3,7 @@ import type { Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import type { ProviderIdToken } from '@/posthog/tokens'
 
-import { GITHUB_ACTIONS } from './github-actions'
+import { GITHUB_ACTIONS } from './github-actions/github-actions'
 
 export type WorkloadConditions = Record<string, string>
 

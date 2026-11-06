@@ -71,9 +71,15 @@ const providers = {
             ],
             can_resolve_subject: true,
             setup_snippet:
-                'permissions:\n  id-token: write # lets hog get an OIDC token for PostHog\n  contents: read\nenv:\n  HOG_HOST: https://us.posthog.com\n  HOG_PROJECT_ID: "997"\n',
+                'permissions:\n  id-token: write # lets hog get an OIDC token for PostHog\n  contents: read\n',
         },
     ],
+    job_settings: {
+        host: 'https://us.posthog.com',
+        project_id: 997,
+        host_in_posthog_json: true,
+        posthog_json: '{\n    "host": "https://us.posthog.com",\n    "projectId": 997\n}',
+    },
     grantable_scopes: [
         'annotation:read',
         'annotation:write',
