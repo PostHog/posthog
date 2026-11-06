@@ -1681,7 +1681,7 @@ class TestSurvey(APIBaseTest):
         ).json()
 
         # Includes one query for the project's replay gates
-        with self.assertNumQueries(18):
+        with self.assertNumQueries(17):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -3191,6 +3191,12 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
+        self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "survey without targeting (2)", "type": "popover"},
+            format="json",
+        )
+
         updated_survey_deletes_targeting_flag = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
             data={
@@ -3200,7 +3206,8 @@ class TestSurvey(APIBaseTest):
 
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_400_BAD_REQUEST
         assert (
-            updated_survey_deletes_targeting_flag.json()["detail"] == "There is already another survey with this name."
+            updated_survey_deletes_targeting_flag.json()["detail"]
+            == 'There is already another survey with this name. Use a different name, such as "survey without targeting (3)".'
         )
 
     @time_machine.travel("2023-05-01 12:00:00", tick=False)

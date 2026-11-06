@@ -169,9 +169,9 @@ def few_exposed_units(history: FlagHistory, kind: ExperimentHealthFlagChangeKind
 
 
 def exposed_when(history: FlagHistory, effect: ChangeEffect, count: int) -> str:
-    after_launch = duration((effect.last.changed_at - history.launched_at).total_seconds())
+    after_start = duration((effect.last.changed_at - history.start_date).total_seconds())
     change = "The change" if effect.change_count == 1 else "The last change"
-    return f"{change} came {after_launch} after launch, when {_units(count, history.counts_groups)} had been exposed."
+    return f"{change} came {after_start} after the start date, when {_units(count, history.counts_groups)} had been exposed."
 
 
 def leave_out(history: FlagHistory, effect: ChangeEffect, count: int) -> list[str]:
@@ -234,13 +234,13 @@ def change_evidence(
         "last_changed_at": effect.last.changed_at.astimezone(UTC).isoformat(),
         **kind_evidence,
         "exposed_before_change": exposed_before_change,
-        "seconds_after_launch": int((effect.first.changed_at - history.launched_at).total_seconds()),
+        "seconds_after_start": int((effect.first.changed_at - history.start_date).total_seconds()),
     }
 
 
 def delay_after_launch(history: FlagHistory, effect: ChangeEffect) -> list[str]:
     return delay(
-        launched_at=history.launched_at,
+        start_date=history.start_date,
         first_changed_at=effect.first.changed_at,
         exposed_before_first=history.exposed_before_first,
         change_count=effect.change_count,

@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.logic.source_credentials import (
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     connection_fields_equal,
     in_use_oauth_slot,
+    is_stripped,
     split_connection_fields,
 )
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
@@ -74,6 +75,9 @@ SKIPPED_SHARED = "skipped_shared"
 SKIPPED_DELETED = "skipped_deleted"
 SKIPPED_UNREADABLE = "skipped_unreadable"
 SKIPPED_UNKNOWN_TYPE = "skipped_unknown_type"
+# The source is stripped: `job_inputs` has no credentials to copy, and the row or the column is the only copy.
+SKIPPED_STRIPPED = "skipped_stripped"
+STRIPPED_ROW_MISSING = "stripped_row_missing_or_unreadable"
 FAILED = "failed"
 
 # The outcomes of a source whose row does not hold its stored connection fields yet.
@@ -88,6 +92,7 @@ NOT_BACKFILLED = frozenset(
         SKIPPED_UNREADABLE,
         SKIPPED_SHAPE,
         SKIPPED_UNKNOWN_TYPE,
+        STRIPPED_ROW_MISSING,
         FAILED,
     }
 )
@@ -186,7 +191,7 @@ def _batches(
     remaining = limit
     while remaining is None or remaining > 0:
         page_size = batch_size if remaining is None else min(batch_size, remaining)
-        batch = _next_sources(last_id, page_size, team_ids, source_type)
+        batch = next_source_batch(last_id, page_size, team_ids, source_type)
         if not batch:
             return
         last_id = batch[-1].id
@@ -195,9 +200,10 @@ def _batches(
             remaining -= len(batch)
 
 
-def _next_sources(
+def next_source_batch(
     after_id: UUID | None, size: int, team_ids: Sequence[int], source_type: str | None
 ) -> list[ExternalDataSource]:
+    """One page of non-deleted sources in id order, with only the fields that the credentials tools read."""
     # `select_related(None)` clears the default manager's join, which `only()` cannot defer past.
     queryset = (
         ExternalDataSource.objects.exclude(deleted=True)
@@ -216,6 +222,7 @@ def _next_sources(
 
 def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: BackfillCounts) -> None:
     planned: list[tuple[ExternalDataSource, dict[str, Any]]] = []
+    stripped: list[ExternalDataSource] = []
     for source in batch:
         source_type = str(source.source_type)
         try:
@@ -230,6 +237,9 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
         except ValueError:
             counts[(source_type, SKIPPED_UNKNOWN_TYPE)] += 1
             continue
+        if plan == SKIPPED_STRIPPED:
+            stripped.append(source)
+            continue
         if isinstance(plan, str):
             if plan in (OAUTH_LINKED, HUBSPOT_LEGACY_ADOPTED):
                 _run(source, execute, plan, counts)
@@ -237,6 +247,7 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
                 counts[(source_type, plan)] += 1
             continue
         planned.append((source, plan))
+    _check_stripped(stripped, counts)
     if not planned:
         return
 
@@ -258,12 +269,14 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
 def _plan(source: ExternalDataSource) -> dict[str, Any] | str:
     """Return the stored typed-in fields or the planned outcome, without network calls or writes."""
     inputs = SourceInputsStore.load_stored(source)
+    if is_stripped(inputs):
+        return SKIPPED_STRIPPED
     if _has_legacy_oauth_tokens(source, inputs):
         return HUBSPOT_LEGACY_ADOPTED
     slot = in_use_oauth_slot(str(source.source_type), inputs)
     if slot is not None:
         return _oauth_outcome(source, inputs, slot)
-    fields = _stored_connection_fields(source, inputs)
+    fields = stored_connection_fields(source, inputs)
     if not fields or not has_typed_in_credentials(str(source.source_type)):
         return SKIPPED_NO_ROW
     return fields
@@ -301,7 +314,7 @@ def _log_shape(source: ExternalDataSource) -> None:
     )
 
 
-def _stored_connection_fields(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any]:
+def stored_connection_fields(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any]:
     """The connection fields of the stored `job_inputs`. A leaf that no key can decrypt raises
     `UnreadableSourceInputsError`, so its ciphertext never goes to a row."""
     fields = split_connection_fields(str(source.source_type), inputs)
@@ -402,6 +415,9 @@ def _sync_source(source: ExternalDataSource) -> str:
         if fresh is None:
             return SKIPPED_DELETED
         inputs = SourceInputsStore.load_stored(fresh)
+        if is_stripped(inputs):
+            # Stripped after the batch read. The row is the only copy, so `job_inputs` must never overwrite it.
+            return SKIPPED_STRIPPED
         slot = in_use_oauth_slot(str(fresh.source_type), inputs)
         if slot is not None:
             outcome = _oauth_outcome(fresh, inputs, slot)
@@ -411,7 +427,7 @@ def _sync_source(source: ExternalDataSource) -> str:
                     fresh, IntegrationReference.from_legacy_id(pointer.integration_id)
                 )
             return outcome
-        fields = _stored_connection_fields(fresh, inputs)
+        fields = stored_connection_fields(fresh, inputs)
         if not fields or not has_typed_in_credentials(str(fresh.source_type)):
             return SKIPPED_NO_ROW
         before = fresh.credentials_integration_id
@@ -430,6 +446,29 @@ def _sync_source(source: ExternalDataSource) -> str:
             # A change of where a shared row connects made a new row for this source.
             SourceInputsStore.write_credentials_reference(fresh, reference)
         return UPDATED
+
+
+def _check_stripped(sources: list[ExternalDataSource], counts: BackfillCounts) -> None:
+    # Never write the row or the column of a stripped source from `job_inputs`: that would replace the
+    # credentials with nothing.
+    if not sources:
+        return
+    typed_in: list[ExternalDataSource] = []
+    for source in sources:
+        try:
+            slot = in_use_oauth_slot(str(source.source_type), SourceInputsStore.load_stored(source))
+        except ValueError:
+            counts[(str(source.source_type), STRIPPED_ROW_MISSING)] += 1
+            continue
+        if slot is None:
+            typed_in.append(source)
+            continue
+        readable = _column_pk(source.credentials_integration_id or "") is not None
+        counts[(str(source.source_type), SKIPPED_STRIPPED if readable else STRIPPED_ROW_MISSING)] += 1
+    stored = WarehouseSourceCredentialsStore.get_many(typed_in)
+    for source in typed_in:
+        outcome = SKIPPED_STRIPPED if isinstance(stored.get(source.id), dict) else STRIPPED_ROW_MISSING
+        counts[(str(source.source_type), outcome)] += 1
 
 
 @frozen

@@ -8,13 +8,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import PropertyDefinition
 from posthog.paging import PageRequest
 
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_custom_property_definition, create_saved_query
+from products.event_definitions.backend.models import PropertyDefinition
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource

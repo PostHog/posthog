@@ -33,6 +33,14 @@ const HIDDEN_EVENTS = [
     '$feature_view',
     '$feature_interaction',
     '$snapshot',
+    // The delivery steps at the top of the page already show the email's own progress.
+    '$workflows_email_sent',
+    '$workflows_email_failed',
+    '$workflows_email_delivered',
+    '$workflows_email_opened',
+    '$workflows_email_link_clicked',
+    '$workflows_email_bounced',
+    '$workflows_email_blocked',
 ]
 
 const QUERY_TAGS = { productKey: 'workflows', scene: 'TransactionalEmailLogEntry' }
@@ -71,7 +79,7 @@ LIMIT 1`,
     }
 }
 
-export async function fetchPersonActivity(personId: string, sentAt: string): Promise<PersonActivity> {
+export async function fetchPersonActivity(distinctId: string, sentAt: string): Promise<PersonActivity> {
     const sent = dayjs(sentAt)
     const from = sent.subtract(ACTIVITY_WINDOW_DAYS, 'day')
     const to = sent.add(ACTIVITY_WINDOW_DAYS, 'day')
@@ -79,7 +87,8 @@ export async function fetchPersonActivity(personId: string, sentAt: string): Pro
     const [before, after] = await Promise.all([
         api.queryHogQL(
             hogql`SELECT ${hogql.raw(columns)} FROM events
-WHERE person_id = ${personId} AND timestamp >= ${from} AND timestamp < ${sent}
+WHERE person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id = ${distinctId})
+AND timestamp >= ${from} AND timestamp < ${sent}
 AND event NOT IN ${HIDDEN_EVENTS}
 ORDER BY timestamp DESC
 LIMIT ${ACTIVITY_BEFORE_LIMIT + 1}`,
@@ -87,7 +96,8 @@ LIMIT ${ACTIVITY_BEFORE_LIMIT + 1}`,
         ),
         api.queryHogQL(
             hogql`SELECT ${hogql.raw(columns)} FROM events
-WHERE person_id = ${personId} AND timestamp >= ${sent} AND timestamp <= ${to}
+WHERE person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id = ${distinctId})
+AND timestamp >= ${sent} AND timestamp <= ${to}
 AND event NOT IN ${HIDDEN_EVENTS}
 ORDER BY timestamp ASC
 LIMIT ${ACTIVITY_AFTER_LIMIT + 1}`,

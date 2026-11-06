@@ -32,8 +32,8 @@ def build_document_similarity_query(
     limit: int | None = None,
     offset: int | None = None,
 ) -> DocumentSimilarityQuery:
-    date_from = (origin.timestamp - timedelta(days=1)).date().isoformat()
-    date_to = (origin.timestamp + timedelta(days=1)).date().isoformat()
+    date_from = (origin.timestamp - timedelta(days=1)).isoformat()
+    date_to = (origin.timestamp + timedelta(days=1)).isoformat()
 
     return DocumentSimilarityQuery(
         kind="DocumentSimilarityQuery",
@@ -54,7 +54,9 @@ def build_document_similarity_query(
 
 class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     # Must track real now(): the tables carry a 3-month real-clock TTL on timestamp, so a fixed past date seeds already-expired rows.
-    base_timestamp = datetime.now(tz=ZoneInfo("UTC")) - timedelta(hours=1)
+    base_timestamp = datetime.now(tz=ZoneInfo("UTC")).replace(hour=23, minute=57, second=0, microsecond=0) - timedelta(
+        days=1
+    )
     product_documents = (
         ("product_a", "document_a", "doc_product_a"),
         ("product_b", "document_b", "doc_product_b"),
