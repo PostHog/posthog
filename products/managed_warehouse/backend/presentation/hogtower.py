@@ -337,13 +337,13 @@ def _trino(call: _Call) -> TranslatedResponse:
     if isinstance(live, dict) and isinstance(live.get("enabled"), bool):
         # The live body is duckgres's and knows nothing of hoglake: the tenancy row says
         # which backend the catalog is and whether hoglake's catalog exists yet.
-        out = dict(live)
+        detail = dict(live)
         if isinstance(tenancy, dict):
             if tenancy.get("backend"):
-                out["backend"] = tenancy["backend"]
+                detail["backend"] = tenancy["backend"]
             if "hoglake_initialized" in tenancy:
-                out["hoglake_initialized"] = tenancy["hoglake_initialized"] is True
-        return TranslatedResponse(resp.status_code, out)
+                detail["hoglake_initialized"] = tenancy["hoglake_initialized"] is True
+        return TranslatedResponse(resp.status_code, detail)
     if not isinstance(tenancy, dict) or tenancy.get("enabled") is not True:
         out: dict[str, Any] = {"enabled": False}
         if isinstance(tenancy, dict) and tenancy.get("backend"):
