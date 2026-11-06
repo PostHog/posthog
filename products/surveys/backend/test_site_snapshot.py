@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from typing import Any
 
@@ -33,6 +34,7 @@ DOCS = "https://example.com/docs/intro"
 PRICING = "https://example.com/pricing"
 MOBILE_HOME = "https://m.example.org/home"
 EARLY_START = "https://example.com/early-start"
+TWO_TABS = "https://example.com/two-tabs"
 SESSION_OFFSET_SECONDS = 10
 
 
@@ -50,6 +52,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         self._view("giant", "https://example.com/giant", hours_ago=2, viewport=(1440, 100_000))
         self._view("early", EARLY_START, hours_ago=60, pageview_offset=timedelta(seconds=-30))
         self._view("bounce", "https://example.com/bounce", hours_ago=72, left_after=timedelta(seconds=1))
+        self._view("two-tabs", TWO_TABS, hours_ago=84, left_after=timedelta(seconds=1), next_page_window="other-tab")
         flush_persons_and_events()
 
     def _view(
@@ -62,6 +65,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         has_replay: bool = True,
         pageview_offset: timedelta = timedelta(seconds=SESSION_OFFSET_SECONDS),
         left_after: timedelta | None = None,
+        next_page_window: str = "first-tab",
     ) -> None:
         replay_start = timezone.now() - timedelta(hours=hours_ago)
         _create_event(
@@ -71,6 +75,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
             timestamp=replay_start + pageview_offset,
             properties={
                 "$session_id": session_id,
+                "$window_id": "first-tab",
                 "$current_url": url,
                 "$viewport_width": viewport[0],
                 "$viewport_height": viewport[1],
@@ -84,6 +89,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
                 timestamp=replay_start + pageview_offset + left_after,
                 properties={
                     "$session_id": session_id,
+                    "$window_id": next_page_window,
                     "$current_url": "https://example.com/next-page",
                     "$viewport_width": viewport[0],
                     "$viewport_height": viewport[1],
@@ -119,6 +125,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
             ("viewport_too_tall_to_render", {"url": "giant"}, None),
             ("pageview_just_before_the_recorder_starts", {"url": "early-start"}, EARLY_START),
             ("visitor_left_before_the_page_painted", {"url": "bounce"}, None),
+            ("another_tab_navigated_meanwhile", {"url": "two-tabs"}, TWO_TABS),
             ("regex_clickhouse_cannot_compile", {"url": "^(?!.*admin).*", "urlMatchType": "regex"}, None),
         ]
     )
@@ -157,6 +164,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
             asset.export_context["height"],
         ) == ("docs", 1440, 900)
         assert "page_url" not in asset.export_context
+        assert str(survey.id) not in json.dumps(asset.export_context)
         assert (first.status, first.exported_asset_id, first.page_url) == (SnapshotStatus.RENDERING, asset.id, DOCS)
 
         asset.content = b"png"
