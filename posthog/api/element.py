@@ -61,8 +61,6 @@ SUPPORTED_VALUES_KEYS = {"tag_name", "text", "href", "attr_id"}
 _SUPPORTED_VALUES_KEYS_DISPLAY = ", ".join(sorted(SUPPORTED_VALUES_KEYS))
 KEYS_WITH_NO_LISTABLE_VALUES = {"selector"}
 
-# Property filter types the stats endpoint accepts from the caller: the ones the toolbar and
-# heatmap UIs send, plus the documented ones.
 STATS_PROPERTY_FILTER_TYPES = frozenset({"cohort", "element", "event", "person"})
 
 
@@ -200,8 +198,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             timer = ServerTimingsGathered()
 
             with timer("prepare_for_query"), tracer.start_as_current_span("elements_api_stats.prepare_for_query"):
-                # validate only what the caller sent: the team's own test-account filters and saved
-                # cohorts, folded in below, may legitimately hold HogQL
+                # team test-account filters, folded in below, may legitimately hold HogQL
                 _validate_stats_property_filter_types(request.GET.get("properties"))
                 property_groups = parse_properties_for_team(request.GET.dict(), self.team)
                 date_range = QueryDateRange(
@@ -299,7 +296,6 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     query=select,
                     team=self.team,
                     query_type="elements_stats",
-                    # applies the caller's property-level access control
                     user=request.user if isinstance(request.user, User) else None,
                     # the toolbar paginates in pages of up to 50k, so limit + 1 must
                     # survive above the default 50k query cap

@@ -284,8 +284,6 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"]), 1)
 
     def test_element_stats_still_applies_hogql_test_account_filters(self) -> None:
-        # the allowlist covers only what the caller sends; the project's own test-account
-        # filters are configured by the team and may hold HogQL
         self._setup_events()
         self.team.test_account_filters = [
             {"type": "hogql", "key": "like(properties.$current_url, '%another_page%')"},
