@@ -1,0 +1,356 @@
+.DotMatrix {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    color: var(--color-text-primary);
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 8px;
+    container-type: inline-size;
+
+    &__legend {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__legend-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px;
+        align-items: center;
+        min-width: 0;
+    }
+
+    &__legend-group {
+        flex: 0 0 104px;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 20px;
+        color: var(--color-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    &__legend-items {
+        display: flex;
+        flex: 1;
+        flex-wrap: wrap;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    &__legend-item.LemonButton {
+        --lemon-button-padding-horizontal: 7px;
+        --lemon-button-padding-vertical: 2px;
+        --lemon-button-height: 24px;
+        --lemon-button-gap: 6px;
+        --lemon-button-font-size: 13px;
+
+        min-height: 26px;
+        padding: 0;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 400;
+        line-height: 20px;
+        color: var(--color-text-secondary);
+        border: 1px solid transparent;
+        border-radius: 6px;
+
+        .LemonButton__chrome {
+            font-family: inherit;
+            font-weight: inherit;
+            line-height: 20px;
+            color: inherit;
+        }
+
+        .LemonButton__content {
+            font-weight: inherit;
+            line-height: 20px;
+        }
+
+        &.DotMatrix__legend-item--muted {
+            opacity: 0.45;
+        }
+
+        &.DotMatrix__legend-item--selected {
+            font-weight: 600;
+            color: var(--color-text-primary);
+            background: var(--color-bg-fill-tertiary);
+            border-color: var(--color-border-secondary);
+        }
+    }
+
+    &__legend-item--static {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        min-height: 26px;
+        padding: 2px 7px;
+        font-size: 13px;
+        line-height: 20px;
+    }
+
+    &__legend-footer,
+    &__selection,
+    &__size-key,
+    &__count-key {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    &__legend-footer {
+        gap: 8px 16px;
+        justify-content: space-between;
+        padding-top: 6px;
+        font-size: 12px;
+        line-height: 20px;
+        color: var(--color-text-tertiary);
+    }
+
+    &__selection,
+    &__count-key {
+        gap: 8px;
+    }
+
+    &__selection-label {
+        font-weight: 600;
+        color: var(--color-text-secondary);
+    }
+
+    &__size-key {
+        gap: 12px;
+    }
+
+    &__key-item {
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+
+        b {
+            font-weight: 600;
+            color: var(--color-text-secondary);
+        }
+    }
+
+    &__table.LemonTable {
+        --row-base-height: 64px;
+        --lemon-table-background-color: var(--color-bg-table);
+
+        border: none;
+        border-radius: 0;
+
+        .LemonTable__content {
+            max-width: 100%;
+            overflow-x: auto;
+        }
+
+        table > thead > tr:not(.LemonTable__loader-row) {
+            height: 53px;
+
+            > th {
+                padding-top: 10px;
+                padding-bottom: 10px;
+                font-size: 12px;
+                font-weight: 600;
+                line-height: 20px;
+                letter-spacing: 0.03em;
+                background: var(--color-bg-table);
+
+                .LemonTable__header-content {
+                    color: var(--color-text-primary);
+                }
+            }
+        }
+
+        table > thead > tr.LemonTable__loader-row {
+            height: 0;
+        }
+
+        table > tbody > tr > td {
+            padding-top: 6px;
+            padding-bottom: 6px;
+            background: var(--color-bg-surface-primary);
+        }
+
+        .DotMatrix__bucket {
+            --row-horizontal-padding: 0;
+
+            padding-right: 0;
+            padding-left: 0;
+        }
+
+        .DotMatrix__row-header {
+            --row-horizontal-padding: 8px;
+
+            padding-right: 12px;
+        }
+
+        table > tbody > tr > td.DotMatrix__row-header {
+            padding-top: 8px;
+            padding-bottom: 8px;
+        }
+
+        .DotMatrix__trailing {
+            --row-horizontal-padding: 12px;
+
+            padding-right: 12px;
+            padding-left: 12px;
+        }
+
+        .DotMatrix__filler {
+            --row-horizontal-padding: 0;
+
+            min-width: 0;
+            padding: 0;
+        }
+    }
+
+    &--count &__table.LemonTable {
+        --row-base-height: 53px;
+    }
+
+    &__row-label {
+        display: block;
+        overflow: hidden;
+        color: var(--color-text-primary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__column-label {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        padding-left: 6px;
+        font-size: 12px;
+        line-height: 20px;
+    }
+
+    &--count &__column-label {
+        align-items: center;
+        padding-left: 0;
+    }
+
+    &__partial {
+        font-size: 10px;
+        font-weight: 500;
+        line-height: 12px;
+        color: var(--color-text-tertiary);
+    }
+
+    &__cell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-width: 0;
+        padding: 0 4px;
+        color: inherit;
+        background: transparent;
+        border: 0;
+        border-radius: 4px;
+
+        &:focus-visible {
+            outline: 2px solid var(--color-accent);
+            outline-offset: -2px;
+        }
+
+        &:hover .CountCell {
+            border-radius: 6px;
+            box-shadow: 0 0 0 2px var(--color-accent);
+        }
+    }
+
+    &__cell--interactive {
+        cursor: pointer;
+    }
+
+    @container (max-width: 640px) {
+        &__legend-row {
+            align-items: flex-start;
+        }
+
+        &__legend-group {
+            flex-basis: 100%;
+            padding-top: 4px;
+        }
+
+        &__legend-items {
+            flex-basis: 100%;
+        }
+    }
+}
+
+.DotMatrix__tooltip-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 242px;
+    max-width: calc(100vw - 48px);
+    font-size: 12px;
+    line-height: 16px;
+    text-align: left;
+
+    > strong {
+        font-size: 13px;
+        font-weight: 600;
+    }
+}
+
+.DotMatrix__tooltip-subtitle {
+    color: var(--color-text-tertiary);
+}
+
+.DotMatrix__tooltip-value,
+.DotMatrix__tooltip-series {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.DotMatrix__tooltip-value {
+    justify-content: space-between;
+}
+
+.Tooltip:has(> .DotMatrix__tooltip) {
+    --color-text-secondary: inherit;
+}
+
+.Tooltip__popup.DotMatrix__tooltip {
+    box-sizing: border-box;
+    width: 270px;
+    max-width: calc(100vw - 24px);
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border-secondary);
+    box-shadow: 0 10px 30px rgb(0 0 0 / 50%);
+
+    > :first-child {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    strong {
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .Tooltip__arrow {
+        display: none;
+    }
+}
+
+@layer components {
+    .Tooltip__popup.DotMatrix__tooltip {
+        padding: 12px 14px !important;
+        background-color: var(--color-bg-fill-tertiary) !important;
+        border-radius: 8px !important;
+    }
+}
