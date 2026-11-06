@@ -12,11 +12,13 @@ import {
     MinimalAppMetric,
 } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger, serializeError } from '~/common/utils/logger'
 
+import { SES_WEBHOOKS_OUTPUT, SesWebhooksOutput } from '../../outputs/outputs'
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
@@ -25,7 +27,7 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
-import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
+import { SES_LINK_INDEX_TAG, SesWebhookHandler, SnsEnvelope } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
@@ -89,6 +91,21 @@ const emailTrackingLogSkipsCounter = new Counter({
     help: 'Total number of email tracking log entries skipped (expected, non-error)',
     labelNames: ['reason', 'source'],
 })
+
+export const sesQueuedNotificationsCounter = new Counter({
+    name: 'email_tracking_ses_queued_notifications_total',
+    help: 'SES notifications through the queue, by stage: queued by the webhook, then recorded or dead-lettered',
+    labelNames: ['stage'],
+})
+
+const countSesWebhookError = (error: Error): void => {
+    emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
+    logger.error('[EmailService] handleWebhook: SES webhook error', { error: serializeError(error) })
+}
+
+export type SesRecordingOutcome =
+    | { outcome: 'recorded'; body: unknown }
+    | { outcome: 'rejected'; status: number; body: unknown }
 
 const ENGAGEMENT_PERSON_METRICS: Partial<Record<MinimalAppMetric['metric_name'], MinimalAppMetric['metric_name'][]>> = {
     email_opened: ['email_opened_by_person'],
@@ -319,7 +336,8 @@ export class EmailTrackingService {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private emailStatusService: EmailStatusService | null = null,
-        private engagementRedis: RedisV2 | null = null
+        private engagementRedis: RedisV2 | null = null,
+        private sesWebhooksOutputs: IngestionOutputs<SesWebhooksOutput> | null = null
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -583,11 +601,78 @@ export class EmailTrackingService {
         await this.hogFunctionMonitoringService.flush()
     }
 
-    public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
+    public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: unknown }> {
         if (!req.body) {
             return { status: 403, message: 'Missing request body' }
         }
+        let body: unknown
+        try {
+            body = parseJSON(req.body)
+        } catch (error) {
+            countSesWebhookError(error)
+            throw error
+        }
+        if (this.sesWebhooksOutputs) {
+            return await this.queueSesNotification(req.body, body, this.sesWebhooksOutputs)
+        }
+        const recording = await this.recordSesNotification({ body, verifySignature: true })
+        switch (recording.outcome) {
+            case 'recorded':
+                return { status: 200, message: recording.body }
+            case 'rejected':
+                return { status: recording.status, message: recording.body }
+        }
+    }
 
+    // The signature was verified on the request that queued this envelope.
+    public async recordQueuedSesNotification(envelope: SnsEnvelope): Promise<SesRecordingOutcome> {
+        const recording = await this.recordSesNotification({ body: envelope, verifySignature: false })
+        if (recording.outcome === 'recorded') {
+            sesQueuedNotificationsCounter.inc({ stage: 'recorded' })
+        } else {
+            logger.error('[EmailTrackingService] Recording rejected a queued SES notification', {
+                snsMessageId: envelope.MessageId,
+                status: recording.status,
+            })
+            emailTrackingErrorsCounter.inc({ error_type: 'ses_queued_notification_rejected', source: 'ses' })
+        }
+        return recording
+    }
+
+    // A queued notification that fails to record reaches a dead-letter topic; a 5xx to SNS is lost after its retries.
+    private async queueSesNotification(
+        rawBody: string,
+        body: unknown,
+        outputs: IngestionOutputs<SesWebhooksOutput>
+    ): Promise<{ status: number; message?: unknown }> {
+        let verified: Awaited<ReturnType<SesWebhookHandler['verifyDelivery']>>
+        try {
+            verified = await this.sesWebhookHandler.verifyDelivery({ body, verifySignature: true })
+        } catch (error) {
+            countSesWebhookError(error)
+            throw error
+        }
+        if ('status' in verified) {
+            return { status: verified.status, message: verified.body }
+        }
+        try {
+            await outputs.produce(SES_WEBHOOKS_OUTPUT, {
+                key: verified.snsMessageId ? Buffer.from(verified.snsMessageId) : null,
+                value: Buffer.from(rawBody),
+            })
+        } catch (error) {
+            emailTrackingErrorsCounter.inc({ error_type: 'ses_queue_failed', source: 'ses' })
+            logger.error('[EmailTrackingService] Failed to queue SES notification', { error: serializeError(error) })
+            throw error
+        }
+        sesQueuedNotificationsCounter.inc({ stage: 'queued' })
+        return { status: 200, message: 'queued' }
+    }
+
+    private async recordSesNotification(opts: {
+        body: unknown
+        verifySignature: boolean
+    }): Promise<SesRecordingOutcome> {
         try {
             const {
                 status,
@@ -599,11 +684,10 @@ export class EmailTrackingService {
                 complainedRecipients,
                 deliveredRecipients,
                 emailStatusUpdates,
-            } = await this.sesWebhookHandler.handleWebhook({
-                body: parseJSON(req.body),
-                headers: req.headers,
-                verifySignature: true,
-            })
+            } = await this.sesWebhookHandler.handleWebhook(opts)
+            if (status !== 200) {
+                return { outcome: 'rejected', status, body }
+            }
 
             // A single SNS notification can yield several metrics (a Click emits its rollup plus a
             // per-link row, a Bounce its rollup plus a per-type row). Flushing inside each call would
@@ -716,10 +800,9 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
-            return { status, message: body as string }
+            return { outcome: 'recorded', body }
         } catch (error) {
-            emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
-            logger.error('[EmailService] handleWebhook: SES webhook error', { error: serializeError(error) })
+            countSesWebhookError(error)
             throw error
         }
     }

@@ -14,7 +14,12 @@ import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/interna
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import { CdpEventsDlqOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
+import {
+    CdpEventsDlqOutput,
+    SesWebhooksDlqOutput,
+    SesWebhooksOutput,
+    WarehouseSourceWebhooksOutput,
+} from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -41,6 +46,7 @@ import {
 } from './services/messaging/email-attachments.service'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
+import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService, parseTeamEmailCapMode, parseTierCaps } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
@@ -73,6 +79,8 @@ export type CdpOutput =
     | HogInvocationResultsOutput
     | WarehouseSourceWebhooksOutput
     | CdpEventsDlqOutput
+    | SesWebhooksOutput
+    | SesWebhooksDlqOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
 
@@ -132,6 +140,7 @@ export interface CdpCoreServices {
     /** Buffers transactional email status rows. `invocationResultsService.flush()` produces them. */
     emailStatusService: EmailStatusService
     emailAttachmentsService: EmailAttachmentsService
+    emailTrackingService: EmailTrackingService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -213,6 +222,10 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_DLQ_BATCH_FAIL_RATIO'
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
+        | 'CDP_SES_WEBHOOKS_TOPIC'
+        | 'CDP_SES_WEBHOOKS_PRODUCER'
+        | 'CDP_SES_WEBHOOKS_DLQ_TOPIC'
+        | 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'
     > &
     InternalLogsProducerConfig
 
@@ -618,6 +631,19 @@ export function createCdpCoreServices(
         emailStatusService
     )
 
+    const emailTrackingService = new EmailTrackingService(
+        hogFunctionManager,
+        hogFlowManager,
+        hogFunctionMonitoringService,
+        capturedEventsService,
+        teamWorkflowsConfigService,
+        trackingCodeSigner,
+        emailSuppressionService,
+        emailStatusService,
+        redis,
+        config.CDP_SES_WEBHOOKS_QUEUE_ENABLED ? outputs : null
+    )
+
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
     const segmentDestinationExecutorService = new SegmentDestinationExecutorService(config)
 
@@ -654,5 +680,6 @@ export function createCdpCoreServices(
         emailAttachmentsService,
         messageAssetsService,
         emailStatusService,
+        emailTrackingService,
     }
 }
