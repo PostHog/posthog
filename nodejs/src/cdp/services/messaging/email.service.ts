@@ -21,7 +21,7 @@ import { logger } from '~/common/utils/logger'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import type { DecodedAttachment } from '../hogflows/transactional-email'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
-import { OrganizationMembersService } from '../managers/organization-members.service'
+import { OrganizationMembersService, StoredAddressByRecipient } from '../managers/organization-members.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
@@ -894,10 +894,32 @@ export class EmailService {
                         ...(route.ccAddresses ?? []),
                         ...(route.bccAddresses ?? []),
                     ]
-                    if (!(await this.checkSandboxRecipients(result, deliveryRecipients, isTest, { fresh: true }))) {
+                    const deliverTo = await this.checkSandboxRecipients(result, deliveryRecipients, isTest, {
+                        fresh: true,
+                    })
+                    if (!deliverTo) {
                         return result
                     }
-                    await this.sendEmailWithSES(result, deliveryParams, from, false, isTest, queueWait, files, route)
+                    const stored = (address: string): string => deliverTo.get(address)!
+                    deliveryParams = {
+                        ...deliveryParams,
+                        to: { ...deliveryParams.to, email: stored(deliveryRecipients[0]) },
+                    }
+                    const memberRoute: SesRoute = {
+                        ...route,
+                        ccAddresses: route.ccAddresses?.map(stored),
+                        bccAddresses: route.bccAddresses?.map(stored),
+                    }
+                    await this.sendEmailWithSES(
+                        result,
+                        deliveryParams,
+                        from,
+                        false,
+                        isTest,
+                        queueWait,
+                        files,
+                        memberRoute
+                    )
                     await this.sandboxSender!.captureSent(invocation.teamId, isTest, deliveryRecipients.length)
                     break
                 }
@@ -914,7 +936,10 @@ export class EmailService {
                 assetRow = this.messageAssetsService.buildRowForEmail(invocation, deliveryParams ?? sendParams)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
-            addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
+            addLog(
+                'info',
+                `Email sent to ${(deliveryParams ?? sendParams).to.email} from ${from.name} <${from.email}>${viewEmailToken}`
+            )
             success = true
             result.emailSendResult = { status: 'accepted' }
         } catch (error) {
@@ -1153,7 +1178,7 @@ export class EmailService {
         recipients: string[],
         isTest: boolean,
         { fresh }: { fresh: boolean }
-    ): Promise<boolean> {
+    ): Promise<StoredAddressByRecipient | null> {
         const { teamId } = result.invocation
         let blockedRecipients: string[]
         let reason: SandboxRecipientBlockReason
@@ -1161,7 +1186,12 @@ export class EmailService {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
             }
-            const blocked = await this.organizationMembers.getBlockedRecipients(teamId, recipients, { fresh })
+            const { blocked, deliverTo } = await this.organizationMembers.checkRecipients(teamId, recipients, {
+                fresh,
+            })
+            if (!blocked.length) {
+                return deliverTo
+            }
             blockedRecipients = blocked.map(({ address }) => address)
             reason = blocked.every(({ unverifiedMember }) => unverifiedMember)
                 ? 'recipient_unverified'
@@ -1174,9 +1204,6 @@ export class EmailService {
                 error: error instanceof Error ? error.message : 'Unknown error',
             })
         }
-        if (!blockedRecipients.length) {
-            return true
-        }
         const { explanation, label, guidance } = SANDBOX_RECIPIENT_BLOCK_COPY[reason]
         this.skipSandboxSend(
             result,
@@ -1185,7 +1212,7 @@ export class EmailService {
             'recipient_unreachable'
         )
         await this.sandboxSender?.captureBlocked(teamId, isTest, reason, blockedRecipients.length)
-        return false
+        return null
     }
 
     // Per-send tracking decision, combining two independent controls:

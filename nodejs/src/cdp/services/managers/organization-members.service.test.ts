@@ -102,10 +102,12 @@ describe('OrganizationMembersService', () => {
         await change(userId)
         const address = `  ${memberEmail.toUpperCase()} `
 
-        const blocked = await service.getBlockedRecipients(team.id, [address], { fresh: false })
+        const check = await service.checkRecipients(team.id, [address], { fresh: false })
 
-        expect(blocked).toEqual(
-            expected === 'allowed' ? [] : [{ address, unverifiedMember: expected === 'unverified' }]
+        expect(check).toEqual(
+            expected === 'allowed'
+                ? { blocked: [], deliverTo: new Map([[address, memberEmail]]) }
+                : { blocked: [{ address, unverifiedMember: expected === 'unverified' }], deliverTo: new Map() }
         )
     })
 
@@ -115,9 +117,32 @@ describe('OrganizationMembersService', () => {
         await createMember(outsider, otherOrganizationId, true)
         await createMember(memberEmail, organizationId, true)
 
-        expect(await service.getBlockedRecipients(team.id, [memberEmail, outsider], { fresh: false })).toEqual([
-            { address: outsider, unverifiedMember: false },
-        ])
+        expect(await service.checkRecipients(team.id, [memberEmail, outsider], { fresh: false })).toEqual({
+            blocked: [{ address: outsider, unverifiedMember: false }],
+            deliverTo: new Map([[memberEmail, memberEmail]]),
+        })
+    })
+
+    it.each([
+        ['delivers to the address that matches one exactly', ['Member', 'member'], 'Member', 'Member'],
+        ['blocks an address that matches neither', ['Member', 'member'], 'MEMBER', undefined],
+        [
+            'delivers to the one stored address when padding is all they differ by',
+            ['member', ' member'],
+            'MEMBER',
+            'member',
+        ],
+    ])('%s of two members whose stored addresses differ', async (_case, stored, written, delivered) => {
+        for (const name of stored) {
+            await createMember(`${name}-${team.id}@example.com`, organizationId, true)
+        }
+        const address = `${written}-${team.id}@example.com`
+        const deliveredAddress = delivered && `${delivered}-${team.id}@example.com`
+
+        const check = await service.checkRecipients(team.id, [address], { fresh: false })
+
+        expect(check.deliverTo.get(address)).toBe(deliveredAddress)
+        expect(check.blocked).toEqual(deliveredAddress ? [] : [{ address, unverifiedMember: false }])
     })
 
     type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
@@ -153,7 +178,7 @@ describe('OrganizationMembersService', () => {
 
                 const checks = Promise.allSettled(
                     Array.from({ length: 5 }, () =>
-                        stalledService.getBlockedRecipients(team.id, [memberEmail], { fresh: true })
+                        stalledService.checkRecipients(team.id, [memberEmail], { fresh: true })
                     )
                 )
                 await jest.advanceTimersByTimeAsync(3_000)
@@ -169,9 +194,12 @@ describe('OrganizationMembersService', () => {
                 ).toEqual(Array(5).fill([!connectsLate]))
 
                 healthy = true
-                const next = stalledService.getBlockedRecipients(team.id, [memberEmail], { fresh: true })
+                const next = stalledService.checkRecipients(team.id, [memberEmail], { fresh: true })
                 await jest.advanceTimersByTimeAsync(0)
-                await expect(next).resolves.toEqual([{ address: memberEmail, unverifiedMember: false }])
+                await expect(next).resolves.toEqual({
+                    blocked: [{ address: memberEmail, unverifiedMember: false }],
+                    deliverTo: new Map(),
+                })
             } finally {
                 jest.useRealTimers()
             }
@@ -211,7 +239,7 @@ describe('OrganizationMembersService', () => {
                 const service = new OrganizationMembersService(pool)
 
                 const checks = Array.from({ length: 20 }, () =>
-                    service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })
+                    service.checkRecipients(1, ['member@example.com'], { fresh: true })
                 )
                 const outcomes = Promise.allSettled(checks)
                 await jest.advanceTimersByTimeAsync(3_000)
@@ -228,9 +256,9 @@ describe('OrganizationMembersService', () => {
                     lateClients.map((client) => [client.query.mock.calls.length, client.release.mock.calls.length])
                 ).toEqual(Array(5).fill([0, 1]))
 
-                await expect(service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })).resolves.toEqual(
-                    []
-                )
+                await expect(
+                    service.checkRecipients(1, ['member@example.com'], { fresh: true })
+                ).resolves.toMatchObject({ blocked: [] })
                 expect(memberSelects()).toBe(1)
             } finally {
                 jest.useRealTimers()
@@ -260,17 +288,17 @@ describe('OrganizationMembersService', () => {
             })
             const service = new OrganizationMembersService(routerFor(query))
             try {
-                const first = service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })
+                const first = service.checkRecipients(1, ['member@example.com'], { fresh: false })
                 await started
-                const joining = service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })
+                const joining = service.checkRecipients(1, ['member@example.com'], { fresh: false })
                 releaseLookup()
-                expect(await Promise.all([first, joining])).toEqual([[], []])
-                expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([])
+                expect((await Promise.all([first, joining])).map((check) => check.blocked)).toEqual([[], []])
+                expect((await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked).toEqual([])
                 expect(query).toHaveBeenCalledTimes(1)
 
                 clock.mockReturnValue(start + 57_001)
                 member = 'new-member@example.com'
-                expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([
+                expect((await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked).toEqual([
                     { address: 'member@example.com', unverifiedMember: false },
                 ])
             } finally {
@@ -284,11 +312,13 @@ describe('OrganizationMembersService', () => {
             const service = new OrganizationMembersService(routerFor(query))
             const removed = [{ address: 'member@example.com', unverifiedMember: false }]
 
-            expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([])
+            expect((await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked).toEqual([])
             member = 'new-member@example.com'
 
-            expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })).toEqual(removed)
-            expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual(removed)
+            expect((await service.checkRecipients(1, ['member@example.com'], { fresh: true })).blocked).toEqual(removed)
+            expect((await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked).toEqual(
+                removed
+            )
         })
 
         it('reloads a cached block older than five seconds before reporting it, and reuses the reload for later blocks', async () => {
@@ -299,15 +329,15 @@ describe('OrganizationMembersService', () => {
             const service = new OrganizationMembersService(routerFor(query))
             const outsider = [{ address: 'outside@example.com', unverifiedMember: false }]
             try {
-                expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([])
+                expect((await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked).toEqual([])
                 members = ['member@example.com', 'joined@example.com']
                 clock.mockReturnValue(start + 5_001)
 
-                expect(await service.getBlockedRecipients(1, ['joined@example.com'], { fresh: false })).toEqual([])
-                expect(await service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })).toEqual(
+                expect((await service.checkRecipients(1, ['joined@example.com'], { fresh: false })).blocked).toEqual([])
+                expect((await service.checkRecipients(1, ['outside@example.com'], { fresh: false })).blocked).toEqual(
                     outsider
                 )
-                expect(await service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })).toEqual(
+                expect((await service.checkRecipients(1, ['outside@example.com'], { fresh: false })).blocked).toEqual(
                     outsider
                 )
                 expect(query).toHaveBeenCalledTimes(2)
@@ -334,24 +364,24 @@ describe('OrganizationMembersService', () => {
             const service = new OrganizationMembersService(routerFor(query))
             const outsider = [{ address: 'outside@example.com', unverifiedMember: false }]
             try {
-                const firstLoad = service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })
+                const firstLoad = service.checkRecipients(1, ['member@example.com'], { fresh: false })
                 await jest.advanceTimersByTimeAsync(0)
-                expect(await firstLoad).toEqual([])
+                expect((await firstLoad).blocked).toEqual([])
                 jest.setSystemTime(start + 5_001)
 
-                const first = service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })
+                const first = service.checkRecipients(1, ['outside@example.com'], { fresh: false })
                 await jest.advanceTimersByTimeAsync(0)
                 await started
                 const later = Array.from({ length: 5 }, () =>
-                    service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })
+                    service.checkRecipients(1, ['outside@example.com'], { fresh: false })
                 )
                 await jest.advanceTimersByTimeAsync(0)
                 expect(query).toHaveBeenCalledTimes(2)
 
                 releaseReload()
-                const results = Promise.all([first, ...later])
+                const checks = Promise.all([first, ...later])
                 await jest.advanceTimersByTimeAsync(100)
-                expect(await results).toEqual(Array(6).fill(outsider))
+                expect((await checks).map((check) => check.blocked)).toEqual(Array(6).fill(outsider))
                 expect(query).toHaveBeenCalledTimes(3)
             } finally {
                 jest.useRealTimers()
@@ -367,13 +397,11 @@ describe('OrganizationMembersService', () => {
                 .mockRejectedValue(new Error('primary unavailable'))
             const service = new OrganizationMembersService(routerFor(query))
             try {
-                expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([])
+                expect((await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked).toEqual([])
                 clock.mockReturnValue(start + 5_001)
 
-                await expect(
-                    service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })
-                ).rejects.toThrow()
-                expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })).toEqual([])
+                await expect(service.checkRecipients(1, ['outside@example.com'], { fresh: false })).rejects.toThrow()
+                expect((await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked).toEqual([])
                 expect(query).toHaveBeenCalledTimes(2)
             } finally {
                 clock.mockRestore()
@@ -388,15 +416,15 @@ describe('OrganizationMembersService', () => {
                 .mockResolvedValue({ rows: [memberRow('new-member@example.com')] })
             const service = new OrganizationMembersService(routerFor(query))
 
-            const earlierCheck = service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })
+            const earlierCheck = service.checkRecipients(1, ['member@example.com'], { fresh: false })
             while (query.mock.calls.length === 0) {
                 await new Promise((resolve) => setImmediate(resolve))
             }
-            const freshCheck = service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })
+            const freshCheck = service.checkRecipients(1, ['member@example.com'], { fresh: true })
             finishEarlierLookup({ rows: [memberRow('member@example.com')] })
 
-            expect(await earlierCheck).toEqual([])
-            expect(await freshCheck).toEqual([{ address: 'member@example.com', unverifiedMember: false }])
+            expect((await earlierCheck).blocked).toEqual([])
+            expect((await freshCheck).blocked).toEqual([{ address: 'member@example.com', unverifiedMember: false }])
             expect(query).toHaveBeenCalledTimes(2)
         })
     })

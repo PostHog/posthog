@@ -652,43 +652,60 @@ describe('EmailService', () => {
             })
 
             it.each([
-                ['a display name', (address: string) => `Example colleague <${address}>`, false],
-                ['a quoted comma', (address: string) => `"Example, colleague" <${address}>`, false],
-                ['an escaped quote', (address: string) => `"Example \\"colleague, teammate\\"" <${address}>`, false],
-                ['a trailing comment', (address: string) => `${address} (Example colleague)`, false],
-                ['mixed-case stored addresses', (address: string) => `Example colleague <${address}>`, true],
-            ])('delivers to members whatever the case and %s', async (_case, mailbox, storedMixedCase) => {
-                if (storedMixedCase) {
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        'UPDATE posthog_user SET email = initcap(email) WHERE id = ANY($1::integer[])',
-                        [memberIds],
-                        'test:store-mixed-case-sandbox-members'
+                ['a display name', (address: string) => `Example colleague <${address}>`, false, false],
+                ['a quoted comma', (address: string) => `"Example, colleague" <${address}>`, false, false],
+                [
+                    'an escaped quote',
+                    (address: string) => `"Example \\"colleague, teammate\\"" <${address}>`,
+                    false,
+                    false,
+                ],
+                ['a trailing comment', (address: string) => `${address} (Example colleague)`, false, false],
+                ['mixed-case stored addresses', (address: string) => `Example colleague <${address}>`, true, false],
+                [
+                    'mixed-case stored addresses in a test send',
+                    (address: string) => `Example colleague <${address}>`,
+                    true,
+                    true,
+                ],
+            ])(
+                'delivers to the stored member addresses whatever the case and %s',
+                async (_case, mailbox, storedMixedCase, isTest) => {
+                    const stored = new Map<string, string>()
+                    if (storedMixedCase) {
+                        const { rows } = await hub.postgres.query<{ email: string }>(
+                            PostgresUse.COMMON_WRITE,
+                            'UPDATE posthog_user SET email = initcap(email) WHERE id = ANY($1::integer[]) RETURNING email',
+                            [memberIds],
+                            'test:store-mixed-case-sandbox-members'
+                        )
+                        rows.forEach(({ email }) => stored.set(email.toLowerCase(), email))
+                    }
+                    service = createSandboxService(true)
+                    invocation.queueParameters = createSandboxParams({
+                        to: { email: memberEmail().toUpperCase() },
+                        cc: mailbox(memberEmail('cc').toUpperCase()),
+                        bcc: ` ${mailbox(memberEmail('bcc').toUpperCase())} `,
+                    })
+
+                    const result = await service.executeSendEmail(invocation, isTest)
+
+                    const storedEmail = (kind?: string): string => stored.get(memberEmail(kind)) ?? memberEmail(kind)
+                    expect(result.error).toBeUndefined()
+                    expect(result.skipped).not.toBe(true)
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    expect((sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination).toEqual({
+                        ToAddresses: [storedEmail()],
+                        CcAddresses: [storedEmail('cc')],
+                        BccAddresses: [storedEmail('bcc')],
+                    })
+                    expect(capture).toHaveBeenCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email sent',
+                        { recipient_count: 3, source: isTest ? 'test' : 'workflow', is_test: isTest }
                     )
                 }
-                service = createSandboxService(true)
-                invocation.queueParameters = createSandboxParams({
-                    to: { email: memberEmail().toUpperCase() },
-                    cc: mailbox(memberEmail('cc').toUpperCase()),
-                    bcc: ` ${mailbox(memberEmail('bcc').toUpperCase())} `,
-                })
-
-                const result = await service.executeSendEmail(invocation)
-
-                expect(result.error).toBeUndefined()
-                expect(result.skipped).not.toBe(true)
-                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                expect((sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination).toEqual({
-                    ToAddresses: [memberEmail().toUpperCase()],
-                    CcAddresses: [memberEmail('cc').toUpperCase()],
-                    BccAddresses: [memberEmail('bcc').toUpperCase()],
-                })
-                expect(capture).toHaveBeenCalledWith(
-                    expect.objectContaining({ id: team.id }),
-                    'workflows sandbox email sent',
-                    { recipient_count: 3, source: 'workflow', is_test: false }
-                )
-            })
+            )
 
             it.each(['cc', 'bcc'] as const)('delivers a quoted %s mailbox whole', async (field) => {
                 const email = `"example,colleague-${team.id}"@example.com`
@@ -845,21 +862,21 @@ describe('EmailService', () => {
 
             it('blocks a member removed during preparation while the member snapshot is still fresh', async () => {
                 const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
-                const getBlockedRecipients = OrganizationMembersService.prototype.getBlockedRecipients
-                const lookup = jest.spyOn(OrganizationMembersService.prototype, 'getBlockedRecipients')
+                const checkRecipients = OrganizationMembersService.prototype.checkRecipients
+                const lookup = jest.spyOn(OrganizationMembersService.prototype, 'checkRecipients')
                 try {
                     service = createSandboxService(true)
                     await service.executeSendEmail(invocation)
                     expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                     lookup.mockImplementationOnce(async function (this: OrganizationMembersService, ...args) {
-                        const blocked = await getBlockedRecipients.apply(this, args)
+                        const check = await checkRecipients.apply(this, args)
                         await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
                             'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
                             [memberId],
                             'test:revoke-sandbox-member-after-first-check'
                         )
-                        return blocked
+                        return check
                     })
                     invocation.state.vmState = { stack: [] } as any
 
