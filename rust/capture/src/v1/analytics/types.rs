@@ -1854,22 +1854,36 @@ mod tests {
         assert_eq!(data.properties["custom_prop"], 42);
     }
 
-    #[test]
-    fn serialize_without_splice_publishes_client_properties_untouched() {
+    #[rstest::rstest]
+    #[case::client_lib_keys(
+        r#"{"$lib":"client-lib","$session_id":"client-sess","custom_prop":42}"#.to_owned()
+    )]
+    #[case::lone_surrogates(r#"{"\udc00":"\ud800","b":"\u0000\u001f\"\\\/"}"#.to_owned())]
+    #[case::numbers_beyond_f64(r#"{"a":1e400,"b":123456789012345678901234567890,"c":-0}"#.to_owned())]
+    #[case::duplicate_keys(r#"{"$lib":"a","$lib":"b","\u0024lib":"c"}"#.to_owned())]
+    #[case::raw_non_ascii("{\"a\":\"\u{2028}\u{7f}😀 é 漢字\"}".to_owned())]
+    #[case::inner_whitespace("{ \"a\" :\n[ 1 , { } ]\t}".to_owned())]
+    #[case::nested_past_serde_depth_limit(format!(
+        "{{\"a\":{}1{}}}",
+        "[".repeat(200),
+        "]".repeat(200)
+    ))]
+    fn serialize_without_splice_publishes_client_properties_untouched(
+        #[case] client_properties: String,
+    ) {
         #[derive(serde::Deserialize)]
         struct DataProperties<'a> {
             #[serde(borrow)]
             properties: &'a RawValue,
         }
 
-        let client_properties =
-            r#"{"$lib":"client-lib","$session_id":"client-sess","custom_prop":42}"#;
         let mut wrapped = pageview_event();
-        wrapped.event.properties = raw_obj(client_properties);
+        wrapped.event.properties = raw_obj(&client_properties);
         let mut ctx = serialize_ctx();
         ctx.legacy_property_splice = false;
 
-        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
+        let buf = wrapped.serialize(&ctx).expect("serialize failed");
+        let captured: CapturedEvent = serde_json::from_slice(&buf).unwrap();
 
         let data: DataProperties = serde_json::from_str(&captured.data).unwrap();
         assert_eq!(data.properties.get(), client_properties);
