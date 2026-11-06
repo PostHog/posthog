@@ -5,6 +5,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { subjectLookupBlocked } from './workloadConditionPresets'
 import { workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
 
 export function WorkloadSubjectFields(): JSX.Element {
@@ -13,14 +14,7 @@ export function WorkloadSubjectFields(): JSX.Element {
     const { lookUpSubject } = useActions(workloadTrustPoliciesLogic)
 
     const canLookUp = !!editingProvider?.can_resolve_subject
-    const [lookupClaim, lookupValue] =
-        Object.entries(editingProvider?.subject_lookup_conditions ?? {}).find(
-            ([claim, value]) => editingPolicy.conditions[claim] !== value
-        ) ?? []
-    const lookupLabel = editingProvider?.condition_claims.find((claim) => claim.name === lookupClaim)?.label
-    const lookupBlocked = lookupClaim
-        ? `PostHog can look up the ID only when ${lookupLabel ?? lookupClaim} is ${lookupValue}. Enter it by hand.`
-        : undefined
+    const lookupBlocked = subjectLookupBlocked(editingPolicy.conditions, editingProvider)
     const found = subjectLookup && subjectLookup.subject === editingPolicy.subject ? subjectLookup : null
 
     return (

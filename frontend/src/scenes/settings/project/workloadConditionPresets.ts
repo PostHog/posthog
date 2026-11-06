@@ -97,31 +97,48 @@ export function defaultConditionRows(provider: WorkloadProviderApi | null): Work
     return [...covering, ...(first ? [first] : [])].map(rowForPreset)
 }
 
+function claimLabel(provider: WorkloadProviderApi | null, claim: string): string {
+    return provider?.condition_claims.find((candidate) => candidate.name === claim)?.label ?? claim
+}
+
+function companionError(conditions: Record<string, string>, provider: WorkloadProviderApi | null): string | undefined {
+    for (const rule of provider?.condition_companions ?? []) {
+        const alone = rule.claims.find((claim) => conditions[claim])
+        if (alone && !rule.companions.some((companion) => conditions[companion])) {
+            const needed = rule.companions.map((claim) => claimLabel(provider, claim)).join(' or ')
+            return `${claimLabel(provider, alone)} needs ${needed} too. ${rule.reason}`
+        }
+    }
+    return undefined
+}
+
 export function conditionsError(
     conditions: Record<string, string>,
     provider: WorkloadProviderApi | null,
     conflict?: string
 ): string | undefined {
-    if (conflict) {
-        return conflict
-    }
     const required = provider?.required_condition_claims ?? []
-    const labelOf = (claim: string): string =>
-        provider?.condition_claims.find((candidate) => candidate.name === claim)?.label ?? claim
-    const missing = required.filter((claim) => !conditions[claim]).map(labelOf)
-    if (missing.length) {
-        return `Set these conditions: ${missing.join(', ')}`
-    }
-    for (const rule of provider?.condition_companions ?? []) {
-        const alone = rule.claims.find((claim) => conditions[claim])
-        if (alone && !rule.companions.some((companion) => conditions[companion])) {
-            return `${labelOf(alone)} needs ${rule.companions.map(labelOf).join(' or ')} too. ${rule.reason}`
-        }
-    }
+    const missing = required.filter((claim) => !conditions[claim]).map((claim) => claimLabel(provider, claim))
     // The required claims pin the account, not the runs, so a policy needs another condition too.
     const runClaims = (provider?.condition_claims ?? []).filter((claim) => !required.includes(claim.name))
-    if (runClaims.length && !runClaims.some((claim) => conditions[claim.name])) {
-        return 'Choose which runs can get a token'
-    }
-    return undefined
+    const noRuns = runClaims.length > 0 && !runClaims.some((claim) => conditions[claim.name])
+    return (
+        conflict ??
+        (missing.length ? `Set these conditions: ${missing.join(', ')}` : undefined) ??
+        companionError(conditions, provider) ??
+        (noRuns ? 'Choose which runs can get a token' : undefined)
+    )
+}
+
+/** Why the subject lookup can't serve these conditions, or undefined when it can. */
+export function subjectLookupBlocked(
+    conditions: Record<string, string>,
+    provider: WorkloadProviderApi | null
+): string | undefined {
+    const unmet = Object.entries(provider?.subject_lookup_conditions ?? {}).find(
+        ([claim, value]) => conditions[claim] !== value
+    )
+    return unmet
+        ? `PostHog can look up the ID only when ${claimLabel(provider, unmet[0])} is ${unmet[1]}. Enter it by hand.`
+        : undefined
 }
