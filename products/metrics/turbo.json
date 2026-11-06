@@ -12,7 +12,8 @@
                 "backend/metric_query_runner.py",
                 "backend/dashboard_import/receivers.py",
                 "backend/models.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/scopes.py"
             ],
             "outputs": [],
             "cache": true

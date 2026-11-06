@@ -12,7 +12,8 @@
                 "backend/logic/intake.py",
                 "backend/receivers.py",
                 "backend/settings.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/scopes.py"
             ],
             "outputs": [],
             "cache": true
