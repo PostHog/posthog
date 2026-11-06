@@ -1,0 +1,492 @@
+{
+  "topics": [
+    {
+      "id": "a1b2c3d4-0000-4000-8000-000000000001",
+      "name": "Product updates",
+      "description": "New features and announcements.",
+      "default_subscription": "opt_in",
+      "visibility": "public",
+      "created_at": "2026-10-01 12:00:00.000000+00"
+    },
+    {
+      "id": "a1b2c3d4-0000-4000-8000-000000000002",
+      "name": "Nyheter och tips 🦔",
+      "description": "Månadens tips, på svenska.",
+      "default_subscription": "opt_in",
+      "visibility": "public",
+      "created_at": "2026-10-01 12:00:00.000000+00"
+    },
+    {
+      "id": "a1b2c3d4-0000-4000-8000-000000000003",
+      "name": "Beta invitations long topic name long topic name long topic name long topic name long topic name long topic name long topic name long topic name long topic name long topic name long topic name long topic name ",
+      "description": "Only for people who asked to join.",
+      "default_subscription": "opt_out",
+      "visibility": "private",
+      "created_at": "2026-10-01 12:00:00.000000+00"
+    }
+  ],
+  "suppressions": [
+    {
+      "id": "5a000000-0000-4000-8000-000000000001",
+      "email": "gone@example.com",
+      "origin": "bounce",
+      "source_id": "4ef9a417-02e9-4d39-ad75-9611e0fcc33c",
+      "created_at": "2026-10-07 08:12:03.412+00"
+    },
+    {
+      "id": "5a000000-0000-4000-8000-000000000002",
+      "email": "MixedCase.Bounce@Example.com",
+      "origin": "bounce",
+      "source_id": "4ef9a417-02e9-4d39-ad75-9611e0fcc33d",
+      "created_at": "2026-10-08 09:00:00.000+00"
+    },
+    {
+      "id": "5a000000-0000-4000-8000-000000000003",
+      "email": "complainer@example.com",
+      "origin": "complaint",
+      "source_id": "4ef9a417-02e9-4d39-ad75-9611e0fcc33e",
+      "created_at": "2026-10-09 10:00:00.000+00"
+    },
+    {
+      "id": "5a000000-0000-4000-8000-000000000004",
+      "email": "added-by-team@example.com",
+      "origin": "manual",
+      "source_id": null,
+      "created_at": "2026-10-06 23:47:56.678+00"
+    },
+    {
+      "id": "5a000000-0000-4000-8000-000000000005",
+      "email": "jürgen+🦔@example.com",
+      "origin": "manual",
+      "source_id": null,
+      "created_at": "2026-10-06 23:47:57.000+00"
+    },
+    {
+      "id": "5a000000-0000-4000-8000-000000000006",
+      "email": "not-an-address",
+      "origin": "bounce",
+      "source_id": null,
+      "created_at": "2026-10-06 23:47:58.000+00"
+    }
+  ],
+  "contacts": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000001",
+      "email": "unsubscribed@example.com",
+      "first_name": "Una",
+      "last_name": "Sub",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "unsubscribed": true
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000002",
+      "email": "left-a-topic@example.com",
+      "first_name": "Tove",
+      "last_name": "Topic",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "unsubscribed": false
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000003",
+      "email": "happy@example.com",
+      "first_name": "Hal",
+      "last_name": "Happy",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "unsubscribed": false
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000004",
+      "email": "Björk.Unsub@example.com",
+      "first_name": "Björk",
+      "last_name": null,
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "unsubscribed": true
+    }
+  ],
+  "contact_topics": {
+    "c0000000-0000-4000-8000-000000000002": [
+      {
+        "id": "a1b2c3d4-0000-4000-8000-000000000001",
+        "name": "Product updates",
+        "description": "New features and announcements.",
+        "subscription": "opt_out"
+      },
+      {
+        "id": "a1b2c3d4-0000-4000-8000-000000000002",
+        "name": "Nyheter och tips 🦔",
+        "description": "Månadens tips, på svenska.",
+        "subscription": "opt_in"
+      }
+    ],
+    "c0000000-0000-4000-8000-000000000003": [
+      {
+        "id": "a1b2c3d4-0000-4000-8000-000000000001",
+        "name": "Product updates",
+        "description": "New features and announcements.",
+        "subscription": "opt_in"
+      }
+    ]
+  },
+  "templates": [
+    {
+      "object": "template",
+      "id": "70000000-0000-4000-8000-000000000001",
+      "current_version_id": "v-70000000-0000-4000-8000-000000000001",
+      "alias": "welcome-email",
+      "name": "Welcome email",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "updated_at": "2026-10-01 12:00:00.000000+00",
+      "status": "published",
+      "published_at": "2026-10-01 12:00:00.000000+00",
+      "from": "Acme <hello@example.com>",
+      "subject": "Welcome, {{{FIRST_NAME|there}}} 🎉",
+      "reply_to": [
+        "support@example.com"
+      ],
+      "html": "<html><body><h1>Hi {{{NAME|friend}}}</h1><p>Your plan is {{{PLAN}}}.</p><a href=\"{{{RESEND_UNSUBSCRIBE_URL}}}\">Unsubscribe</a></body></html>",
+      "text": "Hi {{{NAME|friend}}}",
+      "variables": [
+        {
+          "id": "var-NAME",
+          "key": "NAME",
+          "type": "string",
+          "fallback_value": "friend",
+          "created_at": "2026-10-01 12:00:00.000000+00",
+          "updated_at": "2026-10-01 12:00:00.000000+00"
+        },
+        {
+          "id": "var-PLAN",
+          "key": "PLAN",
+          "type": "string",
+          "fallback_value": "free",
+          "created_at": "2026-10-01 12:00:00.000000+00",
+          "updated_at": "2026-10-01 12:00:00.000000+00"
+        }
+      ],
+      "has_unpublished_versions": false
+    },
+    {
+      "object": "template",
+      "id": "70000000-0000-4000-8000-000000000002",
+      "current_version_id": "v-70000000-0000-4000-8000-000000000002",
+      "alias": "receipt",
+      "name": "Receipt",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "updated_at": "2026-10-01 12:00:00.000000+00",
+      "status": "published",
+      "published_at": "2026-10-01 12:00:00.000000+00",
+      "from": "Acme <hello@example.com>",
+      "subject": "Receipt {{{ORDER_ID}}}",
+      "reply_to": null,
+      "html": "<p>Order {{{ORDER_ID}}}: {{{TOTAL}}} items.</p>",
+      "text": null,
+      "variables": [
+        {
+          "id": "var-ORDER_ID",
+          "key": "ORDER_ID",
+          "type": "string",
+          "fallback_value": null,
+          "created_at": "2026-10-01 12:00:00.000000+00",
+          "updated_at": "2026-10-01 12:00:00.000000+00"
+        },
+        {
+          "id": "var-TOTAL",
+          "key": "TOTAL",
+          "type": "number",
+          "fallback_value": 0,
+          "created_at": "2026-10-01 12:00:00.000000+00",
+          "updated_at": "2026-10-01 12:00:00.000000+00"
+        }
+      ],
+      "has_unpublished_versions": false
+    },
+    {
+      "object": "template",
+      "id": "70000000-0000-4000-8000-000000000003",
+      "current_version_id": "v-70000000-0000-4000-8000-000000000003",
+      "alias": "conditional-footer",
+      "name": "Conditional footer",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "updated_at": "2026-10-01 12:00:00.000000+00",
+      "status": "published",
+      "published_at": "2026-10-01 12:00:00.000000+00",
+      "from": "Acme <hello@example.com>",
+      "subject": "Your weekly summary",
+      "reply_to": null,
+      "html": "<p>{{#if IS_PRO}}Thanks for being on Pro.{{else}}Upgrade today.{{/if}}</p><p>Curly text: {% not liquid %}</p>",
+      "text": null,
+      "variables": [],
+      "has_unpublished_versions": true
+    },
+    {
+      "object": "template",
+      "id": "70000000-0000-4000-8000-000000000004",
+      "current_version_id": "v-70000000-0000-4000-8000-000000000004",
+      "alias": null,
+      "name": "Draft announcement",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "updated_at": "2026-10-01 12:00:00.000000+00",
+      "status": "draft",
+      "published_at": null,
+      "from": "",
+      "subject": "A draft",
+      "reply_to": null,
+      "html": "<p>Not published yet</p>",
+      "text": null,
+      "variables": [],
+      "has_unpublished_versions": false
+    },
+    {
+      "object": "template",
+      "id": "70000000-0000-4000-8000-000000000005",
+      "current_version_id": "v-70000000-0000-4000-8000-000000000005",
+      "alias": "bad alias!",
+      "name": "Přivítání 🦔 dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název dlouhý název ",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "updated_at": "2026-10-01 12:00:00.000000+00",
+      "status": "published",
+      "published_at": "2026-10-01 12:00:00.000000+00",
+      "from": "Acme <hello@example.com>",
+      "subject": "Vítejte",
+      "reply_to": null,
+      "html": "<p>Ahoj {{{contact.first_name|příteli}}}</p>",
+      "text": null,
+      "variables": [],
+      "has_unpublished_versions": false
+    }
+  ],
+  "domains": [
+    {
+      "object": "domain",
+      "id": "d0000000-0000-4000-8000-000000000001",
+      "name": "example.com",
+      "status": "verified",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "region": "us-east-1",
+      "capabilities": {
+        "sending": "enabled",
+        "receiving": "disabled"
+      },
+      "records": [
+        {
+          "record": "SPF",
+          "name": "send",
+          "type": "MX",
+          "ttl": "Auto",
+          "status": "verified",
+          "value": "feedback-smtp.us-east-1.amazonses.com",
+          "priority": 10
+        },
+        {
+          "record": "DKIM",
+          "name": "resend._domainkey",
+          "type": "TXT",
+          "ttl": "Auto",
+          "status": "verified",
+          "value": "p=abc"
+        }
+      ]
+    },
+    {
+      "object": "domain",
+      "id": "d0000000-0000-4000-8000-000000000002",
+      "name": "mail.example.org",
+      "status": "verified",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "region": "eu-west-1",
+      "capabilities": {
+        "sending": "enabled",
+        "receiving": "disabled"
+      },
+      "records": [
+        {
+          "record": "SPF",
+          "name": "feedback",
+          "type": "MX",
+          "ttl": "Auto",
+          "status": "verified",
+          "value": "feedback-smtp.eu-west-1.amazonses.com",
+          "priority": 10
+        }
+      ]
+    },
+    {
+      "object": "domain",
+      "id": "d0000000-0000-4000-8000-000000000003",
+      "name": "example.net",
+      "status": "not_started",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "region": "us-east-1",
+      "capabilities": {
+        "sending": "enabled",
+        "receiving": "disabled"
+      },
+      "records": []
+    }
+  ],
+  "automations": [
+    {
+      "object": "automation",
+      "id": "a0000000-0000-4000-8000-000000000001",
+      "name": "Welcome series",
+      "status": "enabled",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "updated_at": "2026-10-01 12:00:00.000000+00",
+      "steps": [
+        {
+          "key": "start",
+          "type": "trigger",
+          "config": {
+            "event_name": "user.created"
+          }
+        },
+        {
+          "key": "welcome",
+          "type": "send_email",
+          "config": {
+            "template": {
+              "id": "70000000-0000-4000-8000-000000000001",
+              "variables": {
+                "NAME": {
+                  "var": "event.name"
+                },
+                "PLAN": "free"
+              }
+            }
+          }
+        },
+        {
+          "key": "wait",
+          "type": "delay",
+          "config": {
+            "duration": "2 days"
+          }
+        },
+        {
+          "key": "is_pro",
+          "type": "condition",
+          "config": {
+            "type": "rule",
+            "field": "contact.plan",
+            "operator": "eq",
+            "value": "pro"
+          }
+        },
+        {
+          "key": "wait_upgrade",
+          "type": "wait_for_event",
+          "config": {
+            "event_name": "plan.upgraded",
+            "timeout": "3 days"
+          }
+        },
+        {
+          "key": "receipt",
+          "type": "send_email",
+          "config": {
+            "template": {
+              "id": "receipt"
+            },
+            "subject": "Thanks for upgrading"
+          }
+        },
+        {
+          "key": "tag",
+          "type": "add_to_segment",
+          "config": {
+            "segment_id": "seg-1"
+          }
+        },
+        {
+          "key": "update",
+          "type": "contact_update",
+          "config": {
+            "first_name": {
+              "var": "event.first_name"
+            }
+          }
+        }
+      ],
+      "connections": [
+        {
+          "from": "start",
+          "to": "welcome",
+          "type": "default"
+        },
+        {
+          "from": "welcome",
+          "to": "wait",
+          "type": "default"
+        },
+        {
+          "from": "wait",
+          "to": "is_pro",
+          "type": "default"
+        },
+        {
+          "from": "is_pro",
+          "to": "tag",
+          "type": "condition_met"
+        },
+        {
+          "from": "is_pro",
+          "to": "wait_upgrade",
+          "type": "condition_not_met"
+        },
+        {
+          "from": "wait_upgrade",
+          "to": "receipt",
+          "type": "event_received"
+        },
+        {
+          "from": "wait_upgrade",
+          "to": "update",
+          "type": "timeout"
+        }
+      ]
+    },
+    {
+      "object": "automation",
+      "id": "a0000000-0000-4000-8000-000000000002",
+      "name": "Re-engagement",
+      "status": "disabled",
+      "created_at": "2026-10-01 12:00:00.000000+00",
+      "updated_at": "2026-10-01 12:00:00.000000+00",
+      "steps": [
+        {
+          "key": "start",
+          "type": "trigger",
+          "config": {
+            "event_name": "user.inactive"
+          }
+        },
+        {
+          "key": "send",
+          "type": "send_email",
+          "config": {
+            "template": {
+              "id": "70000000-0000-4000-8000-000000000099"
+            }
+          }
+        },
+        {
+          "key": "bye",
+          "type": "contact_delete",
+          "config": {}
+        }
+      ],
+      "connections": [
+        {
+          "from": "start",
+          "to": "send",
+          "type": "default"
+        },
+        {
+          "from": "send",
+          "to": "bye",
+          "type": "default"
+        }
+      ]
+    }
+  ]
+}
