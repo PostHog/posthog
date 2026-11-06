@@ -92,7 +92,7 @@ class FakeObjectStorageSource(ObjectStorageSource[FakeObjectStorageConfig]):
     def serialize_config(self, config: FakeObjectStorageConfig) -> dict[str, Any]:
         return dict(config.values)
 
-    def object_store_config(self, config: FakeObjectStorageConfig) -> StoreConfig:
+    def object_store_config(self, config: FakeObjectStorageConfig, team_id: int) -> StoreConfig:
         return self._build_store_config(config.values)
 
     def discovery_options(self, config: FakeObjectStorageConfig) -> DiscoveryOptions:

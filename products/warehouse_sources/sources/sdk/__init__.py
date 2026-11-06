@@ -79,7 +79,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
     AWS_FLAT_STORED_SELECTS,
+    ROLE_NOT_FOUND_ERROR,
     AwsAuthError,
+    RoleCredentials,
     aws_auth_endpoint_reasons,
     aws_auth_field,
     aws_redact_values,
@@ -201,6 +203,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     DiscoveryOptions,
     ObjectStoreConfig,
     ObjectStoreProvider,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ObjectStorageError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
     KEYWORDS,
@@ -484,6 +489,7 @@ __all__ = [
     "OAuth2GrantType",
     "OAuthMixin",
     "OauthIntegration",
+    "ObjectStorageError",
     "ObjectStorageSource",
     "ObjectStoreConfig",
     "ObjectStoreProvider",
@@ -504,6 +510,7 @@ __all__ = [
     "RESTClient",
     "RESTClientNonRetryableError",
     "RESTClientRetryableError",
+    "ROLE_NOT_FOUND_ERROR",
     "ReleaseStatus",
     "RequestPacer",
     "Resource",
@@ -511,6 +518,7 @@ __all__ = [
     "ResumableSource",
     "ResumableSourceManager",
     "ResumeHook",
+    "RoleCredentials",
     "RowFilterColumn",
     "S3_EXAMPLE_URL",
     "SCHEMA_RESOURCE_ID_METADATA_KEY",
