@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -22,6 +23,7 @@ from .merge_workflow import GITHUB_READ_ERRORS
 RECONCILE_WORKFLOW_NAME = "knowledge-writer-merge-reconcile"
 RECONCILE_WINDOW = timedelta(hours=3)
 RECONCILE_MAX_PAGES = 10
+RECONCILE_CATCH_UP_MAX_PAGES = 30
 COMMITS_PER_PAGE = 100
 RECONCILED_HEAD_TTL = timedelta(days=1)
 
@@ -49,28 +51,82 @@ def reconciled_head_cache_key(repository: str) -> str:
     return f"knowledge_writer:reconciled_head:{repository.lower()}"
 
 
-def default_branch_commits(
-    github: GitHubReader, repository: str, *, reconciled_head: str | None, window_start: datetime
-) -> list[dict]:
+def public_default_branch(github: GitHubReader, repository: str) -> str | None:
     listed_repository = read_github(github, f"/repos/{repository}", endpoint="/repos/{owner}/{repo}").json()
     if listed_repository.get("private") is not False:
-        return []
-    params: dict[str, str | int] = {"sha": listed_repository["default_branch"], "per_page": COMMITS_PER_PAGE}
-    if reconciled_head is None:
-        params["since"] = window_start.isoformat()
-    commits: list[dict] = []
-    for page in range(1, RECONCILE_MAX_PAGES + 1):
+        return None
+    return listed_repository["default_branch"]
+
+
+def commit_pages(
+    github: GitHubReader, repository: str, branch: str, pages: range, *, since: datetime | None = None
+) -> Iterator[list[dict]]:
+    params: dict[str, str | int] = {"sha": branch, "per_page": COMMITS_PER_PAGE}
+    if since is not None:
+        params["since"] = since.isoformat()
+    for page in pages:
         listed = read_github(
             github,
             f"/repos/{repository}/commits",
             endpoint="/repos/{owner}/{repo}/commits",
             params={**params, "page": page},
         ).json()
+        yield listed
+        if len(listed) < COMMITS_PER_PAGE:
+            return
+
+
+def commits_in_window(github: GitHubReader, repository: str, branch: str, window_start: datetime) -> list[dict]:
+    pages = list(commit_pages(github, repository, branch, range(1, RECONCILE_MAX_PAGES + 1), since=window_start))
+    if len(pages) == RECONCILE_MAX_PAGES and len(pages[-1]) == COMMITS_PER_PAGE:
+        capture_exception(ReconcileWindowTruncated(f"more than {RECONCILE_MAX_PAGES} pages of {repository} commits"))
+    return [commit for listed in pages for commit in listed]
+
+
+def commits_ahead_of(github: GitHubReader, repository: str, branch: str, reconciled_head: str) -> int | None:
+    response = github.api_request(
+        "GET",
+        f"/repos/{repository}/compare/{reconciled_head}...{branch}",
+        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+        params={"per_page": 1},
+        priority=Priority.NORMAL,
+    )
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    comparison = response.json()
+    if comparison["status"] != "ahead":
+        return None
+    return comparison["ahead_by"]
+
+
+def extends_back_to(commits: list[dict], pages: Iterator[list[dict]], reconciled_head: str) -> bool:
+    for listed in pages:
         commits.extend(listed)
-        if len(listed) < COMMITS_PER_PAGE or any(commit["sha"] == reconciled_head for commit in listed):
-            return commits
-    capture_exception(ReconcileWindowTruncated(f"more than {RECONCILE_MAX_PAGES} pages of {repository} commits"))
-    return commits
+        if any(commit["sha"] == reconciled_head for commit in listed):
+            return True
+    return False
+
+
+def commits_back_to(github: GitHubReader, repository: str, branch: str, reconciled_head: str) -> list[dict] | None:
+    commits: list[dict] = []
+    capped_pages = commit_pages(github, repository, branch, range(1, RECONCILE_MAX_PAGES + 1))
+    if extends_back_to(commits, capped_pages, reconciled_head):
+        return commits
+    head_lost = ReconciledHeadLost(f"{repository} {branch} no longer reaches {reconciled_head}")
+    commits_ahead = commits_ahead_of(github, repository, branch, reconciled_head)
+    if commits_ahead is None:
+        capture_exception(head_lost)
+        return None
+    last_page = commits_ahead // COMMITS_PER_PAGE + 1
+    if last_page > RECONCILE_CATCH_UP_MAX_PAGES:
+        capture_exception(ReconcileWindowTruncated(f"{repository} is {commits_ahead} commits past {reconciled_head}"))
+        return None
+    catch_up_pages = commit_pages(github, repository, branch, range(RECONCILE_MAX_PAGES + 1, last_page + 1))
+    if extends_back_to(commits, catch_up_pages, reconciled_head):
+        return commits
+    capture_exception(head_lost)
+    return None
 
 
 def first_parent_changes(
@@ -86,6 +142,22 @@ def first_parent_changes(
     return changes
 
 
+def collect_unreconciled_changes(
+    merges: UnreconciledMerges, github: GitHubReader, repository: str, window_start: datetime
+) -> None:
+    branch = public_default_branch(github, repository)
+    if branch is None:
+        return
+    reconciled_head = cache.get(reconciled_head_cache_key(repository))
+    commits = commits_back_to(github, repository, branch, reconciled_head) if reconciled_head else None
+    if commits is None:
+        reconciled_head = None
+        commits = commits_in_window(github, repository, branch, window_start)
+    merges.changes.extend(first_parent_changes(repository, commits, reconciled_head=reconciled_head))
+    if commits:
+        merges.heads_by_repository[repository] = commits[0]["sha"]
+
+
 def list_unreconciled_merges() -> UnreconciledMerges | None:
     writer = writer_settings()
     if writer is None:
@@ -96,21 +168,10 @@ def list_unreconciled_merges() -> UnreconciledMerges | None:
         github = docs_github(writer.team_id, repository.split("/", 1)[0], priority=Priority.NORMAL)
         if github is None:
             continue
-        reconciled_head = cache.get(reconciled_head_cache_key(repository))
         try:
-            commits = default_branch_commits(
-                github, repository, reconciled_head=reconciled_head, window_start=window_start
-            )
-            if reconciled_head is not None and all(commit["sha"] != reconciled_head for commit in commits):
-                capture_exception(ReconciledHeadLost(f"{repository} branch no longer reaches {reconciled_head}"))
-                reconciled_head = None
-                commits = default_branch_commits(github, repository, reconciled_head=None, window_start=window_start)
+            collect_unreconciled_changes(merges, github, repository, window_start)
         except GITHUB_READ_ERRORS as error:
             capture_exception(RepositoryReconcileFailed(f"reconciling {repository} failed: {error}"))
-            continue
-        merges.changes.extend(first_parent_changes(repository, commits, reconciled_head=reconciled_head))
-        if commits:
-            merges.heads_by_repository[repository] = commits[0]["sha"]
     return merges
 
 

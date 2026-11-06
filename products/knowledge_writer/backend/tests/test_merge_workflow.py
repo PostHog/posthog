@@ -23,6 +23,8 @@ from posthog.models.integration import Integration
 from products.knowledge_writer.backend.temporal.client import merge_check_workflow_id
 from products.knowledge_writer.backend.temporal.reconcile_workflow import (
     COMMITS_PER_PAGE,
+    RECONCILE_CATCH_UP_MAX_PAGES,
+    RECONCILE_MAX_PAGES,
     reconcile_merged_pull_requests_activity,
     reconciled_head_cache_key,
 )
@@ -155,13 +157,21 @@ def test_the_merge_pushes_endpoint_is_gone(client, team, user, writer_env) -> No
 
 
 class DefaultBranchCommits:
-    def __init__(self, commit_pages_by_repository: dict[str, list[list[dict[str, Any]]]]) -> None:
+    def __init__(
+        self,
+        commit_pages_by_repository: dict[str, list[list[dict[str, Any]]]],
+        comparison_with_saved_head: dict[str, Any] | None = None,
+    ) -> None:
         self.commit_pages_by_repository = commit_pages_by_repository
+        self.comparison_with_saved_head = comparison_with_saved_head
         self.requested_pages: list[tuple[str, int]] = []
         self.listed_since: list[str | None] = []
 
     def api_request(self, method, path, *, endpoint, params=None, headers=None, priority=None):
         response = MagicMock()
+        if "/compare/" in path:
+            response.json.return_value = self.comparison_with_saved_head
+            return response
         repository = path.removeprefix("/repos/").removesuffix("/commits")
         if repository not in self.commit_pages_by_repository and not repository.endswith("-js"):
             response.raise_for_status.side_effect = requests.HTTPError("404 Not Found", response=response)
@@ -223,13 +233,55 @@ async def test_the_hourly_reconcile_walks_each_public_default_branch_by_first_pa
     ]
 
 
+def _numbered_sha(number: int) -> str:
+    return f"{number:040d}"
+
+
+SAVED_HEAD = _numbered_sha(0)
+HEAD_OFF_THE_BRANCH = "f" * 40
+COMMITS_PAST_THE_PAGE_CAP = RECONCILE_MAX_PAGES * COMMITS_PER_PAGE + 1
+
+
+@pytest.mark.parametrize(
+    "new_commit_count, saved_head, comparison_with_saved_head, checked_commit_count, falls_back_to_the_window",
+    [
+        pytest.param(2, SAVED_HEAD, None, 2, False, id="saved head within the page cap"),
+        pytest.param(
+            COMMITS_PAST_THE_PAGE_CAP,
+            SAVED_HEAD,
+            {"status": "ahead", "ahead_by": COMMITS_PAST_THE_PAGE_CAP},
+            COMMITS_PAST_THE_PAGE_CAP,
+            False,
+            id="saved head past the page cap",
+        ),
+        pytest.param(2, HEAD_OFF_THE_BRANCH, {"status": "diverged", "ahead_by": 3}, 3, True, id="saved head lost"),
+        pytest.param(
+            COMMITS_PAST_THE_PAGE_CAP,
+            HEAD_OFF_THE_BRANCH,
+            {"status": "ahead", "ahead_by": RECONCILE_CATCH_UP_MAX_PAGES * COMMITS_PER_PAGE},
+            RECONCILE_MAX_PAGES * COMMITS_PER_PAGE,
+            True,
+            id="saved head past the catch-up cap",
+        ),
+    ],
+)
 @pytest.mark.django_db(transaction=True)
-async def test_the_next_reconcile_walks_back_to_the_saved_head_whatever_the_commit_dates(team, writer_env) -> None:
-    head, batched, reconciled, ancient = ("1" * 40, "2" * 40, "3" * 40, "4" * 40)
-    cache.set(reconciled_head_cache_key("PostHog/posthog"), reconciled)
-    github = DefaultBranchCommits(
-        {"PostHog/posthog": [[_commit(head, batched), _commit(batched, reconciled), _commit(reconciled, ancient)]]}
-    )
+async def test_the_next_reconcile_checks_every_commit_back_to_the_saved_head_while_the_branch_reaches_it(
+    team,
+    writer_env,
+    new_commit_count,
+    saved_head,
+    comparison_with_saved_head,
+    checked_commit_count,
+    falls_back_to_the_window,
+) -> None:
+    cache.set(reconciled_head_cache_key("PostHog/posthog"), saved_head)
+    history = [
+        _commit(_numbered_sha(number), *([_numbered_sha(number - 1)] if number else []))
+        for number in range(new_commit_count, -1, -1)
+    ]
+    pages = [history[start : start + COMMITS_PER_PAGE] for start in range(0, len(history), COMMITS_PER_PAGE)]
+    github = DefaultBranchCommits({"PostHog/posthog": pages}, comparison_with_saved_head)
     temporal = MagicMock(start_workflow=AsyncMock())
 
     with (
@@ -239,9 +291,9 @@ async def test_the_next_reconcile_walks_back_to_the_saved_head_whatever_the_comm
     ):
         await ActivityEnvironment().run(reconcile_merged_pull_requests_activity)
 
-    assert github.listed_since == [None]
+    assert any(github.listed_since) is falls_back_to_the_window
     assert [call.kwargs["id"] for call in temporal.start_workflow.await_args_list] == [
-        merge_check_workflow_id(head),
-        merge_check_workflow_id(batched),
+        merge_check_workflow_id(_numbered_sha(number))
+        for number in range(new_commit_count, new_commit_count - checked_commit_count, -1)
     ]
-    assert cache.get(reconciled_head_cache_key("PostHog/posthog")) == head
+    assert cache.get(reconciled_head_cache_key("PostHog/posthog")) == _numbered_sha(new_commit_count)
