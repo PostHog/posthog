@@ -91,9 +91,11 @@ export interface messageTemplateTestSendLogicActions {
     } // membersLogic
     loadAllMembersSuccess: (
         members: OrganizationMemberType[],
-        payload?: {
-            value: true
-        }
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
     ) => {
         members: OrganizationMemberType[]
         payload?: {

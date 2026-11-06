@@ -157,6 +157,18 @@ describe('workflowLogic broadcast suggestion on create', () => {
             path: `/workflows/${CREATED_ID}/workflow`,
         },
         {
+            name: 'a batch email before the senders load',
+            actions: [trigger('batch'), email, exit],
+            exitCondition: 'exit_only_at_end' as const,
+            choice: 'broadcast' as const,
+            asked: false,
+            others: [],
+            moved: [],
+            originProduct: undefined,
+            path: `/workflows/${CREATED_ID}/workflow`,
+            sendersLoaded: false,
+        },
+        {
             name: 'a batch email that exits on conversion',
             actions: [trigger('batch'), email, exit],
             exitCondition: 'exit_on_conversion' as const,
@@ -169,10 +181,13 @@ describe('workflowLogic broadcast suggestion on create', () => {
         },
     ])(
         'creates $name with the right owner and opens it',
-        async ({ actions, exitCondition, choice, asked, others, moved, originProduct, path }) => {
+        async ({ actions, exitCondition, choice, asked, others, moved, originProduct, path, sendersLoaded = true }) => {
             otherIds = others
             jest.mocked(confirmCreateAsBroadcast).mockResolvedValue(choice)
             await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+            if (!sendersLoaded) {
+                integrationsLogic.actions.clearIntegrations()
+            }
             logic.actions.setWorkflowValues({
                 name: 'Monthly update',
                 actions,
@@ -200,6 +215,7 @@ describe('workflowLogic broadcast suggestion on create', () => {
 
     it('creates nothing when the user closes the dialog', async () => {
         jest.mocked(confirmCreateAsBroadcast).mockResolvedValue(null)
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
         logic.actions.setWorkflowValues({
             name: 'Monthly update',
             actions: [trigger('batch'), email, exit],

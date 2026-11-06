@@ -55,11 +55,21 @@ def is_sandbox_sender_domain(domain: str) -> bool:
     return bool(sandbox_domain) and (domain == sandbox_domain or domain.endswith(f".{sandbox_domain}"))
 
 
+def sandbox_sender_settings_present() -> bool:
+    return bool(
+        settings.WORKFLOWS_SANDBOX_SENDER_DOMAIN
+        and settings.SES_SANDBOX_FROM_ADDRESS
+        and settings.SES_SANDBOX_TENANT_NAME
+    )
+
+
+def _from_address_on_sandbox_domain() -> bool:
+    local_part, _, domain = settings.SES_SANDBOX_FROM_ADDRESS.rpartition("@")
+    return bool(local_part) and is_sandbox_sender_domain(domain)
+
+
 def sandbox_sender_configured() -> bool:
-    # The domain guard only covers WORKFLOWS_SANDBOX_SENDER_DOMAIN, so a from address elsewhere would
-    # send from a domain that teams can still claim as their own sender.
-    from_domain = settings.SES_SANDBOX_FROM_ADDRESS.rpartition("@")[2]
-    return bool(settings.SES_SANDBOX_TENANT_NAME) and is_sandbox_sender_domain(from_domain)
+    return bool(settings.SES_SANDBOX_TENANT_NAME) and _from_address_on_sandbox_domain()
 
 
 class EmailIntegration:
