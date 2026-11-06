@@ -4,6 +4,9 @@ Research has two phases, derived from the pipeline's training runs and never sto
 Explore starts a run on each sweep until a completed run does not promote its best model,
 or until ``EXPLORE_RUN_LIMIT`` research runs have run. Maintain starts one run
 ``research_interval_days`` after the latest training run of any kind, so a manual run resets the clock.
+
+A ``bootstrapping`` pipeline whose first champion rolled back follows the same schedule
+(``awaiting_first_champion()``).
 """
 
 from collections.abc import Iterable
@@ -11,9 +14,11 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Literal
 from uuid import UUID
 
+from django.db.models import Exists, OuterRef, Q
+
 from posthog.dataclasses import frozen
 
-from ..models import AutoresearchTrainingRun
+from ..models import AutoresearchModel, AutoresearchPipeline, AutoresearchTrainingRun
 
 # Research runs before explore ends, if no run stopped it first. Rescue runs do not count.
 EXPLORE_RUN_LIMIT = 5
@@ -91,3 +96,27 @@ def schedule_runs_for(pipeline_ids: Iterable[UUID], team_id: int) -> dict[UUID, 
             )
         )
     return runs
+
+
+def awaiting_first_champion() -> Q:
+    """Filter pipelines to the ``bootstrapping`` ones that wait for a scheduled run to find a first champion.
+
+    A first champion that fails its fit or its scorability check rolls back, and the pipeline goes
+    back to ``bootstrapping`` with a completed run. Such a pipeline has no champion and no pending
+    or running training run. Without scheduled research it stays in this state.
+    """
+    run_of_pipeline = AutoresearchTrainingRun.all_teams.filter(team_id=OuterRef("team_id"), pipeline_id=OuterRef("pk"))
+    return Q(
+        Exists(run_of_pipeline.filter(status=AutoresearchTrainingRun.Status.COMPLETED)),
+        ~Exists(
+            run_of_pipeline.filter(
+                status__in=[AutoresearchTrainingRun.Status.PENDING, AutoresearchTrainingRun.Status.RUNNING]
+            )
+        ),
+        ~Exists(
+            AutoresearchModel.all_teams.filter(
+                team_id=OuterRef("team_id"), pipeline_id=OuterRef("pk"), role=AutoresearchModel.Role.CHAMPION
+            )
+        ),
+        status=AutoresearchPipeline.Status.BOOTSTRAPPING,
+    )

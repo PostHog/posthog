@@ -96,7 +96,7 @@ export const MetricSuggestion: Story = {
         }),
     ],
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
         testOptions: { snapshotBrowsers: [] },
     },
     render: function MetricSuggestion(): JSX.Element {
