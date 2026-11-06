@@ -62,6 +62,13 @@ class TestTaskDone(TestCase):
         with patch(PAYLOAD, return_value=payload):
             self.assertEqual(done_mode(USER.key, self.team.id), expected)
 
+    def test_done_mode_is_cached_per_team_and_profile(self) -> None:
+        with patch(PAYLOAD, return_value={"user": "enforce"}) as payload:
+            done_mode(USER.key, self.team.id)
+            self.assertEqual(done_mode(USER.key, self.team.id), DoneMode.ENFORCE)
+
+        self.assertEqual(payload.call_count, 1)
+
     @parameterized.expand(
         [
             ("idle_to_done", Task.Status.IDLE, Task.Status.DONE, Task.StatusReason.CLOSED, True),

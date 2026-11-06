@@ -7,6 +7,7 @@ from itertools import batched
 from typing import Any
 from uuid import UUID
 
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q, Value
 from django.db.models.functions import Coalesce
@@ -46,6 +47,8 @@ RUN_SYNC_ACTOR = "task_run"
 BACKFILL_ACTOR = "backfill"
 SHADOW_ACTOR_PREFIX = "shadow:"
 DONE_FLAG = "tasks-task-done"
+DONE_MODE_CACHE_SECONDS = 60
+_UNRESOLVED_DONE_MODE = "unresolved"
 
 _DERIVED_FROM_RUN_FIELDS = frozenset({"status", "scheduled_at", "error_message"})
 _LIVE_TASK_STATUSES = (Task.Status.QUEUED, Task.Status.RUNNING)
@@ -196,6 +199,22 @@ def _legacy_columns(task_id: UUID | str) -> dict[str, Any]:
 def done_mode(profile_key: str | None, team_id: int) -> DoneMode | None:
     if not profile_key:
         return DoneMode.OFF
+    key = f"tasks:done_mode:{team_id}:{profile_key}"
+    try:
+        cached = cache.get(key)
+    except Exception:
+        cached = None
+    if cached is not None:
+        return None if cached == _UNRESOLVED_DONE_MODE else DoneMode(cached)
+    mode = _resolve_done_mode(profile_key, team_id)
+    try:
+        cache.set(key, _UNRESOLVED_DONE_MODE if mode is None else mode.value, DONE_MODE_CACHE_SECONDS)
+    except Exception:
+        logger.warning("task_done_mode_cache_failed", profile=profile_key, team_id=team_id, exc_info=True)
+    return mode
+
+
+def _resolve_done_mode(profile_key: str, team_id: int) -> DoneMode | None:
     try:
         team = Team.objects.only("uuid", "organization_id").get(pk=team_id)
         organization_id = str(team.organization_id)
