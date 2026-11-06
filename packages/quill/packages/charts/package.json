@@ -46,7 +46,7 @@
         "d3-scale": "^4.0.2",
         "d3-shape": "^3.2.0",
         "dayjs": "1.11.11",
-        "simple-statistics": "^7.8.3"
+        "simple-statistics": "^7.11.0"
     },
     "devDependencies": {
         "@posthog/quill-tokens": "workspace:*",
