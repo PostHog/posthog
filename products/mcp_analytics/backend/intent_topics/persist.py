@@ -86,6 +86,19 @@ def finish_run(
     run.save()
 
 
+def latest_refit_started_at(team: Team) -> datetime | None:
+    return (
+        MCPIntentClusteringRun.objects.filter(
+            team=project_team(team),
+            kind=MCPIntentClusteringRun.Kind.REFIT,
+            status=MCPIntentClusteringRun.Status.SUCCEEDED,
+        )
+        .order_by("-started_at")
+        .values_list("started_at", flat=True)
+        .first()
+    )
+
+
 def latest_pca_basis(team: Team) -> PcaBasis | None:
     """The basis of the registry in use. ``apply_fit`` writes both in one transaction, before the run finishes
     labeling, so the basis is read by its presence rather than by the run's status."""
