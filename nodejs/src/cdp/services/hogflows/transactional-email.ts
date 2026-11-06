@@ -22,6 +22,8 @@ const CopyRecipientsSchema = z
 export const MAX_EMAIL_ATTACHMENTS_BYTES = 10 * 1024 * 1024
 // Without a bucket the files live in the Cyclotron database, which can't take large rows.
 export const MAX_EMAIL_ATTACHMENTS_BYTES_IN_POSTGRES = 512 * 1024
+// A worker sends a whole batch at once, and each file is in memory about three times while it is encoded for SES.
+export const MAX_EMAIL_ATTACHMENT_BYTES_IN_FLIGHT = 100 * 1024 * 1024
 
 const BLOCKED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
     'ade',

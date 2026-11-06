@@ -19,7 +19,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
-import type { DecodedAttachment } from '../hogflows/transactional-email'
+import { type DecodedAttachment, MAX_EMAIL_ATTACHMENT_BYTES_IN_FLIGHT } from '../hogflows/transactional-email'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
@@ -166,6 +166,13 @@ class EmailAttachmentsUnavailableError extends Error {
     constructor(cause: unknown) {
         super('Could not load the attachment files of this email', { cause })
         this.name = 'EmailAttachmentsUnavailableError'
+    }
+}
+
+class EmailAttachmentsBusyError extends Error {
+    constructor() {
+        super('This worker is already sending as many attachment bytes as it can hold')
+        this.name = 'EmailAttachmentsBusyError'
     }
 }
 
@@ -453,6 +460,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private untrackedConfigSetWarningLogged = false
+    private attachmentBytesInFlight = 0
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -796,19 +804,21 @@ export class EmailService {
                       }
                     : paramsWithReplyTo
 
-            const files = await this.loadAttachments(invocation.id, invocation.teamId, params.attachments)
+            await this.holdingAttachmentBytes(params.attachments, async () => {
+                const files = await this.loadAttachments(invocation.id, invocation.teamId, params.attachments)
 
-            switch (integration.config.provider ?? 'ses') {
-                case 'maildev':
-                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
-                    break
-                case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait, files)
-                    break
+                switch (integration.config.provider ?? 'ses') {
+                    case 'maildev':
+                        await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
+                        break
+                    case 'ses':
+                        await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait, files)
+                        break
 
-                case 'unsupported':
-                    throw new Error('Email delivery mode not supported')
-            }
+                    case 'unsupported':
+                        throw new Error('Email delivery mode not supported')
+                }
+            })
 
             // Emit the `[Email:…]` token in the success log only when an asset row
             // will actually be captured; `renderWorkflowLogMessage` renders it as the
@@ -832,6 +842,14 @@ export class EmailService {
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
+            } else if (error instanceof EmailAttachmentsBusyError) {
+                const retryDelayMs = pickAttachmentLoadRetryDelayMs(1)
+                rescheduled = true
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = invocation.queueMetadata
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
+                addLog('info', `Sending other large emails first; rescheduling this email in ${retryDelayMs}ms`)
             } else if (error instanceof EmailAttachmentsUnavailableError) {
                 const tries = (invocation.queueMetadata?.attachmentLoadTries ?? 0) + 1
                 const retryDelayMs = pickAttachmentLoadRetryDelayMs(tries)
@@ -1193,6 +1211,28 @@ export class EmailService {
         }
 
         return overrideEmail
+    }
+
+    // Rescheduling frees the job's place in the batch. Waiting here would hold the whole batch past the janitor's stall
+    // timeout, and the janitor would then give the jobs to another worker while this one still sends them.
+    private async holdingAttachmentBytes(
+        attachments: CyclotronInvocationQueueParametersEmailType['attachments'],
+        send: () => Promise<void>
+    ): Promise<void> {
+        const bytes = (attachments ?? []).reduce((total, file) => total + file.sizeBytes, 0)
+        if (
+            bytes > 0 &&
+            this.attachmentBytesInFlight > 0 &&
+            this.attachmentBytesInFlight + bytes > MAX_EMAIL_ATTACHMENT_BYTES_IN_FLIGHT
+        ) {
+            throw new EmailAttachmentsBusyError()
+        }
+        this.attachmentBytesInFlight += bytes
+        try {
+            await send()
+        } finally {
+            this.attachmentBytesInFlight -= bytes
+        }
     }
 
     private async loadAttachments(

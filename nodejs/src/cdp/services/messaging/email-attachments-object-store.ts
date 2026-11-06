@@ -42,12 +42,19 @@ class S3EmailAttachmentObjectStore implements EmailAttachmentObjectStore {
     public async delete(keys: string[]): Promise<void> {
         for (let start = 0; start < keys.length; start += S3_DELETE_BATCH_SIZE) {
             const batch = keys.slice(start, start + S3_DELETE_BATCH_SIZE)
-            await this.client.send(
+            const { Errors: errors } = await this.client.send(
                 new DeleteObjectsCommand({
                     Bucket: this.bucket,
                     Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
                 })
             )
+            // The request succeeds even when single objects fail. A caller that sees no error deletes the row, and
+            // then nothing can find the object again.
+            if (errors?.length) {
+                throw new Error(`Could not delete ${errors.length} of ${batch.length} email attachment objects`, {
+                    cause: errors[0].Code,
+                })
+            }
         }
     }
 }

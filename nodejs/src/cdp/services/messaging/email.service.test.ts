@@ -13,7 +13,11 @@ import {
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { attachmentMetadata, decodeAttachments } from '~/cdp/services/hogflows/transactional-email'
+import {
+    MAX_EMAIL_ATTACHMENT_BYTES_IN_FLIGHT,
+    attachmentMetadata,
+    decodeAttachments,
+} from '~/cdp/services/hogflows/transactional-email'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -1402,6 +1406,26 @@ describe('EmailService', () => {
             afterEach(async () => {
                 await attachments.stop()
                 await assertPool.end()
+            })
+
+            it('reschedules a send with attachments while the worker holds too many attachment bytes', async () => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                await attachments.store(invocation.id, team.id, files)
+                service['attachmentBytesInFlight'] = MAX_EMAIL_ATTACHMENT_BYTES_IN_FLIGHT
+
+                const busy = await service.executeSendEmail(invocation)
+
+                expect(busy.finished).toBe(false)
+                expect(busy.error).toBeUndefined()
+                expect(busy.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+
+                service['attachmentBytesInFlight'] = 0
+                const sent = await service.executeSendEmail(busy.invocation)
+
+                expect(sent.finished).toBe(true)
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(service['attachmentBytesInFlight']).toEqual(0)
             })
 
             it.each([

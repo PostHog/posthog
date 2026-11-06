@@ -1,3 +1,4 @@
+import { S3Client } from '@aws-sdk/client-s3'
 import { Pool } from 'pg'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -5,7 +6,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { Hub } from '~/types'
 
 import { decodeAttachments } from '../hogflows/transactional-email'
-import { EmailAttachmentObjectStore } from './email-attachments-object-store'
+import { EmailAttachmentObjectStore, buildEmailAttachmentObjectStore } from './email-attachments-object-store'
 import { EmailAttachmentsMissingError, EmailAttachmentsService } from './email-attachments.service'
 
 class FakeObjectStore implements EmailAttachmentObjectStore {
@@ -104,6 +105,31 @@ describe('EmailAttachmentsService with object storage', () => {
         await service.delete(jobId, teamId)
         expect(await rowsOf(jobId)).toHaveLength(0)
         expect(objectStore.objects.size).toEqual(0)
+    })
+
+    it('keeps the row when the bucket accepts the delete request but refuses one of its objects', async () => {
+        jest.spyOn(S3Client.prototype, 'send').mockImplementation(() =>
+            Promise.resolve({ Errors: [{ Key: 'any', Code: 'InternalError' }] })
+        )
+        const bucket = new EmailAttachmentsService(
+            hub.CYCLOTRON_NODE_DATABASE_URL,
+            undefined,
+            buildEmailAttachmentObjectStore({
+                CDP_EMAIL_ATTACHMENTS_S3_BUCKET: 'attachments',
+                CDP_EMAIL_ATTACHMENTS_S3_REGION: 'us-east-1',
+                CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: '',
+                CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: '',
+                CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: '',
+            })
+        )
+        const jobId = new UUIDT().toString()
+        await bucket.store(jobId, teamId, files)
+
+        await bucket.delete(jobId, teamId)
+
+        expect(await rowsOf(jobId)).toHaveLength(1)
+        jest.restoreAllMocks()
+        await bucket.stop()
     })
 
     it('still reads a file stored in the database before the bucket was configured', async () => {
