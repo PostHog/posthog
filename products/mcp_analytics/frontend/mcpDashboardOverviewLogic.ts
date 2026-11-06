@@ -217,6 +217,16 @@ export interface HarnessRow {
     sessions: number
 }
 
+export function toHarnessRow(item: MCPHarnessBreakdownItem): HarnessRow {
+    return {
+        category: item.harness,
+        total_calls: item.total_calls,
+        errors: item.errors,
+        error_rate_pct: item.error_rate_pct,
+        sessions: item.sessions,
+    }
+}
+
 export interface ModelRow {
     model: string
     total_calls: number
@@ -933,13 +943,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                         },
                         breakpoint
                     )
-                    return (response?.results ?? []).map((r) => ({
-                        category: r.harness,
-                        total_calls: r.total_calls,
-                        errors: r.errors,
-                        error_rate_pct: r.error_rate_pct,
-                        sessions: r.sessions,
-                    }))
+                    return (response?.results ?? []).map(toHarnessRow)
                 },
             },
         ],
