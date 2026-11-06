@@ -13,10 +13,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import {
-    VALID_FILE_MARKETING_SOURCES,
-    VALID_WAREHOUSE_MARKETING_SOURCES,
+    VALID_NON_NATIVE_MARKETING_SOURCES,
     getEnabledNativeMarketingSourcesInDisplayOrder,
-    marketingSourceDisplayLabel,
+    nativeSourceDisplayLabel,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -28,7 +27,7 @@ const HedgehogMoney = pngHoggie(moneyPng)
 interface MarketingSource {
     id: string
     isConnected: boolean
-    category: 'native' | 'external' | 'file'
+    category: 'native' | 'external'
 }
 
 interface SourceCatalogProps {
@@ -53,15 +52,10 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
             isConnected: validNativeSources.some((source) => source.source.source_type === sourceType),
             category: 'native' as const,
         })),
-        ...VALID_WAREHOUSE_MARKETING_SOURCES.map((sourceType) => ({
+        ...VALID_NON_NATIVE_MARKETING_SOURCES.map((sourceType) => ({
             id: sourceType,
             isConnected: validExternalTables.some((table) => table.source_type === sourceType),
             category: 'external' as const,
-        })),
-        ...VALID_FILE_MARKETING_SOURCES.map((sourceType) => ({
-            id: sourceType,
-            isConnected: validExternalTables.some((table) => table.source_type === sourceType),
-            category: 'file' as const,
         })),
     ]
 
@@ -81,12 +75,16 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
         )
     }
 
-    const matchingSources = allSources.filter((s) =>
-        marketingSourceDisplayLabel(s.id).toLowerCase().includes(manualSourceSearch.toLowerCase())
+    const nativeSources = allSources.filter(
+        (s) =>
+            nativeSourceDisplayLabel(s.id).toLowerCase().includes(manualSourceSearch.toLowerCase()) &&
+            s.category === 'native'
     )
-    const nativeSources = matchingSources.filter((s) => s.category === 'native')
-    const externalSources = matchingSources.filter((s) => s.category === 'external')
-    const fileSources = matchingSources.filter((s) => s.category === 'file')
+    const externalSources = allSources.filter(
+        (s) =>
+            nativeSourceDisplayLabel(s.id).toLowerCase().includes(manualSourceSearch.toLowerCase()) &&
+            s.category === 'external'
+    )
 
     const totalConnected = validNativeSources.length + validExternalTables.length
 
@@ -113,7 +111,7 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
                     value={manualSourceSearch}
                     onChange={setManualSourceSearch}
                 />
-                {!nativeSources.length && !externalSources.length && !fileSources.length && (
+                {!nativeSources.length && !externalSources.length && (
                     <p className="text-secondary">No integrations match your search.</p>
                 )}
                 {/* Native Sources */}
@@ -142,26 +140,6 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
                         </div>
                         <div className="flex flex-wrap gap-2">
                             {externalSources.map((source) => (
-                                <SourceChip key={source.id} source={source} onSelect={handleSourceSelect} />
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* File Sources */}
-                {fileSources.length > 0 && (
-                    <div>
-                        <div className="text-xs font-medium text-muted mb-1.5 flex items-center gap-1">
-                            Files
-                            <Tooltip
-                                title="Import spend data from CSV, JSON, or Parquet files in a storage bucket, or upload a file."
-                                delayMs={0}
-                            >
-                                <IconInfo className="w-3 h-3 cursor-help" />
-                            </Tooltip>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            {fileSources.map((source) => (
                                 <SourceChip key={source.id} source={source} onSelect={handleSourceSelect} />
                             ))}
                         </div>
@@ -206,7 +184,7 @@ function SourceChip({ source, onSelect }: { source: MarketingSource; onSelect: (
             onClick={() => onSelect(source.id)}
             data-attr="marketing-manual-connect-source"
         >
-            {marketingSourceDisplayLabel(source.id)}
+            {nativeSourceDisplayLabel(source.id)}
             {source.isConnected && <IconCheckCircle className="ml-2 text-success" />}
         </LemonButton>
     )
