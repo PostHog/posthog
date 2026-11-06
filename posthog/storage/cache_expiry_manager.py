@@ -89,7 +89,7 @@ def select_expiring_teams(
             logger.info(f"No {config.log_prefix} expiring soon")
             return ExpiringTeamSelection(teams=[], limit_reached=False)
 
-        query_field = "api_token" if hypercache.token_based else "id"
+        query_field = _query_field(hypercache)
         decoded_identifiers = [_decode_identifier(hypercache, identifier) for identifier in expiring_identifiers]
 
         # Build query filter dynamically based on token_based setting
@@ -111,6 +111,10 @@ def select_expiring_teams(
         logger.exception(f"Error finding expiring {config.log_prefix}", error=str(e))
         capture_exception(e)
         return ExpiringTeamSelection(teams=[], limit_reached=None)
+
+
+def _query_field(hypercache: HyperCache) -> Literal["api_token", "id"]:
+    return "api_token" if hypercache.token_based else "id"
 
 
 def _decode_identifier(hypercache: HyperCache, member: bytes | str) -> str | int:
@@ -480,7 +484,7 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
             logger.info(f"No {config.log_prefix} expiry entries to check")
             return 0
 
-        query_field: Literal["api_token", "id"] = "api_token" if hypercache.token_based else "id"
+        query_field = _query_field(hypercache)
         scores_by_identifier = {_decode_identifier(hypercache, member): score for member, score in scored_members}
 
         valid_identifiers: set[str | int] = set()
@@ -497,24 +501,21 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
             return 0
 
         removed = 0
-        failed = 0
         for identifier, score in stale:
             try:
                 hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=score)
+                removed += 1
             except Exception as e:
                 logger.exception(
                     f"Failed to delete stale {config.log_prefix[:-1]}",
                     identifier=mask_key_value(identifier) if isinstance(identifier, str) else identifier,
                 )
                 capture_exception(e)
-                failed += 1
-            else:
-                removed += 1
 
         logger.info(
             f"Cleaned up stale {config.log_prefix} expiry entries",
             removed=removed,
-            failed=failed,
+            failed=len(stale) - removed,
             total_checked=len(scores_by_identifier),
         )
 

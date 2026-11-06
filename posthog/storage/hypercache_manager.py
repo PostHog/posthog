@@ -746,9 +746,10 @@ class OrphanedTokenSweepResult:
 def existing_team_identifiers(field: Literal["api_token", "id"], identifiers: Iterable[str | int]) -> set[str | int]:
     """Return the identifiers that a Team row on the Postgres primary still has."""
     # The primary avoids replica lag, which would report a team created moments ago as missing.
-    return set(
-        Team.objects.using(DEFAULT_DB_ALIAS).filter(**{f"{field}__in": identifiers}).values_list(field, flat=True)
-    )
+    teams = Team.objects.using(DEFAULT_DB_ALIAS)
+    if field == "api_token":
+        return set(teams.filter(api_token__in=identifiers).values_list("api_token", flat=True))
+    return set(teams.filter(id__in=identifiers).values_list("id", flat=True))
 
 
 def sweep_orphaned_token_entries(

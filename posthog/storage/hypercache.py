@@ -694,9 +694,7 @@ class HyperCache:
                 raise redis_error
             deleted = True
         finally:
-            if tracked_expiry_score is None:
-                self._remove_expiry_tracking(key)
-            elif deleted:
+            if deleted or tracked_expiry_score is None:
                 self._remove_expiry_tracking(key, if_score=tracked_expiry_score)
 
     def _mirror_to_secondary(self, op: Callable[..., None]) -> Exception | None:
