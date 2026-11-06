@@ -46,7 +46,6 @@ from products.warehouse_sources.backend.logic.source_credentials import (
     CredentialsUnreadable,
     CredentialsUnreadableError,
     WarehouseSourceCredentialsStore,
-    same_connection_fields,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import source_key
@@ -516,11 +515,6 @@ def _slot_of(source_class: Any, inputs: Mapping[str, Any]) -> "PointerPath | Non
     if CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY in inputs:
         return None
     return source_class.in_use_oauth_slot(inputs)
-
-
-def connection_fields_equal(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
-    """True when two connection field mappings hold the same stored values."""
-    return same_connection_fields(left, right)
 
 
 def split_connection_fields(source_type: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
