@@ -309,29 +309,17 @@ describe('sandbox email content', () => {
     it.each([
         ['no tree adapter', {}],
         ['the default tree adapter', { treeAdapter: defaultTreeAdapter }],
-    ])('keeps the attribute limit when a parse gets %s', (_, options) => {
-        expect(() => AttributeBoundedParser.parse(`<body><p ${manyAttributes(65)}>Hello</p></body>`, options)).toThrow(
-            'The sandbox email template could not retain its identification footer. Update the template and try again.'
-        )
-    })
-    it('keeps a custom tree adapter and applies the attribute limit to it', () => {
-        const created: string[] = []
-        const treeAdapter: typeof defaultTreeAdapter = {
-            ...defaultTreeAdapter,
-            createElement: (tagName, namespaceURI, attrs) => {
-                created.push(tagName)
-                return defaultTreeAdapter.createElement(tagName, namespaceURI, attrs)
-            },
+        ['a custom tree adapter', { treeAdapter: { ...defaultTreeAdapter } }],
+    ])('keeps every parse limit when a parse gets %s', (_, options) => {
+        for (const html of [
+            `<body><p ${manyAttributes(65)}>Hello</p></body>`,
+            `<body>${'<div>'.repeat(300)}<p>Hello</p>`,
+            `<body>${'<i></i>'.repeat(25_001)}</body>`,
+        ]) {
+            expect(() => AttributeBoundedParser.parse(html, options)).toThrow(
+                'The sandbox email template could not retain its identification footer. Update the template and try again.'
+            )
         }
-
-        AttributeBoundedParser.parse(`<body><p ${manyAttributes(64)}>Hello</p></body>`, { treeAdapter })
-
-        expect(created).toContain('p')
-        expect(() =>
-            AttributeBoundedParser.parse(`<body><p ${manyAttributes(65)}>Hello</p></body>`, { treeAdapter })
-        ).toThrow(
-            'The sandbox email template could not retain its identification footer. Update the template and try again.'
-        )
     })
     it.each([
         ['<body><p>Hello</p><script><!--<script>', null, null],
