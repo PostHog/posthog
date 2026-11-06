@@ -31,6 +31,7 @@ from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGH
 from products.signals.backend.scout_report import ScoutReportSignal, create_scout_report
 from products.signals.backend.spend import (
     begin_report_spend,
+    begin_signal_spend,
     complete_signal_pipeline,
     lock_signal_spend,
     record_llm_spend,
@@ -238,12 +239,192 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         if not enabled:
             assert TrialLLMExecution.prepare(team_id=self.team.id, gateway=None) is None
 
+    def test_free_signal_does_not_replace_customer_report_trial_funding(self) -> None:
+        grant = self.claim()
+        signal_id = str(uuid4())
+        begin_signal_spend(team_id=self.team.id, signal_id=signal_id, billing_exempt=True)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+
+        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="promoted", signal_id=signal_id)
+
+        report.refresh_from_db()
+        funding = TrialFunding.from_dict(report.self_driving_funding)
+        assert funding is not None and funding.grant_id == grant.id
+        assert report.billing_exempt_reason is None
+
+    def test_free_signal_cannot_skip_paid_authorization_for_customer_report(self) -> None:
+        grant = self.claim()
+        SignalTrialGrant.objects.for_team(self.team.id).filter(id=grant.id).update(exhausted_at=timezone.now())
+        signal_id = str(uuid4())
+        begin_signal_spend(team_id=self.team.id, signal_id=signal_id, billing_exempt=True)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+
+        with patch(
+            "products.signals.backend.trial.reports.paid_trial_continuation_authorized", return_value=True
+        ) as paid:
+            assert report_pass_paid_authorized(
+                team=self.team, report_id=str(report.id), operation_key="promoted", signal_id=signal_id
+            )
+        paid.assert_called_once_with(self.team)
+
+    def test_billable_signal_keeps_existing_funding_after_trial_claim(self) -> None:
+        signal_id = str(uuid4())
+        self.flag_mock.return_value = False
+        begin_signal_spend(team_id=self.team.id, signal_id=signal_id)
+        self.flag_mock.return_value = True
+        self.claim()
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+
+        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="promoted", signal_id=signal_id)
+
+        report.refresh_from_db()
+        funding = TrialFunding.from_dict(report.self_driving_funding)
+        assert funding is not None and funding.funding == "existing"
+
+    @parameterized.expand([("exhausted",), ("flag_off",), ("claimed_during_run",)])
+    def test_internal_summary_pass_preserves_accepted_workflow_funding(self, change: str) -> None:
+        grant = None if change == "claimed_during_run" else self.claim()
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.CANDIDATE, signal_count=1)
+        info = SimpleNamespace(workflow_run_id="accepted-workflow", activity_id="first-pass")
+        inputs = MarkReportInProgressInput(team_id=self.team.id, report_id=str(report.id), trial_policy_version=1)
+        with (
+            patch("products.signals.backend.temporal.summary.temporalio.activity.info", return_value=info),
+            patch("products.signals.backend.temporal.summary._capture_report_event", new_callable=AsyncMock),
+        ):
+            async_to_sync(mark_report_in_progress_activity)(inputs)
+            report.refresh_from_db()
+            accepted = report.self_driving_funding
+            if grant is None:
+                self.claim()
+            else:
+                self._exhaust_grant(grant)
+                self.flag_mock.return_value = change != "flag_off"
+            SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.CANDIDATE)
+            info.activity_id = "second-pass"
+            with patch(
+                "products.signals.backend.trial.reports.paid_trial_continuation_authorized",
+                side_effect=AssertionError("Accepted work must not reauthorize payment"),
+            ):
+                async_to_sync(mark_report_in_progress_activity)(inputs)
+            report.refresh_from_db()
+            assert accepted is not None and report.self_driving_funding == accepted
+            assert report.status == SignalReport.Status.IN_PROGRESS
+
+    def test_accepted_signal_finishes_report_after_trial_exhaustion(self) -> None:
+        grant = self.claim()
+        signal_id = str(uuid4())
+        record_llm_spend(
+            "accepted-signal",
+            team_id=self.team.id,
+            signal_id=signal_id,
+            stage="grouping",
+            token_cost_microusd=grant.allowance_microusd + 1,
+            trial_grant_id=str(grant.id),
+        )
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.CANDIDATE, triggering_signal_id=signal_id, signal_count=1
+        )
+        with (
+            patch(
+                "products.signals.backend.trial.billing.TrialBilling.status",
+                side_effect=AssertionError("No new payment check"),
+            ) as billing_status,
+            patch("products.signals.backend.temporal.summary._capture_report_event", new_callable=AsyncMock),
+            patch(
+                "products.signals.backend.temporal.summary.temporalio.activity.info",
+                return_value=SimpleNamespace(workflow_run_id="accepted-signal", activity_id="first-pass"),
+            ),
+        ):
+            from products.signals.backend.quota import self_driving_quota_gate
+
+            assert not self_driving_quota_gate(self.team, signal_id=signal_id).enforced
+            assert not async_to_sync(check_report_quota_gate_activity)(
+                CheckReportQuotaGateInput(
+                    team_id=self.team.id, report_id=str(report.id), stage="summary_entry", signal_id=signal_id
+                )
+            )
+            async_to_sync(mark_report_in_progress_activity)(
+                MarkReportInProgressInput(
+                    team_id=self.team.id, report_id=str(report.id), signal_id=signal_id, trial_policy_version=1
+                )
+            )
+        billing_status.assert_not_called()
+        report.refresh_from_db()
+        assert report.self_driving_funding["grant_id"] == str(grant.id)
+        SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.READY)
+        with patch("products.signals.backend.trial.reports.paid_trial_continuation_authorized", return_value=False):
+            with self.assertRaises(TrialRefused):
+                prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="explicit-later-rerun")
+
+    def test_nontrial_receipt_does_not_bypass_current_quota(self) -> None:
+        from products.signals.backend.quota import self_driving_quota_gate
+
+        grant = self.claim()
+        signal_id = str(uuid4())
+        record_llm_spend(team_id=self.team.id, signal_id=signal_id, stage="grouping", token_cost_microusd=1)
+        self._exhaust_grant(grant)
+        self.flag_mock.return_value = True
+        with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False):
+            assert self_driving_quota_gate(self.team, signal_id=signal_id).enforced
+
+    def test_cancellation_during_scout_reservation_releases_slot(self) -> None:
+        self._assert_cancelled_reservation_is_released(custom=False)
+
+    def test_cancellation_during_custom_reservation_releases_slot(self) -> None:
+        self._assert_cancelled_reservation_is_released(custom=True)
+
+    def _assert_cancelled_reservation_is_released(self, *, custom: bool) -> None:
+        from products.signals.backend.trial import direct_reports
+
+        grant = self.claim()
+        run = None
+        if not custom:
+            task = Task.objects.create(team=self.team, title="Scout", origin_product="signals_scout")
+            run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        acquired, release = Event(), Event()
+        name = "_reserve_custom_report" if custom else "reserve_report"
+        original = getattr(direct_reports, name)
+        body_entered = False
+
+        def reserve(*args, **kwargs):
+            result = original(*args, **kwargs)
+            acquired.set()
+            assert release.wait(timeout=10)
+            return result
+
+        async def exercise() -> None:
+            async def emit() -> None:
+                nonlocal body_entered
+                factory = custom_report_reservation if custom else trial_report_reservation
+                async with factory(team=self.team, run_id=run.id if run else None, emission_key="cancel-acquisition"):
+                    body_entered = True
+
+            attempt = asyncio.create_task(emit())
+            try:
+                assert await asyncio.to_thread(acquired.wait, 10)
+                attempt.cancel()
+                await asyncio.sleep(0)
+                attempt.cancel()
+            finally:
+                release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await attempt
+
+        with patch.object(direct_reports, name, side_effect=reserve):
+            async_to_sync(exercise)()
+        assert not body_entered
+        slot = SignalTrialReportReservation.objects.for_team(self.team.id).get(grant=grant)
+        assert slot.active_attempts == 0 and slot.status == SignalTrialReportReservation.Status.RELEASED
+
     @parameterized.expand([(reason,) for reason in SignalReport.BillingExemptReason.values])
     def test_system_report_does_not_consume_exhausted_trial(self, reason: str) -> None:
         grant = self.claim()
         self._exhaust_grant(grant)
         self.flag_mock.return_value = True
         report = SignalReport.objects.create(team=self.team, billing_exempt_reason=reason)
+        assert not async_to_sync(check_report_quota_gate_activity)(
+            CheckReportQuotaGateInput(team_id=self.team.id, report_id=str(report.id), stage="summary_entry")
+        )
         assert not report_pass_paid_authorized(team=self.team, report_id=str(report.id), operation_key="free-pass")
         prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="free-pass")
         assert not implementation_requires_trial_opt_in(self.team.id, str(report.id))
@@ -520,7 +701,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
                 assert capture.await_count == 1
                 assert capture.call_args.kwargs["signal_count"] == report.researching_signal_count
                 assert report.self_driving_funding is not None
-                assert report.self_driving_funding["report_pass_key"] == "report-pass:report-run:start"
+                assert report.self_driving_funding["report_pass_key"] == "report-pass:report-run"
                 assert (
                     SignalTrialReportReservation.objects.for_team(self.team.id).filter(report_id=report.id).count() == 1
                 )
