@@ -238,7 +238,7 @@ mod tests {
             (Arc::from("severity_text"), AvroValue::Null),
             (
                 Arc::from("attributes"),
-                AvroValue::Map(AvroMap::from_strings(attrs.iter().copied())),
+                AvroValue::Map(Box::new(AvroMap::from_strings(attrs.iter().copied()))),
             ),
         ]))
     }

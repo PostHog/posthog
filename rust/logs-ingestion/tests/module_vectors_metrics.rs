@@ -106,7 +106,7 @@ fn record_from_json(value: &JsValue) -> LogRecord {
                             AvroValue::String(s.to_utf8_lossy().into_owned()),
                         );
                     }
-                    AvroValue::Map(map)
+                    AvroValue::Map(Box::new(map))
                 }
             },
             JsValue::Array(_) => panic!("unexpected array in a record"),
@@ -196,7 +196,7 @@ fn label_truncation_matches_node() {
         );
         let record = LogRecord::from_value(AvroValue::Record(vec![(
             Arc::from("attributes"),
-            AvroValue::Map(map),
+            AvroValue::Map(Box::new(map)),
         )]));
         let label = resolve_label_value(&JsString::from("attributes.v"), &record).unwrap();
         let LabelValue::String(label) = label else {

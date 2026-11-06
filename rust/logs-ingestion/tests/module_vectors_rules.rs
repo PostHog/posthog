@@ -78,7 +78,7 @@ fn avro_from_json(v: &JsValue) -> AvroValue {
             for (k, v) in o.iter() {
                 map.assign(k.to_string(), avro_from_json(v));
             }
-            AvroValue::Map(map)
+            AvroValue::Map(Box::new(map))
         }
         JsValue::Array(items) => AvroValue::Array(items.iter().map(avro_from_json).collect()),
     }

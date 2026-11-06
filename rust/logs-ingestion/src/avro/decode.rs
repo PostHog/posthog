@@ -1,10 +1,12 @@
 //! Container decoding with avsc's results, including its errors and its silent cases.
 
 use std::cell::RefCell;
+use std::collections::HashSet;
 
 use super::schema::Schema;
 use super::value::{AvroMap, AvroValue};
 use super::{AvroError, Container, MAGIC};
+use crate::js::is_array_index;
 
 /// A read past the end moves the position past the end and does not fail. The caller checks `is_valid`, as avsc does.
 pub(crate) struct Tap<'a> {
@@ -246,6 +248,16 @@ fn read_schema_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue, Av
             AvroValue::Array(out)
         }
         Schema::Map(values) => {
+            if **values == Schema::String {
+                if let Some(len) = canonical_string_map_len(&tap.buf[tap.pos.min(tap.buf.len())..])
+                {
+                    let start = tap.pos;
+                    tap.pos += len;
+                    return Ok(AvroValue::Map(Box::new(
+                        AvroMap::from_canonical_string_map(&tap.buf[start..start + len]),
+                    )));
+                }
+            }
             let mut out = AvroMap::new();
             loop {
                 let n = tap.read_array_size();
@@ -258,11 +270,11 @@ fn read_schema_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue, Av
                     let value = read_value(tap, values)?;
                     out.assign(key, value);
                     if !tap.is_valid() {
-                        return Ok(AvroValue::Map(out));
+                        return Ok(AvroValue::Map(Box::new(out)));
                     }
                 }
             }
-            AvroValue::Map(out)
+            AvroValue::Map(Box::new(out))
         }
         Schema::Record(record) => {
             let mut fields = Vec::with_capacity(record.fields.len());
@@ -272,6 +284,84 @@ fn read_schema_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue, Av
             AvroValue::Record(fields)
         }
     })
+}
+
+fn canonical_len(buf: &[u8], pos: &mut usize) -> Option<usize> {
+    let mut z: u64 = 0;
+    let mut shift = 0;
+    loop {
+        let b = *buf.get(*pos)?;
+        *pos += 1;
+        z |= u64::from(b & 0x7f) << shift;
+        if b & 0x80 == 0 {
+            // A last byte of zero after the first is an overlong form.
+            if b == 0 && shift > 0 {
+                return None;
+            }
+            break;
+        }
+        shift += 7;
+        if shift > 35 {
+            return None;
+        }
+    }
+    if z & 1 != 0 || z >> 1 > u64::from(u32::MAX) {
+        return None;
+    }
+    Some((z >> 1) as usize)
+}
+
+fn canonical_str<'b>(buf: &'b [u8], pos: &mut usize) -> Option<&'b [u8]> {
+    let len = canonical_len(buf, pos)?;
+    let bytes = buf.get(*pos..pos.checked_add(len)?)?;
+    std::str::from_utf8(bytes).ok()?;
+    *pos += len;
+    Some(bytes)
+}
+
+/// The byte length of a `map<string>` at the start of `buf` when the encoder would write the decoded map back to the same bytes.
+/// That needs one block, minimal varints, valid UTF-8, and distinct keys that are neither `__proto__` nor array indexes, because those change on decode.
+fn canonical_string_map_len(buf: &[u8]) -> Option<usize> {
+    let mut pos = 0;
+    let n = canonical_len(buf, &mut pos)?;
+    if n == 0 {
+        return Some(pos);
+    }
+    let mut seen: Option<HashSet<&[u8], ahash::RandomState>> = None;
+    let mut keys: Vec<&[u8]> = Vec::with_capacity(n.min(16));
+    for _ in 0..n {
+        let key = canonical_str(buf, &mut pos)?;
+        let digits = !key.is_empty() && key.iter().all(u8::is_ascii_digit);
+        if key == b"__proto__"
+            || (digits && is_array_index(std::str::from_utf8(key).ok()?).is_some())
+        {
+            return None;
+        }
+        match &mut seen {
+            Some(set) => {
+                if !set.insert(key) {
+                    return None;
+                }
+            }
+            None if keys.len() < 16 => {
+                if keys.contains(&key) {
+                    return None;
+                }
+                keys.push(key);
+            }
+            None => {
+                let mut set: HashSet<&[u8], ahash::RandomState> =
+                    keys.drain(..).chain(std::iter::once(key)).collect();
+                if set.len() != 17 {
+                    return None;
+                }
+                set.reserve(n - 17);
+                seen = Some(set);
+            }
+        }
+        canonical_str(buf, &mut pos)?;
+    }
+    (buf.get(pos) == Some(&0)).then_some(pos + 1)
 }
 
 struct Header {

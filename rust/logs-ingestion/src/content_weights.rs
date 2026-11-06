@@ -13,13 +13,7 @@ fn string_bytes(value: Option<&str>) -> f64 {
 }
 
 fn map_bytes(map: Option<&AvroMap>) -> f64 {
-    let mut total = 0.0;
-    if let Some(map) = map {
-        for (k, v) in map.iter_strings() {
-            total += k.len() as f64 + v.len() as f64;
-        }
-    }
-    total
+    map.map_or(0.0, |m| m.string_bytes_len() as f64)
 }
 
 /// A map has distinct keys, so the sorted pairs are equal exactly when the TypeScript's sorted `JSON.stringify` texts are.

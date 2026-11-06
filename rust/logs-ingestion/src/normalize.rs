@@ -64,9 +64,7 @@ pub fn log_record_size_bytes(record: &LogRecord) -> usize {
         .into_iter()
         .flatten()
     {
-        for (key, value) in attributes.iter_strings() {
-            bytes += key.len() + value.len();
-        }
+        bytes += attributes.string_bytes_len();
     }
     bytes
 }
@@ -564,11 +562,11 @@ fn add_json_attributes(
         merged.define(key.into_string_lossy(), AvroValue::String(value));
     }
     if let Some(AvroValue::Map(attributes)) = record.get_mut("attributes") {
-        for (key, value) in std::mem::take(attributes).into_entries() {
+        for (key, value) in std::mem::take(&mut **attributes).into_entries() {
             merged.define(key, value);
         }
     }
-    record.set("attributes", AvroValue::Map(merged));
+    record.set("attributes", AvroValue::Map(Box::new(merged)));
 }
 
 /// Pass `body_parse` to reuse a parse of the same body.

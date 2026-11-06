@@ -149,6 +149,10 @@ pub(crate) fn write_value(
         },
         Schema::Map(values) => match value {
             AvroValue::Map(map) => {
+                if let Some(raw) = map.canonical_bytes().filter(|_| **values == Schema::String) {
+                    out.extend_from_slice(raw);
+                    return Ok(());
+                }
                 if !map.is_empty() {
                     write_long(out, map.len() as i64);
                     for (k, v) in map.iter() {

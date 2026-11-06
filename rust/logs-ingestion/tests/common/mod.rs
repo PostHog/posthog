@@ -159,7 +159,7 @@ pub fn avro_from_canonical(
             for (k, v) in o.iter() {
                 map.assign(k.to_string(), avro_from_canonical(values, v));
             }
-            AvroValue::Map(map)
+            AvroValue::Map(Box::new(map))
         }
         (Schema::Record(r), v) => AvroValue::Record(
             r.fields

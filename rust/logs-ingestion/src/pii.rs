@@ -181,14 +181,25 @@ pub fn scrub_log_record(record: &mut LogRecord) -> PiiScrubStats {
         }
     }
 
-    // Keys and their order do not change, so each value is replaced in place.
-    if let Some(attributes) = record.attributes_mut() {
-        for value in attributes.values_mut() {
+    // Keys and their order do not change, so each value is replaced in place. A map with no match is not written, so it keeps its encoded bytes.
+    let mut replaced: Vec<(usize, String)> = Vec::new();
+    if let Some(attributes) = record.attributes() {
+        for (i, (_, value)) in attributes.iter().enumerate() {
             if let AvroValue::String(s) = value {
                 let (output, n) = scrub_str(s);
                 total += n;
                 if let Some(output) = output {
-                    *s = output;
+                    replaced.push((i, output));
+                }
+            }
+        }
+    }
+    if !replaced.is_empty() {
+        if let Some(attributes) = record.attributes_mut() {
+            let mut replaced = replaced.into_iter().peekable();
+            for (i, value) in attributes.values_mut().enumerate() {
+                if replaced.peek().is_some_and(|(j, _)| *j == i) {
+                    *value = AvroValue::String(replaced.next().expect("peeked").1);
                 }
             }
         }

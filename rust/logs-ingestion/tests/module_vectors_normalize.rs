@@ -126,7 +126,7 @@ fn avro_from_js(value: &JsValue) -> AvroValue {
             for (k, v) in o.iter() {
                 map.define(k.to_string(), avro_from_js(v));
             }
-            AvroValue::Map(map)
+            AvroValue::Map(Box::new(map))
         }
         JsValue::Array(_) => panic!("records hold no arrays"),
     }

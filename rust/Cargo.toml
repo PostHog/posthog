@@ -128,6 +128,9 @@ debug = "line-tables-only"
 # Neon 1.1 deletes each napi async work inside `debug_assert_eq!` (src/sys/async_work.rs), so a
 # release build without debug assertions leaks every `cx.task()`, with the two V8 global handles
 # that hold its resource object and async context frame.
+[profile.release.package.logs-ingestion]
+codegen-units = 1
+
 [profile.release.package.neon]
 debug-assertions = true
 
