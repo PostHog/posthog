@@ -148,6 +148,18 @@ def get_restricted_properties_with_group_type_index_for_team(
     return _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
 
 
+def get_restricted_properties_for_group_type(
+    *, user: User | None, team_id: int, group_type_index: int
+) -> set[RestrictedProperty]:
+    """Return property restrictions for a query over one group type, leaving out other group types' restrictions."""
+    return {
+        restriction
+        for restriction in _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+        if restriction.property_type != PropertyDefinition.Type.GROUP
+        or restriction.group_type_index in (None, group_type_index)
+    }
+
+
 def split_restricted_property_names(restrictions: set[RestrictedProperty]) -> contracts.RestrictedPropertyNames:
     """Return restricted event and person property names."""
     return contracts.RestrictedPropertyNames(

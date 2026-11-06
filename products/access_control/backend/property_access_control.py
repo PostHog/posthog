@@ -424,6 +424,13 @@ def _get_user_role_ids(membership: OrganizationMembership | None, organization: 
     )
 
 
+_ACCESS_LEVELS_MOST_PERMISSIVE_FIRST = (
+    PropertyAccessLevel.READ_WRITE,
+    PropertyAccessLevel.READ,
+    PropertyAccessLevel.NONE,
+)
+
+
 def _resolve_access_level(
     rules: list[PropertyAccessControl],
     *,
@@ -448,13 +455,11 @@ def _resolve_access_level(
                 return PropertyAccessLevel(rule.access_level)
 
     # 2. role-specific rules (most permissive wins)
-    role_rules = [r for r in rules if r.role_id is not None and r.role_id in user_role_ids]
-    if role_rules:
-        for rule in role_rules:
-            level = PropertyAccessLevel(rule.access_level)
-            if level.grants_access():
-                return level
-        return PropertyAccessLevel.NONE
+    role_levels = {
+        PropertyAccessLevel(r.access_level) for r in rules if r.role_id is not None and r.role_id in user_role_ids
+    }
+    if role_levels:
+        return next(level for level in _ACCESS_LEVELS_MOST_PERMISSIVE_FIRST if level in role_levels)
 
     # 3. default rule (null membership and null role)
     for rule in rules:

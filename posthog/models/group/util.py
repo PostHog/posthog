@@ -2,7 +2,7 @@ import json
 import datetime
 from collections.abc import Collection
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -16,6 +16,9 @@ from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_GROUPS
 from posthog.models.group.group import Group
 from posthog.models.group.sql import INSERT_GROUP_SQL
+
+if TYPE_CHECKING:
+    from posthog.hogql.property_access_types import RestrictedProperty
 
 logger = structlog.get_logger(__name__)
 
@@ -231,6 +234,7 @@ def list_groups(
     group_key_contains: str = "",
     search: str = "",
     search_excluded_property_keys: Collection[str] = (),
+    restricted_properties: set["RestrictedProperty"] | None = None,
     cursor_created_at_us: int = 0,
     cursor_group_key: str = "",
     limit: int = 100,
@@ -243,6 +247,7 @@ def list_groups(
     exactly (case-insensitive), preserving the previous endpoint's semantics. The keyset cursor
     breaks ``created_at`` ties on ``group_key`` (unique within a team and type).
     ``search_excluded_property_keys`` are left out of the properties ``search`` matches against.
+    ``restricted_properties`` replaces the team-default property restrictions HogQL applies to the query.
 
     Dedup runs in two phases, so memory does not grow with the group type's total property volume.
     The first phase picks the page's keys and aggregates only ``created_at`` and the search match
@@ -252,6 +257,7 @@ def list_groups(
     on large projects.
     """
     from posthog.hogql import ast  # noqa: PLC0415 — keep HogQL off this widely-imported module's import path
+    from posthog.hogql.context import HogQLContext  # noqa: PLC0415
     from posthog.hogql.database.schema.groups import select_from_groups_table  # noqa: PLC0415
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
@@ -331,7 +337,12 @@ def list_groups(
         },
     )
 
-    response = execute_hogql_query(query, team=team, query_type="groups_list")
+    response = execute_hogql_query(
+        query,
+        team=team,
+        query_type="groups_list",
+        context=HogQLContext(team_id=team.pk, restricted_properties=restricted_properties),
+    )
 
     rows = response.results or []
     has_more = len(rows) > limit

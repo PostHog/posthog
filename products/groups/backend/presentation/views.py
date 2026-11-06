@@ -18,7 +18,9 @@ from rest_framework.exceptions import NotFound, ValidationError
 from posthog.schema import ProductKey
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.capture import CaptureInternalError, capture_internal
@@ -501,6 +503,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             search_excluded_property_keys=self._restricted_group_property_names(request, group_type_index)
             if group_search
             else frozenset(),
+            restricted_properties=self._restricted_properties_for_group_type(request, group_type_index),
             cursor_created_at_us=cursor_created_at_us,
             cursor_group_key=cursor_group_key,
         )
@@ -665,8 +668,8 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             group = self.get_object()
             property_key = request.data.get("key")
             property_value = request.data.get("value")
-            if not property_key:
-                raise ValidationError({"key": ["This field is required."]})
+            if not isinstance(property_key, str) or not property_key:
+                raise ValidationError({"key": ["This field is required and must be a non-empty string."]})
             if property_value is None:
                 raise ValidationError({"value": ["This field is required."]})
             self._raise_if_properties_not_writable(request, group.group_type_index, [property_key])
@@ -866,7 +869,16 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             limit=page_params.limit,
             page=page_params.page,
         )
-        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
+        activity_response = activity_page_response(activity_page, page_params.limit, page_params.page, request)
+        restricted = self._restricted_group_property_names(request, group.group_type_index)
+        if restricted:
+            for entry in activity_response.data["results"]:
+                detail = entry.get("detail") or {}
+                if detail.get("name") in restricted:
+                    for change in detail.get("changes") or []:
+                        change["before"] = None
+                        change["after"] = None
+        return activity_response
 
     @extend_schema(
         parameters=[
@@ -966,12 +978,27 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             )
 
             tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
-            rows = execute_hogql_query(query, team=self.team).results
+            rows = execute_hogql_query(
+                query,
+                team=self.team,
+                context=HogQLContext(
+                    team_id=self.team.pk,
+                    restricted_properties=self._restricted_properties_for_group_type(request, int(group_type_index)),
+                ),
+            ).results
 
             span.set_attribute("result_count", len(rows))
             return response.Response(
                 {"results": [{"name": name, "count": count} for name, count in rows], "refreshing": False}
             )
+
+    def _restricted_properties_for_group_type(
+        self, request: request.Request, group_type_index: int
+    ) -> set[RestrictedProperty]:
+        user = request.user if request.user.is_authenticated else None
+        return access_control_api.get_restricted_properties_for_group_type(
+            user=cast(Optional[User], user), team_id=self.team_id, group_type_index=group_type_index
+        )
 
     def _restricted_group_property_names(self, request: request.Request, group_type_index: int) -> frozenset[str]:
         user = request.user if request.user.is_authenticated else None

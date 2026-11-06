@@ -2689,3 +2689,52 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         properties_by_type = {actor["type"]: actor["properties"] for actor in response.json()}
         self.assertEqual(properties_by_type, {"person": {"plan": "pro"}, "group": {"name": "Acme"}})
+
+    @parameterized.expand([("integer", 123), ("empty", "")])
+    def test_update_property_rejects_non_string_key(self, _name: str, key: Any) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:1&group_type_index=0",
+            {"key": key, "value": "x"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._find_properties(0, "org:1"), {"name": "Acme"})
+
+    @parameterized.expand([("restricted", None, None), ("allowed", PropertyAccessLevel.READ, 2000)])
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
+    def test_activity_hides_restricted_property_values(
+        self,
+        _name: str,
+        member_level: PropertyAccessLevel | None,
+        expected_after: int | None,
+        _mock_capture: mock.MagicMock,
+    ) -> None:
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
+        )
+        write_grant = PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.restricted_def,
+            access_level=PropertyAccessLevel.READ_WRITE.value,
+            organization_member=self.organization_membership,
+        )
+        update_response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:1&group_type_index=0",
+            {"key": "arr", "value": 2000},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        write_grant.delete()
+        if member_level is not None:
+            self._grant_member_access(member_level)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/activity?group_key=org:1&group_type_index=0")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        changes = [
+            change
+            for entry in response.json()["results"]
+            if entry["detail"]["name"] == "arr"
+            for change in entry["detail"]["changes"]
+        ]
+        self.assertEqual([change["after"] for change in changes], [expected_after])
