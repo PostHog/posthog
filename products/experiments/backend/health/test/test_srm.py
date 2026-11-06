@@ -30,8 +30,11 @@ OWN_PAGE = (
 )
 
 
-def _segment(dimension: ExposureSegmentDimension, value: str, control: int, test: int) -> ExposureSegment:
-    return ExposureSegment(dimension=dimension, value=value, exposed_by_variant={"control": control, "test": test})
+def _segment(
+    dimension: ExposureSegmentDimension, value: str, control: int, test: int, blue: int | None = None
+) -> ExposureSegment:
+    exposed = {"control": control, "test": test, **({"blue": blue} if blue is not None else {})}
+    return ExposureSegment(dimension=dimension, value=value, exposed_by_variant=exposed)
 
 
 def _version(library: str, version: str, control: int, test: int) -> ExposureSegment:
@@ -187,17 +190,20 @@ class TestSrmSegments(TestCase):
                 {"control": 8000, "test": 2000},
             ),
             (
-                "the_largest_page_of_each_variant",
+                "the_largest_page_of_each_short_variant",
                 (
-                    _segment(LIBRARY, "web", 600, 900),
-                    _segment(PAGE, "/tour", 390, 5),
-                    _segment(PAGE, "/tour-fr", 200, 5),
-                    _segment(PAGE, "/tour-new", 10, 890),
+                    _segment(LIBRARY, "web", 600, 1500, 600),
+                    _segment(PAGE, "/tour-new", 5, 1490, 5),
+                    _segment(PAGE, "/tour-b", 5, 5, 590),
+                    _segment(PAGE, "/tour", 390, 5, 5),
+                    _segment(PAGE, "/tour-fr", 200, 0, 0),
                 ),
                 "variant_segments",
-                f'{MISMATCH} Users first exposed on the page "/tour-new" are almost all in "test", and users first '
+                f'{MISMATCH} Users first exposed on the page "/tour-b" are almost all in "blue", and users first '
                 f'exposed on the page "/tour" are almost all in "control", so the variants send their exposures from '
                 f"different places. {OWN_PAGE}",
+                {"control": 600, "test": 1500, "blue": 600},
+                {"control": 900, "test": 900, "blue": 900},
             ),
             (
                 "the_same_skew_everywhere",

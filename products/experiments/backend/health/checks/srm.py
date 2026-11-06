@@ -570,10 +570,13 @@ def _share_off_split(exposed_by_variant: Mapping[str, int], weights: Mapping[str
 
 
 def _variant_segments(tests: list[_SegmentTest], exposures: ExposureTotals) -> list[tuple[ExposureSegment, str]]:
-    """The segments that one variant fills, each with its variant, the largest segment of each variant first. Empty
-    unless one of them belongs to a variant with fewer exposures than expected."""
+    """The segments that a variant with fewer exposures than expected fills, each with its variant, the largest
+    segment of each variant first."""
     expected = exposures.sample_ratio_expected
     total_expected = sum(expected.values())
+    # The detail says that users are missing from the variant that sends its exposure from its own place. A variant
+    # with more exposures than expected can fill segments for another reason, such as a variant override.
+    short = _short_variants(exposures.segments or (), expected)
     found: dict[str, ExposureSegment] = {}
     for test in tests:
         segment = test.segment
@@ -583,14 +586,26 @@ def _variant_segments(tests: list[_SegmentTest], exposures: ExposureTotals) -> l
         compared = sum(segment.exposed_by_variant.get(variant, 0) for variant in expected)
         variant = max(expected, key=lambda key: segment.exposed_by_variant.get(key, 0))
         others = compared - segment.exposed_by_variant.get(variant, 0)
-        if others < BARELY_EXPOSED_SHARE * compared * (1 - expected[variant] / total_expected):
+        if variant in short and others < BARELY_EXPOSED_SHARE * compared * (1 - expected[variant] / total_expected):
             found.setdefault(variant, segment)
-    named = [(segment, variant) for variant, segment in found.items()][:NAMED_SEGMENTS]
-    # The detail says that users are missing from a variant that sends its exposure from its own place. When every
-    # named variant has more exposures than expected, something else, such as a variant override, fills the segments.
-    if not any(exposures.total_exposures.get(variant, 0) < expected[variant] for _, variant in named):
-        return []
-    return named
+    return [(segment, variant) for variant, segment in found.items()][:NAMED_SEGMENTS]
+
+
+def _short_variants(segments: tuple[ExposureSegment, ...], expected: Mapping[str, float]) -> set[str]:
+    """The variants with a smaller share of the segments than of the split."""
+    # Each person or group is in exactly one library segment, so the library segments count everyone the segments
+    # count. After a split change that is only those first exposed after it, which the totals of the whole run are not.
+    counted = {
+        variant: sum(
+            segment.exposed_by_variant.get(variant, 0)
+            for segment in segments
+            if segment.dimension == ExposureSegmentDimension.LIBRARY
+        )
+        for variant in expected
+    }
+    total_counted = sum(counted.values())
+    total_expected = sum(expected.values())
+    return {variant for variant in expected if counted[variant] * total_expected < expected[variant] * total_counted}
 
 
 def _cause(
