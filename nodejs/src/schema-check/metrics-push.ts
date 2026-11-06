@@ -2,13 +2,6 @@ import { SqlxShadowResult, describeError } from './check'
 
 export const PUSH_TIMEOUT_MS = 3000
 
-export interface SchemaCheckResult {
-    djangoExitCode: number
-    djangoMissingMigrations: number
-    djangoWaitSeconds: number
-    sqlx: SqlxShadowResult[]
-}
-
 export interface PushTarget {
     pushgatewayUrl: string
     app: string
@@ -16,81 +9,47 @@ export interface PushTarget {
 
 export type FetchFunction = (url: string, init: RequestInit) => Promise<Response>
 
-export interface PushDependencies {
-    fetch: FetchFunction
-    log: (message: string) => void
-    logError: (message: string) => void
-}
-
-function gauge(name: string, samples: string[]): string[] {
-    if (samples.length === 0) {
-        return []
-    }
-    return [`# TYPE ${name} gauge`, ...samples]
-}
-
-export function renderMetrics(result: SchemaCheckResult, nowSeconds: number): string {
-    const checked = result.sqlx.filter((item) => item.status !== 'skipped')
-    const lines = [
-        ...gauge('node_schema_check_last_run_timestamp_seconds', [
+// The alert rules in the charts repo read these names. A skipped database gets no sample, so a
+// database the app does not use never looks satisfied.
+export function renderMetrics(djangoExitCode: number, sqlx: SqlxShadowResult[], nowSeconds: number): string {
+    const sqlxSamples = sqlx
+        .filter((result) => result.status !== 'skipped')
+        .map(
+            (result) =>
+                `node_schema_check_sqlx_missing{database="${result.requirement.database}"} ${result.status === 'missing' ? 1 : 0}`
+        )
+    return (
+        [
+            '# TYPE node_schema_check_last_run_timestamp_seconds gauge',
             `node_schema_check_last_run_timestamp_seconds ${nowSeconds}`,
-        ]),
-        ...gauge('node_schema_check_django_exit_code', [`node_schema_check_django_exit_code ${result.djangoExitCode}`]),
-        ...gauge('node_schema_check_django_missing_migrations', [
-            `node_schema_check_django_missing_migrations ${result.djangoMissingMigrations}`,
-        ]),
-        ...gauge('node_schema_check_django_wait_seconds', [
-            `node_schema_check_django_wait_seconds ${result.djangoWaitSeconds}`,
-        ]),
-        ...gauge(
-            'node_schema_check_sqlx_missing_versions',
-            checked.map(
-                (item) =>
-                    `node_schema_check_sqlx_missing_versions{database="${item.requirement.database}"} ${item.missingVersions.length}`
-            )
-        ),
-        ...gauge(
-            'node_schema_check_sqlx_error',
-            checked.map((item) => {
-                const failed = item.status === 'error' || item.status === 'dirty' ? 1 : 0
-                return `node_schema_check_sqlx_error{database="${item.requirement.database}"} ${failed}`
-            })
-        ),
-    ]
-    return lines.join('\n') + '\n'
-}
-
-export function buildPushUrl(target: PushTarget): string {
-    const base = target.pushgatewayUrl.replace(/\/+$/, '')
-    return `${base}/metrics/job/node_schema_check/node_app/${encodeURIComponent(target.app)}`
+            '# TYPE node_schema_check_django_exit_code gauge',
+            `node_schema_check_django_exit_code ${djangoExitCode}`,
+            ...(sqlxSamples.length > 0 ? ['# TYPE node_schema_check_sqlx_missing gauge', ...sqlxSamples] : []),
+        ].join('\n') + '\n'
+    )
 }
 
 // A failed push only logs, because the Pushgateway being down must never block a rollout.
 export async function pushMetrics(
-    result: SchemaCheckResult,
-    target: PushTarget | null,
-    deps: PushDependencies
+    body: string,
+    target: PushTarget,
+    fetch: FetchFunction,
+    logError: (message: string) => void
 ): Promise<void> {
-    if (target === null) {
-        deps.log('Schema check metrics push skipped, SCHEMA_CHECK_PUSHGATEWAY_URL or SCHEMA_CHECK_APP is not set')
-        return
-    }
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), PUSH_TIMEOUT_MS)
+    const url = `${target.pushgatewayUrl.replace(/\/+$/, '')}/metrics/job/node_schema_check/node_app/${encodeURIComponent(target.app)}`
     try {
-        const response = await deps.fetch(buildPushUrl(target), {
+        const response = await fetch(url, {
             method: 'PUT',
             headers: { 'Content-Type': 'text/plain; version=0.0.4' },
-            body: renderMetrics(result, Math.floor(Date.now() / 1000)),
-            signal: controller.signal,
+            body,
+            signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
         })
         if (!response.ok) {
-            deps.logError(`Warning: schema check metrics push failed with HTTP ${response.status}`)
+            logError(`Warning: schema check metrics push failed with HTTP ${response.status}`)
         }
     } catch (error) {
-        const reason = describeError(error instanceof Error ? error : new Error(String(error)))
-        deps.logError(`Warning: schema check metrics push failed: ${reason}`)
-    } finally {
-        clearTimeout(timeout)
+        logError(
+            `Warning: schema check metrics push failed: ${describeError(error instanceof Error ? error : new Error(String(error)))}`
+        )
     }
 }

@@ -130,19 +130,13 @@ export interface SqlxShadowResult {
     requirement: SqlxRequirement
     status: SqlxShadowStatus
     detail: string
-    missingVersions: number[]
 }
 
 // sqlx writes success = false when a migration without a transaction fails halfway. sqlx refuses to run on such a database.
 export function evaluateSqlxRows(requirement: SqlxRequirement, rows: SqlxMigrationRow[]): SqlxShadowResult {
     const failed = rows.filter((row) => !row.success).map((row) => row.version)
     if (failed.length > 0) {
-        return {
-            requirement,
-            status: 'dirty',
-            detail: `failed migrations recorded: ${failed.join(', ')}`,
-            missingVersions: [],
-        }
+        return { requirement, status: 'dirty', detail: `failed migrations recorded: ${failed.join(', ')}` }
     }
     const applied = new Set(rows.map((row) => row.version))
     const missing = requirement.versions.filter((version) => !applied.has(version))
@@ -152,15 +146,9 @@ export function evaluateSqlxRows(requirement: SqlxRequirement, rows: SqlxMigrati
             requirement,
             status: 'satisfied',
             detail: `all ${requirement.versions.length} versions are applied, latest ${latest}`,
-            missingVersions: [],
         }
     }
-    return {
-        requirement,
-        status: 'missing',
-        detail: `versions not applied: ${missing.join(', ')}`,
-        missingVersions: missing,
-    }
+    return { requirement, status: 'missing', detail: `versions not applied: ${missing.join(', ')}` }
 }
 
 export async function checkSqlxShadow(
@@ -169,7 +157,7 @@ export async function checkSqlxShadow(
 ): Promise<SqlxShadowResult> {
     // Node has no production default for these URLs, so an app without one does not use that database.
     if (store === null) {
-        return { requirement, status: 'skipped', detail: 'no database URL in this environment', missingVersions: [] }
+        return { requirement, status: 'skipped', detail: 'no database URL in this environment' }
     }
     try {
         return evaluateSqlxRows(requirement, await store.fetchRows(requirement.versions))
@@ -178,7 +166,6 @@ export async function checkSqlxShadow(
             requirement,
             status: 'error',
             detail: describeError(error instanceof Error ? error : new Error(String(error))),
-            missingVersions: [],
         }
     }
 }

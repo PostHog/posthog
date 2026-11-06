@@ -21,7 +21,7 @@ import {
     readManifest,
     sqlxRequirements,
 } from './manifest'
-import { FetchFunction, PushTarget, SchemaCheckResult, pushMetrics } from './metrics-push'
+import { FetchFunction, pushMetrics, renderMetrics } from './metrics-push'
 import { PostgresMigrationStore, PostgresSqlxMigrationStore } from './postgres-migration-store'
 
 export const EXIT_SATISFIED = 0
@@ -111,15 +111,6 @@ export function resolveSqlxDatabaseUrl(database: SqlxDatabase, env: Record<strin
     })
 }
 
-export function resolvePushTarget(env: Record<string, string | undefined>): PushTarget | null {
-    const pushgatewayUrl = env[PUSHGATEWAY_URL_KEY]
-    const app = env[PUSH_APP_KEY]
-    if (!pushgatewayUrl || !app) {
-        return null
-    }
-    return { pushgatewayUrl, app }
-}
-
 async function logSqlxShadow(
     requirements: SqlxRequirement[],
     env: Record<string, string | undefined>,
@@ -154,21 +145,23 @@ function parseSeconds(name: string, value: string | undefined, fallback: number)
     return seconds
 }
 
-async function finish(
-    result: SchemaCheckResult,
+// Called once the Django and sqlx results are known. Earlier exits push nothing, because the alerts
+// only read the sqlx result of a run that reached the database.
+async function pushResult(
+    djangoExitCode: number,
+    sqlx: SqlxShadowResult[],
     env: Record<string, string | undefined>,
     deps: CliDependencies
 ): Promise<number> {
-    await pushMetrics(result, resolvePushTarget(env), {
-        fetch: deps.fetch,
-        log: deps.log,
-        logError: deps.logError,
-    })
-    return result.djangoExitCode
-}
-
-function cannotCheckResult(): SchemaCheckResult {
-    return { djangoExitCode: EXIT_ERROR, djangoMissingMigrations: 0, djangoWaitSeconds: 0, sqlx: [] }
+    const pushgatewayUrl = env[PUSHGATEWAY_URL_KEY]
+    const app = env[PUSH_APP_KEY]
+    if (!pushgatewayUrl || !app) {
+        deps.log('Schema check metrics push skipped, SCHEMA_CHECK_PUSHGATEWAY_URL or SCHEMA_CHECK_APP is not set')
+        return djangoExitCode
+    }
+    const body = renderMetrics(djangoExitCode, sqlx, Math.floor(Date.now() / 1000))
+    await pushMetrics(body, { pushgatewayUrl, app }, deps.fetch, deps.logError)
+    return djangoExitCode
 }
 
 export async function runCli(
@@ -208,7 +201,7 @@ export async function runCli(
         }
     } catch (error) {
         deps.logError(`Schema check error: ${error.message}\n\n${USAGE}`)
-        return finish(cannotCheckResult(), env, deps)
+        return EXIT_ERROR
     }
 
     let store: MigrationStore
@@ -222,7 +215,7 @@ export async function runCli(
         )
     } catch (error) {
         deps.logError(`Schema check error: ${error.message}`)
-        return finish(cannotCheckResult(), env, deps)
+        return EXIT_ERROR
     }
 
     const django = djangoRequirements(manifest)
@@ -230,14 +223,12 @@ export async function runCli(
     deps.log(
         `Checking ${django.length} Django apps and ${sqlx.length} sqlx databases in shadow mode (manifest ${manifest.digest}, commit ${manifest.source_commit ?? 'unknown'})`
     )
-    const waitStartedMs = Date.now()
     const outcome = await waitForRequirements(django, store, {
         waitSeconds: options.waitSeconds,
         pollIntervalMs: options.pollIntervalSeconds * 1000,
         sleep: deps.sleep,
         log: deps.log,
     })
-    const djangoWaitSeconds = (Date.now() - waitStartedMs) / 1000
     // Runs after the Django wait so that the log shows the sqlx state at the moment the Deployment would roll.
     const sqlxResults = await logSqlxShadow(
         sqlx,
@@ -249,27 +240,17 @@ export async function runCli(
         deps
     )
 
-    const result: SchemaCheckResult = {
-        djangoExitCode: EXIT_SATISFIED,
-        djangoMissingMigrations: 0,
-        djangoWaitSeconds,
-        sqlx: sqlxResults,
-    }
     if (outcome.status === 'satisfied') {
         deps.log('All required Django migrations are applied.')
-        return finish(result, env, deps)
+        return pushResult(EXIT_SATISFIED, sqlxResults, env, deps)
     }
     if (outcome.status === 'error') {
         deps.logError(`Schema check error: could not read django_migrations: ${describeError(outcome.error)}`)
-        return finish({ ...result, djangoExitCode: EXIT_ERROR }, env, deps)
+        return pushResult(EXIT_ERROR, sqlxResults, env, deps)
     }
     deps.logError('Required Django migrations are not applied yet:')
     describeMissing(outcome.missing, outcome.latestApplied).forEach((line) => deps.logError(`  ${line}`))
-    return finish(
-        { ...result, djangoExitCode: EXIT_MISSING, djangoMissingMigrations: outcome.missing.length },
-        env,
-        deps
-    )
+    return pushResult(EXIT_MISSING, sqlxResults, env, deps)
 }
 
 if (require.main === module) {

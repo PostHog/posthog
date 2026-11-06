@@ -108,67 +108,40 @@ describe('schema check', () => {
     })
 
     describe('renderMetrics', () => {
-        const sqlxResult = (
-            requirement: SqlxRequirement,
-            status: SqlxShadowResult['status'],
-            missingVersions: number[] = []
-        ): SqlxShadowResult => ({ requirement, status, detail: '', missingVersions })
+        const sqlxResult = (requirement: SqlxRequirement, status: SqlxShadowResult['status']): SqlxShadowResult => ({
+            requirement,
+            status,
+            detail: '',
+        })
 
-        it.each<[string, number, number, SqlxShadowResult[], string[]]>([
+        it.each<[string, number, SqlxShadowResult[], string[]]>([
             [
                 'satisfied',
                 0,
-                0,
-                [sqlxResult(PERSONS, 'satisfied')],
-                [
-                    'node_schema_check_sqlx_missing_versions{database="persons"} 0',
-                    'node_schema_check_sqlx_error{database="persons"} 0',
-                ],
+                [sqlxResult(CYCLOTRON, 'satisfied')],
+                ['node_schema_check_sqlx_missing{database="cyclotron-node"} 0'],
             ],
             [
                 'missing',
-                1,
-                3,
-                [sqlxResult(CYCLOTRON, 'missing', [20260101000001, 20260201000001])],
-                [
-                    'node_schema_check_sqlx_missing_versions{database="cyclotron-node"} 2',
-                    'node_schema_check_sqlx_error{database="cyclotron-node"} 0',
-                ],
+                0,
+                [sqlxResult(CYCLOTRON, 'missing')],
+                ['node_schema_check_sqlx_missing{database="cyclotron-node"} 1'],
             ],
             [
                 'skipped database omitted',
-                0,
-                0,
-                [sqlxResult(PERSONS, 'skipped'), sqlxResult(CYCLOTRON, 'satisfied')],
-                [
-                    'node_schema_check_sqlx_missing_versions{database="cyclotron-node"} 0',
-                    'node_schema_check_sqlx_error{database="cyclotron-node"} 0',
-                ],
+                1,
+                [sqlxResult(PERSONS, 'skipped'), sqlxResult(CYCLOTRON, 'error')],
+                ['node_schema_check_sqlx_missing{database="cyclotron-node"} 0'],
             ],
-            [
-                'errored and dirty databases',
-                2,
-                0,
-                [sqlxResult(PERSONS, 'error'), sqlxResult(CYCLOTRON, 'dirty')],
-                [
-                    'node_schema_check_sqlx_missing_versions{database="persons"} 0',
-                    'node_schema_check_sqlx_missing_versions{database="cyclotron-node"} 0',
-                    'node_schema_check_sqlx_error{database="persons"} 1',
-                    'node_schema_check_sqlx_error{database="cyclotron-node"} 1',
-                ],
-            ],
-        ])('%s', (_case, djangoExitCode, djangoMissingMigrations, sqlx, expectedSqlxSamples) => {
-            const body = renderMetrics(
-                { djangoExitCode, djangoMissingMigrations, djangoWaitSeconds: 12.5, sqlx },
-                1700000000
-            )
+            ['no sqlx database checked', 2, [sqlxResult(PERSONS, 'skipped')], []],
+        ])('%s', (_case, djangoExitCode, sqlx, expectedSqlxSamples) => {
+            const samples = renderMetrics(djangoExitCode, sqlx, 1700000000)
+                .split('\n')
+                .filter((line) => line && !line.startsWith('#'))
 
-            const samples = body.split('\n').filter((line) => line && !line.startsWith('#'))
             expect(samples).toEqual([
                 'node_schema_check_last_run_timestamp_seconds 1700000000',
                 `node_schema_check_django_exit_code ${djangoExitCode}`,
-                `node_schema_check_django_missing_migrations ${djangoMissingMigrations}`,
-                'node_schema_check_django_wait_seconds 12.5',
                 ...expectedSqlxSamples,
             ])
         })
