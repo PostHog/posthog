@@ -13,11 +13,12 @@ Before you add or change a panel, operation or tool, invoke `/extending-the-admi
 - **A panel returns data, not markup.** Subclass `Panel` and return `Fact` and `Operation` objects. Do not write templates, `format_html`, or `mark_safe` for a panel. The shell renders every panel the same way, so a new panel cannot drift from the design.
 - **Only the shell writes templates** (`posthog/templates/admin_console/`). They use quill's `quill-*` classes and Tailwind utilities, with the markup quill's React components emit, including their `data-*` attributes.
 - **A destructive operation sets `danger=True`, has a form with a `reason` field, and sets `undo_hint`.** `Operation` refuses it otherwise. The console writes the reason to the audit log and shows the undo hint on the confirm page.
+- **An operation that only some staff may run sets `gate`.** Use `Gate.group(name)` or a `Gate` with a reviewed rule. Never gate on a Django model permission: `User.is_superuser` mirrors `is_staff`, so every staff member passes. The console shows a gated operation disabled with who may run it, and refuses the request with 403.
 - **The contract checks itself.** The registry refuses a key that is not a slug, a blank title and a tool group outside `TOOL_GROUPS`. `Fact` refuses markup, and `Page` refuses unknown blocks and table rows of the wrong width. When a check fires, fix the contribution. Do not loosen the check in the same change.
 
 ## Add a panel
 
-1. In `products/<product>/backend/console.py`, subclass `Panel` and decorate it with `@console.register_panel`. Import only your product's `facade/`, `posthog.admin.console`, and, for a bridge, the `ModelAdmin` that still holds the view. `products/workflows/backend/console.py` is the reference.
+1. In `products/<product>/backend/console.py`, subclass `Panel` and decorate it with `@console.register_panel`. Set `record` to a key from `RECORD_TYPES` in `records.py` (`team` or `organization`). Import only your product's `facade/`, `posthog.admin.console`, and, for a bridge, the `ModelAdmin` that still holds the view. `products/workflows/backend/console.py` is the reference.
 2. Set `owner = Owner(name=..., crest=...)`. The crest is a mini crest slug from `@posthog/brand`, for example `workflows`.
 3. For each action, return an `Operation`. Put its inputs in a Django `forms.Form` (`form_class`); the console renders and validates it. Its `handler(request, obj, form)` returns `None` when done. The handler is a service function, or `AdminViewBridge(Model, SomeAdmin.view_method)` while the logic still lives in a `ModelAdmin`. A bridged view must take a POST and answer with a redirect. Later, replace the bridge with a service function; the panel stays as it is.
 4. Run `pnpm --filter=@posthog/frontend build:admin-console` when you add an owner crest or change a template. `posthog/admin/test_admin_console.py` fails when a template class, a linked asset or an owner crest is missing from the build output.
@@ -27,13 +28,14 @@ Before you add or change a panel, operation or tool, invoke `/extending-the-admi
 A tool is a page that is not about one record, for example a report across all teams.
 
 1. In `products/<product>/backend/console.py`, subclass `ConsoleTool` and decorate it with `@console.register_tool`. Set `key`, `title`, `owner` and `group`; the group is the navigation heading. `posthog/admin/console/events_retention_tool.py` is the reference.
-2. `page(request)` returns a `Page` of blocks (`Notice`, `Table` with `Row` and `GroupRow`, `Paging`). The console renders the blocks, so a tool needs no template. When a tool needs a block that does not exist, add it to `tools.py` and `tool.html` in the shell, not a template in the product.
-3. When a tool replaces a Django admin page, keep the old URL name and point it at `MovedToConsole.page_redirect`, so existing links keep working.
+2. `page(request)` returns a `Page` of blocks (`Notice`, `Table` with `Row` and `GroupRow`, `Paging`, `Output`). It only reads; the console serves it for GET and HEAD only. The console renders the blocks, so a tool needs no template. When a tool needs a block that does not exist, add it to `tools.py` and `tool.html` in the shell, not a template in the product.
+3. For an action that is not about one record, return a `ToolOperation` from `operations(request)`. It works like a record `Operation` without the record: `handler(request, form)`. Its handler returns `None` (back to the tool with its messages), or a `Page` that the console shows as the result. Return a result `Page` only when running the operation again is harmless, such as a dry run, because a reload submits the form again. `products/cohorts/backend/console.py` is the reference.
+4. When a tool replaces a Django admin page, keep the old URL name and point it at `MovedToConsole.page_redirect`, so existing links keep working.
 
 ## Move a Django admin action
 
-Replace the old button with `MovedToConsole.team_action(team, panel_key, label)` from `moved.py`. It links to the panel on the console team page, so staff who look in the usual place find the new one. When a whole page moves, route its old URL to `MovedToConsole.page_redirect(title, url)`, which tells staff the page moved.
-Old URLs never break, because staff keep bookmarks to them, query parameters included. When a team action's view is deleted, its old path goes into `MOVED_TEAM_ACTIONS` in `urls.py`, which redirects to the console form or panel.
+Replace the old button with `MovedToConsole.action(record, obj, panel_key, label)` from `moved.py`. It links to the panel on the console record page, so staff who look in the usual place find the new one. When a whole page moves, route its old URL to `MovedToConsole.page_redirect(title, url)`, which tells staff the page moved.
+Old URLs never break, because staff keep bookmarks to them, query parameters included. When a record action's view is deleted, its old path goes into `MOVED_TEAM_ACTIONS` or `MOVED_ORGANIZATION_ACTIONS` in `urls.py`, which redirects to the console form or panel.
 
 ## Read when needed
 

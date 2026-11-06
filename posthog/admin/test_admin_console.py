@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.contrib.auth.models import Group
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
@@ -14,16 +15,21 @@ from django.utils.html import format_html
 
 from parameterized import parameterized
 
+from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, ReasonForm
+from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Page, Row, Table
 from posthog.csp_middleware import CSPMiddleware
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
 from products.workflows.backend.facade.api import get_email_sending_state
+
+from ee.billing.quota_limiting import QuotaResource
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
 CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
@@ -96,7 +102,9 @@ class TestAdminConsoleAssets(SimpleTestCase):
         )
 
     def test_every_owner_crest_ships(self) -> None:
-        owners = [panel.owner for panel in console.panels_for("team")] + [tool.owner for tool in console.tools()]
+        owners = [panel.owner for record in RECORD_TYPES for panel in console.panels_for(record)] + [
+            tool.owner for tool in console.tools()
+        ]
         missing = sorted(
             {owner.crest for owner in owners if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()}
         )
@@ -140,6 +148,16 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "undo_hint",
             ),
             ("fact_with_markup", lambda: Fact(label="Plan", value=format_html("<b>{}</b>", "Scale")), "plain text"),
+            (
+                "fact_linking_off_site",
+                lambda: Fact(label="Docs", value="Read", href="//example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "fact_linking_off_site_with_a_backslash",
+                lambda: Fact(label="Docs", value="Read", href="/\\example.com/phish"),
+                "starts with /",
+            ),
             ("unknown_tool_block", lambda: Page(blocks=(Fact(label="a", value="b"),)), "not a console block"),  # type: ignore[arg-type]
             (
                 "table_row_missing_a_cell",
@@ -153,6 +171,22 @@ class TestAdminConsoleAssets(SimpleTestCase):
     ) -> None:
         with self.assertRaisesRegex(ValueError, message):
             contribute()
+
+    @parameterized.expand(
+        [
+            ("fits", MAX_FACTS_PER_PANEL, MAX_FACTS_PER_PANEL, False),
+            ("overflows", MAX_FACTS_PER_PANEL + 1, MAX_FACTS_PER_PANEL, True),
+        ]
+    )
+    def test_billing_facts_count_the_limits_past_the_panel_cap(
+        self, _name: str, limited_count: int, expected_facts: int, mentions_more: bool
+    ) -> None:
+        limited: dict[QuotaResource, int | None] = dict.fromkeys(list(QuotaResource)[:limited_count])
+        with patch.object(QuotaLimits, "limited", return_value=limited):
+            facts = BillingPanel().facts(Organization(name="Many limits"))
+
+        assert len(facts) == expected_facts
+        assert (facts[-1].label == "More limits") == mentions_more
 
 
 class TestAdminConsoleTheme(SimpleTestCase):
@@ -229,6 +263,15 @@ class TestAdminConsoleViews(BaseTest):
         for panel in console.panels_for("team"):
             assert len(panel.facts(self.team)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
 
+        assert f"/admin/console/organizations/{self.organization.pk}/" in content
+
+        organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
+        assert organization_page.status_code == 200
+        organization_content = organization_page.content.decode()
+        for title in ("Overview", "Teams", "Billing"):
+            assert title in organization_content
+        assert f"/admin/console/teams/{self.team.pk}/" in organization_content
+
         home = self.client.get("/admin/console/").content.decode()
         assert "Recently opened" in home
         assert f"/admin/console/teams/{self.team.pk}/" in home
@@ -253,15 +296,19 @@ class TestAdminConsoleViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("form_page_keeps_its_parameters", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
-            ("button_action_lands_on_its_panel", "rebuild-cache/", "#panel-remote-config"),
+            ("form_page_keeps_its_parameters", "team", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
+            ("button_action_lands_on_its_panel", "team", "rebuild-cache/", "#panel-remote-config"),
+            ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
         ]
     )
-    def test_an_old_django_admin_action_url_lands_on_the_console(self, _name: str, old: str, new: str) -> None:
-        response = self.client.get(f"/admin/posthog/team/{self.team.pk}/{old}")
+    def test_an_old_django_admin_action_url_lands_on_the_console(
+        self, _name: str, record: str, old: str, new: str
+    ) -> None:
+        obj = self.team if record == "team" else self.organization
+        response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/{old}")
 
         assert response.status_code == 302
-        assert response["Location"] == f"/admin/console/teams/{self.team.pk}/{new}"
+        assert response["Location"] == f"/admin/console/{record}s/{obj.pk}/{new}"
 
     def test_django_admin_team_page_points_moved_actions_to_the_console(self) -> None:
         response = self.client.get(f"/admin/posthog/team/{self.team.pk}/change/")
@@ -369,6 +416,53 @@ class TestAdminConsoleViews(BaseTest):
         content = response.content.decode()
         assert "gateway down" in content
         assert "Outage goodwill" in content
+
+    @parameterized.expand(
+        [
+            ("limit_without_reason", "limit", {"resource": "events", "reason": " "}, True, 400, False),
+            ("limit_without_billing_period", "limit", {"resource": "events", "reason": "Abuse"}, False, 400, False),
+            ("limit", "limit", {"resource": "events", "reason": "Abuse"}, True, 302, True),
+            ("unlimit", "unlimit", {"resource": "events"}, True, 302, False),
+        ]
+    )
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_billing_operations_limit_and_unlimit_a_product(
+        self,
+        _name: str,
+        operation_key: str,
+        data: dict[str, str],
+        has_billing_period: bool,
+        expected_status: int,
+        expect_limited: bool,
+    ) -> None:
+        if has_billing_period:
+            self.organization.usage = {"period": ["2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z"]}
+            self.organization.save()
+        if operation_key == "unlimit":
+            self.organization.limit_product_until_end_of_billing_cycle(QuotaResource.EVENTS)
+
+        response = self.client.post(
+            f"/admin/console/organizations/{self.organization.pk}/billing/{operation_key}/", data
+        )
+
+        assert response.status_code == expected_status
+        assert (QuotaResource.EVENTS in QuotaLimits.limited(self.organization)) == expect_limited
+
+    @parameterized.expand([("billing_staff", True, 302), ("other_staff", False, 403)])
+    @patch("posthog.admin.console.usage_reports_tool.call_command")
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_sending_usage_reports_needs_the_billing_team_group(
+        self, _name: str, in_group: bool, expected_status: int, call_command: MagicMock
+    ) -> None:
+        if in_group:
+            Group.objects.get_or_create(name="Billing Team")[0].user_set.add(self.user)
+
+        page = self.client.get("/admin/console/tools/usage-reports/").content.decode()
+        response = self.client.post("/admin/console/tools/usage-reports/send/", {"report_date": "2026-10-19"})
+
+        assert ("Needs the Billing Team group" in page) != in_group
+        assert response.status_code == expected_status
+        assert call_command.called == in_group
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_events_retention_tool_lists_the_teams_of_an_organization_with_a_default(self) -> None:

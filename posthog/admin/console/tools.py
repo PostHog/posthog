@@ -1,10 +1,12 @@
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
-from posthog.admin.console.panels import Owner, Tone
+from django import forms
+
+from posthog.admin.console.panels import Gate, Owner, Tone, check_danger
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
-    from django.http import HttpRequest
+    from django.http import HttpRequest, HttpResponse
 
 
 @frozen
@@ -45,6 +47,14 @@ class Notice:
 
 
 @frozen
+class Output:
+    """Plain text output, for example what a management command printed. The shell shows it as written."""
+
+    kind: ClassVar[str] = "output"
+    text: str
+
+
+@frozen
 class Paging:
     kind: ClassVar[str] = "paging"
     number: int
@@ -54,7 +64,7 @@ class Paging:
     next_url: str | None
 
 
-Block = Notice | Table | Paging
+Block = Notice | Table | Paging | Output
 
 
 @frozen
@@ -64,7 +74,7 @@ class Page:
     def __post_init__(self) -> None:
         # tool.html renders only the block kinds it knows, so an unknown block would vanish without an error.
         for block in self.blocks:
-            if not isinstance(block, Notice | Table | Paging):
+            if not isinstance(block, Notice | Table | Paging | Output):
                 raise ValueError(f"{type(block).__name__} is not a console block. Add new blocks to the shell.")
             if isinstance(block, Table):
                 for row in block.rows:
@@ -72,10 +82,40 @@ class Page:
                         raise ValueError(f"A table row has {len(row.cells)} cells for {len(block.columns)} columns")
 
 
+class ToolOperationHandler(Protocol):
+    """Returns None when done, and the console sends staff back to the tool with the messages the handler added.
+
+    It may return a `Page` instead, which the console shows as the result. Do that only when running the
+    operation again is harmless, for example a dry run, because reloading a result page submits the form again.
+    To report a failure, add an error message and return a 4xx or 5xx response.
+    """
+
+    def __call__(self, request: "HttpRequest", form: forms.Form | None) -> "HttpResponse | Page | None": ...
+
+
+@frozen
+class ToolOperation:
+    """An action a tool offers, for example starting a backfill. Like a record `Operation`, without a record."""
+
+    key: str
+    label: str
+    handler: ToolOperationHandler
+    danger: bool = False
+    form_class: type[forms.Form] | None = None
+    form_initial: dict[str, object] | None = None
+    description: str = ""
+    undo_hint: str = ""
+    gate: Gate | None = None
+
+    def __post_init__(self) -> None:
+        check_danger(self.key, self.danger, self.form_class, self.undo_hint)
+
+
 class ConsoleTool:
     """A console page that is not about one record, for example a report across all teams.
 
-    A tool returns a `Page` of blocks. The console renders it, so tools need no templates.
+    A tool returns a `Page` of blocks and, optionally, operations. The console renders both, so tools need no
+    templates.
     Subclass it in `<app>/console.py` and register it with `console.register_tool`.
     Read posthog/admin/console/AGENTS.md before you add one.
     """
@@ -88,3 +128,7 @@ class ConsoleTool:
 
     def page(self, request: "HttpRequest") -> Page:
         raise NotImplementedError
+
+    def operations(self, request: "HttpRequest") -> list[ToolOperation]:
+        """The actions the tool page offers. The console runs them; `page` stays read-only."""
+        return []

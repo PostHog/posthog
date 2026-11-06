@@ -3,6 +3,7 @@ from django.urls import path, re_path
 
 from posthog.admin.console import views
 from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.console.records import RECORD_TYPES
 
 # Old Django admin URLs of team actions that moved. Staff keep bookmarks to them, query parameters included.
 MOVED_TEAM_ACTIONS = {
@@ -16,32 +17,62 @@ MOVED_TEAM_ACTIONS = {
     "recompute-email-sending-tier": "#panel-email-sending",
 }
 
+MOVED_ORGANIZATION_ACTIONS = {
+    "limit-product": "#panel-billing",
+    "unlimit-product": "#panel-billing",
+    "sync-to-billing": "#panel-billing",
+}
+
 # Every route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up, and admin_view
 # adds the staff check, the login redirect and CSRF protection. The console needs no auth of its own.
 urlpatterns = [
     path("admin/console/", admin.site.admin_view(views.console_home), name="admin_console_home"),
-    path(
-        "admin/console/teams/<int:team_id>/",
-        admin.site.admin_view(views.team_detail),
-        name="admin_console_team",
-    ),
-    path(
-        "admin/console/teams/<int:team_id>/<slug:panel_key>/<slug:operation_key>/",
-        admin.site.admin_view(views.run_team_operation),
-        name="admin_console_team_operation",
-    ),
+    *[
+        route
+        for record_type in RECORD_TYPES.values()
+        for route in (
+            path(
+                f"admin/console/{record_type.plural}/<{record_type.pk_converter}:pk>/",
+                admin.site.admin_view(views.record_detail),
+                {"record": record_type.key},
+                name=record_type.url_name,
+            ),
+            path(
+                f"admin/console/{record_type.plural}/<{record_type.pk_converter}:pk>/<slug:panel_key>/<slug:operation_key>/",
+                admin.site.admin_view(views.run_operation),
+                {"record": record_type.key},
+                name=record_type.operation_url_name,
+            ),
+        )
+    ],
     path(
         "admin/console/tools/<slug:tool_key>/",
         admin.site.admin_view(views.tool_page),
         name="admin_console_tool",
     ),
+    path(
+        "admin/console/tools/<slug:tool_key>/<slug:operation_key>/",
+        admin.site.admin_view(views.run_tool_operation),
+        name="admin_console_tool_operation",
+    ),
     *[
         path(
-            f"admin/posthog/team/<int:team_id>/{old}/",
-            admin.site.admin_view(MovedToConsole.team_redirect(target)),
+            f"admin/posthog/team/<int:pk>/{old}/",
+            admin.site.admin_view(MovedToConsole.record_redirect("teams", target)),
         )
         for old, target in MOVED_TEAM_ACTIONS.items()
     ],
+    *[
+        path(
+            f"admin/posthog/organization/<uuid:pk>/{old}/",
+            admin.site.admin_view(MovedToConsole.record_redirect("organizations", target)),
+        )
+        for old, target in MOVED_ORGANIZATION_ACTIONS.items()
+    ],
+    path(
+        "admin/posthog/organization/send-usage-report/",
+        MovedToConsole.page_redirect("Sending usage reports", "/admin/console/tools/usage-reports/"),
+    ),
     # APPEND_SLASH is off, so a console URL typed without its trailing slash would fall through to the
     # Django admin catch-all.
     re_path(

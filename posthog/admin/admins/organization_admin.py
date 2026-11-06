@@ -1,5 +1,5 @@
 import re
-from datetime import UTC, timedelta
+from datetime import UTC
 from typing import Any
 from uuid import UUID
 
@@ -25,6 +25,8 @@ from django.views.decorators.http import require_http_methods
 
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.authorization import can_trigger_admin_deletion
+from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.console.usage_reports_tool import ReportDateForm
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
@@ -126,16 +128,6 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
         )
 
     return sorted(results, key=lambda x: x["name"])
-
-
-class UsageReportForm(forms.Form):
-    report_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
-
-    def clean_report_date(self):
-        report_date = self.cleaned_data["report_date"]
-        if report_date > (timezone.now().date() + timedelta(days=1)):
-            raise forms.ValidationError("The date cannot be more than one day in the future.")
-        return report_date
 
 
 class DatasetRetentionForm(forms.Form):
@@ -381,7 +373,13 @@ class OrganizationAdmin(admin.ModelAdmin):
         return mark_safe(
             render_to_string(
                 "admin/organization/limited_products.html",
-                {"limited": limited, "organization_id": organization.id, "total_teams": total_teams},
+                {
+                    "limited": limited,
+                    "total_teams": total_teams,
+                    "actions_moved": MovedToConsole.action(
+                        "organization", organization, "billing", "Limit and unlimit"
+                    ),
+                },
                 request=request,
             )
         )
@@ -462,15 +460,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     def sync_to_billing_display(self, organization: Organization):
         if not organization.pk:
             return "-"
-        request = getattr(self, "_current_request", None)
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/organization/sync_to_billing.html",
-                {"organization_id": organization.pk},
-                request=request,
-            )
-        )
+        return MovedToConsole.action("organization", organization, "billing", "Sync members to billing")
 
     @admin.display(description="Danger zone")
     def trigger_deletion_display(self, organization: Organization):
@@ -570,71 +560,9 @@ class OrganizationAdmin(admin.ModelAdmin):
         )
         return redirect(change_url)
 
-    def sync_to_billing_view(self, request, organization_id):
-        from posthog.tasks.sync_billing import sync_members_to_billing
-
-        try:
-            organization = Organization.objects.get(id=organization_id)
-        except Organization.DoesNotExist:
-            messages.error(request, f"Organization with id {organization_id} not found.")
-            return redirect(reverse("admin:posthog_organization_changelist"))
-
-        if request.method == "POST":
-            try:
-                sync_members_to_billing.delay(organization.id)
-                messages.success(
-                    request, f"Queued sync to billing for organization {organization.name} ({organization.id})."
-                )
-            except Exception as e:
-                messages.error(request, f"Error queuing sync to billing: {e}")
-
-        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
-
-    def limit_product_view(self, request, organization_id):
-        from ee.billing.quota_limiting import QuotaResource
-
-        organization: Organization = Organization.objects.get(id=organization_id)
-        assert organization
-
-        if request.method == "POST":
-            resource_name = request.POST.get("resource")
-            try:
-                resource = QuotaResource(resource_name)
-                organization.limit_product_until_end_of_billing_cycle(resource)
-                messages.success(request, f"Successfully limited {resource_name} for organization {organization.name}")
-            except ValueError:
-                messages.error(request, f"Invalid resource: {resource_name}")
-            except Exception as e:
-                messages.error(request, f"Error limiting {resource_name}: {str(e)}")
-
-        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
-
-    def unlimit_product_view(self, request, organization_id):
-        from ee.billing.quota_limiting import QuotaResource
-
-        organization = Organization.objects.get(id=organization_id)
-
-        if request.method == "POST":
-            resource_name = request.POST.get("resource")
-            try:
-                resource = QuotaResource(resource_name)
-                organization.unlimit_product(resource)
-                messages.success(
-                    request, f"Successfully unlimited {resource_name} for organization {organization.name}"
-                )
-            except ValueError:
-                messages.error(request, f"Invalid resource: {resource_name}")
-            except Exception as e:
-                messages.error(request, f"Error unlimiting {resource_name}: {str(e)}")
-
-        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
-
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
-            path(
-                "send-usage-report/", self.admin_site.admin_view(self.send_usage_report_view), name="send-usage-report"
-            ),
             path(
                 "send-ai-observability-usage-report/",
                 self.admin_site.admin_view(self.send_ai_observability_usage_report_view),
@@ -651,24 +579,9 @@ class OrganizationAdmin(admin.ModelAdmin):
                 name="organization_bulk_deactivate",
             ),
             path(
-                "<path:organization_id>/limit-product/",
-                self.admin_site.admin_view(self.limit_product_view),
-                name="limit_product",
-            ),
-            path(
-                "<path:organization_id>/unlimit-product/",
-                self.admin_site.admin_view(self.unlimit_product_view),
-                name="unlimit_product",
-            ),
-            path(
                 "<path:organization_id>/model-counts/",
                 self.admin_site.admin_view(self.model_counts_view),
                 name="organization_model_counts",
-            ),
-            path(
-                "<path:organization_id>/sync-to-billing/",
-                self.admin_site.admin_view(self.sync_to_billing_view),
-                name="organization_sync_to_billing",
             ),
             path(
                 "<path:organization_id>/trigger-deletion/",
@@ -799,28 +712,11 @@ class OrganizationAdmin(admin.ModelAdmin):
             },
         )
 
-    def send_usage_report_view(self, request):
-        if not request.user.groups.filter(name="Billing Team").exists():
-            messages.error(request, "You are not authorized to send usage reports.")
-            return redirect(reverse("admin:posthog_organization_changelist"))
-
-        if request.method == "POST":
-            form = UsageReportForm(request.POST)
-            if form.is_valid():
-                report_date = form.cleaned_data["report_date"]
-                call_command("send_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async=1")
-                messages.success(request, f"Usage report for date {report_date} was sent successfully.")
-                return redirect(reverse("admin:posthog_organization_changelist"))
-        else:
-            form = UsageReportForm()
-
-        return render(request, "admin/posthog/organization/send_usage_report.html", {"form": form})
-
     def send_ai_observability_usage_report_view(self, request):
         # Staff-only on purpose, unlike the sibling billing view: nothing here is customer-facing, and
         # the task now skips organizations that already have a report for the period.
         if request.method == "POST":
-            form = UsageReportForm(request.POST)
+            form = ReportDateForm(request.POST)
             if form.is_valid():
                 report_date = form.cleaned_data["report_date"]
                 try:
@@ -835,7 +731,7 @@ class OrganizationAdmin(admin.ModelAdmin):
                     messages.success(request, f"AI observability usage report for date {report_date} was queued.")
                 return redirect(reverse("admin:posthog_organization_changelist"))
         else:
-            form = UsageReportForm()
+            form = ReportDateForm()
 
         return render(
             request,
