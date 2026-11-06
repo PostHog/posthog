@@ -1215,14 +1215,13 @@ class HogFunctionViewSet(
         # (`hog_function:read` would be a no-op since :write already satisfies it.)
         if self.action == "rerun":
             required_scopes += ["person:read", "group:read"]
-        # A deleted function's history is the way to read its code without undeleting it, and an undelete
-        # needs write access.
+        # Reading a deleted function's history needs write access, as an undelete does.
         if self.action in REVISION_READ_ACTIONS and self._target_is_deleted():
             return required_scopes
         return required_scopes if len(required_scopes) > 1 else None
 
     def _target_is_deleted(self) -> bool:
-        # OpenAPI generation resolves scopes without a URL, so there is no function to look up.
+        """False when scopes resolve without a URL, as OpenAPI generation does."""
         pk = self.kwargs.get("pk")
         if pk is None:
             return False
@@ -1294,8 +1293,6 @@ class HogFunctionViewSet(
 
         undeleting = self.action == "partial_update" and self.request.data.get("deleted") is False
         if not undeleting and self.action not in REVISION_READ_ACTIONS:
-            # We only want to include deleted functions if we are un-deleting them, or reading the version
-            # history of one. `dangerously_get_required_scopes` gates that history like an undelete.
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
@@ -1544,10 +1541,8 @@ class HogFunctionViewSet(
         ):
             raise exceptions.ValidationError({"enabled": CREATE_ENABLED_MESSAGE})
         serializer.save()
-        # Version the starting config too. Otherwise a function deleted before its first config change
-        # keeps its code only on the soft-deleted row, which no endpoint returns. The save is not wrapped
-        # in a transaction with this write, because its post_save signal tells the workers to reload at once.
-        # A config edit that lands first writes the same revision as its outgoing snapshot.
+        # No transaction with the save, because its post_save signal tells the workers to reload at once.
+        # A config edit that lands first writes revision 1 itself, so this must not fail on a duplicate.
         HogFunctionRevision.objects.get_or_create(
             team_id=self.team_id,
             hog_function=serializer.instance,
