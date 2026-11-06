@@ -72,8 +72,8 @@ WRITE_MODEL = "gpt-6-luna"
 WRITE_TIMEOUT_SECONDS = 30.0
 WRITE_MAX_COMPLETION_TOKENS = 2048
 MAX_SUGGESTIONS = 3
-MAX_INTRO_CHARS = 200
-MAX_OFFER_CHARS = 200
+MAX_INTRO_CHARS = 140
+MAX_OFFER_CHARS = 110
 MAX_REQUEST_CHARS = 500
 
 _CHANNEL_TYPE_SCOPES = {
@@ -89,18 +89,17 @@ opens pull requests in connected repositories. The numbered messages are recent 
 or that mention them.
 
 Return:
-- "intro": one sentence to the person, in the second person, that names what their recent work is about. At most \
-200 characters. For example: "Looks like your week is about the Slack app: message ordering and chart previews."
+- "intro": one short, warm sentence to the person, in the second person, that names what their recent work is \
+about. Start it with one fitting emoji. At most 120 characters. For example: "👀 Looks like your week is all about \
+Slack handoffs and feature tips."
 - "suggestions": at most 3 tasks that PostHog could do for them, the most useful first. Each task has:
-  - "offer": one or two sentences in the second person that say what you noticed and end with a question, such as \
-"Chart previews in #product ignore edited query parameters. Want me to find out why and open a fix?" At most 200 \
-characters.
+  - "offer": one short line in the second person that ends with a question. Start it with one emoji that fits the \
+task. At most 100 characters. For example: "📈 Chart previews ignore edited query params. Want me to find out why?"
   - "request": the full task, written as the person would ask PostHog, such as "Find out why chart link previews \
 ignore edited query parameters, and open a pull request with the fix." At most 500 characters.
-  - "source": the number of the message the task comes from.
 
-Write in plain, warm language. Never quote a message, never name a person, and never copy private details. A channel \
-name is fine. Suggest nothing when no message shows work that PostHog can help with."""
+Keep it short and friendly. Never quote a message, never name a person, and never copy private details. Suggest \
+nothing when no message shows work that PostHog can help with."""
 
 _RESPONSE_FORMAT: ResponseFormatJSONSchema = {
     "type": "json_schema",
@@ -118,9 +117,8 @@ _RESPONSE_FORMAT: ResponseFormatJSONSchema = {
                         "properties": {
                             "offer": {"type": "string"},
                             "request": {"type": "string"},
-                            "source": {"type": "integer"},
                         },
-                        "required": ["offer", "request", "source"],
+                        "required": ["offer", "request"],
                         "additionalProperties": False,
                     },
                 },
@@ -140,14 +138,12 @@ class WorkFocusRateLimited(Exception):
 class _FoundMessage:
     content: str
     channel_name: str | None
-    permalink: str | None
 
 
 @frozen
 class WorkFocusSuggestion:
     offer: str
     request: str
-    source_permalink: str | None
 
 
 @frozen
@@ -198,6 +194,8 @@ def _find_and_send(integration: WorkspaceIntegration, slack_user_id: str) -> str
         channel=slack_user_id,
         text=focus.intro,
         blocks=work_focus_blocks(integration, focus),
+        unfurl_links=False,
+        unfurl_media=False,
     )
     capture_slack_event(
         integration,
@@ -250,12 +248,10 @@ def _search_messages(
                 content = str(message.get("content") or "").strip()
                 key = (str(message.get("channel_id") or ""), str(message.get("message_ts") or ""))
                 if content and not message.get("is_author_bot") and key not in found:
-                    permalink = message.get("permalink")
                     channel_name = message.get("channel_name")
                     found[key] = _FoundMessage(
                         content=content[:MAX_MESSAGE_CHARS],
                         channel_name=channel_name if isinstance(channel_name, str) and channel_name else None,
-                        permalink=permalink if isinstance(permalink, str) else None,
                     )
             cursor = str((response.get("response_metadata") or {}).get("next_cursor") or "")
             if not cursor:
@@ -321,50 +317,41 @@ def _write(integration: WorkspaceIntegration, candidates: list[_FoundMessage]) -
     parsed = extract_json_object(response.choices[0].message.content or "") or {}
     return WorkFocus(
         intro=str(parsed.get("intro") or "").strip()[:MAX_INTRO_CHARS],
-        suggestions=_clean_suggestions(parsed.get("suggestions"), candidates),
+        suggestions=_clean_suggestions(parsed.get("suggestions")),
     )
 
 
-def _clean_suggestions(raw: Any, candidates: list[_FoundMessage]) -> list[WorkFocusSuggestion]:
+def _clean_suggestions(raw: Any) -> list[WorkFocusSuggestion]:
     suggestions = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
         offer = str(item.get("offer") or "").strip()[:MAX_OFFER_CHARS]
         request = str(item.get("request") or "").strip()[:MAX_REQUEST_CHARS]
-        source = item.get("source")
-        if not offer or not request:
-            continue
-        permalink = (
-            candidates[source - 1].permalink if isinstance(source, int) and 1 <= source <= len(candidates) else None
-        )
-        suggestions.append(WorkFocusSuggestion(offer=offer, request=request, source_permalink=permalink))
+        if offer and request:
+            suggestions.append(WorkFocusSuggestion(offer=offer, request=request))
     return suggestions[:MAX_SUGGESTIONS]
 
 
 def work_focus_blocks(integration: WorkspaceIntegration, focus: WorkFocus) -> list[dict]:
-    blocks: list[dict] = [section_block(f"{focus.intro} Here's where I can help:".strip())]
+    blocks: list[dict] = [section_block(f"{focus.intro} Here's where I can jump in 👇")]
     for suggestion in focus.suggestions:
-        source = f" <{suggestion.source_permalink}|See the message>" if suggestion.source_permalink else ""
         blocks.append(
             {
                 **section_block(suggestion.offer),
                 "accessory": {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "Do it"},
+                    "text": {"type": "plain_text", "text": "Do it 🚀", "emoji": True},
                     "action_id": WORK_FOCUS_TASK_ACTION_ID,
+                    # The full request opens the task's thread, so the person sees what runs.
                     "value": json.dumps(
                         {"integration_id": integration.id, "request": suggestion.request}, separators=(",", ":")
                     ),
                 },
             }
         )
-        # The person sees the whole request before a click starts it.
-        blocks.append(context_block(f"I'll ask: _{suggestion.request}_{source}"))
     blocks.append(
-        context_block(
-            "Each one starts a task in its own thread. I read your recent messages once for this and didn't keep them."
-        )
+        context_block("🔒 I read your recent messages once and kept nothing. Each one starts its own thread.")
     )
     return blocks
 
