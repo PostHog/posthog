@@ -1,0 +1,39 @@
+from typing import TYPE_CHECKING, Any
+
+from django.core.cache import cache
+
+import structlog
+
+from products.tasks.backend.facade.task_run_signals import TaskOriginProduct
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
+
+logger = structlog.get_logger(__name__)
+
+TURN_SETTLE_SECONDS = 2
+REPLY_SUGGESTIONS_EXPIRES_SECONDS = TURN_SETTLE_SECONDS + 30
+
+
+def enqueue_reply_suggestions(task_run: "TaskRun") -> bool:
+    try:
+        if task_run.origin_product != TaskOriginProduct.POSTHOG_AI:
+            return False
+        run_id = str(task_run.id)
+        if not cache.add(f"posthog_ai_reply_suggestions:{run_id}", True, timeout=TURN_SETTLE_SECONDS):
+            return False
+        from products.posthog_ai.backend.tasks import generate_reply_suggestions_task  # noqa: PLC0415
+
+        generate_reply_suggestions_task.apply_async(
+            kwargs={"run_id": run_id, "team_id": task_run.team_id},
+            countdown=TURN_SETTLE_SECONDS,
+            expires=REPLY_SUGGESTIONS_EXPIRES_SECONDS,
+        )
+    except Exception:
+        logger.warning("posthog_ai_reply_suggestions_enqueue_failed", run_id=str(task_run.id), exc_info=True)
+        return False
+    return True
+
+
+def enqueue_reply_suggestions_on_turn_completed(sender: type, task_run: "TaskRun", **kwargs: Any) -> None:
+    enqueue_reply_suggestions(task_run)

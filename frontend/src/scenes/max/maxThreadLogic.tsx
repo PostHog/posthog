@@ -76,6 +76,7 @@ import {
     runStreamLogic,
     WebSearchResultsByToolUseId,
 } from 'products/posthog_ai/frontend/api/logics'
+import type { ReplySuggestions } from 'products/posthog_ai/frontend/api/types'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
@@ -183,6 +184,7 @@ export interface maxThreadLogicValues {
     sandboxAttachments: AttachedContext[] // posthogAiContextLogic
     pendingSandboxPermissionRequest: PermissionRequestRecord | null // runStreamLogic
     sandboxCurrentMode: string | null // runStreamLogic
+    sandboxReplySuggestions: ReplySuggestions | null // runStreamLogic
     sceneId: string | null // sceneLogic
     activeDangerousOperationApproval: {
         payload: Record<string, any>
@@ -803,7 +805,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // BindLogic subtree (the input area renders for LangGraph conversations too, so they
             // can't bind the keyed stream logic themselves).
             runStreamLogic({ streamKey: conversationId, conversationId }),
-            ['pendingPermissionRequest as pendingSandboxPermissionRequest', 'currentMode as sandboxCurrentMode'],
+            [
+                'pendingPermissionRequest as pendingSandboxPermissionRequest',
+                'currentMode as sandboxCurrentMode',
+                'replySuggestions as sandboxReplySuggestions',
+            ],
         ],
         actions: [
             maxLogic({ panelId }),

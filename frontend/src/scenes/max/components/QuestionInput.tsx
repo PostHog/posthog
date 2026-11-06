@@ -21,6 +21,7 @@ import {
     composerPlaceholder,
 } from './composerCopy'
 import { FillInHint } from './FillInHint'
+import { ReplySuggestionHint } from './ReplySuggestionHint'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { type QueuedMessageEditProps, useQuestionInput } from './useQuestionInput'
 
@@ -134,6 +135,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         hasQuestion,
         fillInHint,
         showFillInHint,
+        replySuggestion,
         promptLength,
         isOverLengthLimit,
         maxMessageLength,
@@ -241,7 +243,17 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     >
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={closeAutocomplete}>
                             <div className="relative w-full">
-                                {!inputValue && (
+                                {replySuggestion !== null ? (
+                                    <div
+                                        id="textarea-hint"
+                                        className="text-tertiary absolute top-4 left-4 right-12 pointer-events-none"
+                                    >
+                                        <ReplySuggestionHint
+                                            suggestion={replySuggestion}
+                                            keyHint={<kbd className="KeyboardShortcut text-secondary">Tab</kbd>}
+                                        />
+                                    </div>
+                                ) : !inputValue ? (
                                     <div
                                         id="textarea-hint"
                                         className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
@@ -257,7 +269,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             placeholderCopy.text
                                         )}
                                     </div>
-                                )}
+                                ) : null}
                                 {/* Postfix cue after a fill-in suggestion's typed-in prefix. */}
                                 {showFillInHint && (
                                     <div className="absolute top-4 left-4 right-4 overflow-hidden pointer-events-none">
