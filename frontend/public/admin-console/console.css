@@ -481,6 +481,9 @@
     .mb-4 {
         margin-bottom: calc(0.25rem * 4);
     }
+    .ml-1 {
+        margin-left: calc(0.25rem * 1);
+    }
     .ml-auto {
         margin-left: auto;
     }
@@ -648,6 +651,9 @@
     }
     .max-w-\[320px\] {
         max-width: 320px;
+    }
+    .max-w-\[480px\] {
+        max-width: 480px;
     }
     .max-w-\[520px\] {
         max-width: 520px;
@@ -1025,6 +1031,9 @@
     }
     .pb-2 {
         padding-bottom: calc(0.25rem * 2);
+    }
+    .pb-4 {
+        padding-bottom: calc(0.25rem * 4);
     }
     .pb-20 {
         padding-bottom: calc(0.25rem * 20);
