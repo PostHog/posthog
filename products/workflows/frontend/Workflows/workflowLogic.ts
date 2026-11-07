@@ -43,7 +43,6 @@ import {
     moveWorkflowsToBroadcasts,
     movedToBroadcastsMessage,
 } from '../Broadcasts/broadcastLifecycle'
-import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import {
@@ -76,7 +75,7 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
-import { listedSandboxSenderIds, sendsFromSandboxSender } from './workflowBroadcastMoveLogic'
+import { canOfferBroadcastConversion } from './workflowBroadcastMoveLogic'
 import { workflowStartPath } from './workflowBuilderProgress'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
@@ -3801,14 +3800,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 if (
                     (!props.id || props.id === 'new') &&
                     !props.editTemplateId &&
-                    // The broadcast editor always saves this exit condition, so any other one would be lost.
-                    workflow.exit_condition === 'exit_only_at_end' &&
-                    isBroadcastShaped(workflow.actions) &&
-                    canEditInWizard(workflow.actions, workflow.edges) &&
-                    // Broadcasts can't send through the sandbox sender, so the wizard would refuse to launch it.
-                    // Until the senders load, a sandbox sender can't be told apart from any other.
-                    values.integrations !== null &&
-                    !sendsFromSandboxSender(workflow, listedSandboxSenderIds(values.integrations))
+                    canOfferBroadcastConversion(workflow, values.integrations)
                 ) {
                     const others = await loadBroadcastConversionCandidates(String(ApiConfig.getCurrentTeamId()))
                     const choice = await confirmCreateAsBroadcast(others)

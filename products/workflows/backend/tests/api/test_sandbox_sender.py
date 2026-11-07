@@ -81,10 +81,13 @@ class TestSandboxSenderAPI(APIBaseTest):
             self.organization.save()
             second = self._ensure()
             reload.assert_called_once_with(self.team.id, [first.json()["id"]])
+            third = self._ensure()
+            reload.assert_called_once_with(self.team.id, [first.json()["id"]])
 
         assert second.status_code == status.HTTP_200_OK, second.json()
+        assert third.status_code == status.HTTP_200_OK, third.json()
         row = self._sandbox_rows().get()
-        assert first.json()["id"] == second.json()["id"] == row.id
+        assert first.json()["id"] == second.json()["id"] == third.json()["id"] == row.id
         assert row.created_by is None
         assert row.config == {
             "provider": "sandbox",
