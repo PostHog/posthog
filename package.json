@@ -120,7 +120,7 @@
         ]
     },
     "engines": {
-        "node": ">=26 <27"
+        "node": ">=24 <25"
     },
     "packageManager": "pnpm@11.28.5"
 }
