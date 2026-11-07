@@ -7,26 +7,23 @@ on the issue, which closes that loop. Opt-in per team, because the comment is pu
 thread.
 
 A scout that files a report about an issue records it as a `source_issue` artefact instead of a
-signal, so the writeback reads both (see `source_issues.py`). Anyone who files a report can name any
-URL, so a source issue gets a comment only once the team's GitHub source has ingested that issue as a
-signal. That keeps the comment on the issues the pipeline actually picked up.
+signal, so the writeback reads both (see `source_issues.py`). A scout usually files its report before
+the team's GitHub source ingests the issue, so a source issue gets its comment when the report is
+filed, without waiting for that signal. A report can name any issue URL, so the boundary on where a
+comment goes is the rest of the path: the team opted in, one of the team's own GitHub integrations
+covers the repository, GitHub says the issue is open and unlocked, and each (report, issue) pair gets
+one comment at most.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from datetime import timedelta
 
 from django.utils import timezone
 
 import structlog
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.clickhouse.workload import Workload
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
@@ -36,7 +33,6 @@ from products.signals.backend.artefact_schemas import SourceIssue
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportGithubComment, SignalTeamConfig
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
-from products.signals.backend.signal_metadata import EMBEDDING_MODEL, _deduped_signals_subquery, _signals_query_context
 from products.signals.backend.source_issues import source_issues_by_report
 
 logger = structlog.get_logger(__name__)
@@ -57,37 +53,6 @@ def _comment_body(report_url: str, marker: str) -> str:
         "PostHog self-driving picked up this issue and researched it. Somebody may already be "
         f"working on it, so ask before you start a fix.\n\nReport (team access only): {report_url}\n\n{marker}"
     )
-
-
-def _ingested_issue_urls(team: Team, urls: Collection[str]) -> set[str]:
-    """The issue URLs, of those given, that the team's GitHub source has ingested as a signal."""
-    if not urls:
-        return set()
-    issue_filter = (
-        "JSONExtractString(metadata, 'source_product') = 'github' "
-        "AND JSONExtractString(metadata, 'source_type') = 'issue' "
-        "AND lower(JSONExtractString(metadata, 'extra', 'html_url')) IN {urls}"
-    )
-    query = f"""
-        SELECT DISTINCT lower(JSONExtractString(metadata, 'extra', 'html_url'))
-        FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter=issue_filter)})
-        WHERE NOT JSONExtractBool(metadata, 'deleted')
-          AND {issue_filter}
-    """
-    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
-    result = execute_hogql_query(
-        ch_user=ClickHouseUser.SIGNALS,
-        workload=Workload.OFFLINE,
-        query_type="SignalsGithubWritebackIngestedIssues",
-        query=query,
-        team=team,
-        placeholders={
-            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-            "urls": ast.Tuple(exprs=[ast.Constant(value=url) for url in urls]),
-        },
-        context=_signals_query_context(team),
-    )
-    return {str(row[0]) for row in result.results or []}
 
 
 def _issue_refs(signals: list[dict], source_issues: Sequence[SourceIssue] = ()) -> list[PullRequestRef]:
@@ -247,9 +212,6 @@ def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[
         return 0
 
     source_issues = source_issues_by_report(team_id=team.pk, report_ids=[report_id]).get(report_id, [])
-    if source_issues:
-        ingested = _ingested_issue_urls(team, {issue.url for issue in source_issues})
-        source_issues = [issue for issue in source_issues if issue.url in ingested]
     refs = _issue_refs(signals, source_issues)
     if not refs:
         return 0
