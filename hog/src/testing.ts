@@ -332,7 +332,7 @@ export const FAKE_WORKLOAD_PROVIDER: WorkloadProvider = {
     fetchToken: async (runtime) =>
         runtime.env.FAKE_CI_TOKEN ? parseProviderIdToken(runtime.env.FAKE_CI_TOKEN) : undefined,
     missingTokenHint: 'Turn on OIDC tokens in Fake CI.',
-    configPaths: ['.fake-ci.yml'],
+    configPath: '.fake-ci.yml',
     nameFromRemote: (remote) => remote.match(/ci\.example\.com[:/](.+?)(?:\.git)?$/)?.[1],
     branchConditions: (branch) => ({ event_name: 'push', ref: `refs/heads/${branch}` }),
     environmentConditions: (environment) => ({ environment }),

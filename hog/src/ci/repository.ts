@@ -74,8 +74,7 @@ export async function detectRepositoryProvider(
         if (remote === undefined || provider.nameFromRemote(remote) === undefined) {
             continue
         }
-        const configured = await Promise.all(provider.configPaths.map((path) => runtime.exists(join(root, path))))
-        if (configured.some(Boolean)) {
+        if (await runtime.exists(join(root, provider.configPath))) {
             matches.push(provider)
         }
     }

@@ -16,8 +16,8 @@ export interface WorkloadProvider {
     fetchToken(runtime: Runtime, audience: Host): Promise<ProviderIdToken | undefined>
     missingTokenHint: string
 
-    // The rest is for `hog ci setup`. Config paths are relative to the repository root.
-    readonly configPaths: readonly string[]
+    // The rest is for `hog ci setup`. The config path is relative to the repository root.
+    readonly configPath: string
     nameFromRemote(remote: string): string | undefined
     branchConditions(branch: string): WorkloadConditions
     // Undefined for a provider whose token names no environment.
