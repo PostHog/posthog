@@ -244,7 +244,6 @@ describe('settingsSceneLogic', () => {
     ])('opens /settings/%s on the %s section and keeps its hash params', async (section, expectedSectionId) => {
         router.actions.push(`/settings/${section}`, {}, { 'some-setting': true })
 
-        // `selectedSection` is null on the "Setting not found" path, so this proves the section resolved.
         await expectLogic(logic).toMatchValues({
             selectedSectionId: expectedSectionId,
             selectedSection: partial({ id: expectedSectionId }),

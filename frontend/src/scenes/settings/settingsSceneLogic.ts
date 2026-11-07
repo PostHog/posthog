@@ -39,15 +39,9 @@ const SETTINGS_SECTION_ALIASES: Record<string, SettingSectionId> = {
     // if members ever become project-scoped.
     'project-members': 'organization-members',
     privacy: 'project-privacy',
-    // "General" is the title of the section whose id is `project-details`, so the guess follows the title.
     'project-general': 'project-details',
-    // Never a real section. The AI provider consent and AI training settings are in the organization's
-    // General section. Remove this alias if AI settings get their own organization section, because
-    // this entry would shadow it.
     'organization-ai': 'organization-details',
-    // `redirects` in scenes.ts also rewrites this id, but that is only enough before this logic mounts.
-    // After that, this logic still receives the old URL, selects the old id and pushes the old URL again,
-    // which overflows the stack.
+    // Without this, the redirect in scenes.ts loops and overflows the stack once this logic is mounted.
     'organization-rbac': 'organization-roles',
 }
 
