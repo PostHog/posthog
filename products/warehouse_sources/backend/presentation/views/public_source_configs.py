@@ -2,7 +2,7 @@ import json
 import functools
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import caches
 
 import structlog
 from drf_spectacular.utils import extend_schema
@@ -15,7 +15,11 @@ from rest_framework.utils.encoders import JSONEncoder
 from posthog.git import get_git_commit_full
 
 from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
-from products.warehouse_sources.backend.facade.source_management import SourceRegistry, cdc_engine
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceRegistry,
+    cdc_engine,
+    load_all_sources_or_raise,
+)
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -56,17 +60,24 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
     cache_key = shared_catalog_cache_key(include_tables=include_tables)
     if cache_key is not None:
         try:
-            shared = cache.get(cache_key)
+            shared = caches["warehouse_source_catalog"].get(cache_key)
             if shared is not None:
                 return json.loads(shared)
         except Exception:
             logger.exception("build_source_configs: shared cache read failed")
 
+        try:
+            with tracer.start_as_current_span("warehouse_sources.catalog.imports"):
+                load_all_sources_or_raise()
+        except Exception:
+            logger.exception("build_source_configs: source registry incomplete")
+            cache_key = None
+
     serialized = json.dumps(_build_source_configs_from_registry(include_tables=include_tables), cls=JSONEncoder)
 
     if cache_key is not None:
         try:
-            cache.set(cache_key, serialized, timeout=SHARED_CATALOG_CACHE_TTL_SECONDS)
+            caches["warehouse_source_catalog"].set(cache_key, serialized, timeout=SHARED_CATALOG_CACHE_TTL_SECONDS)
         except Exception:
             logger.exception("build_source_configs: shared cache write failed")
     return json.loads(serialized)
