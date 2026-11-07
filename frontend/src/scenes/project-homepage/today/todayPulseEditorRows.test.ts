@@ -30,9 +30,16 @@ describe('todayPulseEditorRows', () => {
             pinnedThisTime: [],
             expected: [['a'], ['s1', 's2', 'r1', 'x']],
         },
-    ])('keeps rows in place for $name', ({ pulsePins, pinnedThisTime, expected }) => {
+        {
+            name: 'a search that matches a recent insight before the server answers',
+            search: 'r1',
+            pulsePins: ['a'],
+            pinnedThisTime: [],
+            expected: [['r1']],
+        },
+    ])('keeps rows in place for $name', ({ search = '', pulsePins, pinnedThisTime, expected }) => {
         const { groups } = editorRows({
-            search: '',
+            search,
             pulsePins: pulsePins.map(row),
             pinnedOnOpen: [row('a')],
             othersOnOpen: [row('s1'), row('s2')],

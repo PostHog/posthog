@@ -52,24 +52,23 @@ export function TodayPulseSection(): JSX.Element | null {
     const { highlights, pulsePending, pulseTiles, pulseSlots, pulsePinsLoaded } = useValues(todayHighlightsLogic)
     const titleId = useId()
     const view = pulseView(pulsePending, highlights, pulseSlots)
-    if (view === null) {
+    const canEdit = !pulsePending && !!highlights && pulsePinsLoaded
+    if (view === null && !canEdit) {
         return null
     }
     return (
         <section className="TodayHome__list" aria-labelledby={titleId}>
             <div className="TodayHome__headingRow">
                 <TodayHomeHeading id={titleId}>At a glance</TodayHomeHeading>
-                {view !== 'loading' && pulsePinsLoaded ? <TodayPulseEditor /> : null}
+                {canEdit ? <TodayPulseEditor /> : null}
             </div>
-            {view === 'loading' ? (
-                <TodayPulseSkeleton />
-            ) : view === 'numbers' ? (
-                <TodayPulse metrics={pulseTiles} slots={pulseSlots} />
-            ) : (
+            {view === 'loading' ? <TodayPulseSkeleton /> : null}
+            {view === 'numbers' ? <TodayPulse metrics={pulseTiles} slots={pulseSlots} /> : null}
+            {view === 'empty' ? (
                 <Text size="sm" variant="muted" render={<p />} className="m-0">
                     Key numbers show here when you or your team open a few trend insights.
                 </Text>
-            )}
+            ) : null}
         </section>
     )
 }

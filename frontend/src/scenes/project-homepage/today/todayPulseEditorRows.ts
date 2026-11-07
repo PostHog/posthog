@@ -79,7 +79,7 @@ export function editorRows({
     const shownKeys = new Set([...baseKeys, ...recent.map((row) => row.key)])
     const extraPinned = withoutKeys(uniqueRows([...pinnedThisTime, ...pulsePins]), shownKeys)
     const pinnedRows = [...pinnedOnOpen, ...extraPinned]
-    const results = searchResults(search, [...pinnedRows, ...othersOnOpen], searchInsights)
+    const results = searchResults(search, [...pinnedRows, ...othersOnOpen, ...recent], searchInsights)
     const rowByKey = new Map(
         [...pulsePins, ...pinnedRows, ...othersOnOpen, ...recent, ...results].map((row) => [row.key, row])
     )
