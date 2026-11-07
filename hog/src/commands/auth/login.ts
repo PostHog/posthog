@@ -100,7 +100,7 @@ export default defineCommand({
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
         'The person picks one project, and the token only works there. To use another project, log in again. hog renews the token by itself.',
         'hog stores the token in the system keychain. If no keychain is available, such as over SSH, it stores the token in a file only you can read.',
-        'In CI, skip login and set HOG_PERSONAL_API_KEY and HOG_HOST, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.',
+        'In CI, skip login. Run `hog ci setup` once so jobs use their OIDC token, or set HOG_PERSONAL_API_KEY and HOG_HOST, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --read-only', 'hog auth login --wait'],
 

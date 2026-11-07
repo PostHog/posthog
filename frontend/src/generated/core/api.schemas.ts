@@ -6044,6 +6044,15 @@ export interface PaginatedWorkloadTrustPolicyRequestListApi {
     results: WorkloadTrustPolicyRequestApi[]
 }
 
+export interface ResolvedWorkloadSubjectApi {
+    /** The workload's immutable ID, for the policy's subject. */
+    subject: string
+    /** The provider's exact spelling of the name, which the token carries, for the policy's subject name. */
+    subject_name: string
+    /** Where PostHog found the workload, to show the user. */
+    found_via: string
+}
+
 export interface LeakedKeyReportApi {
     /**
      * The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token to revoke.
@@ -7604,6 +7613,21 @@ export type WorkloadTrustPolicyRequestsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams = {
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @minLength 1
+     * @maxLength 255
+     */
+    issuer: string
+    /**
+     * The name people know the workload by, from the provider's subject name claim, for example owner/repo.
+     * @minLength 1
+     * @maxLength 255
+     */
+    subject_name: string
 }
 
 export type UsersListParams = {

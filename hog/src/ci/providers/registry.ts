@@ -1,15 +1,28 @@
 import type { Env, Runtime } from '@/core/runtime'
 import type { Host } from '@/posthog/host'
+import type { ProjectId } from '@/posthog/ids'
 import type { ProviderIdToken } from '@/posthog/tokens'
 
-// The backend keeps the matching entry in posthog/workload_identity/providers.py, under the same key.
+export type WorkloadConditions = Record<string, string>
+
+// The backend keeps the matching entry in posthog/workload_identity/providers.py, under the same key and issuer.
 export interface WorkloadProvider {
     readonly key: string
     readonly name: string
+    readonly issuer: string
+    readonly docsUrl: string
     detect(env: Env): boolean
     // Resolves to undefined when the job isn't set up to get a token, so other credentials can apply.
     fetchToken(runtime: Runtime, audience: Host): Promise<ProviderIdToken | undefined>
     missingTokenHint: string
+
+    // The rest is for `hog ci setup`. The config path is relative to the repository root.
+    readonly configPath: string
+    nameFromRemote(remote: string): string | undefined
+    branchConditions(branch: string): WorkloadConditions
+    // Undefined for a provider whose token names no environment.
+    environmentConditions?(environment: string): WorkloadConditions
+    snippet(target: { host: Host; projectId: ProjectId }): string
 }
 
 export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = []

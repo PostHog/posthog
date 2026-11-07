@@ -99,7 +99,7 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
             replacedRevoked: null,
         }
     }
-    refuseInCi(ctx, ADD_COMMAND, `Give the job a key with the scopes instead. ${CI_CREDENTIALS_HINT}`)
+    refuseInCi(ctx, ADD_COMMAND, `${CI_CREDENTIALS_HINT} Either way, ask for the scopes the job needs.`)
     const flow = loginFlow(ctx.runtime, key.host, [...held, ...added], { command: ADD_COMMAND, requiredScopes: added })
     const result = await runApproval(ctx, flow)
     return result.status === 'pending' ? { ...result, host: key.host } : finishStepUp(ctx, result.value)

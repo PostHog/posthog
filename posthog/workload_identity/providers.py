@@ -11,6 +11,7 @@ import string
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
+from posthog.workload_identity.subjects import SubjectResolver
 
 
 class AudienceCheck(StrEnum):
@@ -53,6 +54,9 @@ class WorkloadProvider:
     # provider has no stable run URL.
     run_url_template: str | None
     docs_url: str
+    # Looks the subject up from its name, so people don't have to find an immutable ID by hand. `None`
+    # when the provider has no API PostHog can ask.
+    resolve_subject: SubjectResolver | None = None
 
     def __post_init__(self) -> None:
         condition_names = [claim.name for claim in self.condition_claims]

@@ -1,3 +1,5 @@
+import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -21,6 +23,11 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
 from posthog.tasks.email import send_workload_trust_policy_changed
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+from posthog.workload_identity.subjects import (
+    ResolvedWorkloadSubject,
+    WorkloadSubjectLookupUnavailable,
+    WorkloadSubjectNotFound,
+)
 from posthog.workload_identity.test.fixtures import (
     FAKE_WORKLOAD_ISSUER,
     FAKE_WORKLOAD_PROVIDER,
@@ -510,6 +517,41 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert status_shown == ("expired" if case == "expired" else "rejected")
         assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            ("found", "found", status.HTTP_200_OK),
+            ("not_found", "not_found", status.HTTP_404_NOT_FOUND),
+            ("provider_unavailable", "unavailable", status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("provider_without_lookup", None, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_member_looks_up_a_workload_subject_by_name(
+        self, _name: str, outcome: str | None, expected_status: int
+    ) -> None:
+        calls: list[tuple[int, str]] = []
+
+        def resolve(team_id: int, name: str) -> ResolvedWorkloadSubject:
+            calls.append((team_id, name))
+            if outcome == "not_found":
+                raise WorkloadSubjectNotFound("No repository acme/web that PostHog can see.")
+            if outcome == "unavailable":
+                raise WorkloadSubjectLookupUnavailable("Fake CI didn't answer.")
+            return ResolvedWorkloadSubject(subject="1234", subject_name="Acme/Web", found_via="Fake CI")
+
+        resolver: Callable[[int, str], ResolvedWorkloadSubject] | None = resolve if outcome else None
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, resolve_subject=resolver)
+        use_token(self, "oauth_token", "workload_trust_policy_request:write")
+
+        with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
+            response = self.client.get(
+                f"{self.url}resolve_subject/", {"issuer": FAKE_WORKLOAD_ISSUER, "subject_name": "acme/web"}
+            )
+
+        assert response.status_code == expected_status, response.json()
+        assert calls == ([(self.team.id, "acme/web")] if outcome else [])
+        if outcome == "found":
+            assert response.json() == {"subject": "1234", "subject_name": "Acme/Web", "found_via": "Fake CI"}
 
     def test_requests_are_rate_limited_per_user_and_project(self) -> None:
         for _ in range(10):

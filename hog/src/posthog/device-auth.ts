@@ -16,8 +16,7 @@ const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
 // What a new login asks for. hog sends this list explicitly, because a request without `scope`
 // gets every scope hog's client may hold.
-// TODO: add `ci_trust_policy_request:write` once PostHog has that scope, so `hog ci setup` works
-// without a step-up.
+// `workload_trust_policy_request` grants nothing until an admin approves a request in the browser.
 const LOGIN_WRITE_SCOPES = [
     'action',
     'alert',
@@ -50,6 +49,7 @@ const LOGIN_WRITE_SCOPES = [
     'survey',
     'task',
     'warehouse_view',
+    'workload_trust_policy_request',
 ]
 const LOGIN_READ_SCOPES = [
     'activity_log',

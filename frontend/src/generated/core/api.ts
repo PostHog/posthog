@@ -103,6 +103,7 @@ import type {
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
+    ResolvedWorkloadSubjectApi,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SearchIntentRequestApi,
@@ -145,6 +146,7 @@ import type {
     WorkloadTrustPolicyApi,
     WorkloadTrustPolicyRequestApi,
     WorkloadTrustPolicyRequestsListParams,
+    WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -3216,6 +3218,43 @@ export const workloadTrustPolicyRequestsRejectCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getWorkloadTrustPolicyRequestsResolveSubjectRetrieveUrl = (
+    projectId: string,
+    params: WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workload_trust_policy_requests/resolve_subject/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workload_trust_policy_requests/resolve_subject/`
+}
+
+/**
+ * Find a workload's immutable ID from the name people know it by, so nobody has to look the ID up
+ * to ask for or write a policy.
+ */
+export const workloadTrustPolicyRequestsResolveSubjectRetrieve = async (
+    projectId: string,
+    params: WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams,
+    options?: RequestInit
+): Promise<ResolvedWorkloadSubjectApi> => {
+    return apiMutator<ResolvedWorkloadSubjectApi>(
+        getWorkloadTrustPolicyRequestsResolveSubjectRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getRevokeLeakedKeyCreateUrl = () => {

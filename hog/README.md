@@ -18,6 +18,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog auth status`                         | Shows whether hog is logged in, whose key it is, and where the key comes from. Exits with code 1 without a working key. |
 | `hog auth logout`                         | Removes the stored key. The key stays valid in PostHog until you delete it there.                                       |
 | `hog auth migrate`                        | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                            |
+| `hog ci setup`                            | Asks an admin to trust this repository's CI jobs, so they use their OIDC token instead of a stored key.                 |
 | `hog query run <query>`                   | Runs a HogQL query. `-` reads the query from stdin.                                                                     |
 | `hog query check <query>`                 | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
 | `hog api groups`, `hog api tools [group]` | List the PostHog MCP tools by group, with the scopes the key is missing for each.                                       |
@@ -200,7 +201,14 @@ hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/
 ### CI without a stored key
 
 A CI job can trade the OIDC token its provider issues for a PostHog token, so no key is stored in the CI provider.
-An organization admin first trusts the repository in the project's settings, under "Trusted workloads".
+An organization admin trusts the repository once, and each run of the job then gets a token that lives a few minutes.
+
+1. In the repository, logged in with `hog auth login`, run `hog ci setup --branch main --scope error_tracking:write`. Pass `--environment production` instead of, or as well as, `--branch` to trust only deploy jobs, and list every scope the job needs, separated by commas, like `--scope error_tracking:write,query:read`.
+2. hog finds the CI provider and the repository from the origin remote, and asks PostHog to trust it in your project. PostHog looks up the repository's ID, so a deleted and re-created repository with the same name doesn't match.
+3. An organization admin approves the request in the browser. When you are one, hog opens the page and waits. Otherwise it names the admins and prints the link to send them. `hog ci setup --wait` checks on the request later.
+4. Add the `host` and `projectId` hog prints to `posthog.json`, and the snippet it prints to the job, which gives the job an OIDC token. Setting `HOG_HOST` and `HOG_PROJECT_ID` in the job works too, and a self-hosted PostHog needs `HOG_HOST`.
+
+In the job:
 
 - hog asks the provider for a token whose audience is the PostHog host, and exchanges it for a token that works in the project with the scopes the admin allowed.
 - Put the project ID and the host in `posthog.json` as `projectId` and `host`, which is simpler than setting `HOG_PROJECT_ID` and `HOG_HOST` in every job. The environment variables win when both are set.
