@@ -95,12 +95,19 @@ jobs:
                   if-no-files-found: error
                   retention-days: 1
 
+            - name: Publish the package to npm registry
+              working-directory: packages/agent/packages/agent
+              run: pnpm publish --access public --no-git-checks
+              env:
+                  NPM_CONFIG_PROVENANCE: true
+
+            # After @posthog/agent, so a failure here cannot hold back the sandbox agent.
             # A recursive publish skips a version that is already on npm, so a re-run completes a partial release.
-            - name: Publish the packages to npm registry
+            - name: Publish the desktop dependencies to npm registry
               run: >-
                   pnpm --recursive
-                  --filter @posthog/agent-contracts --filter @posthog/enricher --filter @posthog/git
-                  --filter @posthog/harness --filter @posthog/agent
+                  --filter @posthog/agent-contracts --filter @posthog/enricher
+                  --filter @posthog/git --filter @posthog/harness
                   publish --access public --no-git-checks
               env:
                   NPM_CONFIG_PROVENANCE: true
