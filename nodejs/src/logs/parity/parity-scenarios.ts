@@ -755,7 +755,7 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
             }
         )
         s.internal_source_policies = {
-            hog_flow: { billed: false, teamRules: false },
+            hog_flow: { billed: false, teamRules: false, attributes: ['hog_flow.id'] },
             billed_src: { billed: true, teamRules: true },
             rules_src: { billed: false, teamRules: true },
         }

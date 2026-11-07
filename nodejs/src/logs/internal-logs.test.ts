@@ -41,6 +41,7 @@ describe('InternalLogsVerifier', () => {
             billed: false,
             teamRules: false,
             serviceName: 'posthog-internal-workflows',
+            attributes: ['source_id', 'instance_id', 'hog_flow.id'],
         })
     })
 

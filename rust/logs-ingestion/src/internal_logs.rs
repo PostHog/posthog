@@ -16,12 +16,17 @@ const SIGNATURE_VERSION: &str = "v1";
 /// Measured against capture's `created_at`, so consumer lag does not expire a signature.
 const SIGNATURE_WINDOW_SECONDS: f64 = 5.0 * 60.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub const INTERNAL_ATTRIBUTE_PREFIX: &str = "posthog.internal.";
+pub const INTERNAL_SOURCE_ATTRIBUTE: &str = "posthog.internal.source";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InternalSourcePolicy {
     /// Counts toward the team's usage, quota and rate limits.
     pub billed: bool,
     /// Runs the team's sampling, drop, transformation, metric and retention rules.
     pub team_rules: bool,
+    /// Key suffixes this source may write under `posthog.internal.`.
+    pub attributes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +34,7 @@ pub struct InternalLogs {
     pub source: String,
     pub billed: bool,
     pub team_rules: bool,
+    pub attributes: Vec<String>,
 }
 
 pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolicy> {
@@ -38,6 +44,11 @@ pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolic
             InternalSourcePolicy {
                 billed: false,
                 team_rules: false,
+                attributes: vec![
+                    "source_id".to_string(),
+                    "instance_id".to_string(),
+                    "hog_flow.id".to_string(),
+                ],
             },
         ),
         (
@@ -45,6 +56,11 @@ pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolic
             InternalSourcePolicy {
                 billed: false,
                 team_rules: false,
+                attributes: vec![
+                    "source_id".to_string(),
+                    "instance_id".to_string(),
+                    "hog_function.id".to_string(),
+                ],
             },
         ),
     ])
@@ -246,6 +262,7 @@ impl InternalLogsVerifier {
             source: source.to_string(),
             billed: policy.billed,
             team_rules: policy.team_rules,
+            attributes: policy.attributes.clone(),
         })
     }
 

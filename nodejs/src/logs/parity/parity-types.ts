@@ -51,7 +51,7 @@ export type ParityScenario = {
     /** A team without an entry gets the default keys. */
     pattern_message_keys: Record<string, string[]>
     traces_retention_days: Record<string, number>
-    internal_source_policies?: Record<string, { billed: boolean; teamRules: boolean }>
+    internal_source_policies?: Record<string, { billed: boolean; teamRules: boolean; attributes?: string[] }>
     team_lookup_faults: Record<string, ParityError>
     team_by_id_faults: Record<string, ParityError & { times: number }>
     team_by_id_missing: number[]

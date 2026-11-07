@@ -1102,7 +1102,12 @@ describe('LogsIngestionConsumer', () => {
                 {
                     samplingRulesCache: dropEverything as SamplingRulesCache,
                     internalSourcePolicies: {
-                        hog_flow: { billed, teamRules: false, serviceName: 'posthog-internal-workflows' },
+                        hog_flow: {
+                            billed,
+                            teamRules: false,
+                            serviceName: 'posthog-internal-workflows',
+                            attributes: [],
+                        },
                     },
                 }
             )

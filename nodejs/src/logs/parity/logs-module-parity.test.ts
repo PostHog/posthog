@@ -408,8 +408,8 @@ function buildCases(): Record<string, Case[]> {
     const signedAt = new Date(NOW_MS - 2000)
     const created = new Date(NOW_MS).toISOString()
     const verifier = new InternalLogsVerifier(`${key},k0`, '1,2', {
-        hog_flow: { billed: false, teamRules: false, serviceName: 'posthog-internal-workflows' },
-        billed_src: { billed: true, teamRules: true, serviceName: 'billed-src' },
+        hog_flow: { billed: false, teamRules: false, serviceName: 'posthog-internal-workflows', attributes: [] },
+        billed_src: { billed: true, teamRules: true, serviceName: 'billed-src', attributes: [] },
     })
     const signatures: [string | undefined, number, string | undefined][] = [
         [undefined, 1, created],
@@ -431,7 +431,7 @@ function buildCases(): Record<string, Case[]> {
     ]
     // The Rust port has no producer, so the vectors leave out the producer-only `serviceName`.
     out.internal_verify = signatures.map(([signature, teamId, createdAt]) => {
-        const { serviceName: _, ...output } = verifier.verify(signature, teamId, createdAt) ?? {}
+        const { serviceName: _, attributes: __, ...output } = verifier.verify(signature, teamId, createdAt) ?? {}
         return {
             input: { signature: signature ?? null, team_id: teamId, created_at: createdAt ?? null },
             output: Object.keys(output).length > 0 ? output : null,
