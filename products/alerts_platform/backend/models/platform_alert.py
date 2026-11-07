@@ -73,7 +73,7 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         null=True,
         blank=True,
         db_constraint=False,
-        # Read only within one team's alerts, which the team index already narrows.
+        # The partial index in Meta serves user deletion, which nulls this column across every team.
         db_index=False,
         related_name="+",
     )
@@ -168,6 +168,12 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         # Pinned: the name predates this app, and removing this renames a live table.
         db_table = "alerts_platformalertconfiguration"
         indexes = [
+            # Only an alert with no source row records its creator, so most rows stay out of the index.
+            models.Index(
+                fields=["created_by"],
+                name="platform_alert_cfg_creator_idx",
+                condition=models.Q(created_by__isnull=False),
+            ),
             # Discovery: enabled rows ordered by due time. Partial, because a disabled
             # configuration is never discovered and does not belong in the index.
             models.Index(

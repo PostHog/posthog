@@ -1,7 +1,7 @@
 from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -165,6 +165,28 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
                 snoozed.append((view.snooze_until, tuple(alert.state for alert in view.alerts)))
 
         assert snoozed == [(until, (PlatformAlertState.NOT_FIRING,)), (None, (PlatformAlertState.NOT_FIRING,))]
+
+    def test_a_snooze_is_refused_for_an_alert_whose_source_keeps_a_row(self) -> None:
+        with team_scope(self.team.id):
+            copy = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="Copy",
+                source_kind=SourceKind.LOGS.value,
+                source_config={"row_ids": ["a"]},
+                check_interval_minutes=5,
+                owner=PlatformAlertOwner.PLATFORM,
+                legacy_configuration_id=uuid4(),
+            )
+            with pytest.raises(InvalidPlatformAlertEdit):
+                platform_writes.update_configuration(
+                    team_id=self.team.id,
+                    source_kinds=[SourceKind.LOGS.value],
+                    configuration_id=copy.id,
+                    change=lambda current: current,
+                    snooze_until=django_timezone.now() + timedelta(hours=1),
+                    snooze_changed=True,
+                )
+            assert PlatformAlertConfiguration.objects.get(id=copy.id).snooze_until is None
 
     def test_admission_refuses_a_create_past_the_cap_and_sees_an_edit_that_turns_the_alert_on(self) -> None:
         admitted: list[tuple[bool, bool, int | None]] = []
