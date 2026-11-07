@@ -79,6 +79,7 @@ from posthog.usage_counters import (
     UsageCounterMode,
     UsageCounterPlan,
 )
+from posthog.utils import DayRange
 
 
 def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
@@ -505,6 +506,8 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
             if counter not in PLAN_DEFERRED_COUNTERS
             and (not pre_signals_spend or counter != UsageCounter.SIGNALS_SPEND_CREDITS)
         }
+        report_day_start = aggregate_payloads[0].ctx.period_start
+        assert plans[0].period == DayRange(start=report_day_start, end=report_day_start + timedelta(days=1))
     assert aggregate_payloads[0].ctx.usage_counter_plan == (plans[0] if plans else None)
 
     # Each scheduled query activity carries its query name as the Temporal
