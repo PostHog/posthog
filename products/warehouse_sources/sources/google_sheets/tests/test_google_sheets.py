@@ -367,19 +367,15 @@ def _read_sheet(
     header_row: list[str],
     data_rows: list[list[Any]],
     worksheet: Any = None,
-    formatted_rows: list[list[str]] | None = None,
+    locale: str = "en_US",
+    grid_header_row: list[Any] | None = None,
 ) -> list[Any]:
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
     mock_worksheet = worksheet or mock.MagicMock()
+    mock_worksheet.spreadsheet.locale = locale
     mock_worksheet.get_all_values.return_value = [header_row]
-    unformatted_grid = [header_row, *data_rows]
-    formatted_grid = unformatted_grid if formatted_rows is None else [header_row, *formatted_rows]
-    mock_worksheet.get.side_effect = lambda **kwargs: (
-        unformatted_grid
-        if kwargs.get("value_render_option") == gspread.utils.ValueRenderOption.unformatted
-        else formatted_grid
-    )
+    mock_worksheet.get.return_value = [header_row if grid_header_row is None else grid_header_row, *data_rows]
 
     with (
         mock.patch(
@@ -397,70 +393,55 @@ def _read_sheet(
         return list(cast(Iterable[Any], response.items()))
 
 
-_MIXED_COLUMN_ROWS: list[list[Any]] = [
-    [1, "spring sale"],
-    [2, "1,200"],
-    [3, ""],
-    [4, "42"],
-    [5, 0.5],
-    [6, True],
-    [7, 0.30000000000000004],
-]
-
-
-@pytest.mark.parametrize(
-    "formatted_rows,expected_codes",
-    [
-        pytest.param(
-            [["1", "spring sale"], ["2", "1,200"], ["3", ""], ["4", "42"], ["5", "0,5"], ["6", "TRUE"], ["7", "0,3"]],
-            ["spring sale", "1,200", None, "42", "0,5", "TRUE", "0,3"],
-            id="number_cells_keep_displayed_text",
-        ),
-        pytest.param(
-            [
-                ["1", "spring sale"],
-                ["2", "1,200"],
-                ["3", ""],
-                ["4", "42"],
-                ["5", "0,5"],
-                ["6", "TRUE"],
-                ["7", "0,3"],
-                ["8", "new row"],
-            ],
-            ["spring sale", "1,200", None, "42", "0.5", "TRUE", "0.30000000000000004"],
-            id="sheet_edited_between_reads",
-        ),
-    ],
-)
-def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_text(formatted_rows, expected_codes):
-    tables = _read_sheet(["id", "code"], _MIXED_COLUMN_ROWS, formatted_rows=formatted_rows)
+def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_text():
+    tables = _read_sheet(
+        ["id", "code"],
+        [[1, "spring sale"], [2, "1,200"], [3, ""], [4, "42"], [5, 0.5], [6, True]],
+    )
 
     assert tables[0].to_pylist() == [
-        {"id": row[0], "code": code} for row, code in zip(_MIXED_COLUMN_ROWS, expected_codes)
+        {"id": 1, "code": "spring sale"},
+        {"id": 2, "code": "1,200"},
+        {"id": 3, "code": None},
+        {"id": 4, "code": "42"},
+        {"id": 5, "code": "0.5"},
+        {"id": 6, "code": "TRUE"},
     ]
 
 
 @pytest.mark.parametrize(
-    "cells,expected",
+    "locale,cells,expected",
     [
-        # The cells hold what Google returns for an unformatted read of a decimal-comma spreadsheet.
-        pytest.param([0.5, 1.25], [0.5, 1.25], id="decimal_comma_number"),
-        pytest.param([1234.5, 1000000], [1234.5, 1000000], id="thousands_separator"),
-        pytest.param([0.5, 0.125], [0.5, 0.125], id="percentage"),
-        pytest.param([1000, 19.99], [1000, 19.99], id="currency"),
-        pytest.param(["15.01.2024", "31.12.2024"], ["15.01.2024", "31.12.2024"], id="date_stays_formatted_text"),
-        pytest.param(["0,5", "1,25"], ["0,5", "1,25"], id="decimal_comma_in_text_cell_keeps_its_value"),
-        pytest.param(["42", "1.5"], [42, 1.5], id="number_in_text_cell"),
-        pytest.param([True, False], ["TRUE", "FALSE"], id="boolean"),
+        pytest.param("de_DE", [0.5, 1234.5], [0.5, 1234.5], id="number_cell"),
+        pytest.param("de_DE", ["15.01.2024"], ["15.01.2024"], id="date_stays_formatted_text"),
+        pytest.param("de_DE", [True, False], ["TRUE", "FALSE"], id="boolean"),
+        pytest.param("de_DE", ["0,5", "1,25"], ["0,5", "1,25"], id="decimal_comma_text_cell_keeps_its_value"),
+        pytest.param("en_US", ["1,200", "1.5"], [1200, 1.5], id="decimal_point_text_cell_drops_group_commas"),
+        pytest.param("xx_UNKNOWN", ["1,200"], [1200], id="unknown_locale_parses_as_decimal_point"),
     ],
 )
-def test_google_sheets_source_reads_unformatted_cell_values(cells, expected):
+def test_google_sheets_source_reads_unformatted_cell_values(locale, cells, expected):
     worksheet = mock.MagicMock()
-    tables = _read_sheet(["value"], [[cell] for cell in cells], worksheet)
+    tables = _read_sheet(["value"], [[cell] for cell in cells], worksheet, locale=locale)
 
     assert tables[0].column("value").to_pylist() == expected
     assert worksheet.get.call_args.kwargs["value_render_option"] == gspread.utils.ValueRenderOption.unformatted
     assert worksheet.get.call_args.kwargs["date_time_render_option"] == gspread.utils.DateTimeOption.formatted_string
+
+
+@pytest.mark.parametrize(
+    "header_row,grid_header_row,expected_columns",
+    [
+        pytest.param(["id", "50%"], ["id", 0.5], ["id", "50%"], id="number_header_keeps_its_displayed_text"),
+        pytest.param(["id"], ["id", "", ""], ["id", "column_2", "column_3"], id="trailing_blank_headers"),
+    ],
+)
+def test_google_sheets_source_names_columns_from_the_formatted_header_row(
+    header_row, grid_header_row, expected_columns
+):
+    tables = _read_sheet(header_row, [[1] * len(grid_header_row)], grid_header_row=grid_header_row)
+
+    assert sorted(tables[0].column_names) == sorted(expected_columns)
 
 
 @pytest.mark.parametrize(

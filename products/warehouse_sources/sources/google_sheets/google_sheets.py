@@ -8,11 +8,13 @@ from urllib.parse import quote
 
 import gspread
 import requests
+from babel.core import UnknownLocaleError
+from babel.numbers import get_decimal_symbol
 from cachetools import Cache, TTLCache, cached
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
-from gspread.utils import DateTimeOption, ValueRenderOption, absolute_range_name, fill_gaps
+from gspread.utils import DateTimeOption, ValueRenderOption, absolute_range_name, fill_gaps, numericise
 
 from products.warehouse_sources.sources.google_sheets._config import GoogleSheetsSourceConfig
 from products.warehouse_sources.sources.sdk import (
@@ -197,10 +199,15 @@ def _resolve_column_names(headers: list[str]) -> list[str]:
     return resolved
 
 
-def _numericise_text(text: str) -> int | float | str | None:
-    # The grid holds unformatted values, so a number cell is already an int or a float. A text cell
-    # that looks like a number still imports as a number. Unlike gspread's `numericise`, this keeps
-    # commas, because a comma can be the decimal separator ("0,5"), and dropping it changes the value.
+def _decimal_symbol(worksheet: gspread.Worksheet) -> str:
+    try:
+        return get_decimal_symbol(worksheet.spreadsheet.locale)
+    except (KeyError, UnknownLocaleError, ValueError, TypeError):
+        return "."
+
+
+def _numericise_keeping_commas(text: str) -> int | float | str | None:
+    # gspread's `numericise` deletes every comma, which turns a decimal comma such as "0,5" into 5.
     if text == "":
         return None
     if "_" in text:
@@ -218,53 +225,38 @@ def _cell_text(cell: Any) -> str | None:
     if cell is None or cell == "":
         return None
     if isinstance(cell, bool):
-        # Matches the formatted text that the source read before it switched to unformatted values.
         return "TRUE" if cell else "FALSE"
     return str(cell)
 
 
-def _cell_value(cell: Any) -> Any:
+def _cell_value(cell: Any, decimal_symbol: str) -> Any:
     if isinstance(cell, bool):
         return _cell_text(cell)
     if isinstance(cell, str):
-        return _numericise_text(cell)
+        if decimal_symbol == ".":
+            return numericise(cell, default_blank=None)
+        return _numericise_keeping_commas(cell)
     return cell
 
 
-def _same_shape(grid: list[list[Any]], other: list[list[Any]]) -> bool:
-    return len(grid) == len(other) and all(len(row) == len(other_row) for row, other_row in zip(grid, other))
-
-
-def _records_from_grid(
-    grid: list[list[Any]], read_formatted_grid: Callable[[], list[list[Any]]]
-) -> list[dict[str, Any]]:
+def _records_from_grid(grid: list[list[Any]], header_row: list[str], decimal_symbol: str) -> list[dict[str, Any]]:
     if not grid or grid == [[]]:
         return []
 
-    column_names = _resolve_column_names([_cell_text(header) or "" for header in grid[0]])
+    # The header read drops trailing blank cells, but the grid pads every row to the widest one.
+    padding = [""] * (len(grid[0]) - len(header_row))
+    column_names = _resolve_column_names([*header_row, *padding])
 
     # Blank cells import as null, so numeric columns that have gaps stay numeric.
-    records = [dict(zip(column_names, [_cell_value(cell) for cell in row])) for row in grid[1:]]
+    records = [dict(zip(column_names, [_cell_value(cell, decimal_symbol) for cell in row])) for row in grid[1:]]
 
     # A column that holds both numbers and text must stay text. The pipeline JSON-encodes a column
     # of mixed Python types, which stores each text cell wrapped in double quotes.
-    mixed_columns = [
-        (index, name)
-        for index, name in enumerate(column_names)
-        if len({isinstance(record[name], str) for record in records if record.get(name) is not None}) > 1
-    ]
-    if not mixed_columns:
-        return records
-
-    # The text of a number cell is what the spreadsheet shows, so "0.3" and "50%" stay as displayed
-    # instead of str() of the raw double. An edit between the two reads can move rows, so a grid of
-    # a different shape is not used.
-    formatted_grid = read_formatted_grid()
-    text_grid = formatted_grid if _same_shape(grid, formatted_grid) else grid
-    for index, name in mixed_columns:
-        for text_row, record in zip(text_grid[1:], records):
-            if name in record:
-                record[name] = _cell_text(text_row[index])
+    for index, name in enumerate(column_names):
+        if len({isinstance(record[name], str) for record in records if record.get(name) is not None}) > 1:
+            for raw_row, record in zip(grid[1:], records):
+                if name in record:
+                    record[name] = _cell_text(raw_row[index])
 
     return records
 
@@ -626,10 +618,8 @@ def google_sheets_source(
                 grid = []
             else:
                 raise
-        values = _records_from_grid(
-            grid,
-            lambda: cast(list[list[Any]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True))),
-        )
+        header_row = headers[0] if headers else [_cell_text(cell) or "" for cell in (grid[0] if grid else [])]
+        values = _records_from_grid(grid, header_row, _decimal_symbol(worksheet))
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
