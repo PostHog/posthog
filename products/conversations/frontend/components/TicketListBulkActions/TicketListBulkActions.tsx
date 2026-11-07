@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 
@@ -8,9 +9,17 @@ import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSce
 import { type TicketStatus, statusOptionsWithoutAll } from '../../types'
 
 export function TicketListBulkActions(): JSX.Element {
-    const { selectedTicketIds, selectedTickets, editableSelectedTicketIds, bulkUpdating } =
-        useValues(supportTicketsSceneLogic)
-    const { bulkUpdateStatus, clearSelectedTickets, loadTickets } = useActions(supportTicketsSceneLogic)
+    const {
+        selectedTicketIds,
+        selectedTickets,
+        editableSelectedTicketIds,
+        deletableSelectedTicketIds,
+        bulkUpdating,
+        bulkDeleteDisabledReason,
+        bulkDeleteSkippedTooltip,
+    } = useValues(supportTicketsSceneLogic)
+    const { bulkUpdateStatus, bulkDeleteTickets, clearSelectedTickets, loadTickets } =
+        useActions(supportTicketsSceneLogic)
 
     const hasSelection = selectedTicketIds.length > 0
     const editableTicketIds = editableSelectedTicketIds
@@ -60,6 +69,19 @@ export function TicketListBulkActions(): JSX.Element {
                     loadTickets()
                 }}
             />
+            <LemonButton
+                type="secondary"
+                status="danger"
+                size="small"
+                icon={<IconTrash />}
+                onClick={() => bulkDeleteTickets(deletableSelectedTicketIds)}
+                loading={bulkUpdating}
+                disabledReason={bulkDeleteDisabledReason}
+                tooltip={bulkDeleteSkippedTooltip}
+                data-attr="support-tickets-bulk-delete"
+            >
+                Delete
+            </LemonButton>
         </div>
     )
 }
