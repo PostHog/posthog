@@ -127,24 +127,53 @@ Signal: `breach_rate` on recent days stepping clearly above the trailing baselin
 
 #### First-response latency blowout
 
-Minutes from the customer's **first inbound message** to the first team reply, bucketed by day. Anchor on `$conversation_message_received` (not `$conversation_ticket_created`) so team-composed outbound tickets — where the team creates the ticket and immediately replies, with no customer waiting — don't dilute the metric with near-zero times:
+Minutes from the customer's **first inbound message** to the first team reply **at or after it**, bucketed by day. Anchor on `$conversation_message_received` (not `$conversation_ticket_created`) so team-composed outbound tickets — where the team creates the ticket and immediately replies, with no customer waiting — don't dilute the metric with near-zero times:
 
 ```sql
 WITH first_in AS (
   SELECT properties.ticket_id AS tid, min(timestamp) AS in_at
   FROM events WHERE event='$conversation_message_received' AND timestamp > now() - INTERVAL 21 DAY GROUP BY tid),
+replies AS (
+  SELECT properties.ticket_id AS tid, timestamp AS sent_at
+  FROM events WHERE event='$conversation_message_sent' AND timestamp > now() - INTERVAL 21 DAY),
 first_reply AS (
-  SELECT properties.ticket_id AS tid, min(timestamp) AS reply_at
-  FROM events WHERE event='$conversation_message_sent' AND timestamp > now() - INTERVAL 21 DAY GROUP BY tid)
-SELECT toDate(i.in_at) AS day,
-       round(quantile(0.5)(dateDiff('minute', i.in_at, r.reply_at)),0) AS p50_min,
-       round(quantile(0.9)(dateDiff('minute', i.in_at, r.reply_at)),0) AS p90_min,
+  SELECT i.tid AS tid, i.in_at AS in_at, min(r.sent_at) AS reply_at
+  FROM first_in i INNER JOIN replies r ON r.tid = i.tid
+  WHERE r.sent_at >= i.in_at AND r.sent_at < i.in_at + INTERVAL 7 DAY
+  GROUP BY i.tid, i.in_at)
+SELECT toDate(in_at) AS day,
+       round(quantile(0.5)(dateDiff('minute', in_at, reply_at)),0) AS p50_min,
+       round(quantile(0.9)(dateDiff('minute', in_at, reply_at)),0) AS p90_min,
        count() AS answered
-FROM first_in i INNER JOIN first_reply r ON i.tid=r.tid WHERE r.reply_at >= i.in_at
+FROM first_reply
 GROUP BY day ORDER BY day
 ```
 
-Signal: recent days' p90 rising well above the trailing, same-weekday baseline. Grouping by day is what lets you compare the latest complete day against baseline — a single window-wide percentile hides a fresh blowout behind weeks of normal responses. The query above measures **answered** tickets only (inner join), so compute the **unanswered share separately** — inbound tickets whose `ticket_id` has no `$conversation_message_sent` after `in_at` past your soak window — because a coverage gap where customers are still waiting never enters the percentiles at all, and it's the sharpest signal here. A long, growing first-response tail (or a rising never-answered share) is a coverage problem worth a human's attention.
+Filter replies to `sent_at >= in_at` **before** taking `min`. Never take `min(timestamp)` over all sent messages and then compare it to `in_at`: an outbound message that precedes the first inbound one (a team-opened thread, a proactive note) becomes that minimum, fails the comparison, and silently drops a ticket that the team did answer. The 7-day bound keeps a stray reply weeks later from counting as a first response.
+
+Signal: recent days' p90 rising well above the trailing, same-weekday baseline. Grouping by day is what lets you compare the latest complete day against baseline — a single window-wide percentile hides a fresh blowout behind weeks of normal responses. The most recent days are right-censored: only fast replies have landed yet, so their p90 reads low until the slow replies arrive. The query above measures **answered** tickets only, so compute the **unanswered share separately** — a coverage gap where customers are still waiting never enters the percentiles at all, and it's the sharpest signal here:
+
+```sql
+WITH first_in AS (
+  SELECT properties.ticket_id AS tid, min(timestamp) AS in_at
+  FROM events WHERE event='$conversation_message_received' AND timestamp > now() - INTERVAL 21 DAY GROUP BY tid),
+replies AS (
+  SELECT properties.ticket_id AS tid, timestamp AS sent_at
+  FROM events WHERE event='$conversation_message_sent' AND timestamp > now() - INTERVAL 21 DAY),
+answered AS (
+  SELECT DISTINCT i.tid AS tid
+  FROM first_in i INNER JOIN replies r ON r.tid = i.tid
+  WHERE r.sent_at >= i.in_at AND r.sent_at < i.in_at + INTERVAL 7 DAY)
+SELECT toDate(in_at) AS day,
+       count() AS inbound,
+       countIf(tid NOT IN (SELECT tid FROM answered)) AS unanswered,
+       round(countIf(tid NOT IN (SELECT tid FROM answered)) / count(), 3) AS unanswered_share
+FROM first_in
+WHERE in_at < now() - INTERVAL 1 DAY
+GROUP BY day ORDER BY day
+```
+
+The `in_at < now() - INTERVAL 1 DAY` soak keeps tickets that arrived in the last few hours out of the unanswered count; widen it to the team's SLA target if one is set. A long, growing first-response tail (or a rising unanswered share) is a coverage problem worth a human's attention.
 
 #### Backlog: inflow vs resolution
 
