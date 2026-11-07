@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -95,6 +95,27 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
         expect(screen.queryByTestId('replay-empty-state-troubleshooting-clear-filters')).not.toBeInTheDocument()
 
         scopedLogic.unmount()
+    })
+
+    it('offers to show recordings hidden by the activity filter, and clicking clears the duration filter', () => {
+        logic.actions.loadRecordingsHiddenByActivityFilterSuccess({ count: 14, hasMore: false })
+
+        renderTroubleshooting()
+
+        const button = screen.getByTestId('replay-empty-state-troubleshooting-show-activity-hidden-recordings')
+        expect(button).toHaveTextContent(/^Show 14 recordings hidden by the activity filter$/)
+
+        fireEvent.click(button)
+
+        expect(logic.values.filters.duration).toEqual([])
+    })
+
+    it('does not offer the activity filter row when the probe found nothing hidden', () => {
+        renderTroubleshooting()
+
+        expect(
+            screen.queryByTestId('replay-empty-state-troubleshooting-show-activity-hidden-recordings')
+        ).not.toBeInTheDocument()
     })
 
     it('offers to show hidden recordings when the setting is on, even with a zero client count', () => {
