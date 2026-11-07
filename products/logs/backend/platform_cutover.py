@@ -209,12 +209,10 @@ def takes_new_alert(team_id: int, *, new_alert_id: UUID | None) -> bool:
     """Whether the platform owns a team's new logs alert: when it owns another of the team's alerts, or
     when the team has no other. A team whose alerts all stay with logs, such as one rolled back, keeps
     new ones on logs too."""
-    owners = set(
-        LogsAlertConfiguration.objects.filter(team_id=team_id)
-        .exclude(id=new_alert_id)
-        .values_list("owner", flat=True)
-        .distinct()
-    )
+    rows = LogsAlertConfiguration.objects.filter(team_id=team_id)
+    if new_alert_id is not None:
+        rows = rows.exclude(id=new_alert_id)
+    owners = set(rows.values_list("owner", flat=True).distinct())
     return not owners or PlatformAlertOwner.PLATFORM in owners
 
 
