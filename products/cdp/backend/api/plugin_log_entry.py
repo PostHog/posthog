@@ -18,6 +18,7 @@ from products.cdp.backend.models.plugin import (
     count_plugin_log_entries,
     fetch_plugin_log_entries,
 )
+from products.cdp.backend.permissions import CDPLogPropertyAccessPermission
 
 
 class PluginLogEntrySerializer(DataclassSerializer):
@@ -55,7 +56,7 @@ class PluginLogEntryRequestSerializer(serializers.Serializer):
 class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "plugin"
     serializer_class = PluginLogEntrySerializer
-    permission_classes = [PluginsAccessLevelPermission]
+    permission_classes = [PluginsAccessLevelPermission, CDPLogPropertyAccessPermission]
     pagination_class = PluginLogEntryPagination
 
     @extend_schema(parameters=[PluginLogEntryRequestSerializer])

@@ -13,6 +13,7 @@ from posthog.models.user import User
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hook import HOOK_EVENTS, Hook
+from products.cdp.backend.permissions import CDPPropertyAccessPermission
 from products.cdp.backend.templates.zapier.template_zapier import template as template_zapier
 
 
@@ -94,6 +95,7 @@ class HookViewSet(
     # NOTE: This permissions is needed for Zapier calls but we don't want to expose it in the API docs until
     # it is able to support more than Zapier
     hide_api_docs = True
+    permission_classes = [CDPPropertyAccessPermission]
     queryset = Hook.objects.all()
     ordering = "-created_at"
     serializer_class = HookSerializer
