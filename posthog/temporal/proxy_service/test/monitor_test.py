@@ -3,7 +3,7 @@ import ipaddress
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 from django.test import SimpleTestCase, TestCase
 
@@ -62,7 +62,7 @@ class TestCheckProxyIsLive(TestCase):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.raise_for_status.return_value = None
-        mock_post.return_value = mock_response
+        mock_post.side_effect = [mock_response, Mock(status_code=401)]
 
         # Mock the raw socket the cert fetch opens so no real network connection is made
         mock_create_connection.return_value = MagicMock()
@@ -84,16 +84,50 @@ class TestCheckProxyIsLive(TestCase):
         # Verify the request was made correctly. allow_redirects=False is a security boundary:
         # the domain is org-admin-controlled, so following redirects would enable SSRF to
         # internal targets (see check_proxy_is_live). timeout stops a malicious domain hanging us.
-        mock_post.assert_called_once_with(
-            f"https://{self.proxy_record.domain}/i/v0/e/",
-            headers={"Content-Type": "application/json"},
-            data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
-            timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
-            allow_redirects=False,
+        self.assertEqual(
+            mock_post.call_args_list,
+            [
+                call(
+                    f"https://{self.proxy_record.domain}/i/v0/e/",
+                    headers={"Content-Type": "application/json"},
+                    data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+                    timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+                    allow_redirects=False,
+                ),
+                call(
+                    f"https://{self.proxy_record.domain}/i/v1/analytics/events",
+                    headers={"Content-Type": "application/json"},
+                    data="{}",
+                    timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+                    allow_redirects=False,
+                ),
+            ],
         )
 
         self.assertEqual(result.errors, [])
         self.assertEqual(result.warnings, [])
+
+    @parameterized.expand([("not_routed", 404), ("upstream_error", 502), ("redirect", 301)])
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
+    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_check_proxy_is_live_reports_unrouted_v1_capture(
+        self, _name, v1_status, mock_get_record, mock_post, mock_create_connection
+    ):
+        mock_get_record.return_value = self.proxy_record
+        mock_post.side_effect = [
+            Mock(status_code=200, raise_for_status=Mock(return_value=None)),
+            Mock(status_code=v1_status),
+        ]
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(
+            result.errors,
+            [f"Proxy does not forward /i/v1/analytics/events (got {v1_status}); mobile SDKs send events there"],
+        )
+        mock_create_connection.assert_not_called()
 
     @parameterized.expand(
         [
