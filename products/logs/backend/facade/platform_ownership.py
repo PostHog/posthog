@@ -10,8 +10,25 @@ from products.alerts_platform.backend.facade.contracts import Grouping
 from products.logs.backend import platform_cutover, platform_ownership
 from products.logs.backend.alert_deletion import delete_alert
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.native_alerts import (
+    create_native,
+    delete_native,
+    native_alert_view,
+    native_alert_views,
+    update_native,
+)
 
-__all__ = ["creates_native_alert", "delete_alert", "on_created", "on_updated"]
+__all__ = [
+    "create_native",
+    "creates_native_alert",
+    "delete_alert",
+    "delete_native",
+    "native_alert_view",
+    "native_alert_views",
+    "on_created",
+    "on_updated",
+    "update_native",
+]
 
 
 def _alert(team_id: int, alert_id: UUID) -> LogsAlertConfiguration | None:
