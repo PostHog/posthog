@@ -26,7 +26,7 @@ import type {
     SidebarMetricApi,
     SidebarListApi,
     SidebarSectionApi,
-} from 'products/today/frontend/generated/api.schemas'
+} from 'products/ui_customization/frontend/generated/api.schemas'
 
 import { todayAnalyticsLogic } from './todayAnalyticsLogic'
 import { TodayAnalyticsMetric } from './TodayAnalyticsMetric'
@@ -65,6 +65,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
         searchQuery,
         matchesSearch,
         isSectionOpen,
+        sidebarCustomizationEnabled,
         sidebarLayout,
         sidebarFailed,
         sidebarLoading,
@@ -281,7 +282,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                     )
                 )}
             </TodayPaneSearchList>
-            {sidebarFailed && (
+            {sidebarCustomizationEnabled && sidebarFailed && (
                 <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
                     <span>Couldn’t refresh the Analytics sidebar.</span>
                     <Button
@@ -295,12 +296,16 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                     </Button>
                 </div>
             )}
-            <TodayAnalyticsSidebarCustomize />
-            <PostHogErrorBoundary fallback={<></>}>
-                <Suspense fallback={null}>
-                    <AnalyticsSidebarAgentListener />
-                </Suspense>
-            </PostHogErrorBoundary>
+            {sidebarCustomizationEnabled && (
+                <>
+                    <TodayAnalyticsSidebarCustomize />
+                    <PostHogErrorBoundary fallback={<></>}>
+                        <Suspense fallback={null}>
+                            <AnalyticsSidebarAgentListener />
+                        </Suspense>
+                    </PostHogErrorBoundary>
+                </>
+            )}
         </div>
     )
 }

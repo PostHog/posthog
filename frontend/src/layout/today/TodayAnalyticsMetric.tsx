@@ -18,7 +18,7 @@ import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
 
-import type { SidebarMetricApi } from 'products/today/frontend/generated/api.schemas'
+import type { SidebarMetricApi } from 'products/ui_customization/frontend/generated/api.schemas'
 
 import { todayAnalyticsMetricLogic } from './todayAnalyticsMetricLogic'
 import { TodayPaneOption } from './TodayPaneOption'

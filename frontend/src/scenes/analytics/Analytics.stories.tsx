@@ -309,7 +309,7 @@ export const ListCustomSidebar: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/today/analytics_sidebar/': {
+                '/api/projects/:team_id/ui_customization/analytics_sidebar/': {
                     customized: true,
                     layout: {
                         version: 1,
@@ -349,7 +349,7 @@ export const ListCustomSidebar: Story = {
     ],
     parameters: {
         pageUrl: urls.analyticsList(),
-        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PHAI_SANDBOX_MODE, FEATURE_FLAGS.UI_CUSTOMIZATION],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForSelector: '[data-attr="analytics-sidebar-metric"] >> text=1,284',

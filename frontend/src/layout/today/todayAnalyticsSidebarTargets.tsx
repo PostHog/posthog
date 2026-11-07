@@ -34,7 +34,7 @@ import type {
     SidebarNotebookTargetApi,
     SidebarPageApi,
     SidebarPageTargetApi,
-} from 'products/today/frontend/generated/api.schemas'
+} from 'products/ui_customization/frontend/generated/api.schemas'
 
 import type { TodayExplainerPreview } from './todayPreviewCards'
 

@@ -2,6 +2,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { toast } from '@posthog/quill'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { fileSystemEntryToAnalytics } from 'scenes/analytics/analyticsUtils'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -11,8 +13,8 @@ import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import * as sidebarApi from 'products/today/frontend/generated/api'
-import type { AnalyticsSidebarApi } from 'products/today/frontend/generated/api.schemas'
+import * as sidebarApi from 'products/ui_customization/frontend/generated/api'
+import type { AnalyticsSidebarApi } from 'products/ui_customization/frontend/generated/api.schemas'
 
 import {
     DEFAULT_ANALYTICS_SIDEBAR,
@@ -58,13 +60,91 @@ describe('todayAnalyticsLogic', () => {
                 '/api/projects/:team_id/file_system_shortcut/': {
                     results: [{ id: 'sc-pinned', type: 'insight/trends', path: 'Retention', ref: 'i2' }],
                 },
-                '/api/projects/:team_id/today/analytics_sidebar/': CUSTOM_SIDEBAR,
+                '/api/projects/:team_id/ui_customization/analytics_sidebar/': CUSTOM_SIDEBAR,
             },
-            put: { '/api/projects/:team_id/today/analytics_sidebar/': CUSTOM_SIDEBAR },
-            delete: { '/api/projects/:team_id/today/analytics_sidebar/': DEFAULT_SIDEBAR },
+            put: { '/api/projects/:team_id/ui_customization/analytics_sidebar/': CUSTOM_SIDEBAR },
+            delete: { '/api/projects/:team_id/ui_customization/analytics_sidebar/': DEFAULT_SIDEBAR },
         })
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.UI_CUSTOMIZATION]: true })
         recentItemsModel.mount()
+    })
+
+    it('ignores a cached custom layout and makes no requests while customization is disabled', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const read = jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarRetrieve')
+        const reset = jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarDestroy')
+        const restore = jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarUpdate')
+        const logic = todayAnalyticsLogic()
+        logic.mount()
+        logic.actions.requestSidebarSuccess(CUSTOM_SIDEBAR)
+        await logic.asyncActions.loadSidebar()
+        await logic.asyncActions.resetSidebar(CUSTOM_SIDEBAR.layout)
+        await logic.asyncActions.restoreSidebar(CUSTOM_SIDEBAR.layout)
+
+        expect(logic.values.savedSidebar).toEqual(CUSTOM_SIDEBAR)
+        expect(logic.values.shownSidebar).toEqual(DEFAULT_ANALYTICS_SIDEBAR)
+        expect(read).not.toHaveBeenCalled()
+        expect(reset).not.toHaveBeenCalled()
+        expect(restore).not.toHaveBeenCalled()
+    })
+
+    it('loads customization when feature flags arrive after mount', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const logic = todayAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.shownSidebar).toEqual(DEFAULT_ANALYTICS_SIDEBAR)
+
+        await expectLogic(logic, () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.UI_CUSTOMIZATION]: true })
+        }).toDispatchActions(['requestSidebarSuccess'])
+        expect(logic.values.shownSidebar).toEqual(CUSTOM_SIDEBAR)
+    })
+
+    it.each([false, true])(
+        'discards an in-flight response after disabling customization, failure=%s',
+        async (fails) => {
+            const logic = todayAnalyticsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const read = deferred<AnalyticsSidebarApi>()
+            jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarRetrieve').mockReturnValueOnce(read.promise)
+            const reading = logic.asyncActions.loadSidebar()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            fails ? read.reject(new Error('Old request failed')) : read.resolve(DEFAULT_SIDEBAR)
+            await reading
+
+            expect(logic.values.savedSidebar).toEqual(CUSTOM_SIDEBAR)
+            expect(logic.values.shownSidebar).toEqual(DEFAULT_ANALYTICS_SIDEBAR)
+            expect(logic.values.sidebarFailed).toBe(false)
+        }
+    )
+
+    it('skips queued writes when disabled and recovers after re-enabling', async () => {
+        const logic = todayAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const reset = deferred<AnalyticsSidebarApi>()
+        const destroy = jest
+            .spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarDestroy')
+            .mockReturnValueOnce(reset.promise)
+        const restore = jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarUpdate')
+        const success = jest.spyOn(toast, 'success')
+        const resetting = logic.asyncActions.resetSidebar(CUSTOM_SIDEBAR.layout)
+        await Promise.resolve()
+        expect(destroy).toHaveBeenCalledTimes(1)
+        const restoring = logic.asyncActions.restoreSidebar(CUSTOM_SIDEBAR.layout)
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.UI_CUSTOMIZATION]: true })
+        reset.resolve(DEFAULT_SIDEBAR)
+        await Promise.all([resetting, restoring])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(restore).not.toHaveBeenCalled()
+        expect(success).not.toHaveBeenCalled()
+        expect(logic.values.shownSidebar).toEqual(CUSTOM_SIDEBAR)
+        expect(logic.values.sidebarLoading).toBe(false)
     })
 
     it.each([false, true])('shows the default while the first request is pending, failure=%s', async (fails) => {
@@ -74,7 +154,7 @@ describe('todayAnalyticsLogic', () => {
         const requestReleased = new Promise<void>((resolve) => (finishRequest = resolve))
         useMocks({
             get: {
-                '/api/projects/:team_id/today/analytics_sidebar/': async () => {
+                '/api/projects/:team_id/ui_customization/analytics_sidebar/': async () => {
                     startRequest()
                     await requestReleased
                     return fails ? [503, { detail: 'Unavailable' }] : [200, CUSTOM_SIDEBAR]
@@ -108,7 +188,7 @@ describe('todayAnalyticsLogic', () => {
         const expected = operation === 'reset' ? DEFAULT_SIDEBAR : CUSTOM_SIDEBAR
         const stale = operation === 'reset' ? CUSTOM_SIDEBAR : DEFAULT_SIDEBAR
         const read = deferred<AnalyticsSidebarApi>()
-        jest.spyOn(sidebarApi, 'todayAnalyticsSidebarRetrieve').mockReturnValueOnce(read.promise)
+        jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarRetrieve').mockReturnValueOnce(read.promise)
         const reading = logic.asyncActions.loadSidebar()
 
         await (operation === 'reset'
@@ -131,9 +211,14 @@ describe('todayAnalyticsLogic', () => {
         const expected = operation === 'reset' ? DEFAULT_SIDEBAR : CUSTOM_SIDEBAR
         const write = deferred<AnalyticsSidebarApi>()
         const successToast = jest.spyOn(toast, 'success')
-        const read = jest.spyOn(sidebarApi, 'todayAnalyticsSidebarRetrieve').mockResolvedValue(expected)
+        const read = jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarRetrieve').mockResolvedValue(expected)
         const writer = jest
-            .spyOn(sidebarApi, operation === 'reset' ? 'todayAnalyticsSidebarDestroy' : 'todayAnalyticsSidebarUpdate')
+            .spyOn(
+                sidebarApi,
+                operation === 'reset'
+                    ? 'uiCustomizationAnalyticsSidebarDestroy'
+                    : 'uiCustomizationAnalyticsSidebarUpdate'
+            )
             .mockReturnValueOnce(write.promise)
         const writing =
             operation === 'reset'
@@ -166,9 +251,11 @@ describe('todayAnalyticsLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         const reset = deferred<AnalyticsSidebarApi>()
-        jest.spyOn(sidebarApi, 'todayAnalyticsSidebarDestroy').mockReturnValueOnce(reset.promise)
-        const restore = jest.spyOn(sidebarApi, 'todayAnalyticsSidebarUpdate').mockResolvedValue(CUSTOM_SIDEBAR)
-        jest.spyOn(sidebarApi, 'todayAnalyticsSidebarRetrieve').mockResolvedValue(CUSTOM_SIDEBAR)
+        jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarDestroy').mockReturnValueOnce(reset.promise)
+        const restore = jest
+            .spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarUpdate')
+            .mockResolvedValue(CUSTOM_SIDEBAR)
+        jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarRetrieve').mockResolvedValue(CUSTOM_SIDEBAR)
         const errorToast = jest.spyOn(toast, 'error')
         const resetting = logic.asyncActions.resetSidebar(CUSTOM_SIDEBAR.layout)
         const restoring = logic.asyncActions.restoreSidebar(CUSTOM_SIDEBAR.layout)
@@ -193,9 +280,9 @@ describe('todayAnalyticsLogic', () => {
         const write = deferred<AnalyticsSidebarApi>()
         jest.spyOn(
             sidebarApi,
-            operation === 'reset' ? 'todayAnalyticsSidebarDestroy' : 'todayAnalyticsSidebarUpdate'
+            operation === 'reset' ? 'uiCustomizationAnalyticsSidebarDestroy' : 'uiCustomizationAnalyticsSidebarUpdate'
         ).mockReturnValueOnce(write.promise)
-        const read = jest.spyOn(sidebarApi, 'todayAnalyticsSidebarRetrieve').mockResolvedValue(CUSTOM_SIDEBAR)
+        const read = jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarRetrieve').mockResolvedValue(CUSTOM_SIDEBAR)
         const errorToast = jest.spyOn(toast, 'error')
         const writing =
             operation === 'reset'
@@ -218,9 +305,13 @@ describe('todayAnalyticsLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         const reset = deferred<AnalyticsSidebarApi>()
-        jest.spyOn(sidebarApi, 'todayAnalyticsSidebarDestroy').mockReturnValueOnce(reset.promise)
-        jest.spyOn(sidebarApi, 'todayAnalyticsSidebarUpdate').mockRejectedValueOnce(new Error('Restore failed'))
-        const read = jest.spyOn(sidebarApi, 'todayAnalyticsSidebarRetrieve').mockResolvedValue(DEFAULT_SIDEBAR)
+        jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarDestroy').mockReturnValueOnce(reset.promise)
+        jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarUpdate').mockRejectedValueOnce(
+            new Error('Restore failed')
+        )
+        const read = jest
+            .spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarRetrieve')
+            .mockResolvedValue(DEFAULT_SIDEBAR)
         const resetting = logic.asyncActions.resetSidebar(CUSTOM_SIDEBAR.layout)
         const restoring = logic.asyncActions.restoreSidebar(CUSTOM_SIDEBAR.layout)
 
@@ -309,7 +400,9 @@ describe('todayAnalyticsLogic', () => {
             .action
         expect(undo?.label).toBe('Undo')
         const projectId = String(logic.values.currentProjectId)
-        const restore = jest.spyOn(sidebarApi, 'todayAnalyticsSidebarUpdate').mockResolvedValue(CUSTOM_SIDEBAR)
+        const restore = jest
+            .spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarUpdate')
+            .mockResolvedValue(CUSTOM_SIDEBAR)
         if (leftPane) {
             logic.unmount()
         }

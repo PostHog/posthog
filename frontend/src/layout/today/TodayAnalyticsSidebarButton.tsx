@@ -2,7 +2,7 @@ import { AutocompleteItem, Button } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import type { SidebarButtonApi } from 'products/today/frontend/generated/api.schemas'
+import type { SidebarButtonApi } from 'products/ui_customization/frontend/generated/api.schemas'
 
 import { resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
 

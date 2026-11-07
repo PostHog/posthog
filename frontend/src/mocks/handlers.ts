@@ -102,7 +102,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/marketing_analytics/source_validation/': { errors_by_source: {} },
         '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/today/analytics_sidebar/': todayAnalyticsSidebar,
+        '/api/projects/:team_id/ui_customization/analytics_sidebar/': todayAnalyticsSidebar,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/events_retention/': {
             retention_months: null,

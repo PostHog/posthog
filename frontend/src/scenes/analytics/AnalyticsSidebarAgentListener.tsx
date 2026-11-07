@@ -8,7 +8,7 @@ import { useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
 export function AnalyticsSidebarAgentListener(): null {
     const { loadSidebar } = useActions(todayAnalyticsLogic)
     useToolStreamListener({
-        tools: ['today-analytics-sidebar-update', 'today-analytics-sidebar-reset'],
+        tools: ['ui-customization-analytics-sidebar-update', 'ui-customization-analytics-sidebar-reset'],
         onEvent: (event) => {
             if (event.phase === 'completed') {
                 loadSidebar()
