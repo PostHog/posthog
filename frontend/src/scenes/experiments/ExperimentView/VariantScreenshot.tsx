@@ -48,7 +48,7 @@ export function VariantScreenshot({
         toMediaIds(experiment.parameters?.variant_screenshot_media_ids?.[variantKey])
     )
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
-    const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
+    const [selectedKey, setSelectedKey] = useState<{ variantKey: string; mediaId: string } | null>(null)
 
     const [isFocused, setIsFocused] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -159,6 +159,8 @@ export function VariantScreenshot({
     // This variant uses its local list, because a new upload reaches the experiment only after the save.
     const viewerScreenshots = useMemo((): ViewerScreenshot[] => {
         const savedMediaIds = experiment.parameters?.variant_screenshot_media_ids ?? {}
+        // Match the distribution table, which scales variant rollouts down by the holdout share.
+        const holdoutFactor = (100 - (experiment.holdout?.filters[0]?.rollout_percentage || 0)) / 100
         const variants = getExperimentVariants(experiment)
         const orderedVariants = variants.some((variant) => variant.key === variantKey)
             ? variants
@@ -166,19 +168,29 @@ export function VariantScreenshot({
         return orderedVariants.flatMap((variant) =>
             (variant.key === variantKey ? mediaIds : toMediaIds(savedMediaIds[variant.key])).map((mediaId) => ({
                 variantKey: variant.key,
-                rolloutPercentage: variant.key === variantKey ? rolloutPercentage : variant.rollout_percentage,
+                rolloutPercentage:
+                    variant.key === variantKey
+                        ? rolloutPercentage
+                        : variant.rollout_percentage !== undefined
+                          ? variant.rollout_percentage * holdoutFactor
+                          : undefined,
                 mediaId,
             }))
         )
     }, [experiment, variantKey, rolloutPercentage, mediaIds])
 
+    // Find the selection by identity, so an upload or delete in another variant does not change the open screenshot.
+    const foundIndex = selectedKey
+        ? viewerScreenshots.findIndex(
+              (screenshot) =>
+                  screenshot.variantKey === selectedKey.variantKey && screenshot.mediaId === selectedKey.mediaId
+          )
+        : -1
+    const selectedImageIndex = foundIndex === -1 ? null : foundIndex
     const selectedScreenshot = selectedImageIndex !== null ? viewerScreenshots[selectedImageIndex] : undefined
 
     const openViewer = (mediaId: string): void => {
-        const index = viewerScreenshots.findIndex(
-            (screenshot) => screenshot.variantKey === variantKey && screenshot.mediaId === mediaId
-        )
-        setSelectedImageIndex(index === -1 ? null : index)
+        setSelectedKey({ variantKey, mediaId })
     }
 
     const step = (offset: number): void => {
@@ -195,7 +207,8 @@ export function VariantScreenshot({
                 variant_count: new Set(viewerScreenshots.map((screenshot) => screenshot.variantKey)).size,
             })
         }
-        setSelectedImageIndex(nextIndex)
+        const next = viewerScreenshots[nextIndex]
+        setSelectedKey({ variantKey: next.variantKey, mediaId: next.mediaId })
     }
     const showPrevious = (): void => step(-1)
     const showNext = (): void => step(1)
@@ -298,7 +311,7 @@ export function VariantScreenshot({
 
             <LemonModal
                 isOpen={selectedImageIndex !== null}
-                onClose={() => setSelectedImageIndex(null)}
+                onClose={() => setSelectedKey(null)}
                 width="90vw"
                 maxWidth={1400}
                 title={
