@@ -29,12 +29,13 @@ from posthog.redis import TEST_clear_clients
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.test.authentication_checks import covers_authentication
 from posthog.token_bucket import Budget, TEST_reset_scripts
+from posthog.workload_identity import token_exchange
 from posthog.workload_identity.test.fixtures import (
     FAKE_WORKLOAD_ISSUER,
     FAKE_WORKLOAD_PROVIDER,
     with_fake_workload_provider,
 )
-from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
+from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE, WorkloadExchangeBurstThrottle
 
 from products.annotations.backend.models import Annotation
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
@@ -258,6 +259,20 @@ class TestWorkloadTokenExchange(APIBaseTest):
             response = self._exchange(_oidc_token(job_repository_id=job_repository_id))
 
         assert (response.status_code == status.HTTP_200_OK) is accepted, response.json()
+
+    def test_exchange_attempts_are_throttled_per_ip_before_the_token_is_verified(self) -> None:
+        with (
+            patch.object(WorkloadExchangeBurstThrottle, "rate", "1/minute"),
+            patch.object(token_exchange, "_verify_subject_token", wraps=token_exchange._verify_subject_token) as verify,
+        ):
+            unverified = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))
+            trusted = self._exchange()
+
+        assert unverified.json()["error_code"] == "workload_token_invalid"
+        assert trusted.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert trusted.json()["error_code"] == "workload_rate_limited"
+        assert trusted["Retry-After"] == str(trusted.json()["retry_after"])
+        assert verify.call_count == 1
 
     def test_exchange_refuses_a_token_signed_by_another_key(self) -> None:
         response = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))

@@ -384,6 +384,9 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
     })),
 
     reducers({
+        subjectLookup: {
+            setEditingPolicyId: () => null,
+        },
         policiesLoadFailed: [
             false,
             {

@@ -154,14 +154,24 @@ describe('hog ci setup', () => {
     })
 
     test.each([
-        ['reuses the request while it waits for an admin', 'pending', 1],
-        ['starts a new request once an admin rejected the last one', 'rejected', 2],
-        ['picks up the policy once an admin approved the last one', 'approved', 1],
-    ])('running it again %s', async (_name, lastStatus, created) => {
-        const args = ['--preset', 'branch_push=main', '--scope', 'query:read']
-        const first = await setup(args, { respond: policyApi() })
+        ['reuses the request while it waits for an admin', ['branch_push=main'], 'pending', 1],
+        [
+            'reuses the request when the presets come in another order',
+            ['branch_push=main', 'environment=production'],
+            'pending',
+            1,
+        ],
+        ['starts a new request once an admin rejected the last one', ['branch_push=main'], 'rejected', 2],
+        ['picks up the policy once an admin approved the last one', ['branch_push=main'], 'approved', 1],
+    ])('running it again %s', async (_name, presets, lastStatus, created) => {
+        const args = (order: string[]): string[] => [
+            ...order.flatMap((preset) => ['--preset', preset]),
+            '--scope',
+            'query:read',
+        ]
+        const first = await setup(args(presets), { respond: policyApi() })
         const api = policyApi({ final: lastStatus })
-        const run = await setup(args, { files: first.files, respond: api })
+        const run = await setup(args([...presets].reverse()), { files: first.files, respond: api })
 
         expect(run.exitCode).toBe(0)
         expect(run.requests.filter((request) => request.url === REQUESTS && request.method === 'POST')).toHaveLength(
