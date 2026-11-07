@@ -97,11 +97,6 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // Capture console and system logs (iOS and web). Default is false.
                                             captureLogs = false,
 
-                                            // Whether replays are created using high quality screenshots instead of
-                                            // wireframes (experimental, Android and iOS). Default is false.
-                                            // Screenshots may contain sensitive information, so use with caution.
-                                            screenshot = false,
-
                                             // Capture Android logcat output (Android only). Default is true.
                                             captureLogcat = true,
 
