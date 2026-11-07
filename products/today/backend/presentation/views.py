@@ -25,6 +25,8 @@ from products.signals.backend.facade import api as signals
 
 from ..facade import api, contracts
 from .serializers import (
+    AnalyticsSidebarRequestSerializer,
+    AnalyticsSidebarSerializer,
     ExcerptChoiceRequestSerializer,
     ExcerptChoiceSerializer,
     FigureMarksSerializer,
@@ -72,6 +74,25 @@ class PulsePinsSustainedThrottle(UserRateThrottle):
 PULSE_PIN_THROTTLES = [BurstRateThrottle, SustainedRateThrottle, PulsePinsBurstThrottle, PulsePinsSustainedThrottle]
 
 
+class AnalyticsSidebarBurstThrottle(UserRateThrottle):
+    scope = "today_analytics_sidebar_burst"
+    rate = "30/minute"
+
+
+class AnalyticsSidebarSustainedThrottle(UserRateThrottle):
+    scope = "today_analytics_sidebar_sustained"
+    rate = "300/day"
+
+
+ANALYTICS_SIDEBAR_THROTTLES = [
+    BurstRateThrottle,
+    SustainedRateThrottle,
+    AnalyticsSidebarBurstThrottle,
+    AnalyticsSidebarSustainedThrottle,
+]
+ANALYTICS_SIDEBAR_WRITES = ["set_analytics_sidebar", "reset_analytics_sidebar"]
+
+
 @contextmanager
 def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
     try:
@@ -86,13 +107,21 @@ def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["excerpt_choice", "highlights", "pulse_pins"]
-    scope_object_write_actions = ["set_pulse_pins"]
+    scope_object_read_actions = ["analytics_sidebar", "excerpt_choice", "highlights", "pulse_pins"]
+    scope_object_write_actions = ["set_pulse_pins", *ANALYTICS_SIDEBAR_WRITES]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "set_pulse_pins":
             return [throttle() for throttle in PULSE_PIN_THROTTLES]
+        if self.action in ANALYTICS_SIDEBAR_WRITES:
+            return [throttle() for throttle in ANALYTICS_SIDEBAR_THROTTLES]
         return super().get_throttles()
+
+    def _new_navigation_user(self) -> User:
+        user = cast(User, self.request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
+        return user
 
     def _jev_user(self) -> User:
         user = cast(User, self.request.user)
@@ -112,9 +141,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["get"], url_path="highlights", required_scopes=["today:read", "query:read"])
     def highlights(self, request: Request, **kwargs) -> Response:
-        user = cast(User, request.user)
-        if not api.is_enabled_for(user, self.team):
-            raise NotFound()
+        user = self._new_navigation_user()
         scopes = get_authenticator_scopes(request.successful_authenticator)
         found = api.get_highlights(
             team=self.team,
@@ -131,9 +158,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["get"], url_path="pulse_pins")
     def pulse_pins(self, request: Request, **kwargs) -> Response:
-        user = cast(User, request.user)
-        if not api.is_enabled_for(user, self.team):
-            raise NotFound()
+        user = self._new_navigation_user()
         scopes = get_authenticator_scopes(request.successful_authenticator)
         found = api.get_pulse_pins(team=self.team, user=user, scopes=None if scopes is None else frozenset(scopes))
         return Response(PulsePinsSerializer(found).data)
@@ -146,11 +171,42 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @pulse_pins.mapping.put
     def set_pulse_pins(self, request: Request, **kwargs) -> Response:
-        user = cast(User, request.user)
-        if not api.is_enabled_for(user, self.team):
-            raise NotFound()
+        user = self._new_navigation_user()
         saved = api.set_pulse_pins(team=self.team, user=user, pins=request.validated_data.pins)
         return Response(PulsePinsSerializer(saved).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=AnalyticsSidebarSerializer)},
+        summary="Get the person's analytics sidebar",
+        description="The layout of the Analytics pane in the new navigation: the person's own layout, or the default when they have not saved one. Read it before you change it, so you keep the sections the person wants. 404 when the person does not have the new navigation.",
+    )
+    @action(detail=False, methods=["get"], url_path="analytics_sidebar")
+    def analytics_sidebar(self, request: Request, **kwargs) -> Response:
+        found = api.get_analytics_sidebar(team=self.team, user=self._new_navigation_user())
+        return Response(AnalyticsSidebarSerializer(found).data)
+
+    @validated_request(
+        request_serializer=AnalyticsSidebarRequestSerializer,
+        responses={200: OpenApiResponse(response=AnalyticsSidebarSerializer)},
+        summary="Set the person's analytics sidebar",
+        description="Replaces the layout of the person's Analytics pane. It changes only the person who calls it, in this project. The pane shows the new layout the next time it loads. 400 lists every value that does not fit the layout schema. 404 when the person does not have the new navigation.",
+    )
+    @analytics_sidebar.mapping.put
+    def set_analytics_sidebar(self, request: Request, **kwargs) -> Response:
+        saved = api.set_analytics_sidebar(
+            team=self.team, user=self._new_navigation_user(), layout=request.validated_data["layout"]
+        )
+        return Response(AnalyticsSidebarSerializer(saved).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=AnalyticsSidebarSerializer)},
+        summary="Reset the person's analytics sidebar",
+        description="Removes the person's own layout, so the Analytics pane shows the default again. Returns the default layout. 404 when the person does not have the new navigation.",
+    )
+    @analytics_sidebar.mapping.delete
+    def reset_analytics_sidebar(self, request: Request, **kwargs) -> Response:
+        default = api.reset_analytics_sidebar(team=self.team, user=self._new_navigation_user())
+        return Response(AnalyticsSidebarSerializer(default).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=ReportPageSerializer)},
@@ -164,9 +220,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["today:read", "inbox:read"],
     )
     def report_page(self, request: Request, report_id: str, **kwargs) -> Response:
-        user = cast(User, request.user)
-        if not api.is_enabled_for(user, self.team):
-            raise NotFound()
+        user = self._new_navigation_user()
         self._check_report_access(user)
         page = api.report_page(team=self.team, report_id=report_id)
         if page is None:
