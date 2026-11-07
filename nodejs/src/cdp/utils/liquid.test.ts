@@ -90,6 +90,30 @@ describe('LiquidRenderer', () => {
         }
     })
 
+    describe('templates imported from SendGrid', () => {
+        // Each `expected` is what Handlebars printed for `source`, and Python writes `liquid`, so this proves they agree.
+        const renders: { name: string; liquid: string; data: object; expected: string; text?: boolean }[] = parseJSON(
+            fs.readFileSync(
+                path.join(
+                    __dirname,
+                    '../../../../products/messaging/backend/tests/fixtures/sendgrid_template_renders.json'
+                ),
+                'utf8'
+            )
+        )
+        const sameCharacters = (html: string): string => html.replace(/&#39;/g, "'").replace(/&#34;/g, '"')
+
+        it.each(renders)('$name', ({ liquid, data, expected, text }) => {
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(
+                liquid,
+                { ...globals, variables: data } as HogFunctionInvocationGlobalsWithInputs,
+                new LiquidRenderBudget(),
+                { escapeHtml: !text }
+            )
+            expect(sameCharacters(result)).toEqual(sameCharacters(expected))
+        })
+    })
+
     describe('basic rendering', () => {
         it('renders simple variables', () => {
             const template = 'Hello {{ person.name }}!'
