@@ -7,14 +7,9 @@ export const getIOSInstallSteps = (
     options?: {
         includeExperimentalSpi?: boolean
         experimentalDescription?: string
-        minVersionPod?: string
-        minVersionSPM?: string
     }
 ): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
-
-    const podVersion = options?.minVersionPod || '3.56'
-    const spmVersion = options?.minVersionSPM || '3.56.0'
 
     return [
         {
@@ -35,24 +30,19 @@ export const getIOSInstallSteps = (
                                 file: 'Package.swift',
                                 code: dedent`
                                     dependencies: [
-                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "${spmVersion}")
+                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "4.0.0")
                                     ]
                                 `,
                             },
                         ]}
                     />
-                    <Markdown>Or add PostHog to your Podfile:</Markdown>
-                    <CodeBlock
-                        blocks={[
+                    <CalloutBox type="fyi" title="Using CocoaPods?">
+                        <Markdown>
                             {
-                                language: 'ruby',
-                                file: 'Podfile',
-                                code: dedent`
-                                    pod "PostHog", "~> ${podVersion}"
-                                `,
-                            },
-                        ]}
-                    />
+                                'Version 4 is only published to Swift Package Manager. Version 3 stays on CocoaPods (`pod "PostHog", "~> 3.0"`) but gets no new releases. To switch, see [upgrading from version 3 to version 4](https://posthog.com/docs/libraries/ios#upgrading-from-version-3-to-version-4).'
+                            }
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },
@@ -126,8 +116,6 @@ export const getIOSSteps = (
     options?: {
         includeExperimentalSpi?: boolean
         experimentalDescription?: string
-        minVersionPod?: string
-        minVersionSPM?: string
     }
 ): StepDefinition[] => [...getIOSInstallSteps(ctx, options), getIOSEventStep(ctx)]
 

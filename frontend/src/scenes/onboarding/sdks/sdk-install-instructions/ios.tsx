@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { Link } from 'lib/lemon-ui/Link'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -10,15 +11,11 @@ export interface iOSSetupProps {
     includeExperimentalSpi?: boolean
 }
 
-function IOSInstallCocoaPodsSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.Ruby}>{'pod "PostHog", "~> 3.56"'}</CodeSnippet>
-}
-
 function IOSInstallSPMSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Swift}>
             {`dependencies: [
-  .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.56.0")
+  .package(url: "https://github.com/PostHog/posthog-ios.git", from: "4.0.0")
 ]`}
         </CodeSnippet>
     )
@@ -35,10 +32,7 @@ function IOSSetupSnippet(props: iOSSetupProps): JSX.Element {
         config.sessionReplay = true
         // choose whether to mask images or text
         config.sessionReplayConfig.maskAllImages = false
-        config.sessionReplayConfig.maskAllTextInputs = true
-        // screenshot is disabled by default
-        // The screenshot may contain sensitive information, use with caution
-        config.sessionReplayConfig.screenshotMode = true`,
+        config.sessionReplayConfig.maskAllTextInputs = true`,
         props.includeSurveys && `config.surveys = true`,
     ]
         .filter(Boolean)
@@ -71,10 +65,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 export function SDKInstallIOSInstructions(props: iOSSetupProps): JSX.Element {
     return (
         <>
-            <h3>Install via CocoaPods</h3>
-            <IOSInstallCocoaPodsSnippet />
-            <h3>Or Install via SPM</h3>
+            <h3>Install via Swift Package Manager</h3>
             <IOSInstallSPMSnippet />
+            <p>
+                Using CocoaPods? Version 4 is only published to Swift Package Manager. Version 3 stays on CocoaPods (
+                <code>pod "PostHog", "~&gt; 3.0"</code>) but gets no new releases. To switch, see{' '}
+                <Link to="https://posthog.com/docs/libraries/ios#upgrading-from-version-3-to-version-4" target="_blank">
+                    upgrading from version 3 to version 4
+                </Link>
+                .
+            </p>
             <h3>Configure</h3>
             <IOSSetupSnippet {...props} />
         </>
