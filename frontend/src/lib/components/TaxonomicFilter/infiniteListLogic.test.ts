@@ -8,7 +8,7 @@ import {
     hasRecentContext,
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, isHiddenEventStandIn } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -1804,7 +1804,13 @@ describe('infiniteListLogic', () => {
             expect(topMatches[0]).toMatchObject({ _type: 'quick_filter', filterValue: 'click' })
         })
 
-        it('places a hidden event stand-in ahead of the remote matches', async () => {
+        it.each([
+            { name: 'places a hidden event stand-in ahead of the remote matches', excludedProperties: undefined },
+            {
+                name: 'offers no stand-in for an event the caller excludes',
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: ['$feature_flag_called'] },
+            },
+        ])('$name', async ({ excludedProperties }) => {
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': [
@@ -1823,6 +1829,7 @@ describe('infiniteListLogic', () => {
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
                 showNumericalPropsOnly: false,
                 offerHiddenEventStandIns: true,
+                excludedProperties,
             })
             listLogic.mount()
 
@@ -1830,9 +1837,18 @@ describe('infiniteListLogic', () => {
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
 
-            const results = listLogic.values.items.results
-            expect(results[0]).toMatchObject({ _type: 'hidden_event_stand_in', value: '$feature_flag_called' })
-            expect(results.slice(1)).toContainEqual(expect.objectContaining({ name: 'feature flag enrolled' }))
+            const standIns = listLogic.values.items.results.filter(isHiddenEventStandIn)
+            if (excludedProperties) {
+                expect(standIns).toEqual([])
+            } else {
+                expect(listLogic.values.items.results[0]).toMatchObject({
+                    _type: 'hidden_event_stand_in',
+                    value: '$feature_flag_called',
+                })
+            }
+            expect(listLogic.values.items.results).toContainEqual(
+                expect.objectContaining({ name: 'feature flag enrolled' })
+            )
         })
 
         it('returns no shortcut items when enableKeywordShortcuts is false', async () => {
@@ -1881,37 +1897,54 @@ describe('infiniteListLogic', () => {
                 listGroupType: TaxonomicFilterGroupType.Events,
                 expectFire: false,
             },
-        ])('$name', async ({ activeTab, listGroupType, expectFire }) => {
-            const captureSpy = jest.spyOn(posthog, 'capture')
+            {
+                name: 'does not fire when a hidden event stand-in answers the search',
+                activeTab: TaxonomicFilterGroupType.Events,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                expectFire: false,
+                searchQuery: 'feature flag',
+                offerHiddenEventStandIns: true,
+            },
+        ])(
+            '$name',
+            async ({
+                activeTab,
+                listGroupType,
+                expectFire,
+                searchQuery = 'mcp tool call',
+                offerHiddenEventStandIns,
+            }) => {
+                const captureSpy = jest.spyOn(posthog, 'capture')
 
-            const parent = taxonomicFilterLogic(props)
-            parent.mount()
-            parent.actions.setActiveTab(activeTab)
+                const parent = taxonomicFilterLogic({ ...props, offerHiddenEventStandIns })
+                parent.mount()
+                parent.actions.setActiveTab(activeTab)
 
-            const listLogic = infiniteListLogic({ ...props, listGroupType })
-            listLogic.mount()
+                const listLogic = infiniteListLogic({ ...props, offerHiddenEventStandIns, listGroupType })
+                listLogic.mount()
 
-            // Tripwire: the gate reads `isActiveTab` from the parent. If anyone refactors
-            // `isActiveTab` to be self-contained, this assertion catches it before the
-            // empty-result expectations silently start passing for the wrong reason.
-            expect(listLogic.values.isActiveTab).toBe(activeTab === listGroupType)
+                // Tripwire: the gate reads `isActiveTab` from the parent. If anyone refactors
+                // `isActiveTab` to be self-contained, this assertion catches it before the
+                // empty-result expectations silently start passing for the wrong reason.
+                expect(listLogic.values.isActiveTab).toBe(activeTab === listGroupType)
 
-            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('mcp tool call'))
-                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
-                .toFinishAllListeners()
+                await expectLogic(listLogic, () => listLogic.actions.setSearchQuery(searchQuery))
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
 
-            const emptyCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter empty result')
-            if (expectFire) {
-                expect(emptyCalls).toHaveLength(1)
-                expect(emptyCalls[0][1]).toMatchObject({
-                    scope: 'category',
-                    groupType: listGroupType,
-                    searchQuery: 'mcp tool call',
-                })
-            } else {
-                expect(emptyCalls).toHaveLength(0)
+                const emptyCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter empty result')
+                if (expectFire) {
+                    expect(emptyCalls).toHaveLength(1)
+                    expect(emptyCalls[0][1]).toMatchObject({
+                        scope: 'category',
+                        groupType: listGroupType,
+                        searchQuery,
+                    })
+                } else {
+                    expect(emptyCalls).toHaveLength(0)
+                }
             }
-        })
+        )
     })
 
     describe('suggested list dedupes pinned against recents', () => {
@@ -1990,6 +2023,37 @@ describe('infiniteListLogic', () => {
                 ).toHaveLength(1)
             }
         )
+
+        // A stand-in has no id, so its recent row keeps only its name and the Events getter can't read a value from it.
+        it('commits the recorded value when Enter selects a recent row with no id', async () => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: '$feature_flag_called',
+                item: { name: '$feature_flag_called' },
+            })
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'recent-without-id-test',
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.SuggestedFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+            const index = listLogic.values.items.results.findIndex(
+                (item) => hasRecentContext(item) && item._recentContext.sourceValue === '$feature_flag_called'
+            )
+            expect(index).toBeGreaterThanOrEqual(0)
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setIndex(index)
+                listLogic.actions.selectSelected()
+            }).toDispatchActions([
+                ({ type, payload }) =>
+                    type === listLogic.actionTypes.selectItem && payload.value === '$feature_flag_called',
+            ])
+        })
     })
 
     describe('committed selection promotion', () => {

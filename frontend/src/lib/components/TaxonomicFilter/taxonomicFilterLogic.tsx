@@ -1283,7 +1283,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 offerHiddenEventStandIns
                             ),
                         ],
-                        hiddenEventStandIns: offerHiddenEventStandIns ? hiddenEventStandInsMatchingSearch : undefined,
+                        hiddenEventStandIns: offerHiddenEventStandIns
+                            ? (searchQuery: string) =>
+                                  hiddenEventStandInsMatchingSearch(searchQuery).filter(
+                                      ({ name }) =>
+                                          !excludedProperties?.[TaxonomicFilterGroupType.Events]?.includes(name)
+                                  )
+                            : undefined,
                         ...withKeywordShortcuts<Record<string, any>>(
                             {
                                 getName: (eventDefinition) => eventDefinition.name,

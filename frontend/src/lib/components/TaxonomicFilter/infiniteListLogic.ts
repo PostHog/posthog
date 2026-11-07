@@ -2383,7 +2383,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem && itemGroup) {
-                    const itemValue = selectedItem ? itemGroup.getValue?.(selectedItem) : null
+                    // A recent row keeps only `{ name, id? }`, so read the value recorded when it was first picked.
+                    const itemValue = selectedItem
+                        ? hasRecentContext(selectedItem)
+                            ? (selectedItem._recentContext.sourceValue ?? itemGroup.getValue?.(selectedItem))
+                            : itemGroup.getValue?.(selectedItem)
+                        : null
                     actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
                         position: values.index,
                     })
@@ -2438,7 +2443,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 values.isActiveTab &&
                 trimmedQuery.length > 0 &&
                 queryReachedBackend &&
-                remoteItems.results.length === 0
+                remoteItems.results.length === 0 &&
+                // A stand-in row is a result the user can pick, so the search did not come up empty.
+                !values.group?.hiddenEventStandIns?.(trimmedQuery).length
             ) {
                 const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
                 if (cache.lastEmptyResultDedupeKey !== dedupeKey) {

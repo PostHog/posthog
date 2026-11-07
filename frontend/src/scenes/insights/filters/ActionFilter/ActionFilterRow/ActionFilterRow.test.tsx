@@ -910,9 +910,6 @@ describe('ActionFilterRow', () => {
             })
         })
 
-        // An all-events series opens the picker on the aggregated tab.
-        const ALL_EVENTS_NODE: SeriesNode = { kind: NodeKind.EventsNode, event: null, name: 'All events' }
-
         function renderFlagCallsRow(mode: FlagEvaluationsModeEnumApi, node: SeriesNode = DEFAULT_NODE): jest.Mock {
             appendSettledRow = true
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
@@ -921,17 +918,19 @@ describe('ActionFilterRow', () => {
                 ...INLINE_CONTEXT,
                 node,
                 flagCallsFromFlagEvaluations: true,
-                actionsTaxonomicGroupTypes: [
-                    ...(node === ALL_EVENTS_NODE ? [TaxonomicFilterGroupType.SuggestedFilters] : []),
-                    TaxonomicFilterGroupType.Events,
-                    TaxonomicFilterGroupType.DataWarehouse,
-                ],
+                actionsTaxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.DataWarehouse],
             })
             return onChange
         }
 
-        async function flagCalledRowsAfterSearching(searchQuery: string): Promise<HTMLElement[]> {
+        async function flagCalledRowsAfterSearching(searchQuery: string, onEventsTab = false): Promise<HTMLElement[]> {
             await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+            // The picker opens on the aggregated tab, because it offers more than one category.
+            if (onEventsTab) {
+                await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
+                await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-events'))
+                expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveTextContent('Events')
+            }
             await userEvent.click(await screen.findByTestId('taxonomic-filter-searchfield'))
             await userEvent.paste(searchQuery)
             // The wait covers the search debounce and the mock round trip, which outrun the default 1s on a loaded runner.
@@ -944,21 +943,18 @@ describe('ActionFilterRow', () => {
         }
 
         it.each([
-            ['$feature_flag_called', false, false],
+            ['$feature_flag_called', false, true],
             ['feature flag', false, false],
-            ['$feature_flag_called', true, false],
             ['$feature_flag_called', true, true],
+            ['$feature_flag_called', true, false],
         ])(
-            'offers one Feature flag called row on mode 2 for "%s" (definition: %s, All tab: %s)',
-            async (searchQuery, hasDefinition, onAllTab) => {
+            'offers one Feature flag called row on mode 2 for "%s" (definition: %s, Events tab: %s)',
+            async (searchQuery, hasDefinition, onEventsTab) => {
                 teamHasFlagCalledDefinition = hasDefinition
                 const captureSpy = jest.spyOn(posthog, 'capture')
-                const onChange = renderFlagCallsRow(
-                    FlagEvaluationsModeEnumApi.Number2,
-                    onAllTab ? ALL_EVENTS_NODE : DEFAULT_NODE
-                )
+                const onChange = renderFlagCallsRow(FlagEvaluationsModeEnumApi.Number2)
 
-                const rows = await flagCalledRowsAfterSearching(searchQuery)
+                const rows = await flagCalledRowsAfterSearching(searchQuery, onEventsTab)
                 expect(rows).toHaveLength(1)
                 await userEvent.click(rows[0])
 
