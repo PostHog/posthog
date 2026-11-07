@@ -98,6 +98,14 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             <McpSharedFilters
                 pageKey="mcp-dashboard-overview"
                 dataAttrPrefix="mcp-dashboard"
+                actions={
+                    <DashboardCardsMenu
+                        cardsWithoutData={[
+                            ...(hasModelData ? [] : ['model' as const]),
+                            ...(hasProtocolVersionData ? [] : ['protocol-version' as const]),
+                        ]}
+                    />
+                }
                 onRefresh={reloadAll}
                 refreshing={
                     kpisLoading ||
@@ -119,12 +127,6 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                         markFilterInteraction()
                     }}
                     dataAttr="mcp-dashboard-date-filter"
-                />
-                <DashboardCardsMenu
-                    cardsWithoutData={[
-                        ...(hasModelData ? [] : ['model' as const]),
-                        ...(hasProtocolVersionData ? [] : ['protocol-version' as const]),
-                    ]}
                 />
             </McpSharedFilters>
             <MCPAnalyticsFeedbackPrompt
