@@ -3519,9 +3519,11 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
 
     @parameterized.expand(
         [
-            ("user_can_open_it", 200, {"full_name": "acme/visible-a"}, True),
-            ("user_cannot_open_it", 404, {"message": "Not Found"}, False),
-            ("user_must_reconnect", 401, {"message": "Bad credentials"}, False),
+            ("user_can_open_it", "acme/visible-a", 200, {"full_name": "acme/visible-a"}, True),
+            ("dots_inside_a_name", "acme/release..archive", 200, {"full_name": "acme/release..archive"}, True),
+            ("traversal_segment", "acme/..", 200, {"full_name": "acme/visible-a"}, False),
+            ("user_cannot_open_it", "acme/visible-a", 404, {"message": "Not Found"}, False),
+            ("user_must_reconnect", "acme/visible-a", 401, {"message": "Bad credentials"}, False),
         ]
     )
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
@@ -3532,6 +3534,7 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
     def test_repository_probe_reports_only_repositories_the_user_can_open(
         self,
         _name: str,
+        repository: str,
         repository_status: int,
         repository_body: dict[str, Any],
         expected: bool,
@@ -3549,7 +3552,7 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
         mock_installation_request.return_value = self._response(200, {"full_name": "acme/visible-a"})
         mock_oauth_post.return_value = self._response(200, {"error": "bad_refresh_token"})
 
-        assert self._github().installation_can_access_repository("acme/visible-a", raise_on_transient=True) is expected
+        assert self._github().installation_can_access_repository(repository, raise_on_transient=True) is expected
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")

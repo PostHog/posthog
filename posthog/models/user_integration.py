@@ -14,10 +14,10 @@ from posthog.egress.github.transport import github_request, raise_if_github_rate
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import (
+    _GITHUB_REPO_PATH_RE,
     GitHubIntegrationBase,
     GitHubIntegrationError,
     ReauthorizationRequired,
-    _is_safe_github_repo_path,
     _jsonb_merge,
     github_app_oauth_credentials,
 )
@@ -400,7 +400,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
 
     def resolve_user_repository(self, repository: str) -> str | None:
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-        if not _is_safe_github_repo_path(repo_path):
+        if not _GITHUB_REPO_PATH_RE.fullmatch(repo_path) or any(part in (".", "..") for part in repo_path.split("/")):
             return None
         credential_version = (self.integration.config or {}).get("credential_version")
         cache_key = (
