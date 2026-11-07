@@ -1,6 +1,6 @@
 import './EmailDocumentEditor.scss'
 
-import type { EditorOptions } from '@tiptap/core'
+import type { EditorEvents, EditorOptions } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -28,7 +28,7 @@ import { EMAIL_BLOCK_OPTIONS } from './emailBlockCatalog'
 import { EmailBlockKeymap, EmailLiquidHighlight } from './emailCanvasPlugins'
 import { hasUnsubscribeLink, insertBlock } from './emailCommands'
 import { emailDocumentFromValue, emailFontUrls, resolvePageStyle } from './emailDocument'
-import { createEmailEditorAdapter } from './emailEditorAdapter'
+import { createEmailEditorAdapter, isDocumentEdit } from './emailEditorAdapter'
 import { EmailEditorContext, EmailEditorContextValue } from './emailEditorContext'
 import { buildEmailExtensions } from './emailExtensions'
 import { uploadEmailImage, uploadErrorText } from './emailMediaLibraryLogic'
@@ -272,7 +272,10 @@ export function EmailDocumentEditor(): JSX.Element {
                   ? 'document'
                   : 'new',
         })
-        const onFirstEdit = (): void => {
+        const onFirstEdit = (event: EditorEvents['update']): void => {
+            if (!isDocumentEdit(event)) {
+                return
+            }
             if (convertedEmailDocument) {
                 // pinned: analytics event name and property, renaming breaks dashboards
                 posthog.capture('email editor converted email edited', { email_type: logicProps.type })

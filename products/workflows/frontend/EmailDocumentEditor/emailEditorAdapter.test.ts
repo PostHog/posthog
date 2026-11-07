@@ -23,4 +23,30 @@ describe('emailEditorAdapter', () => {
         expect(editor.getText()).toEqual('Hello')
         editor.destroy()
     })
+
+    it('reports a real edit but not the empty last paragraph a first click adds', () => {
+        const editor = new Editor({
+            extensions: buildEmailExtensions(''),
+            content: {
+                type: 'doc',
+                content: [
+                    { type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] },
+                    { type: 'horizontalRule' },
+                ],
+            },
+        })
+        const adapter = createEmailEditorAdapter(editor)
+        const onUpdated = jest.fn()
+        adapter.addEventListener('design:updated', onUpdated)
+
+        editor.commands.setTextSelection(3)
+
+        expect(editor.getJSON().content?.at(-1)?.type).toEqual('paragraph')
+        expect(onUpdated).not.toHaveBeenCalled()
+
+        editor.commands.insertContent('!')
+
+        expect(onUpdated).toHaveBeenCalledTimes(1)
+        editor.destroy()
+    })
 })

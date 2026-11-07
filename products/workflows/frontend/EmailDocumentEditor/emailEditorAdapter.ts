@@ -1,4 +1,4 @@
-import type { Editor } from '@tiptap/core'
+import type { Editor, EditorEvents } from '@tiptap/core'
 
 import { buildHtmlWrapDesign } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
@@ -24,6 +24,15 @@ export function designForDocument(doc: Record<string, any>, html: string): Recor
 }
 
 /**
+ * The first selection in a document that ends in a block other than a paragraph makes the editor add an empty last
+ * paragraph, and that fires `update`. A click isn't an edit: treating it as one would let a save replace a converted
+ * email that nobody changed.
+ */
+export function isDocumentEdit({ transaction }: EditorEvents['update']): boolean {
+    return transaction.docChanged
+}
+
+/**
  * Gives `emailTemplaterLogic` the part of Unlayer's editor API it calls, so everything it does around saving
  * (no-op saves, debounced live changes, external edits, save as template) works the same for both editors.
  */
@@ -31,7 +40,11 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
     const listeners: Record<string, Listener[]> = {}
     const emit = (type: string): void => (listeners[type] ?? []).forEach((listener) => listener())
 
-    const onUpdate = (): void => emit('design:updated')
+    const onUpdate = (event: EditorEvents['update']): void => {
+        if (isDocumentEdit(event)) {
+            emit('design:updated')
+        }
+    }
     // setContent replaces the blocks but not the document's own attributes, which hold the page style.
     const loadDoc = (doc: Record<string, any>): void => {
         editor
