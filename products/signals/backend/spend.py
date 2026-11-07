@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from dataclasses import field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -32,6 +32,7 @@ from products.signals.backend.spend_billing import (
 class SignalSpendSummary:
     total_spend: float
     failed_stages: list[str]
+    earliest_created_at: datetime | None = None
 
 
 def signal_id_for(*, team_id: int, source_product: str, source_type: str, idempotency_key: str | None = None) -> str:
@@ -88,6 +89,7 @@ class SignalMetadataChange:
 class SignalSpendUpdate:
     team_id: int
     signal_id: str
+    embedding_timestamp: datetime | None = None
     changes: list[SignalMetadataChange] = field(default_factory=list)
 
 
@@ -103,6 +105,7 @@ async def submit_signal_metadata_updates(
     team_id: int,
     signal_ids: list[str],
     change: SignalMetadataChange | None = None,
+    signal_timestamps: dict[str, datetime] | None = None,
 ) -> None:
     from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415 — keeps Temporal off Django startup
 
@@ -116,7 +119,11 @@ async def submit_signal_metadata_updates(
             *(
                 client.start_workflow(
                     "update-signal-spend",
-                    SignalSpendUpdate(team_id=team_id, signal_id=signal_id),
+                    SignalSpendUpdate(
+                        team_id=team_id,
+                        signal_id=signal_id,
+                        embedding_timestamp=(signal_timestamps or {}).get(signal_id),
+                    ),
                     id=f"signal-spend-{team_id}-{signal_id}",
                     task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
@@ -187,15 +194,21 @@ def signal_spend_summaries(*, team_id: int, signal_ids: list[str]) -> dict[str, 
             continue
     amounts: dict[str, Decimal] = {}
     failures: dict[str, set[str]] = {}
+    earliest_created_at: dict[str, datetime] = {}
     for spend in SignalSpend.objects.for_team(team_id).filter(signal_id__in=ids):
         if spend.kind is None:
             continue
         key = str(spend.signal_id)
         amounts[key] = amounts.get(key, Decimal(0)) + spend.spend
+        earliest_created_at[key] = min(spend.created_at, earliest_created_at.get(key, spend.created_at))
         if spend.accounting_failed:
             failures.setdefault(key, set()).update(spend.llm_failed_stages or [spend.kind])
     return {
-        key: SignalSpendSummary(total_spend=float(amount), failed_stages=sorted(failures.get(key, set())))
+        key: SignalSpendSummary(
+            total_spend=float(amount),
+            failed_stages=sorted(failures.get(key, set())),
+            earliest_created_at=earliest_created_at[key],
+        )
         for key, amount in amounts.items()
     }
 
