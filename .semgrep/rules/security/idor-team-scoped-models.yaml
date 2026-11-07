@@ -310,6 +310,8 @@ rules:
                               |MessageRecipientPreference
                               |MessageSuppression
                               |MessageTemplate
+                              |MembershipCleanupCandidate
+                              |MembershipCleanupScan
                               |Metric
                               |MetricDailyQueryCount
                               |MetricsDashboardDiscovery
@@ -824,6 +826,8 @@ rules:
                         |MessageRecipientPreference
                         |MessageSuppression
                         |MessageTemplate
+                        |MembershipCleanupCandidate
+                        |MembershipCleanupScan
                         |Metric
                         |MetricDailyQueryCount
                         |MetricsDashboardDiscovery

@@ -104,6 +104,51 @@ Native property-removal requests fail when the selected rows retain a requested 
 They also fail when that property class has quarantine diagnostics, because malformed raw data cannot prove that the requested value is absent.
 The gate runs before shard processing and again during verification, with the same event, time-range, and insertion-marker bounds.
 
+## Customer analytics membership
+
+`sharded_person_group_membership` has no age-based TTL.
+It stores distinct IDs and historical group associations, but no person properties.
+The `customer-analytics-membership-discovery` Temporal schedule records missing persons and groups in Postgres.
+It never deletes membership or eligibility config.
+The schedule starts paused and runs hourly when enabled.
+Worker restarts preserve its existing schedule settings.
+
+Discovery checks current distinct-ID mappings and live persons.
+Deleted mappings and deleted persons count as missing identities.
+When ClickHouse reports a person as missing, a strong personhog read confirms the mapping and its owner.
+Discovery decodes JSON escapes in group keys before identity lookups and keeps stored keys in candidates.
+When ClickHouse reports a group as missing, a strong personhog read confirms its absence.
+Group identity reads exclude properties. Malformed JSON keys retain their raw representation.
+Deleted teams need no identity reads.
+
+Each batch scans at most 100 membership keys and rechecks 100 saved candidates.
+It saves the next unprocessed key in Postgres so later batches can resume after rows disappear.
+Scan pages also clear recovered candidates outside the recheck page.
+New candidates use bulk inserts and preserve `first_missing_at` on repeated discovery.
+Identity read failures leave candidates and scan positions unchanged.
+A renewable per-team Redis lease prevents overlapping membership batches.
+A busy lease raises a retryable error. A hard worker shutdown can leave the lease until its one-hour expiry.
+Heartbeats report liveness. Postgres stores the checkpoints.
+Postgres transactions contain database writes only.
+
+The coordinator discovers teams from membership, eligibility config, and saved scans.
+It processes at most 10 pages of 25 teams and stops starting teams after 45 minutes.
+Each team processes at most 100 batches and stops starting batches after 10 minutes.
+The coordinator saves each processed team. Team zero holds its cursor and never starts a project scan.
+Cleanup state has no project foreign key, so project deletion cannot remove pending work.
+
+Queries use the SQL editor's `HOGQL_INCREASED_MAX_EXECUTION_TIME` setting, which defaults to 600 seconds.
+Each batch reduces the query timeout to fit its remaining activity budget.
+The activity reserves time for three attempts inside the child workflow deadline.
+Memory, read, thread, and result limits come from the ClickHouse profile.
+Unavailable shards and overflow limits fail queries instead of returning partial results.
+Queries use the `OFFLINE` workload because discovery runs in the background.
+The `customer_analytics_membership_discovery_` metrics report outcomes, batch duration, and scan duration.
+
+Discovery does not change existing person or group deletion processes.
+Membership erasure requires a separate deletion job that rechecks saved candidates before it deletes rows.
+Event deletion and configured group-property deletion do not repair membership or its activity timestamps.
+
 ## Tables on TTL alone
 
 Listed in `TTL_ONLY_TABLES`.
