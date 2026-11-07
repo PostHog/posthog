@@ -2,6 +2,9 @@ import { useMountedLogic, useValues } from 'kea'
 import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { Button, Skeleton, Text } from '@posthog/quill'
+
+import { TodayHomeHeading } from 'scenes/project-homepage/today/TodayHomeHeading'
 
 import { isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
@@ -34,6 +37,7 @@ import { InboxFiltersPanel } from '../shell/InboxFiltersPanel'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
 import { InboxSortSelect } from '../shell/InboxSortSelect'
+import { QuillInboxReportFilters } from '../shell/QuillInboxReportFilters'
 import { InboxTodayReportRow } from '../today/InboxTodayReportRow'
 import { useInboxTodayStyle } from '../today/useInboxTodayStyle'
 import { useReportImpressions } from '../useReportImpressions'
@@ -204,6 +208,47 @@ const ReportRow = memo(function ReportRow({
     )
 })
 
+/** Home-style placeholder rows, laid out like `InboxTodayReportRow`, for the quill list. */
+function TodayRowsSkeleton({ count }: { count: number }): JSX.Element {
+    return (
+        <ol className="Today__page TodayRows" data-quill aria-busy aria-label="Loading">
+            {Array.from({ length: count }, (_, index) => (
+                <li key={index} className="TodayRow">
+                    <Skeleton className="TodayRow__iconSkeleton" />
+                    <div className="flex flex-col gap-2 py-1">
+                        <Skeleton className={`h-3.5 ${index % 2 ? 'w-1/2' : 'w-3/5'}`} />
+                        <Skeleton className="h-3 w-2/5" />
+                    </div>
+                </li>
+            ))}
+        </ol>
+    )
+}
+
+/** A list state message with its retry, for the quill list. */
+function QuillRetryNote({
+    message,
+    loading,
+    onRetry,
+    dataAttr,
+}: {
+    message: string
+    loading?: boolean
+    onRetry: () => void
+    dataAttr: string
+}): JSX.Element {
+    return (
+        <div className="flex flex-wrap items-center gap-2 px-1 py-2" data-quill>
+            <Text size="xs" variant="muted" className="m-0">
+                {message}
+            </Text>
+            <Button variant="outline" loading={loading} onClick={onRetry} data-attr={dataAttr}>
+                Retry
+            </Button>
+        </div>
+    )
+}
+
 function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     if (narrowed) {
         return 'No reports match the current filters.'
@@ -360,29 +405,35 @@ export function ReportsTab(): JSX.Element {
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
-            {/* When the row runs out of room it wraps at the divider: filters on one line, sort and
+            {todayStyle ? (
+                <div className="flex items-center gap-2" data-quill>
+                    <QuillInboxReportFilters />
+                </div>
+            ) : (
+                /* When the row runs out of room it wraps at the divider: filters on one line, sort and
                 scope on the next. The divider sits in the gap left of the sort group, so on a wrapped
                 line it falls outside the clipped edge instead of leading the line. The sort group
-                grows so scope always ends the row. */}
-            <div className="@container -mx-1 overflow-x-clip px-1">
-                <div className="flex items-center gap-2 @2xl:hidden">
-                    <InboxFiltersPanel />
-                    <InboxSortSelect />
-                    <div className="ml-auto min-w-0">
-                        <InboxScopeFilter />
-                    </div>
-                </div>
-                <div className="hidden flex-wrap items-center gap-2 @2xl:flex">
-                    <InboxReportFilters />
-                    <div className="relative flex flex-1 items-center gap-2">
-                        <LemonDivider vertical className="absolute inset-y-1 -left-[5px] m-0" />
+                grows so scope always ends the row. */
+                <div className="@container -mx-1 overflow-x-clip px-1">
+                    <div className="flex items-center gap-2 @2xl:hidden">
+                        <InboxFiltersPanel />
                         <InboxSortSelect />
-                        <div className="ml-auto shrink-0">
+                        <div className="ml-auto min-w-0">
                             <InboxScopeFilter />
                         </div>
                     </div>
+                    <div className="hidden flex-wrap items-center gap-2 @2xl:flex">
+                        <InboxReportFilters />
+                        <div className="relative flex flex-1 items-center gap-2">
+                            <LemonDivider vertical className="absolute inset-y-1 -left-[5px] m-0" />
+                            <InboxSortSelect />
+                            <div className="ml-auto shrink-0">
+                                <InboxScopeFilter />
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            )}
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
             <InboxMcpBanner />
             {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
@@ -404,9 +455,26 @@ export function ReportsTab(): JSX.Element {
                 // load in parallel, and painting the fastest one first would let the slower ones
                 // insert rows among cards already on screen. A state selected later merges its
                 // rows in when they land, with the trailing page skeleton covering the wait.
-                <CardSkeleton count={4} variant="cards" dashed />
+                todayStyle ? (
+                    <TodayRowsSkeleton count={4} />
+                ) : (
+                    <CardSkeleton count={4} variant="cards" dashed />
+                )
             ) : rows.length === 0 ? (
-                anyLoadFailed ? (
+                todayStyle ? (
+                    anyLoadFailed ? (
+                        <QuillRetryNote
+                            message="Couldn't load these reports."
+                            loading={pageLoading}
+                            onRetry={retryFailedSections}
+                            dataAttr="inbox-report-list-retry"
+                        />
+                    ) : (
+                        <Text size="xs" variant="muted" className="m-0 px-1 py-2" data-quill>
+                            {emptyListCopy(scope, narrowed)}
+                        </Text>
+                    )
+                ) : anyLoadFailed ? (
                     <div className="flex flex-col items-start gap-2 px-1 py-2">
                         <p className="m-0 text-sm text-tertiary">Couldn't load these reports.</p>
                         <LemonButton
@@ -429,11 +497,8 @@ export function ReportsTab(): JSX.Element {
                             {rows.map(({ report, sectionKey }, index) => (
                                 <Fragment key={report.id}>
                                     {index > 0 && index === firstUnscoredIndex && (
-                                        <li>
-                                            <LemonDivider
-                                                label="Not scored yet"
-                                                className="my-2 text-xs text-tertiary"
-                                            />
+                                        <li className="px-3 pt-4 pb-1">
+                                            <TodayHomeHeading>Not scored yet</TodayHomeHeading>
                                         </li>
                                     )}
                                     <InboxTodayReportRow report={report} sectionKey={sectionKey} />
@@ -458,36 +523,57 @@ export function ReportsTab(): JSX.Element {
                         ))
                     )}
                     {/* Skeleton cards continue the list while the next pages load – sleeker than a spinner. */}
-                    {pageLoading && <CardSkeleton count={2} variant="cards" dashed />}
-                    {anyLoadFailed && (
-                        <div className="flex items-center gap-2 px-1 py-2">
-                            <p className="m-0 text-sm text-tertiary">Couldn't load some of the reports.</p>
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
+                    {pageLoading &&
+                        (todayStyle ? (
+                            <TodayRowsSkeleton count={2} />
+                        ) : (
+                            <CardSkeleton count={2} variant="cards" dashed />
+                        ))}
+                    {anyLoadFailed &&
+                        (todayStyle ? (
+                            <QuillRetryNote
+                                message="Couldn't load some of the reports."
                                 loading={pageLoading}
-                                onClick={retryFailedSections}
-                                data-attr="inbox-report-list-retry"
-                            >
-                                Retry
-                            </LemonButton>
-                        </div>
-                    )}
+                                onRetry={retryFailedSections}
+                                dataAttr="inbox-report-list-retry"
+                            />
+                        ) : (
+                            <div className="flex items-center gap-2 px-1 py-2">
+                                <p className="m-0 text-sm text-tertiary">Couldn't load some of the reports.</p>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    loading={pageLoading}
+                                    onClick={retryFailedSections}
+                                    data-attr="inbox-report-list-retry"
+                                >
+                                    Retry
+                                </LemonButton>
+                            </div>
+                        ))}
                     {/* A failed next page keeps the loaded rows and the sentinel may sit inside the
                         viewport without re-firing, so offer an explicit way to fetch it again. */}
-                    {!pageLoading && pageLoadFailed && (
-                        <div className="flex items-center gap-2 px-1 py-2">
-                            <p className="m-0 text-sm text-tertiary">Couldn't load more reports.</p>
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                onClick={retryFailedPages}
-                                data-attr="inbox-report-list-retry-page"
-                            >
-                                Retry
-                            </LemonButton>
-                        </div>
-                    )}
+                    {!pageLoading &&
+                        pageLoadFailed &&
+                        (todayStyle ? (
+                            <QuillRetryNote
+                                message="Couldn't load more reports."
+                                onRetry={retryFailedPages}
+                                dataAttr="inbox-report-list-retry-page"
+                            />
+                        ) : (
+                            <div className="flex items-center gap-2 px-1 py-2">
+                                <p className="m-0 text-sm text-tertiary">Couldn't load more reports.</p>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={retryFailedPages}
+                                    data-attr="inbox-report-list-retry-page"
+                                >
+                                    Retry
+                                </LemonButton>
+                            </div>
+                        ))}
                     {hasMore && <div ref={sentinelRef} className="h-1" aria-hidden />}
                 </div>
             )}

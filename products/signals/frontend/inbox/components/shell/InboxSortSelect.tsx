@@ -5,6 +5,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import { INBOX_MODEL_SORT_OPTIONS, INBOX_SORT_OPTIONS, inboxSortOptionKey, InboxSortOption } from '../../filterOptions'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { INBOX_MODEL_SORT_SECTION_TITLE, inboxSortLabel, inboxSortOptionForKey } from './inboxToolbarOptions'
 
 // No per-option icons: the trigger always shows the sort icon, and a second icon would crowd the
 // label the order is already stated in.
@@ -16,9 +17,8 @@ const toSortSelectOption = (option: InboxSortOption): { value: string; label: st
 const SORT_SELECT_OPTIONS = INBOX_SORT_OPTIONS.map(toSortSelectOption)
 const SORT_SELECT_SECTIONS_WITH_MODEL = [
     { options: SORT_SELECT_OPTIONS },
-    { title: 'Model scores', options: INBOX_MODEL_SORT_OPTIONS.map(toSortSelectOption) },
+    { title: INBOX_MODEL_SORT_SECTION_TITLE, options: INBOX_MODEL_SORT_OPTIONS.map(toSortSelectOption) },
 ]
-const ALL_SORT_OPTIONS = [...INBOX_SORT_OPTIONS, ...INBOX_MODEL_SORT_OPTIONS]
 
 /**
  * The report list's sort order. It orders the list rather than narrowing it, so it sits after the
@@ -27,16 +27,15 @@ const ALL_SORT_OPTIONS = [...INBOX_SORT_OPTIONS, ...INBOX_MODEL_SORT_OPTIONS]
 export function InboxSortSelect(): JSX.Element {
     const { activeSortField, activeSortDirection, modelSortAvailable } = useValues(inboxFiltersLogic)
     const { setSort } = useActions(inboxFiltersLogic)
-    const sortOptions = modelSortAvailable ? ALL_SORT_OPTIONS : INBOX_SORT_OPTIONS
     const activeKey = inboxSortOptionKey(activeSortField, activeSortDirection)
-    const activeLabel = sortOptions.find((o) => inboxSortOptionKey(o.field, o.direction) === activeKey)?.label ?? ''
+    const activeLabel = inboxSortLabel(activeSortField, activeSortDirection, modelSortAvailable)
 
     return (
         <LemonSelect
             size="small"
             value={activeKey}
             onChange={(key) => {
-                const option = sortOptions.find((o) => inboxSortOptionKey(o.field, o.direction) === key)
+                const option = inboxSortOptionForKey(key, modelSortAvailable)
                 if (option) {
                     setSort(option.field, option.direction)
                 }

@@ -24,6 +24,7 @@ import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { InboxTriageButton } from './components/shell/InboxTriageButton'
 import { InboxValueSummary } from './components/shell/InboxValueSummary'
+import { QuillInboxTabBar } from './components/shell/QuillInboxTabBar'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { SettingsTab } from './components/tabs/SettingsTab'
@@ -89,6 +90,7 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
 function InboxListView(): JSX.Element {
     const { activeTab } = useValues(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
+    const todayStyle = useInboxTodayStyle()
     // Self-driving isn't set up and the inbox is empty: the welcome page replaces the whole list
     // view, tab bar included, so the onboarding is the whole story – just run the one command.
     const onboarding = onboardingMode === 'takeover'
@@ -116,9 +118,9 @@ function InboxListView(): JSX.Element {
             {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
             {!onboarding && !pending && (
                 <div className="flex items-center gap-2 border-b border-primary pl-5 pr-6 shrink-0">
-                    <InboxTabBar />
+                    {todayStyle ? <QuillInboxTabBar /> : <InboxTabBar />}
                     {/* Pairs with the header Triage button, which hides below the same @2xl/inbox width. */}
-                    {activeTab === 'reports' && (
+                    {activeTab === 'reports' && !todayStyle && (
                         <div className="ml-auto shrink-0 @2xl/inbox:hidden">
                             <InboxTriageButton compact />
                         </div>
@@ -230,6 +232,13 @@ export function InboxScene(): JSX.Element {
     const { setScratchpadOpen, setFindingsOpen, setRunsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { searchParams } = useValues(router)
+    // The Home-style inbox has no triage mode, so a bookmarked triage link lands on the list.
+    const todayStyle = useInboxTodayStyle()
+    useEffect(() => {
+        if (todayStyle && isTriageOpen) {
+            router.actions.replace(urls.inbox('reports'))
+        }
+    }, [todayStyle, isTriageOpen])
 
     // Surfaces that embed inbox cards (e.g. the customer analytics feed) set a `?back=` internal path;
     // send the not-found state back there rather than the inbox, mirroring `InboxDetailFrame`.
@@ -247,11 +256,11 @@ export function InboxScene(): JSX.Element {
         isScratchpadOpen ||
         isFindingsOpen ||
         isRunsOpen ||
-        isTriageOpen
+        (isTriageOpen && !todayStyle)
 
     // `t` opens triage mode from the report list. Not while a surface covers the list, not while
-    // the inbox is locked behind onboarding.
-    const listInteractive = !showDetail && activeTab === 'reports' && onboardingMode === 'none'
+    // the inbox is locked behind onboarding, and not in the Home-style inbox, which has no triage.
+    const listInteractive = !showDetail && activeTab === 'reports' && onboardingMode === 'none' && !todayStyle
     useKeyboardHotkeys(
         {
             t: { action: () => router.actions.push(urls.inboxTriage()), disabled: !listInteractive },
@@ -278,7 +287,7 @@ export function InboxScene(): JSX.Element {
     const tabUnlocked = onboardingMode !== 'takeover' && onboardingMode !== 'pending'
     const headerActions = !tabUnlocked ? undefined : activeTab === 'scouts' ? (
         <ScoutsRosterActions />
-    ) : activeTab === 'reports' ? (
+    ) : activeTab === 'reports' && !todayStyle ? (
         <div className="hidden @2xl/inbox:contents">
             <InboxTriageButton />
         </div>
@@ -316,7 +325,7 @@ export function InboxScene(): JSX.Element {
 
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    {isTriageOpen ? (
+                    {isTriageOpen && !todayStyle ? (
                         <InboxTriageView />
                     ) : isFindingsOpen ? (
                         <InboxPanelView onBack={() => setFindingsOpen(false)}>

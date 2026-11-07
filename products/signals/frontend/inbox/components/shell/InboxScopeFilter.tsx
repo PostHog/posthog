@@ -1,39 +1,14 @@
-import { useActions, useValues } from 'kea'
-
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { MemberSelect, type MemberSelectProps } from 'lib/components/MemberSelect'
-import { userLogic } from 'scenes/userLogic'
+import { MemberSelect } from 'lib/components/MemberSelect'
 
-import type { UserType } from '~/types'
-
-import { parseTeammateInboxScope, teammateInboxScope } from '../../inboxMembership'
-import { type InboxReviewerOption, inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import { INBOX_SCOPE_CLAIMED_BY_YOU, INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, InboxScope } from '../../types'
-
-function getReviewerOptions(
-    reviewers: InboxReviewerOption[],
-    user: UserType | null
-): NonNullable<MemberSelectProps['options']> {
-    const options = reviewers.map((reviewer) => ({
-        uuid: reviewer.user_uuid,
-        name: reviewer.name,
-        email: reviewer.email,
-        trailing: reviewer.user_uuid === user?.uuid ? '(you)' : undefined,
-    }))
-    if (!user || options.some((option) => option.uuid === user.uuid)) {
-        return options
-    }
-    return [
-        {
-            uuid: user.uuid,
-            name: `${user.first_name} ${user.last_name ?? ''}`.trim() || user.email,
-            email: user.email,
-            trailing: '(you)',
-        },
-        ...options,
-    ]
-}
+import { INBOX_SCOPE_CLAIMED_BY_YOU, INBOX_SCOPE_ENTIRE_PROJECT } from '../../types'
+import {
+    INBOX_SCOPE_CLAIMED_BY_YOU_LABEL,
+    INBOX_SCOPE_ENTIRE_PROJECT_LABEL,
+    INBOX_SCOPE_HELP,
+} from './inboxToolbarOptions'
+import { useInboxScopeFilter } from './useInboxScopeFilter'
 
 /**
  * Single-dropdown reviewer scope for the flat Reports list: one trigger that names the current
@@ -43,61 +18,27 @@ function getReviewerOptions(
  * `inboxFiltersLogic`; teammates come from its shared `availableReviewers` loader.
  */
 export function InboxScopeFilter(): JSX.Element {
-    const {
-        scope,
-        availableReviewers: reviewers,
-        availableReviewersLoading,
-        knownTeammate,
-    } = useValues(inboxFiltersLogic)
-    const { setScope, searchAvailableReviewers, setKnownTeammate } = useActions(inboxFiltersLogic)
-    const { user } = useValues(userLogic)
-
-    const isForYou = scope === INBOX_SCOPE_FOR_YOU
-    const selectedTeammateUuid = parseTeammateInboxScope(scope)
-    const selectedTeammate = reviewers.find((r) => r.user_uuid === selectedTeammateUuid)
-    const selectedTeammateLabel = selectedTeammate ? selectedTeammate.name || selectedTeammate.email : null
-
-    // Only reuse the cached label when it names the currently-scoped teammate.
-    const cachedTeammateLabel =
-        knownTeammate && knownTeammate.uuid === selectedTeammateUuid ? knownTeammate.label : null
-
-    const triggerLabel = isForYou
-        ? 'For you'
-        : scope === INBOX_SCOPE_CLAIMED_BY_YOU
-          ? 'Claimed by you'
-          : selectedTeammateUuid
-            ? (selectedTeammateLabel ?? cachedTeammateLabel ?? 'Teammate')
-            : 'Entire project'
-
-    const options = getReviewerOptions(reviewers, user)
-
-    const pick = (next: InboxScope, label?: string): void => {
-        const nextUuid = parseTeammateInboxScope(next)
-        if (label && nextUuid) {
-            setKnownTeammate(nextUuid, label)
-        }
-        setScope(next)
-        searchAvailableReviewers('')
-    }
+    const { selectedTeammateUuid, triggerLabel, options, optionsLoading, searchReviewers, pick, pickMember } =
+        useInboxScopeFilter()
 
     return (
         <MemberSelect
             value={selectedTeammateUuid}
-            defaultLabel="Entire project"
+            defaultLabel={INBOX_SCOPE_ENTIRE_PROJECT_LABEL}
             options={options}
-            optionsLoading={availableReviewersLoading}
-            onSearch={searchAvailableReviewers}
-            extraOptions={[{ label: 'Claimed by you', onClick: () => pick(INBOX_SCOPE_CLAIMED_BY_YOU) }]}
+            optionsLoading={optionsLoading}
+            onSearch={searchReviewers}
+            extraOptions={[
+                { label: INBOX_SCOPE_CLAIMED_BY_YOU_LABEL, onClick: () => pick(INBOX_SCOPE_CLAIMED_BY_YOU) },
+            ]}
             onChange={() => pick(INBOX_SCOPE_ENTIRE_PROJECT)}
-            onSelectOption={(uuid, label) =>
-                pick(uuid === user?.uuid ? INBOX_SCOPE_FOR_YOU : teammateInboxScope(uuid), label)
-            }
+            onSelectOption={pickMember}
         >
             {() => (
                 <LemonButton
                     size="small"
                     type="secondary"
-                    tooltip="See the reports suggested to you, the reports you claimed, every report in the project, or a teammate's"
+                    tooltip={INBOX_SCOPE_HELP}
                     // Name the active scope for assistive tech. Without this, LemonButton copies the
                     // string tooltip into aria-label, so a screen reader hears the help text and never
                     // the current scope.
