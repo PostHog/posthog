@@ -1,12 +1,15 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { useEffect, useRef } from 'react'
 
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NodeDetailScene } from './NodeDetailScene'
+import { nodeDetailQueryEditorTabId } from './nodeDetailSceneLogic'
 
 const grantWarehouseAccess: Decorator = function GrantWarehouseAccess(Story): JSX.Element {
     const appContext = window.POSTHOG_APP_CONTEXT
@@ -253,6 +256,29 @@ export const NarrowView: Story = {
             </div>
         ),
     ],
+}
+
+export const UnsavedQueryChanges: Story = {
+    play: async ({ canvas, canvasElement }): Promise<void> => {
+        // The editor seeds its tab on mount, and an edit that lands first leaves it unseeded with no
+        // view for the bar to save. Waiting for Monaco also keeps the snapshot off a half-painted
+        // editor, which would otherwise differ from run to run.
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('[data-editor-ready="true"]')) {
+                    throw new Error('Monaco is still loading')
+                }
+            },
+            { timeout: 30000 }
+        )
+        sqlEditorLogic({ tabId: nodeDetailQueryEditorTabId(savedQuery.id) }).actions.setQueryInput('SELECT 1')
+        await canvas.findByText('Unsaved changes')
+    },
+}
+
+export const NarrowUnsavedQueryChanges: Story = {
+    ...UnsavedQueryChanges,
+    decorators: NarrowView.decorators,
 }
 
 export const PaginatedColumns: Story = {
