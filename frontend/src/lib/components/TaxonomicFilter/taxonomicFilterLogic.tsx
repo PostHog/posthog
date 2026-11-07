@@ -50,6 +50,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
+    isHiddenEventStandIn,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
 import { fuzzyEventSearchEnabled } from 'lib/components/TaxonomicFilter/utils/fuzzyEventSearch'
@@ -2733,6 +2734,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     wasFromPinnedList,
                     wasFromRecents,
                     wasQuickFilter,
+                    wasHiddenEventStandIn: isHiddenEventStandIn(item),
                     hadSearchInput,
                     position: meta?.position,
                     query: values.searchQuery || undefined,

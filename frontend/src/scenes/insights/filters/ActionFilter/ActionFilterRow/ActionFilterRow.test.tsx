@@ -5,6 +5,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -952,6 +953,7 @@ describe('ActionFilterRow', () => {
             'offers one Feature flag called row on mode 2 for "%s" (definition: %s, All tab: %s)',
             async (searchQuery, hasDefinition, onAllTab) => {
                 teamHasFlagCalledDefinition = hasDefinition
+                const captureSpy = jest.spyOn(posthog, 'capture')
                 const onChange = renderFlagCallsRow(
                     FlagEvaluationsModeEnumApi.Number2,
                     onAllTab ? ALL_EVENTS_NODE : DEFAULT_NODE
@@ -970,6 +972,11 @@ describe('ActionFilterRow', () => {
                         })
                     )
                 })
+                expect(captureSpy).toHaveBeenCalledWith(
+                    'taxonomic filter item selected',
+                    expect.objectContaining({ wasHiddenEventStandIn: true })
+                )
+                captureSpy.mockRestore()
             }
         )
 

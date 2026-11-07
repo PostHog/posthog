@@ -51,6 +51,8 @@ const PINNED_ITEM_DENYLIST = new Set<string>([
     'group_properties',
     'matched_fields',
     '_pinnedContext',
+    // A pinned row is not a stand-in row, so its picks must not report `wasHiddenEventStandIn`.
+    '_type',
 ])
 
 export function pickMinimalPinnedItem(item: unknown, fallbackValue: TaxonomicFilterValue): Record<string, any> {

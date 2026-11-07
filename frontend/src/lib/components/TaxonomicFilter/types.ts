@@ -48,6 +48,7 @@ export interface QuickFilterItem {
 }
 
 export interface HiddenEventStandIn {
+    _type: 'hidden_event_stand_in'
     name: string
     value: string
 }
@@ -56,6 +57,10 @@ export type LeadingSearchItem = HiddenEventStandIn | QuickFilterItem
 
 export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
     return item != null && typeof item === 'object' && '_type' in item && item._type === 'quick_filter'
+}
+
+export function isHiddenEventStandIn(item: unknown): item is HiddenEventStandIn {
+    return item != null && typeof item === 'object' && '_type' in item && item._type === 'hidden_event_stand_in'
 }
 
 export function quickFilterToPropertyFilter(item: QuickFilterItem): EventPropertyFilter | PersonPropertyFilter {

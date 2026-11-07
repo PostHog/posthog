@@ -68,7 +68,7 @@ export function hiddenEventStandInsMatchingSearch(searchQuery: string): HiddenEv
         .filter(({ name, searchTerms }) =>
             [...searchTerms, name.replace(/^\$/, '')].some((term) => term.startsWith(query))
         )
-        .map(({ name }) => ({ name, value: name }))
+        .map(({ name }) => ({ _type: 'hidden_event_stand_in', name, value: name }))
 }
 
 /** The https link in the move notices flag's payload, or null while there is no announcement to link to. */
