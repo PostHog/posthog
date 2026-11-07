@@ -140,7 +140,7 @@
                                                                 },
                                                                 "short_id": {
                                                                     "description": "The insight's short ID, as in /insights/<short_id>.",
-                                                                    "pattern": "^[A-Za-z0-9]{8}$",
+                                                                    "pattern": "^[A-Za-z0-9]{1,12}$",
                                                                     "type": "string"
                                                                 }
                                                             },
@@ -268,7 +268,7 @@
                                                                 },
                                                                 "short_id": {
                                                                     "description": "The insight's short ID, as in /insights/<short_id>.",
-                                                                    "pattern": "^[A-Za-z0-9]{8}$",
+                                                                    "pattern": "^[A-Za-z0-9]{1,12}$",
                                                                     "type": "string"
                                                                 }
                                                             },
@@ -329,7 +329,7 @@
                                             "properties": {
                                                 "insight": {
                                                     "description": "Short ID of a trends insight.",
-                                                    "pattern": "^[A-Za-z0-9]{8}$",
+                                                    "pattern": "^[A-Za-z0-9]{1,12}$",
                                                     "type": "string"
                                                 },
                                                 "label": {
