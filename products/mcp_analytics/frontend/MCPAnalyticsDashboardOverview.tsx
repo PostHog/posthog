@@ -15,6 +15,7 @@ import { ActivityChart } from './dashboard/ActivityChart'
 import { MCP_DASHBOARD_CARDS } from './dashboard/dashboardCards'
 import { DashboardCardsMenu } from './dashboard/DashboardCardsMenu'
 import { HarnessBarChart } from './dashboard/HarnessBarChart'
+import { IntentTopicsCard } from './dashboard/IntentTopicsCard'
 import { KpiTiles } from './dashboard/KpiTiles'
 import { mcpDashboardCardsLogic } from './dashboard/mcpDashboardCardsLogic'
 import { ModelBarChart } from './dashboard/ModelBarChart'
@@ -35,6 +36,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         users,
         usersLoading,
         intentClusterCount,
+        intentTopics,
+        intentTopicsLoading,
         notableSessions,
         sessionRowsLoading,
         harnessRows,
@@ -68,6 +71,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const theme = useChartTheme()
 
     const showKpis = isCardVisible('kpis')
+    const showIntentTopics = isCardVisible('intent-topics') && !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]
     const showActivity = isCardVisible('activity')
     const showToolUsage = isCardVisible('tool-usage')
     const showHarness = isCardVisible('harness')
@@ -78,7 +82,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const showRecentActivity = isCardVisible('recent-activity')
     const showUsage = showActivity || showToolUsage || showHarness || showModel || showProtocolVersion
     const showReliability = showToolErrors || showNotableSessions
-    const showsNoCards = !(showKpis || showUsage || showReliability || showRecentActivity)
+    const showsNoCards = !(showKpis || showIntentTopics || showUsage || showReliability || showRecentActivity)
 
     return (
         <div className="@container/mcp-overview flex min-w-0 flex-col gap-6">
@@ -152,6 +156,11 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                         interval={interval}
                         incompleteTail={kpiIncompleteTail}
                     />
+                </section>
+            )}
+            {showIntentTopics && (
+                <section className="flex min-w-0 flex-col gap-4" data-quill>
+                    <IntentTopicsCard topics={intentTopics} loading={intentTopicsLoading} />
                 </section>
             )}
             {showUsage && (

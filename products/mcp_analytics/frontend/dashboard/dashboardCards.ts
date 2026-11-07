@@ -1,5 +1,6 @@
 export type McpDashboardCardId =
     | 'kpis'
+    | 'intent-topics'
     | 'activity'
     | 'tool-usage'
     | 'harness'
@@ -12,6 +13,7 @@ export type McpDashboardCardId =
 // A Record so a new card id fails to compile until it has a label. Key order is menu order.
 const CARD_LABELS: Record<McpDashboardCardId, string> = {
     kpis: 'Key metrics',
+    'intent-topics': 'What agents use your server for',
     activity: 'Tool calls and errors',
     'tool-usage': 'Tool call breakdown',
     harness: 'Share of calls by harness',
