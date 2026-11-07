@@ -13,6 +13,7 @@ import { accountViewsLogic } from './accountViewsLogic'
 interface AccountViewTileProps {
     view: AccountViewApi
     component: AccountViewComponentInstance
+    instanceId: string
     componentCount: number
     projectId: number
     accountId: string
@@ -23,6 +24,7 @@ interface AccountViewTileProps {
 export function AccountViewTile({
     view,
     component,
+    instanceId,
     componentCount,
     projectId,
     accountId,
@@ -30,7 +32,7 @@ export function AccountViewTile({
     spanClassName,
 }: AccountViewTileProps): JSX.Element {
     const logic = accountViewsLogic({ projectId })
-    const { tileSaving, tileConfigReloads } = useValues(logic)
+    const { tileSaving } = useValues(logic)
     const { openTileEditor, removeViewComponent, updateViewComponentConfig } = useActions(logic)
     const title = component.title ?? getAccountViewComponentByKind(component.kind)?.label ?? component.kind
     // Match the sidebar's property inset.
@@ -106,7 +108,7 @@ export function AccountViewTile({
                     accountId={accountId}
                     projectId={projectId}
                     externalId={externalId}
-                    instanceId={`${component.nodeId}:${tileConfigReloads[view.id] ?? 0}`}
+                    instanceId={instanceId}
                     initialConfig={component.config}
                     onConfigChange={
                         view.can_edit
