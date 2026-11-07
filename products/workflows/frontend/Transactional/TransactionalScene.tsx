@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
@@ -8,7 +8,6 @@ import { Button } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -18,17 +17,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
-import { MessagingSetup } from '../MessagingSetup'
 import { MessagingTabActions } from '../MessagingTabActions'
-import { MESSAGING_TAB_CONTENT, isMessagingSetupTab } from '../messagingTabs'
-import { comingSoonInterestLogic } from './comingSoon/comingSoonInterestLogic'
-import { ComingSoonInterestTag } from './comingSoon/ComingSoonInterestTag'
-import { SmtpInterestModal } from './comingSoon/SmtpInterestModal'
-import { SMTP_INTEREST_SURVEY } from './comingSoon/smtpInterestSurvey'
-import { TransactionalEmailLog } from './log/TransactionalEmailLog'
-import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
-import { TransactionalEmailsTable } from './TransactionalEmailsTable'
-import { TransactionalRoute, TransactionalTab, transactionalRouteFor } from './transactionalRoute'
+import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
+import { TransactionalTabs } from './TransactionalTabs'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
 
 export const scene: SceneExport = {
@@ -38,8 +29,6 @@ export const scene: SceneExport = {
 
 export function TransactionalScene(): JSX.Element {
     const { location } = useValues(router)
-    const { hasRecordedInterest } = useValues(comingSoonInterestLogic(SMTP_INTEREST_SURVEY))
-    const { registerInterest } = useActions(comingSoonInterestLogic(SMTP_INTEREST_SURVEY))
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     // Leaving for another scene changes the URL before that scene has loaded, so this one keeps showing its last view.
@@ -94,67 +83,7 @@ export function TransactionalScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            <LemonTabs<TransactionalTab | 'library' | 'messaging-setup' | 'smtp'>
-                activeKey={isTransactionalTab || currentTab === 'library' ? currentTab : 'messaging-setup'}
-                onChange={(key) => {
-                    // No SMTP page exists yet, so this tab asks for interest and the current tab stays selected.
-                    if (key === 'smtp') {
-                        registerInterest()
-                    }
-                }}
-                tabs={[
-                    {
-                        label: 'Transactional emails',
-                        key: 'transactional',
-                        link: urls.transactional(),
-                        content: <TransactionalEmailsTable />,
-                    },
-                    {
-                        label: 'Log',
-                        key: 'log',
-                        link: urls.transactionalLog(),
-                        content: <TransactionalEmailLog />,
-                    },
-                    {
-                        label: 'Metrics',
-                        key: 'metrics',
-                        link: urls.transactionalMetrics(),
-                        content: <TransactionalEmailMetrics />,
-                    },
-                    {
-                        label: 'Templates',
-                        key: 'library',
-                        link: urls.transactional('library'),
-                        content: MESSAGING_TAB_CONTENT.library,
-                    },
-                    {
-                        label: 'Messaging',
-                        key: 'messaging-setup',
-                        link: urls.transactional('channels'),
-                        content: (
-                            <MessagingSetup
-                                tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
-                                linkFor={(tab) => urls.transactional(tab)}
-                            />
-                        ),
-                    },
-                    {
-                        label: (
-                            <>
-                                SMTP
-                                <ComingSoonInterestTag hasRecordedInterest={hasRecordedInterest} />
-                            </>
-                        ),
-                        key: 'smtp',
-                        tooltip: hasRecordedInterest
-                            ? 'You told us you want SMTP. Click to add or change your note.'
-                            : 'Coming soon: send email through PostHog from any app or tool that supports SMTP, with no code changes. Click to tell us you want this.',
-                        'data-attr': 'transactional-smtp-coming-soon',
-                    },
-                ]}
-                sceneInset
-            />
-            <SmtpInterestModal />
+            <TransactionalTabs currentTab={currentTab} />
         </SceneContent>
     )
 }

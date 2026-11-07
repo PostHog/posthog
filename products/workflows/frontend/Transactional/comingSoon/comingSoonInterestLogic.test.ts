@@ -89,6 +89,25 @@ describe('comingSoonInterestLogic', () => {
         expect(surveySent()[0].$survey_submission_id).toBe(MOCK_DEFAULT_USER.uuid)
     })
 
+    it("hides the last account's interest and note from the next account on the same browser", () => {
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        logic.actions.registerInterest()
+        logic.actions.setNote('Private draft')
+        logic.unmount()
+        initKeaTests()
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'another-account' })
+
+        logic = comingSoonInterestLogic(SURVEY)
+        logic.mount()
+
+        expect(logic.values.note).toBe('')
+        expect(logic.values.hasRecordedInterest).toBe(false)
+        logic.actions.registerInterest()
+        expect(surveySent()[1].$survey_submission_id).toBe('another-account')
+    })
+
     it('does not send a blank note', () => {
         logic.actions.registerInterest()
         logic.actions.setNote('   ')
