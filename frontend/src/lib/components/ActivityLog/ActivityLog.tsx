@@ -22,9 +22,34 @@ import { ActivityLogRow } from './ActivityLogRow'
 export type ActivityLogProps = ActivityLogLogicProps & {
     startingPage?: number
     caption?: string | JSX.Element
+    /** Replaces the default empty state copy, e.g. to point to the tab that lists runs */
+    emptyState?: ActivityLogEmptyState
 }
 
-const Empty = ({ scope }: { scope: string | string[] }): JSX.Element => {
+export type ActivityLogEmptyState = {
+    description: string
+    action?: JSX.Element
+}
+
+const Empty = ({
+    scope,
+    emptyState,
+}: {
+    scope: string | string[]
+    emptyState?: ActivityLogEmptyState
+}): JSX.Element => {
+    if (emptyState) {
+        return (
+            <ProductIntroduction
+                thingName="history record"
+                titleOverride="No history records yet"
+                description={emptyState.description}
+                actionElementOverride={emptyState.action}
+                isEmpty={true}
+            />
+        )
+    }
+
     const noun = (Array.isArray(scope) ? scope[0] : scope)
         .replace(/([A-Z])/g, ' $1')
         .trim()
@@ -62,7 +87,13 @@ const Loading = (): JSX.Element => {
     )
 }
 
-export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
+export const ActivityLog = ({
+    scope,
+    id,
+    caption,
+    startingPage = 1,
+    emptyState,
+}: ActivityLogProps): JSX.Element | null => {
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -80,13 +111,19 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
                 featureDetail="activity-log"
                 overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
             >
-                <ActivityLogContents scope={scope} id={id} caption={caption} startingPage={startingPage} />
+                <ActivityLogContents
+                    scope={scope}
+                    id={id}
+                    caption={caption}
+                    startingPage={startingPage}
+                    emptyState={emptyState}
+                />
             </PayGateMini>
         </div>
     )
 }
 
-const ActivityLogContents = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element => {
+const ActivityLogContents = ({ scope, id, caption, startingPage = 1, emptyState }: ActivityLogProps): JSX.Element => {
     const logic = activityLogLogic({ scope, id, caption, startingPage })
     const { humanizedActivity, activityLoading, pagination, highlightedActivityId } = useValues(logic)
 
@@ -97,7 +134,7 @@ const ActivityLogContents = ({ scope, id, caption, startingPage = 1 }: ActivityL
     }
 
     if (humanizedActivity.length === 0) {
-        return <Empty scope={scope} />
+        return <Empty scope={scope} emptyState={emptyState} />
     }
 
     return (
