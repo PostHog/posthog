@@ -56,11 +56,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         useActions(mcpDashboardOverviewLogic)
     const {
         facets,
-        facetsLoading,
         reliabilityRows,
-        reliabilityRowsLoading,
         reliabilityFailed,
-        leaderboardLoading,
         scoreboardMetric,
         scoreboardShares,
         leaderboardModelRows,
@@ -77,6 +74,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const theme = useChartTheme()
 
     const failedFacet = (...keys: FacetKey[]): boolean => keys.some((key) => facets.failedFacets.includes(key))
+    const loadingFacet = (...keys: FacetKey[]): boolean =>
+        keys.some((key) => loadingSections[key as MCPDashboardSection])
 
     const pageModelColors = useMemo(() => modelColors(theme, pageModels), [theme, pageModels])
     const modelColorOf = useCallback((label: string) => pageModelColors.get(label), [pageModelColors])
@@ -109,7 +108,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 pageKey="mcp-dashboard-overview"
                 dataAttrPrefix="mcp-dashboard"
                 onRefresh={reloadAll}
-                refreshing={dashboardLoading || leaderboardLoading}
+                refreshing={dashboardLoading}
             >
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
@@ -153,7 +152,11 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
             <Section title="Models">
                 <LabScoreboard
                     shares={scoreboardShares}
-                    loading={facetsLoading}
+                    loading={
+                        scoreboardMetric === 'calls'
+                            ? loadingFacet('model')
+                            : loadingFacet('labUsers', 'namedModelUsers')
+                    }
                     failed={
                         scoreboardMetric === 'calls' ? failedFacet('model') : failedFacet('labUsers', 'namedModelUsers')
                     }
@@ -165,14 +168,14 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Model share of calls over time"
                         labels={dailyActivity.labels}
                         series={modelSeries}
-                        loading={facetsLoading}
+                        loading={loadingFacet('model')}
                         failed={failedFacet('model')}
                         theme={theme}
                         timezone={timezone}
                         interval={interval}
                         colorOf={modelColorOf}
                     />
-                    {leaderboardModelRows.length === 0 && (facetsLoading || loadingSections.modelRows) ? (
+                    {leaderboardModelRows.length === 0 && (loadingFacet('model') || loadingSections.modelRows) ? (
                         <Card title="Share of calls by model" className="min-w-0">
                             <Skeleton className="h-48 w-full" />
                         </Card>
@@ -192,7 +195,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="AI lab share of calls over time"
                         labels={dailyActivity.labels}
                         series={labSeries}
-                        loading={facetsLoading}
+                        loading={loadingFacet('model')}
                         failed={failedFacet('model')}
                         theme={theme}
                         timezone={timezone}
@@ -215,7 +218,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     title="Protocol version share of calls over time"
                     labels={dailyActivity.labels}
                     series={protocolVersionSeries}
-                    loading={facetsLoading}
+                    loading={loadingFacet('protocolVersion')}
                     failed={failedFacet('protocolVersion')}
                     theme={theme}
                     timezone={timezone}
@@ -228,7 +231,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 <FacetShareCard
                     title="Most called tools"
                     rows={facets.tool}
-                    loading={facetsLoading}
+                    loading={loadingFacet('tool')}
                     failed={failedFacet('tool')}
                     theme={theme}
                 />
@@ -240,7 +243,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Error rate"
                         labels={reliabilitySeries.labels}
                         lines={errorRateLines}
-                        loading={reliabilityRowsLoading}
+                        loading={!!loadingSections.reliability}
                         isEmpty={reliabilityUnavailable}
                         failed={reliabilityFailed}
                         theme={theme}
@@ -252,7 +255,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Latency"
                         labels={reliabilitySeries.labels}
                         lines={latencyLines}
-                        loading={reliabilityRowsLoading}
+                        loading={!!loadingSections.reliability}
                         isEmpty={reliabilityUnavailable}
                         failed={reliabilityFailed}
                         theme={theme}
@@ -274,7 +277,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     <FacetShareCard
                         title="Why calls fail"
                         rows={facets.errorType}
-                        loading={facetsLoading}
+                        loading={loadingFacet('errorType')}
                         failed={failedFacet('errorType')}
                         theme={theme}
                     />
