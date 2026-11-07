@@ -309,23 +309,33 @@ class TestSandboxTenantStateSync(BaseTest):
 
     @parameterized.expand(
         [
-            ("held_by_another_sync", LockNotAvailable("could not obtain lock"), "busy"),
-            ("database_unreachable", PsycopgOperationalError("connection refused"), "error"),
+            ("held_by_another_sync", "lock", LockNotAvailable("could not obtain lock"), "busy"),
+            ("database_unreachable", "lock", PsycopgOperationalError("connection refused"), "error"),
+            (
+                "database_unreachable_before_the_row_exists",
+                "create",
+                PsycopgOperationalError("connection refused"),
+                "error",
+            ),
         ]
     )
     def test_a_sync_that_cannot_lock_the_state_row_is_counted_and_raised(
-        self, _name: str, cause: Exception, kind: str
+        self, _name: str, failing_query: str, cause: Exception, kind: str
     ) -> None:
-        def get(**_kwargs: object) -> None:
+        def fail(**_kwargs: object) -> None:
             raise OperationalError(str(cause)) from cause
 
         failures = _sync_failures(kind)
 
         with (
+            patch.object(SandboxSenderTenantState.objects, "get_or_create") as get_or_create,
             patch.object(SandboxSenderTenantState.objects, "select_for_update") as select_for_update,
             self.assertRaises(OperationalError),
         ):
-            select_for_update.return_value.get.side_effect = get
+            if failing_query == "create":
+                get_or_create.side_effect = fail
+            else:
+                select_for_update.return_value.get.side_effect = fail
             sync_sandbox_tenant_state_task()
 
         assert _sync_failures(kind) == failures + 1
