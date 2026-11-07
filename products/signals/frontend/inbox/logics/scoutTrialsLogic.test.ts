@@ -1,11 +1,13 @@
 jest.unmock('lib/utils/concurrencyController')
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { promiseResolveReject } from 'lib/utils/async'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -707,6 +709,35 @@ describe('scoutTrialsLogic', () => {
         expect(logic.values.trialView).toBe('detail')
     })
 
+    it('opens the trial and run in the URL, including a trial this browser has not loaded, and keeps the URL in step', async () => {
+        const scout = trialFixtureConfig.skill_name
+        const trial = trialFixtureServerComparison.comparison_id
+        const run = trialFixtureServerComparison.variants[1].launch_ids[0]
+        jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
+        logic.unmount()
+        router.actions.push(urls.inboxScoutTrials(), { scout, trial, run })
+
+        logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(logic.values.trialView).toBe('detail')
+        expect(logic.values.selectedComparison?.id).toBe(trial)
+        expect(logic.values.selectedLaunchId).toBe(run)
+        expect(router.values.searchParams).toEqual({ scout, trial, run })
+
+        await expectLogic(logic, () => logic.actions.selectResult(null)).toFinishAllListeners()
+        expect(router.values.searchParams).toEqual({ scout, trial })
+        await expectLogic(logic, () => logic.actions.showTrialList()).toFinishAllListeners()
+        expect(router.values.searchParams).toEqual({ scout })
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.inboxScoutTrials(), { scout, trial })
+        }).toFinishAllListeners()
+        expect(logic.values.trialView).toBe('detail')
+        expect(logic.values.selectedComparison?.id).toBe(trial)
+    })
+
     it('keeps a trial visible if archiving fails, and does not archive an active trial', async () => {
         const comparisonId = trialFixtureServerComparison.comparison_id
         logic.actions.registerServerComparison({ ...trialFixtureServerComparison, status: 'running' })
@@ -1105,6 +1136,7 @@ describe('scoutTrialsLogic', () => {
         expect(stored).not.toContain(trialFixtureEvaluation.report!.summary)
         expect(stored).toContain(comparison!.id)
         logic.unmount()
+        router.actions.push(urls.inboxScoutTrials())
 
         logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
         await expectLogic(logic, () => {
@@ -1129,6 +1161,7 @@ describe('scoutTrialsLogic', () => {
             next_cursor: null,
             has_more: false,
         })
+        router.actions.push(urls.inboxScoutTrials())
         const otherUser = scoutTrialsLogic({ teamId: 2, userId: 43 })
         await expectLogic(otherUser, () => {
             otherUser.mount()
