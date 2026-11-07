@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment, Suspense, useMemo } from 'react'
 
-import { Button, SkeletonText } from '@posthog/quill'
+import { Button } from '@posthog/quill'
+import { PostHogErrorBoundary } from '@posthog/react'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
@@ -30,6 +30,7 @@ import type {
 
 import { todayAnalyticsLogic } from './todayAnalyticsLogic'
 import { TodayAnalyticsMetric } from './TodayAnalyticsMetric'
+import { TodayAnalyticsSidebarButton } from './TodayAnalyticsSidebarButton'
 import { TodayAnalyticsSidebarCustomize } from './TodayAnalyticsSidebarCustomize'
 import { SIDEBAR_ICONS, resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
 import { TodayPaneRow } from './TodayPaneRow'
@@ -58,8 +59,16 @@ function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
  * fills. The default layout is one more layout, so it draws the same way.
  */
 export function TodayAnalyticsSidebar(): JSX.Element {
-    const { fromPostHog, recentAnalytics, searchQuery, matchesSearch, isSectionOpen, sidebarLayout, sidebarFailed } =
-        useValues(todayAnalyticsLogic)
+    const {
+        fromPostHog,
+        recentAnalytics,
+        searchQuery,
+        matchesSearch,
+        isSectionOpen,
+        sidebarLayout,
+        sidebarFailed,
+        sidebarLoading,
+    } = useValues(todayAnalyticsLogic)
     const { toggleSection, setSearchQuery, loadSidebar } = useActions(todayAnalyticsLogic)
     const { pinnedAnalytics } = useValues(analyticsPinnedLogic)
     const { location, searchParams } = useValues(router)
@@ -223,20 +232,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 if (!target || !matchesSearch(target.label)) {
                     return []
                 }
-                return [
-                    <Button
-                        key={value}
-                        size="sm"
-                        variant={item.variant ?? 'outline'}
-                        nativeButton={false}
-                        render={<LinkPrimitive to={target.to} />}
-                        className="my-1 w-full justify-start"
-                        data-attr={`analytics-sidebar-${section.id}-button`}
-                    >
-                        {target.icon}
-                        <span className="truncate">{target.label}</span>
-                    </Button>,
-                ]
+                return [<TodayAnalyticsSidebarButton key={value} value={value} target={item} sectionId={section.id} />]
             }
             default:
                 return []
@@ -244,8 +240,8 @@ export function TodayAnalyticsSidebar(): JSX.Element {
     }
 
     // The first heading in the layout sits under the top rows, so it needs no line above it, even when it is hidden.
-    const firstHeadingId = sidebarLayout?.sections.find((section) => section.title)?.id
-    const sections = (sidebarLayout?.sections ?? [])
+    const firstHeadingId = sidebarLayout.sections.find((section) => section.title)?.id
+    const sections = sidebarLayout.sections
         .map((section) => ({ section, rows: section.items.flatMap((item, index) => itemRows(section, item, index)) }))
         .filter(({ rows }) => rows.length > 0)
 
@@ -257,23 +253,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 searchLabel="Search analytics"
                 dataAttr="analytics-sidebar-search"
             >
-                {!sidebarLayout ? (
-                    sidebarFailed ? (
-                        <div className="flex flex-col items-start gap-1 px-2 py-1 text-sm text-muted-foreground">
-                            <span>Couldn’t load the Analytics sidebar.</span>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={loadSidebar}
-                                data-attr="analytics-sidebar-retry"
-                            >
-                                Try again
-                            </Button>
-                        </div>
-                    ) : (
-                        <SkeletonText lines={5} className="px-2 py-1" />
-                    )
-                ) : sections.length === 0 && searchQuery.trim() !== '' ? (
+                {sections.length === 0 && searchQuery.trim() !== '' ? (
                     <div className="px-2 py-1 text-sm text-muted-foreground">
                         Nothing in Analytics matches your search.
                     </div>
@@ -300,11 +280,27 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                         )
                     )
                 )}
-                <TodayAnalyticsSidebarCustomize />
             </TodayPaneSearchList>
-            <Suspense fallback={null}>
-                <AnalyticsSidebarAgentListener />
-            </Suspense>
+            {sidebarFailed && (
+                <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+                    <span>Couldn’t refresh the Analytics sidebar.</span>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        loading={sidebarLoading}
+                        onClick={loadSidebar}
+                        data-attr="analytics-sidebar-retry"
+                    >
+                        Try again
+                    </Button>
+                </div>
+            )}
+            <TodayAnalyticsSidebarCustomize />
+            <PostHogErrorBoundary fallback={<></>}>
+                <Suspense fallback={null}>
+                    <AnalyticsSidebarAgentListener />
+                </Suspense>
+            </PostHogErrorBoundary>
         </div>
     )
 }

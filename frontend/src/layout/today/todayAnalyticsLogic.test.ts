@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { fileSystemEntryToAnalytics } from 'scenes/analytics/analyticsUtils'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import defaultSidebarFixture from '~/mocks/fixtures/api/today_analytics_sidebar.json'
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -10,7 +11,12 @@ import { initKeaTests } from '~/test/init'
 
 import type { AnalyticsSidebarApi } from 'products/today/frontend/generated/api.schemas'
 
-import { DEFAULT_COLLAPSED_SECTIONS, todayAnalyticsLogic } from './todayAnalyticsLogic'
+import {
+    DEFAULT_ANALYTICS_SIDEBAR,
+    DEFAULT_COLLAPSED_SECTIONS,
+    selectShownSidebar,
+    todayAnalyticsLogic,
+} from './todayAnalyticsLogic'
 
 const CUSTOM_SIDEBAR: AnalyticsSidebarApi = {
     customized: true,
@@ -45,6 +51,41 @@ describe('todayAnalyticsLogic', () => {
         })
         initKeaTests()
         recentItemsModel.mount()
+    })
+
+    it.each([false, true])('shows the default while the first request is pending, failure=%s', async (fails) => {
+        let startRequest!: () => void
+        const requestStarted = new Promise<void>((resolve) => (startRequest = resolve))
+        let finishRequest!: () => void
+        const requestReleased = new Promise<void>((resolve) => (finishRequest = resolve))
+        useMocks({
+            get: {
+                '/api/projects/:team_id/today/analytics_sidebar/': async () => {
+                    startRequest()
+                    await requestReleased
+                    return fails ? [503, { detail: 'Unavailable' }] : [200, CUSTOM_SIDEBAR]
+                },
+            },
+        })
+        const logic = todayAnalyticsLogic()
+        logic.mount()
+        await requestStarted
+
+        expect(DEFAULT_ANALYTICS_SIDEBAR).toEqual(defaultSidebarFixture)
+        expect(logic.values.sidebarLayout).toEqual(DEFAULT_ANALYTICS_SIDEBAR.layout)
+        expect(logic.values.sidebarCustomized).toBe(false)
+
+        finishRequest()
+        await expectLogic(logic).toDispatchActions([fails ? 'loadSidebarFailure' : 'loadSidebarSuccess'])
+        expect(logic.values.sidebarFailed).toBe(fails)
+        expect(logic.values.sidebarLayout).toEqual(fails ? DEFAULT_ANALYTICS_SIDEBAR.layout : CUSTOM_SIDEBAR.layout)
+        expect(logic.values.sidebarCustomized).toBe(!fails)
+    })
+
+    it('prefers a server layout over a saved layout, and a saved layout over the default', () => {
+        expect(selectShownSidebar(null, null)).toEqual(DEFAULT_ANALYTICS_SIDEBAR)
+        expect(selectShownSidebar(null, CUSTOM_SIDEBAR)).toEqual(CUSTOM_SIDEBAR)
+        expect(selectShownSidebar(DEFAULT_SIDEBAR, CUSTOM_SIDEBAR)).toEqual(DEFAULT_SIDEBAR)
     })
 
     it('starts with every section open, and remembers a toggled section', () => {

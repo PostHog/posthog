@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
 import { IconGraph } from '@posthog/icons'
-import { Skeleton } from '@posthog/quill'
 import {
     Metric,
     MetricDelta,
@@ -12,7 +11,9 @@ import {
 } from '@posthog/quill-components/metric'
 
 import { useChartTheme } from 'lib/charts/hooks'
+import { METRIC_SHOW_CHANGE_DEFAULT } from 'lib/components/Metric/metricSummary'
 import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
@@ -35,14 +36,12 @@ export function TodayAnalyticsMetric({ item, value, active }: TodayAnalyticsMetr
         todayAnalyticsMetricLogic({ shortId: item.insight })
     )
     const theme = useChartTheme()
+    const { baseCurrency } = useValues(teamLogic)
     const to = urls.insightView(item.insight as InsightShortId)
 
-    if (insightLoading && !insight) {
-        return <Skeleton className="h-16 w-full" />
-    }
     if (!metric) {
         // A missing insight and one without a number still open the insight, whose page says why.
-        const meta = loadFailed ? 'Couldn’t load' : !insight ? 'Not found' : undefined
+        const meta = loadFailed ? 'Couldn’t load' : insightLoading ? undefined : !insight ? 'Not found' : undefined
         return (
             <TodayPaneRow
                 value={value}
@@ -66,10 +65,12 @@ export function TodayAnalyticsMetric({ item, value, active }: TodayAnalyticsMetr
         >
             <Metric
                 value={metric.value}
+                change={metric.change}
+                showChange={metric.trendsFilter?.metricShowChange ?? METRIC_SHOW_CHANGE_DEFAULT}
                 data={metric.data}
                 labels={metric.labels}
                 theme={theme}
-                formatValue={(number) => formatAggregationAxisValue(metric.trendsFilter, number)}
+                formatValue={(number) => formatAggregationAxisValue(metric.trendsFilter, number, baseCurrency)}
                 sparklineHeight={24}
                 className="w-full px-0"
             >
