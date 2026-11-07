@@ -12,7 +12,7 @@ export const GITHUB_ACTIONS: WorkloadProvider = {
     fetchToken: (runtime, audience) => fetchActionsIdToken(runtime, audience, NAME),
     missingTokenHint:
         'Add `permissions: id-token: write` to the job, so GitHub Actions issues it an OIDC token. Run `hog ci setup` on your machine for the full snippet.',
-    configPaths: ['.github/workflows'],
+    configPath: '.github/workflows',
     nameFromRemote: (remote) =>
         remote.match(
             /^(?:[a-z+]+:\/\/(?:[^@/]*@)?github\.com(?::\d+)?\/|(?:[^@:/]+@)?github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i
