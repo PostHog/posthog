@@ -84863,12 +84863,12 @@ export namespace Schemas {
     }
 
     /**
-     * Map of hog function UUIDs to their new execution_order values.
+     * Map of hog function UUIDs to their new execution_order values, from 0 to 32767.
      */
     export type PatchedHogFunctionRearrangeOrders = {[key: string]: number};
 
     export interface PatchedHogFunctionRearrange {
-      /** Map of hog function UUIDs to their new execution_order values. */
+      /** Map of hog function UUIDs to their new execution_order values, from 0 to 32767. */
       orders?: PatchedHogFunctionRearrangeOrders;
     }
 
