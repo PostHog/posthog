@@ -537,6 +537,17 @@ class TestSecretHosts(SimpleTestCase):
                 {"token": UNBOUND},
             ),
             (
+                "secret_inside_a_date_input_compared_by_an_input_template",
+                "fetch('https://api.example.com', {'body': inputs.token, 'soon': inputs.note})",
+                _inputs(
+                    note="{inputs.when between 1 and 2}",
+                    when={"__hogDate__": True, "year": "{inputs.token}", "month": 1, "day": 1},
+                    token="t",
+                ),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
                 "secret_compared_inside_a_date_built_in_code",
                 "let d := {'__hogDate__': true, 'year': inputs.token, 'month': 1, 'day': 1}\nlet same := d == 'x'",
                 _inputs(token="t"),
