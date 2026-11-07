@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useLayoutEffect, useRef } from 'react'
+import { useId, useLayoutEffect, useRef } from 'react'
 
 import { Skeleton, Text } from '@posthog/quill'
 
 import { TodayExplore } from './TodayExplore'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
+import { TodayHomeHeading } from './TodayHomeHeading'
 import { reportIdFromPath, todayLogic } from './todayLogic'
 import { TodayPulse } from './TodayPulse'
 import { TodayPulseEditor } from './TodayPulseEditor'
@@ -65,6 +66,7 @@ export function TodayHomePage(): JSX.Element {
     } = useValues(todayHighlightsLogic)
     const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
+    const pulseTitleId = useId()
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)
@@ -110,6 +112,16 @@ export function TodayHomePage(): JSX.Element {
         setReturnFocusReportId(null)
     }, [returnFocusReportId, setReturnFocusReportId])
 
+    const pulseContent = pulsePending ? (
+        <TodayPulseSkeleton />
+    ) : highlights && pulseSlots?.length > 0 ? (
+        <TodayPulse metrics={pulseTiles} slots={pulseSlots} />
+    ) : highlights?.status === 'ready' ? (
+        <Text size="sm" variant="muted" render={<p />} className="m-0">
+            Key numbers show here when you or your team open a few trend insights.
+        </Text>
+    ) : null
+
     return (
         <div ref={rootRef} className="TodayHome Today__page" data-quill>
             <TodaySampleBanner />
@@ -119,20 +131,17 @@ export function TodayHomePage(): JSX.Element {
                         {greeting}
                     </Text>
                 </div>
-                <div className="TodayHome__metaRow">
-                    <TodayMetaLine />
-                    {!pulsePending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
-                </div>
+                <TodayMetaLine />
             </section>
             <div className="TodayHome__body">
-                {pulsePending ? (
-                    <TodayPulseSkeleton />
-                ) : highlights && pulseSlots?.length > 0 ? (
-                    <TodayPulse metrics={pulseTiles} slots={pulseSlots} />
-                ) : highlights?.status === 'ready' ? (
-                    <Text size="sm" variant="muted" render={<p />} className="m-0">
-                        Key numbers show here when you or your team open a few trend insights.
-                    </Text>
+                {pulseContent ? (
+                    <section className="TodayHome__list" aria-labelledby={pulseTitleId}>
+                        <div className="TodayHome__headingRow">
+                            <TodayHomeHeading id={pulseTitleId}>At a glance</TodayHomeHeading>
+                            {!pulsePending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
+                        </div>
+                        {pulseContent}
+                    </section>
                 ) : null}
                 {isNewProject && recentObjects.length === 0 ? <TodayExplore /> : <TodayRecents />}
                 <TodayForYou />

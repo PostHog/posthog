@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconPencil, IconSearch } from '@posthog/icons'
+import { IconSearch } from '@posthog/icons'
 import {
-    Button,
     Combobox,
     ComboboxCollection,
     ComboboxContent,
@@ -17,7 +16,6 @@ import {
     ComboboxTrigger,
     InputGroupAddon,
     Text,
-    cn,
 } from '@posthog/quill'
 
 import type { PulsePinApi } from 'products/today/frontend/generated/api.schemas'
@@ -129,15 +127,14 @@ export function TodayPulseEditor(): JSX.Element {
             <ComboboxTrigger
                 ref={triggerRef}
                 render={
-                    <Button
-                        size="sm"
-                        className={cn('TodayPulse__edit', pulseSlots.length === 0 && 'TodayPulse__edit--shown')}
+                    <button
+                        type="button"
+                        className="TodayHome__headingLink"
                         aria-label="Edit numbers"
                         data-attr="today-pulse-edit"
                     >
-                        <IconPencil />
                         Edit
-                    </Button>
+                    </button>
                 }
             />
             <ComboboxContent
