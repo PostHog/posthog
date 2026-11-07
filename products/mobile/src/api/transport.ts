@@ -41,13 +41,15 @@ export async function requestWithDeadline<T>(
     let onAbort: () => void = () => undefined
     const cancelled = new Promise<never>((_resolve, reject) => {
         onAbort = () => {
-            reject(abortError())
-            controller.abort()
+            const error = abortError()
+            reject(error)
+            controller.abort(error)
         }
         caller?.addEventListener('abort', onAbort, { once: true })
         timer = setTimeout(() => {
-            reject(new RequestTimeoutError())
-            controller.abort()
+            const error = new RequestTimeoutError()
+            reject(error)
+            controller.abort(error)
         }, timeoutMs)
     })
     try {

@@ -2,6 +2,7 @@ import { fetch as streamingFetch } from 'expo/fetch'
 
 import { abortError } from '@/lib/abort'
 import { withAppReloadBlocked } from '@/lib/appReload'
+import { instrumentApiRequest } from '@/lib/mobileTelemetry'
 import { isRecord } from '@/lib/records'
 
 import { BudgetExceededError, type BudgetFamily, budgetFamilyFor, trySpend } from './budget'
@@ -174,12 +175,21 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         throw new BudgetExceededError(family)
     }
     const sent = auth.accessToken as string
+    const method = init.method ?? 'GET'
     const fetchResponse = (token: string): Promise<Response> => {
         if (init.signal?.aborted) {
             throw abortError()
         }
         const options = buildInit(init, token, accept)
-        return transport(() => fetcher(url, options))
+        return transport(() =>
+            instrumentApiRequest(
+                path,
+                method,
+                (traceparent) =>
+                    fetcher(url, traceparent ? { ...options, headers: { ...options.headers, traceparent } } : options),
+                options.signal
+            )
+        )
     }
     let response = await fetchResponse(sent)
     if (init.signal?.aborted) {
