@@ -255,9 +255,9 @@ class GitHubRecorder:
                 200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}, "files": self.compare_files}
             )
         if method == "GET" and _CHECK_RUNS_RE.match(path):
-            return FakeResponse(
-                200, json_data={"check_runs": self.check_runs if int(params.get("page", 1)) == 1 else []}
-            )
+            page = int(params.get("page", 1))
+            named = [run for run in self.check_runs if params.get("check_name") in (None, run.get("name"))]
+            return FakeResponse(200, json_data={"check_runs": named if page == 1 else []})
         if method == "GET" and (m := _COLLABORATOR_PERMISSION_RE.match(path)):
             permission = self.collaborator_permissions.get((m.group("repo"), m.group("username")), "write")
             return FakeResponse(200, json_data={"permission": permission})

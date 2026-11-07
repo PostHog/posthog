@@ -30,6 +30,8 @@ from products.stamphog.backend.temporal.constants import (
     SANDBOX_DESTROY_TIMEOUT,
     SANDBOX_RETRY_POLICY,
     SANDBOX_START_TIMEOUT,
+    STAMPHOG_ATTESTATION_MAX_POLLS,
+    STAMPHOG_ATTESTATION_POLL_SECONDS,
     STAMPHOG_BOT_REVIEW_MAX_POLLS,
     STAMPHOG_BOT_REVIEW_POLL_SECONDS,
 )
@@ -45,6 +47,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         fetch_review_context,
         list_in_flight_reviewer_bots,
         mark_review_failed,
+        poll_pending_attestations,
         post_verdict,
         refresh_review_evidence,
         refuse_on_pre_gates,
@@ -202,6 +205,12 @@ class StamphogReviewWorkflow(PostHogWorkflow):
             if refused_on_pre_gates and sandbox_start is not None:
                 # After the verdict, so a pre-check verdict posts without waiting for the clone.
                 await self._discard_sandbox(input, sandbox_start, sandbox_checkout)
+            # The review destroyed its sandbox, or the branch above did, so a cancellation while
+            # the poll waits has none to tear down.
+            sandbox_start = None
+            # The patch comes first, so a history from before it never reads the new result key.
+            if workflow.patched("stamphog-attestation-poll") and result.get("waits_on_attestations"):
+                await self._poll_pending_attestations(input)
             return {"status": "completed", "verdict": result["verdict"]}
         except asyncio.CancelledError:
             # A cancelled workflow still owns its sandbox, and CancelledError is not an Exception.
@@ -228,6 +237,24 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 if sandbox_start is not None:
                     await self._discard_sandbox(input, sandbox_start, sandbox_checkout)
             raise
+
+    async def _poll_pending_attestations(self, input: StamphogReviewInput) -> None:
+        for _ in range(STAMPHOG_ATTESTATION_MAX_POLLS):
+            await asyncio.sleep(STAMPHOG_ATTESTATION_POLL_SECONDS)
+            try:
+                poll = await workflow.execute_activity(
+                    poll_pending_attestations,
+                    input,
+                    start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
+                    retry_policy=ACTIVITY_RETRY_POLICY,
+                )
+            except ActivityError:
+                # The verdict is already posted, so a failed poll must not fail the run. A GitHub outage
+                # can outlast one poll's retries, so the next timer polls again within the budget.
+                workflow.logger.warning(f"stamphog attestation poll failed for run {input.review_run_id}")
+                continue
+            if poll["done"]:
+                return
 
     async def _check_out_sandbox(
         self, input: StamphogReviewInput, sandbox_start: asyncio.Future[dict]

@@ -156,6 +156,12 @@ _AUTHOR_PERMISSION_DENY_CACHE_SECONDS = 10 * 60
 
 _REREVIEW_MAX_RETRIES = 4
 _REREVIEW_RETRY_BASE_SECONDS = 30
+# Re-reviews queued at one head because a WAIT finished waiting. A WAIT that keeps coming back at
+# the same head stops here instead of looping until the next push.
+_MAX_REREVIEWS_PER_HEAD = 5
+
+# A WAIT the engine reached (COMPLETED) or the gates reached (GATED), which a later event can wake.
+WAKEABLE_WAIT_STATUSES = (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED)
 
 
 # Anchored to the canonical host so a lookalike ("fakegithub.com", a github.com path segment on
@@ -1553,7 +1559,7 @@ def _queue_review_at_head(
             .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
         )
         if revisit_wait:
-            covering_runs = covering_runs.exclude(status=ReviewRunStatus.COMPLETED, verdict=ReviewVerdict.WAIT)
+            covering_runs = covering_runs.exclude(status__in=WAKEABLE_WAIT_STATUSES, verdict=ReviewVerdict.WAIT)
         existing = covering_runs.order_by("-created_at").first()
         # A retarget changes the diff without moving the head, and in label mode no webhook run
         # replaces the old verdict. A run that reviewed another base branch does not cover this one.
@@ -1822,8 +1828,37 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     return QueuedReview(run=queued.run, created=queued.created)
 
 
+def pending_attestation_names(run: ReviewRun) -> set[str]:
+    """The attestations this run's WAIT waits on, as its gates recorded them.
+
+    Every gate refusal is also saved as a GATED WAIT, so the engine's own verdict decides.
+    """
+    gate_result = run.gate_result or {}
+    if run.status not in WAKEABLE_WAIT_STATUSES or gate_result.get("final_verdict") != "WAIT":
+        return set()
+    classification = gate_result.get("classification") or {}
+    return {
+        item["name"]
+        for item in classification.get("pending_attestations") or []
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+
+
+def _rereviews_at_head(run: ReviewRun) -> int:
+    return (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request_id=run.pull_request_id, head_sha=run.head_sha, output__rereview_after_external_review=True)
+        .count()
+    )
+
+
 def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> None:
-    """Queue a new review when this PR's latest verdict is a WAIT at ``head_sha`` that is still the PR head."""
+    """Queue a new review when this PR's latest verdict is a WAIT at ``head_sha`` that is still the PR head.
+
+    The caller has checked that what the WAIT waited on has finished. A WAIT that the gates decided
+    on an attestation has the GATED status, not COMPLETED.
+    """
     team_id = repo_config.team_id
     latest = (
         ReviewRun.objects.for_team(team_id)
@@ -1835,12 +1870,18 @@ def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_
     if latest is None or latest.head_sha != head_sha:
         return
     previous_output = latest.output or {}
-    # Only an engine WAIT can change when another reviewer finishes. A GATED WAIT waits on a check.
-    waiting = latest.status == ReviewRunStatus.COMPLETED and latest.verdict == ReviewVerdict.WAIT
+    waiting = (latest.status == ReviewRunStatus.COMPLETED and latest.verdict == ReviewVerdict.WAIT) or bool(
+        pending_attestation_names(latest)
+    )
     # A run that an earlier call queued and whose workflow start failed stays QUEUED. Queueing again
     # restarts its workflow, so a retry or a later call recovers it.
     stranded = latest.status == ReviewRunStatus.QUEUED and bool(previous_output.get("rereview_after_external_review"))
     if not (waiting or stranded):
+        return
+    if waiting and _rereviews_at_head(latest) >= _MAX_REREVIEWS_PER_HEAD:
+        logger.warning(
+            "stamphog_rereview_cap_reached", repository=repo_config.repository, pr_number=pr_number, team_id=team_id
+        )
         return
     # Inbox runs carry the self-driving carve-out, which only the inbox trigger paths may grant.
     if previous_output.get("inbox_review"):
@@ -1904,6 +1945,7 @@ def request_rereview_after_external_review(*, repository: str, pr_number: int, h
     Called by review_hog when a review turn ends, completed or failed. Stamphog decides whether
     anything happens: it re-reviews only a PR whose latest verdict is a WAIT at that head, while the
     head is still current. Any other call is a no-op, so a caller may call it for every turn.
+    The review workflow also calls it, once every attestation that its WAIT waited on has reported.
     """
     rereview_after_external_review.delay(repository=repository, pr_number=pr_number, head_sha=head_sha)
 
