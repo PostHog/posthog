@@ -43,7 +43,7 @@ describe("gateway models cache", () => {
         object: "list",
         data: [
           {
-            id: "claude-opus-4-8",
+            id: "claude-opus-5",
             owned_by: "anthropic",
             context_window: 200000,
             supports_streaming: true,
