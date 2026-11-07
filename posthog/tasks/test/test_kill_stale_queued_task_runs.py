@@ -279,8 +279,8 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         mock_capture.assert_called_once()
         run_a.refresh_from_db()
         run_b.refresh_from_db()
-        statuses = sorted([run_a.status, run_b.status])
-        self.assertEqual(statuses, sorted([TaskRun.Status.QUEUED, TaskRun.Status.FAILED]))
+        self.assertEqual([run_a.status, run_b.status], [TaskRun.Status.FAILED, TaskRun.Status.FAILED])
+        self.assertTrue(run_a.error_message and run_b.error_message)
 
     def test_skips_run_whose_status_changed_between_select_and_update(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
