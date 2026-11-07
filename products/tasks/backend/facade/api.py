@@ -2568,9 +2568,8 @@ def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None)
     run = TaskRun.objects.filter(
         pk=run_id, status=TaskRun.Status.QUEUED
     ).first()  # nosemgrep: celery-task-team-scope-audit
-    if run is None:
+    if run is None or not run.mark_failed(error, error_type=error_type, expected_status=TaskRun.Status.QUEUED):
         return False
-    run.mark_failed(error, error_type=error_type)
     run.task.soft_delete_if_unclaimed_prewarm(run)
     return True
 
