@@ -22,7 +22,7 @@ from products.messaging.backend.models.provider_import_run import ProviderImport
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.postmark_templates import convert_template, convert_text
-from products.messaging.backend.services.suppression import remove_suppression
+from products.messaging.backend.services.suppression import remove_suppressions
 from products.messaging.backend.tests.postmark_fake_server import FIXTURE, FakePostmark, start_server
 
 ALL_STEPS = ["streams", "suppressions", "templates", "domains", "webhooks"]
@@ -221,7 +221,7 @@ class TestPostmarkImport(BaseTest):
 
     def test_an_edit_in_posthog_survives_importing_again(self) -> None:
         self._run(["suppressions", "templates", "streams"])
-        remove_suppression(self.team.id, "gone@example.com")
+        remove_suppressions(self.team.id, ["gone@example.com"], confirm_complaints=False)
         edited = MessageTemplate.objects.get(team_id=self.team.id, key="receipt")
         edited.content = {"templating": "liquid", "email": {"subject": "Mine", "html": "<p>Mine</p>"}}
         edited.save()

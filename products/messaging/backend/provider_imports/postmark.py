@@ -243,14 +243,20 @@ def _translated_errors() -> Iterator[None]:
         raise ImportProviderUnavailable(str(e)) from e
 
 
-def _importable_servers(client: PostmarkClient) -> tuple[list[PostmarkServer], list[PostmarkServer]]:
+@frozen
+class _ServerSelection:
+    importable: list[PostmarkServer]
+    skipped: list[PostmarkServer]
+
+
+def _importable_servers(client: PostmarkClient) -> _ServerSelection:
     """The servers an import reads, and the ones it skips. A sandbox server never delivers, so its suppressions aren't
     real. Handing over that server's own token still imports it, because then someone picked it."""
     servers = client.servers()
     if client.kind == TokenKind.SERVER:
-        return servers, []
+        return _ServerSelection(importable=servers, skipped=[])
     importable = [server for server in servers if server.delivery_type != "Sandbox" and server.token]
-    return importable, [server for server in servers if server not in importable]
+    return _ServerSelection(importable=importable, skipped=[server for server in servers if server not in importable])
 
 
 def _sending_streams(client: PostmarkClient) -> list[dict[str, Any]]:
@@ -268,7 +274,8 @@ def _category_key(server_id: int, stream_id: str) -> str:
 def _fetch_streams(
     client: PostmarkClient, context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
-    importable, skipped = _importable_servers(client)
+    selection = _importable_servers(client)
+    importable, skipped = selection.importable, selection.skipped
     after = _after_server(checkpoint)
     remaining = [server for server in importable if server.id > after]
     if checkpoint is None and skipped:
@@ -404,7 +411,7 @@ def _dump_rows(client: PostmarkClient, stream_id: str) -> list[dict[str, Any]]:
 def _fetch_suppressions(
     client: PostmarkClient, context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
-    importable, _skipped = _importable_servers(client)
+    importable = _importable_servers(client).importable
     merged: dict[str, _Suppression] = {}
     invalid = 0
     for server in importable:
@@ -513,7 +520,7 @@ def _timestamp(value: str) -> datetime | None:
 def _fetch_templates(
     client: PostmarkClient, context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
-    importable, _skipped = _importable_servers(client)
+    importable = _importable_servers(client).importable
     start_server = int(checkpoint.get("server", 0)) if checkpoint else 0
     start_offset = int(checkpoint.get("offset", 0)) if checkpoint else 0
     remaining = [server for server in importable if server.id >= start_server]
@@ -611,11 +618,12 @@ def _save_templates(
     for template in templates:
         key, key_notes = _template_key(template)
         name = str(template.get("Name") or key)[:400]
-        chosen, key_note = _choose_key(key, server, taken)
-        if chosen is None:
+        choice = _choose_key(key, server, taken)
+        if choice.key is None:
             counts["already_present"] += 1
             items.append(ImportItem(label=name, status="skipped", notes=(f"A template with the key {key} exists.",)))
             continue
+        chosen, key_note = choice.key, choice.note
         taken[chosen] = {IMPORT_TAG, _server_tag(server)}
         layout = layouts.get(template["LayoutTemplate"]) if template.get("LayoutTemplate") else None
         converted = convert_template(template, layout)
@@ -650,17 +658,25 @@ def _save_templates(
     return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))
 
 
-def _choose_key(key: str, server: PostmarkServer, taken: dict[str, set[str]]) -> tuple[str | None, str | None]:
+@frozen
+class _KeyChoice:
+    key: str | None
+    note: str | None = None
+
+
+def _choose_key(key: str, server: PostmarkServer, taken: dict[str, set[str]]) -> _KeyChoice:
     """A Postmark alias is only unique within a server, so a second server with the same alias gets a longer key."""
     if key not in taken:
-        return key, None
+        return _KeyChoice(key=key)
     tags = taken[key]
     if IMPORT_TAG not in tags or _server_tag(server) in tags:
-        return None, None
+        return _KeyChoice(key=None)
     longer = f"{key}-{server.id}"[:400]
     if longer in taken:
-        return None, None
-    return longer, f"Another Postmark server has a template with the same alias, so the key is {longer}."
+        return _KeyChoice(key=None)
+    return _KeyChoice(
+        key=longer, note=f"Another Postmark server has a template with the same alias, so the key is {longer}."
+    )
 
 
 def _fetch_domains(
@@ -780,7 +796,7 @@ def _save_senders(context: ImportContext, signatures: list[dict[str, Any]]) -> S
 def _fetch_webhooks(
     client: PostmarkClient, context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
-    importable, _skipped = _importable_servers(client)
+    importable = _importable_servers(client).importable
     after = _after_server(checkpoint)
     remaining = [server for server in importable if server.id > after]
     for index, server in enumerate(remaining):
