@@ -1,3 +1,7 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product ui_customization
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product ui_customization
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: UI customization
 feature: ui_customization
 url_prefix: /home
