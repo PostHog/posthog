@@ -61,12 +61,14 @@ describe('featureFlagRequestUsageLogic', () => {
             series: [
                 {
                     id: expect.any(Number),
+                    key: 'posthog-ruby (remote)',
                     label: 'posthog-ruby (remote)',
                     dates: ['2026-08-20T00:00:00.000Z'],
                     data: [20],
                 },
                 {
                     id: expect.any(Number),
+                    key: 'posthog-ruby (local)',
                     label: 'posthog-ruby (local)',
                     dates: ['2026-08-20T00:00:00.000Z'],
                     data: [5],
@@ -105,6 +107,7 @@ describe('featureFlagRequestUsageLogic', () => {
             series: [
                 {
                     id: expect.any(Number),
+                    key: 'posthog-node (local)',
                     label: 'posthog-node (local)',
                     dates: ['2026-08-20T00:00:00.000Z'],
                     data: [100],
@@ -149,6 +152,7 @@ describe('featureFlagRequestUsageLogic', () => {
             series: [
                 {
                     id: expect.any(Number),
+                    key: 'posthog-node (remote)',
                     label: 'posthog-node (remote)',
                     dates: ['2026-08-20T00:00:00.000Z', '2026-08-20T01:00:00.000Z', '2026-08-20T02:00:00.000Z'],
                     data: [0, 20, 0],

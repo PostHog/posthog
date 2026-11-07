@@ -19,6 +19,7 @@ export const MAX_HOURLY_RANGE_DAYS = 8
 
 export interface FeatureFlagRequestUsageSeries {
     id: number
+    key: string
     label: string
     data: number[]
     dates: string[]
@@ -285,6 +286,7 @@ export const featureFlagRequestUsageLogic = kea<featureFlagRequestUsageLogicType
                 }
                 return Array.from(seriesByLabel.entries()).map(([label, values]) => ({
                     id: allLabels.indexOf(label),
+                    key: label,
                     label,
                     dates,
                     data: dates.map((date) => values.get(date) ?? 0),
