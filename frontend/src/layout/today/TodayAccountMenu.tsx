@@ -1,17 +1,6 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import { useEffect } from 'react'
 
-import {
-    IconArrowLeft,
-    IconDatabase,
-    IconLeave,
-    IconPeople,
-    IconServer,
-    IconShieldLock,
-    IconToggle,
-} from '@posthog/icons'
-import { lemonToast } from '@posthog/lemon-ui'
+import { IconDatabase, IconLeave, IconPeople, IconServer, IconShieldLock, IconToggle } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -24,10 +13,7 @@ import {
 } from '@posthog/quill'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
-import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -38,18 +24,6 @@ export function TodayAccountMenu(): JSX.Element {
     const { logout } = useActions(userLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
-    const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
-    const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
-    // The stage rides on the enrollment event, so the list loads before the person can click the switch.
-    useEffect(() => {
-        if (isAccountMenuOpen) {
-            loadEarlyAccessFeatures()
-        }
-    }, [isAccountMenuOpen, loadEarlyAccessFeatures])
-    const todayNavFeature = earlyAccessFeatures.find((feature) => feature.flagKey === FEATURE_FLAGS.TODAY_RAIL_NAV)
-    // Experiment cohorts must not see the other experience advertised, so the switch rides its own flag.
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showNavSwitch = !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV_SWITCH]
 
     return (
         <DropdownMenu open={isAccountMenuOpen} onOpenChange={setAccountMenuOpen}>
@@ -118,29 +92,6 @@ export function TodayAccountMenu(): JSX.Element {
                                 Experiments staff tools
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
-                    </>
-                )}
-                {showNavSwitch && (
-                    <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                            onClick={() => {
-                                // pinned: analytics event name and properties. The exit survey triggers on this event.
-                                posthog.capture('today nav switched off', { surface: 'account_menu' })
-                                updateEarlyAccessFeatureEnrollment(
-                                    FEATURE_FLAGS.TODAY_RAIL_NAV,
-                                    false,
-                                    todayNavFeature?.stage
-                                )
-                                lemonToast.success(
-                                    'You are back on the old navigation. Turn the new navigation on again from the account menu.'
-                                )
-                            }}
-                            data-attr="today-rail-switch-old-nav"
-                        >
-                            <IconArrowLeft />
-                            Switch to the old navigation
-                        </DropdownMenuItem>
                     </>
                 )}
                 <DropdownMenuSeparator />
