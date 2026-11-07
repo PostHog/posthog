@@ -1086,6 +1086,56 @@ export interface _MetricQueryCountsResponseApi {
     results: _MetricQueryCountApi[]
 }
 
+export interface MetricsRecordingRuleApi {
+    /** Recording rule id. */
+    readonly id: string
+    /**
+     * The metric the rule writes, in the level:metric:operations form, for example job:http_errors:rate5m. It must contain a colon and cannot change after create.
+     * @maxLength 200
+     */
+    metric_name: string
+    /**
+     * A PromQL expression over this project's metrics that returns an instant vector or a scalar. Each series it returns is written as one series of `metric_name`, with the same labels.
+     * @maxLength 8192
+     */
+    query: string
+    /** What the recorded metric means. */
+    description?: string
+    /** When false, the rule is kept but not evaluated. */
+    enabled?: boolean
+    /** When the rule was created. */
+    readonly created_at: string
+    /** When the rule was last changed. */
+    readonly updated_at: string
+    /**
+     * The minute the rule last wrote a result. Null until it first writes.
+     * @nullable
+     */
+    readonly last_evaluated_at: string | null
+    /**
+     * How many series the last result had.
+     * @nullable
+     */
+    readonly last_series_count: number | null
+    /**
+     * Why the last evaluation wrote nothing. Null when the last evaluation wrote a result.
+     * @nullable
+     */
+    readonly last_error: string | null
+}
+
+export interface PatchedMetricsRecordingRuleUpdateApi {
+    /**
+     * A new PromQL expression for the rule.
+     * @maxLength 8192
+     */
+    query?: string
+    /** What the recorded metric means. */
+    description?: string
+    /** When false, the rule is kept but not evaluated. */
+    enabled?: boolean
+}
+
 export interface _MetricSamplesBodyApi {
     /**
      * Exact metric name to list raw emissions for (e.g. 'http.server.duration'). Omit to list emissions across all metric names — allowed only with traceId (the trace->metrics pivot).
