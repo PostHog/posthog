@@ -3,6 +3,7 @@ import type { Host } from '@/posthog/host'
 import type { ProviderIdToken } from '@/posthog/tokens'
 
 import { GITHUB_ACTIONS } from './github-actions/github-actions'
+import { GITLAB } from './gitlab/gitlab'
 
 export type WorkloadConditions = Record<string, string>
 
@@ -20,7 +21,7 @@ export interface WorkloadProvider {
     nameFromRemote(remote: string): string | undefined
 }
 
-export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [GITHUB_ACTIONS]
+export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [GITHUB_ACTIONS, GITLAB]
 
 export function detectWorkloadProvider(
     env: Env,

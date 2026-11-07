@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.workload_identity.providers import GITHUB_ACTIONS, ConditionPreset, WorkloadClaim, WorkloadProvider
+from posthog.workload_identity.providers import GITHUB_ACTIONS, GITLAB, ConditionPreset, WorkloadClaim, WorkloadProvider
 from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_PROVIDER
 from posthog.workload_identity.trust_policy import validate_condition_companions
 
@@ -64,6 +64,9 @@ class TestRegistryConditionCompanions(SimpleTestCase):
                 {"ref": "refs/heads/main", "environment": "production"},
                 True,
             ),
+            ("gitlab_ref_alone", GITLAB, {"ref": "main", "ref_protected": "true"}, False),
+            ("gitlab_protected_branch", GITLAB, {"ref": "main", "ref_type": "branch", "ref_protected": "true"}, True),
+            ("gitlab_environment_alone", GITLAB, {"environment": "production", "environment_protected": "true"}, False),
         ]
     )
     def test_a_provider_refuses_claims_that_trust_fork_runs_on_their_own(

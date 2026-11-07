@@ -201,7 +201,7 @@ hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/
 ### CI without a stored key
 
 A CI job can trade the OIDC token its provider issues for a PostHog token, so no key is stored in the CI provider.
-hog supports GitHub Actions.
+hog supports GitHub Actions and GitLab.com.
 An organization admin trusts the repository once, and each run of the job then gets a token that lives a few minutes.
 
 1. In the repository, logged in with `hog auth login`, run `hog ci setup --scope error_tracking:write`, listing every scope the job needs, separated by commas, like `--scope error_tracking:write,query:read`. hog asks which runs may get a token, such as pushes to a branch or deploys to an environment, with the presets and explanations PostHog offers for the provider. Pass them as options instead, like `--preset branch_push=main`. An agent gets the list of presets it still needs, with the same explanations.

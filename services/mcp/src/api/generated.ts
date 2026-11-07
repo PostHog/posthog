@@ -80478,12 +80478,14 @@ export namespace Schemas {
 
     /**
      * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
      */
     export type WorkloadProviderKeyEnum = typeof WorkloadProviderKeyEnum[keyof typeof WorkloadProviderKeyEnum];
 
 
     export const WorkloadProviderKeyEnum = {
       GithubActions: 'github_actions',
+      Gitlab: 'gitlab',
     } as const;
 
     /**
@@ -80519,7 +80521,8 @@ export namespace Schemas {
       issuer: string;
       /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
        *
-       * * `github_actions` - GitHub Actions */
+       * * `github_actions` - GitHub Actions
+       * * `gitlab` - GitLab */
       readonly provider: WorkloadProviderKeyEnum;
       /**
          * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
@@ -80590,7 +80593,8 @@ export namespace Schemas {
       issuer: string;
       /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
        *
-       * * `github_actions` - GitHub Actions */
+       * * `github_actions` - GitHub Actions
+       * * `gitlab` - GitLab */
       readonly provider: WorkloadProviderKeyEnum;
       /**
          * The display name of the workload provider, or null.
@@ -91251,7 +91255,8 @@ export namespace Schemas {
       issuer?: string;
       /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
        *
-       * * `github_actions` - GitHub Actions */
+       * * `github_actions` - GitHub Actions
+       * * `gitlab` - GitLab */
       readonly provider?: WorkloadProviderKeyEnum;
       /**
          * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
@@ -119156,7 +119161,8 @@ export namespace Schemas {
     export interface WorkloadProvider {
       /** Stable identifier of the provider.
        *
-       * * `github_actions` - GitHub Actions */
+       * * `github_actions` - GitHub Actions
+       * * `gitlab` - GitLab */
       key: WorkloadProviderKeyEnum;
       /** Display name of the provider. */
       name: string;

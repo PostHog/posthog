@@ -13,7 +13,7 @@ from django.conf import settings
 from django.db import models
 
 from posthog.dataclasses import frozen
-from posthog.workload_identity.resolvers import resolve_github_repository
+from posthog.workload_identity.resolvers import resolve_github_repository, resolve_gitlab_project
 from posthog.workload_identity.subjects import SubjectResolver
 
 
@@ -61,6 +61,7 @@ class ConditionPreset:
 
 class WorkloadProviderKey(models.TextChoices):
     GITHUB_ACTIONS = "github_actions", "GitHub Actions"
+    GITLAB = "gitlab", "GitLab"
 
 
 @frozen
@@ -91,6 +92,8 @@ class WorkloadProvider:
     # when the provider has no API PostHog can ask.
     resolve_subject: SubjectResolver | None = None
     condition_presets: tuple[ConditionPreset, ...] = ()
+    # A claim that must carry the subject too, so a job running in another workload's context isn't trusted.
+    subject_also_in_claim: str | None = None
     condition_companions: tuple[ConditionCompanions, ...] = ()
     # The CI config that gives a job an OIDC token, with SNIPPET_HOST where the PostHog host goes.
     setup_snippet: str = ""
@@ -232,12 +235,136 @@ GITHUB_ACTIONS = WorkloadProvider(
 """,
 )
 
+GITLAB = WorkloadProvider(
+    key=WorkloadProviderKey.GITLAB,
+    name="GitLab",
+    issuer="https://gitlab.com",
+    jwks_url="https://gitlab.com/oauth/discovery/keys",
+    subject_claim=WorkloadClaim(
+        name="project_id",
+        label="Project ID",
+        help_text="GitLab's number for the project. PostHog looks it up from the project path.",
+        placeholder="12345678",
+    ),
+    subject_name_claim=WorkloadClaim(
+        name="project_path",
+        label="Project path",
+        help_text="The full path, as GitLab shows it, with any subgroups.",
+        placeholder="group/project",
+    ),
+    condition_claims=(
+        WorkloadClaim(
+            name="ref",
+            label="Branch or tag",
+            help_text="The short name, like main or v1.0.0.",
+            placeholder="main",
+        ),
+        WorkloadClaim(name="ref_type", label="Ref type", help_text="branch or tag.", placeholder="branch"),
+        WorkloadClaim(
+            name="ref_protected",
+            label="Protected ref",
+            help_text="true when the branch or tag is protected.",
+            placeholder="true",
+        ),
+        WorkloadClaim(
+            name="environment",
+            label="Environment",
+            help_text="The environment the job deploys to.",
+            placeholder="production",
+        ),
+        WorkloadClaim(
+            name="environment_protected",
+            label="Protected environment",
+            help_text="true when the environment is protected.",
+            placeholder="true",
+        ),
+        WorkloadClaim(
+            name="environment_action",
+            label="Environment action",
+            help_text="What the job does to the environment: start deploys, while prepare, verify and access don't wait for approval.",
+            placeholder="start",
+        ),
+        WorkloadClaim(
+            name="pipeline_source",
+            label="Pipeline source",
+            help_text="What started the pipeline, like push, schedule or web.",
+            placeholder="push",
+        ),
+        WorkloadClaim(
+            name="ci_config_ref_uri",
+            label="Pipeline config",
+            help_text="The config file and its ref.",
+            placeholder="gitlab.com/group/project//.gitlab-ci.yml@refs/heads/main",
+        ),
+    ),
+    recorded_claims=(
+        WorkloadClaim(name="project_path", label="Project"),
+        WorkloadClaim(name="job_project_path", label="Pipeline project"),
+        WorkloadClaim(name="pipeline_id", label="Pipeline"),
+        WorkloadClaim(name="job_id", label="Job"),
+        WorkloadClaim(name="sha", label="Commit"),
+        WorkloadClaim(name="ref", label="Branch or tag"),
+        WorkloadClaim(name="environment", label="Environment"),
+        WorkloadClaim(name="pipeline_source", label="Pipeline source"),
+        WorkloadClaim(name="user_login", label="Started by"),
+    ),
+    actor_label_template="{project_path} · pipeline {pipeline_id}",
+    # A merge request pipeline from a fork can run in the parent project, which job_project_path names.
+    run_url_template="https://gitlab.com/{job_project_path}/-/jobs/{job_id}",
+    docs_url="https://posthog.com/docs/api/workload-identity/gitlab",
+    resolve_subject=resolve_gitlab_project,
+    # project_id names a merge request's source project, so a pipeline in another project would pair it with that project's environments.
+    subject_also_in_claim="job_project_id",
+    condition_companions=(
+        ConditionCompanions(
+            claims=("ref",),
+            companions=("ref_type",),
+            reason="GitLab names a branch or a tag by its short name, so without the ref type a tag with a protected branch's name also matches.",
+        ),
+        ConditionCompanions(
+            claims=("environment",),
+            companions=("environment_action",),
+            reason="Jobs that prepare, verify or access a protected environment don't wait for deployment approval, so without the action they also match.",
+        ),
+    ),
+    condition_presets=(
+        ConditionPreset(
+            key="branch",
+            label="A protected branch",
+            # A fork's merge request pipeline that a maintainer runs in this project reports its source
+            # branch as ref, with ref_protected false, so only the protection check keeps fork code out.
+            help_text="Pipelines that run on this branch while it is protected.",
+            conditions=(("ref", PRESET_VALUE), ("ref_type", "branch"), ("ref_protected", "true")),
+            placeholder="main",
+            default_value="main",
+        ),
+        ConditionPreset(
+            key="environment",
+            label="A protected environment",
+            # Anyone who can push a branch can name any unprotected environment in a job.
+            help_text="Jobs that deploy to this environment while it is protected. Protected environments need GitLab Premium or Ultimate.",
+            conditions=(
+                ("environment", PRESET_VALUE),
+                ("environment_protected", "true"),
+                ("environment_action", "start"),
+            ),
+            placeholder="production",
+            default_value="production",
+        ),
+    ),
+    setup_snippet=f"""your-job:
+  id_tokens:
+    HOG_ID_TOKEN: # lets hog get a PostHog token
+      aud: {SNIPPET_HOST}
+""",
+)
+
 # Can't be supported with this design:
 # - Bitbucket Pipelines fixes the token's audience per workspace, so a token can't name this PostHog instance.
 # - Self-managed GitLab makes each instance its own issuer, and only the issuers listed here are trusted.
 # - GitHub Enterprise Cloud with a customized issuer sends https://token.actions.githubusercontent.com/<enterprise>,
 #   an issuer per enterprise.
-SUPPORTED_WORKLOAD_PROVIDERS: tuple[WorkloadProvider, ...] = (GITHUB_ACTIONS,)
+SUPPORTED_WORKLOAD_PROVIDERS: tuple[WorkloadProvider, ...] = (GITHUB_ACTIONS, GITLAB)
 
 
 def normalize_issuer(issuer: str) -> str:

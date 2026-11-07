@@ -5779,11 +5779,13 @@ export interface UploadedMediaUploadStartedApi {
 
 /**
  * * `github_actions` - GitHub Actions
+ * * `gitlab` - GitLab
  */
 export type WorkloadProviderKeyEnumApi = (typeof WorkloadProviderKeyEnumApi)[keyof typeof WorkloadProviderKeyEnumApi]
 
 export const WorkloadProviderKeyEnumApi = {
     GithubActions: 'github_actions',
+    Gitlab: 'gitlab',
 } as const
 
 /**
@@ -5819,7 +5821,8 @@ export interface WorkloadTrustPolicyApi {
     issuer: string
     /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
      *
-     * * `github_actions` - GitHub Actions */
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab */
     readonly provider: WorkloadProviderKeyEnumApi
     /**
      * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
@@ -5875,7 +5878,8 @@ export interface PatchedWorkloadTrustPolicyApi {
     issuer?: string
     /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
      *
-     * * `github_actions` - GitHub Actions */
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab */
     readonly provider?: WorkloadProviderKeyEnumApi
     /**
      * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
@@ -5953,7 +5957,8 @@ export interface ConditionCompanionsApi {
 export interface WorkloadProviderApi {
     /** Stable identifier of the provider.
      *
-     * * `github_actions` - GitHub Actions */
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab */
     key: WorkloadProviderKeyEnumApi
     /** Display name of the provider. */
     name: string
@@ -6031,7 +6036,8 @@ export interface WorkloadTrustPolicyRequestApi {
     issuer: string
     /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
      *
-     * * `github_actions` - GitHub Actions */
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab */
     readonly provider: WorkloadProviderKeyEnumApi
     /**
      * The display name of the workload provider, or null.

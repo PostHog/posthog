@@ -1,5 +1,6 @@
 import json
 import time
+import dataclasses
 from datetime import timedelta
 from typing import Any
 
@@ -253,6 +254,19 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert second.json()["error_code"] == "workload_rate_limited"
         assert second["Retry-After"] == str(second.json()["retry_after"])
+
+    @parameterized.expand(
+        [("same_project", "1234", True), ("another_project", "999", False), ("claim_missing", None, False)]
+    )
+    def test_exchange_refuses_a_job_that_runs_outside_the_subject(
+        self, _name: str, job_repository_id: str | None, accepted: bool
+    ) -> None:
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, subject_also_in_claim="job_repository_id")
+
+        with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
+            response = self._exchange(_oidc_token(job_repository_id=job_repository_id))
+
+        assert (response.status_code == status.HTTP_200_OK) is accepted, response.json()
 
     def test_exchange_attempts_are_throttled_per_ip_before_the_token_is_verified(self) -> None:
         with (
