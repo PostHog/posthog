@@ -15,12 +15,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Query } from '~/queries/Query/Query'
 
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
-import { getHomeTabExploreUrl, type HomeTabChartOption } from './homeTabDefaultTiles'
+import { getHomeTabExploreUrl, isHomeTabInsightChart, type HomeTabAnyChartOption } from './homeTabDefaultTiles'
 import { homeTabChartInsightId, homeTabDataCollectionId } from './homeTabQueryKeys'
 import { getHomeTabSampleData } from './homeTabSampleData'
 
 interface HomeTabChartCardProps {
-    option: HomeTabChartOption
+    option: HomeTabAnyChartOption
     size: 'primary' | 'supporting' | 'ranking'
     control?: ReactNode
     source?: string
@@ -31,7 +31,7 @@ export function HomeTabChartCard({ option, size, control, source, loadPriority }
     const { currentTeamId } = useValues(teamLogic)
     const { shouldShowSampleData, sampleDataPending } = useValues(sampleDataStateLogic)
     const sampleData = useMemo(
-        () => (shouldShowSampleData ? getHomeTabSampleData(option) : undefined),
+        () => (shouldShowSampleData && isHomeTabInsightChart(option) ? getHomeTabSampleData(option) : undefined),
         [shouldShowSampleData, option]
     )
     const chartKey = sampleData ? `${option.key}.sample` : option.key

@@ -66,8 +66,8 @@ describe('HomeTabDefault query reuse', () => {
     })
 
     it.each([
-        ['-30d', 28],
-        ['-24h', 29],
+        ['-30d', 27],
+        ['-24h', 28],
     ] as const)('reuses loaded queries on return before and after changing to %s', async (dateFrom, queryCount) => {
         const { rerender } = render(<HomeTabDefault />)
         const collection = dataNodeCollectionLogic({ key: homeTabDataCollectionId(teamLogic.values.currentTeamId) })
