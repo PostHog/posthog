@@ -854,7 +854,9 @@ class WorkloadTrustPolicyRequestViewSet(
             raise NotFound(
                 f"PostHog can't look up {provider.subject_claim.label} for {provider.name}. Enter it by hand."
             )
-        given = dict(entry.split("=", 1) for entry in request.validated_query_data["condition"] if "=" in entry)
+        # Generated clients join a list into one comma-separated value, so each value may hold several entries.
+        entries = [part for value in request.validated_query_data["condition"] for part in value.split(",")]
+        given = dict(entry.split("=", 1) for entry in entries if "=" in entry)
         unmet = [(claim, value) for claim, value in provider.subject_lookup_conditions if given.get(claim) != value]
         if unmet:
             claim, value = unmet[0]

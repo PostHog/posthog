@@ -687,6 +687,13 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
             ("provider_unavailable", "unavailable", status.HTTP_503_SERVICE_UNAVAILABLE, (), True),
             ("provider_without_lookup", None, status.HTTP_404_NOT_FOUND, (), False),
             ("lookup_conditions_met", "found", status.HTTP_200_OK, ("environment=production",), True),
+            (
+                "lookup_conditions_joined",
+                "found",
+                status.HTTP_200_OK,
+                ("ref=refs/heads/main,environment=production",),
+                True,
+            ),
             ("lookup_conditions_unmet", "found", status.HTTP_404_NOT_FOUND, ("environment=staging",), False),
             ("lookup_conditions_missing", "found", status.HTTP_404_NOT_FOUND, None, False),
         ]
