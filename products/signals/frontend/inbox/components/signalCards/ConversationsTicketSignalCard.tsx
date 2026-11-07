@@ -4,27 +4,13 @@ import { IconChevronRight, IconImage } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 
-import type {
-    ConversationsTicketImageApi,
-    ConversationsTicketSignalExtraApi,
-} from 'products/signals/frontend/generated/api.schemas'
-import { safeHttpUrl } from 'products/signals/frontend/inbox/utils/reportPresentation'
+import type { ConversationsTicketImageApi } from 'products/signals/frontend/generated/api.schemas'
 import { conversationsTicketUrl } from 'products/signals/frontend/inbox/utils/signalLinks'
 
+import { IMAGE_PREVIEW_COUNT, ticketExtra, ticketImageLink } from './signalCardParsing'
 import { SignalCardShell } from './SignalCardShell'
-import type { SignalCardEntry, SignalCardProps } from './types'
-
-/** Every field is optional so that evidence stored before the emitter carried it still renders. */
-type TicketExtra = Partial<ConversationsTicketSignalExtraApi>
-
-function ticketExtra(value: unknown): TicketExtra {
-    return typeof value === 'object' && value !== null ? (value as TicketExtra) : {}
-}
-
-/** How many attachment thumbnails to show before pointing at the ticket for the rest. */
-const IMAGE_PREVIEW_COUNT = 4
+import type { SignalCardProps } from './types'
 
 /**
  * One attachment thumbnail that opens the full image. Only an image PostHog serves loads inline: the
@@ -34,25 +20,23 @@ const IMAGE_PREVIEW_COUNT = 4
  */
 function TicketImageThumbnail({ image }: { image: ConversationsTicketImageApi }): JSX.Element | null {
     const [failed, setFailed] = useState(false)
-    const trusted = isTrustedPostHogUrl(image.url)
-    const href = trusted ? image.url : safeHttpUrl(image.url)
-    if (failed || !href) {
+    const link = ticketImageLink(image)
+    if (failed || !link) {
         return null
     }
-    const label = image.author ? `Attachment from ${image.author}` : 'Ticket attachment'
     return (
         <li>
             <Link
-                to={href}
+                to={link.href}
                 target="_blank"
                 className="flex items-center justify-center size-16 rounded border overflow-hidden bg-surface-secondary"
-                title={image.author ? `Attached by ${image.author}` : undefined}
-                aria-label={trusted ? undefined : label}
+                title={link.title}
+                aria-label={link.trusted ? undefined : link.label}
             >
-                {trusted ? (
+                {link.trusted ? (
                     <img
-                        src={href}
-                        alt={label}
+                        src={link.href}
+                        alt={link.label}
                         className="size-full object-cover"
                         loading="lazy"
                         onError={() => setFailed(true)}
@@ -113,10 +97,4 @@ export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.
             </div>
         </SignalCardShell>
     )
-}
-
-export const conversationsTicketSignalCardEntry: SignalCardEntry = {
-    key: 'conversations',
-    matches: (signal) => signal.source_product === 'conversations' && signal.source_type === 'ticket',
-    Component: ConversationsTicketSignalCard,
 }

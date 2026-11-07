@@ -1,4 +1,3 @@
-import { combineUrl } from 'kea-router'
 import { useState } from 'react'
 
 import { IconExternal, IconList } from '@posthog/icons'
@@ -16,20 +15,9 @@ import type {
 
 import { signalEntityUrl } from '../../utils/signalLinks'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
+import { EVIDENCE_PREVIEW_COUNT, scoutHypothesis, scoutTaskRunUrl, truncatedMonoId } from './signalCardParsing'
 import { SignalCardShell } from './SignalCardShell'
-import type { SignalCardEntry, SignalCardProps } from './types'
-
-/** How many evidence rows to show before collapsing the rest behind a toggle. */
-const EVIDENCE_PREVIEW_COUNT = 3
-
-/** Narrows a raw `extra` payload to the live Signals scout shape. */
-export function isSignalsScoutExtra(value: unknown): value is Record<string, unknown> & SignalsScoutSignalExtraApi {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const extra = value as Record<string, unknown>
-    return Array.isArray(extra.evidence) && typeof extra.skill_name === 'string'
-}
+import type { SignalCardProps } from './types'
 
 /** A single evidence row: source icon + eyebrow, the summary, and an optional deep link. */
 function EvidenceRow({ entry }: { entry: SignalsScoutEvidenceEntryApi }): JSX.Element {
@@ -57,7 +45,7 @@ function EvidenceRow({ entry }: { entry: SignalsScoutEvidenceEntryApi }): JSX.El
 
 /** Truncated mono identifier for footer run/finding ids. Becomes a deep link when `to` is set. */
 function MonoId({ label, value, to }: { label: string; value: string; to?: string }): JSX.Element {
-    const display = value.length > 12 ? `${value.slice(0, 12)}…` : value
+    const display = truncatedMonoId(value)
     if (to) {
         return (
             <Link to={to} className="inline-flex items-center gap-1 font-medium">
@@ -81,18 +69,14 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
 
     const extra = signal.extra as Record<string, unknown> & SignalsScoutSignalExtraApi
 
-    const hypothesis = extra.hypothesis?.trim() || signal.content
+    const hypothesis = scoutHypothesis(signal, extra)
 
     const evidence = extra.evidence ?? []
     const visibleEvidence = showAllEvidence ? evidence : evidence.slice(0, EVIDENCE_PREVIEW_COUNT)
 
     const timeRange = extra.time_range
 
-    // Deep link the run id straight to its Tasks run tab — only resolvable when the task id was
-    // captured at emit time (absent on older emissions).
-    const taskRunUrl = extra.task_id
-        ? combineUrl(urls.taskDetail(extra.task_id), { runId: extra.task_run_id }).url
-        : undefined
+    const taskRunUrl = scoutTaskRunUrl(extra)
 
     return (
         <SignalCardShell
@@ -161,10 +145,4 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
             </div>
         </SignalCardShell>
     )
-}
-
-export const signalsScoutSignalCardEntry: SignalCardEntry = {
-    key: 'signals_scout',
-    matches: (signal) => signal.source_product === 'signals_scout' && isSignalsScoutExtra(signal.extra),
-    Component: SignalsScoutSignalCard,
 }

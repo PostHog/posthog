@@ -5,21 +5,10 @@ import { urls } from 'scenes/urls'
 
 import type { InsightShortId } from '~/types'
 
-import type { AnalyticsAnomalyInvestigationSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
-
+import { isAnalyticsAnomalyInvestigationExtra } from './signalCardMatchers'
+import { anomalyInsightLabel } from './signalCardParsing'
 import { SignalCardShell } from './SignalCardShell'
-import type { SignalCardEntry, SignalCardProps } from './types'
-
-/** Narrows a signal's `extra` to the product-analytics anomaly-investigation shape. */
-export function isAnalyticsAnomalyInvestigationExtra(
-    value: unknown
-): value is Record<string, unknown> & AnalyticsAnomalyInvestigationSignalExtraApi {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const extra = value as Record<string, unknown>
-    return typeof extra.alert_id === 'string' && typeof extra.insight_id === 'string'
-}
+import type { SignalCardProps } from './types'
 
 /** Inbox signal card for product-analytics anomaly investigations (an anomaly alert firing on an insight). */
 export function AnalyticsAnomalyInvestigationSignalCard({ signal }: SignalCardProps): JSX.Element {
@@ -27,7 +16,7 @@ export function AnalyticsAnomalyInvestigationSignalCard({ signal }: SignalCardPr
         return <SignalCardShell signal={signal}>{null}</SignalCardShell>
     }
     const extra = signal.extra
-    const insightLabel = extra.insight_name || extra.insight_short_id || extra.insight_id
+    const insightLabel = anomalyInsightLabel(extra)
 
     return (
         <SignalCardShell signal={signal} label={extra.alert_name}>
@@ -69,10 +58,4 @@ export function AnalyticsAnomalyInvestigationSignalCard({ signal }: SignalCardPr
             </div>
         </SignalCardShell>
     )
-}
-
-export const analyticsAnomalyInvestigationSignalCardEntry: SignalCardEntry = {
-    key: 'analytics',
-    matches: (signal) => signal.source_product === 'analytics' && isAnalyticsAnomalyInvestigationExtra(signal.extra),
-    Component: AnalyticsAnomalyInvestigationSignalCard,
 }

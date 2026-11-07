@@ -1,24 +1,13 @@
 import type { LinearIssueSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ExternalSignalCard } from './ExternalSignalCard'
-import type { SignalCardEntry, SignalCardProps } from './types'
-
-/**
- * Linear has `url` + `priority` + `number`, but unlike GitHub it carries no `html_url`.
- * Requiring `identifier` and `priority_label` keeps this narrow enough not to match other issue sources.
- */
-export function isLinearIssueExtra(value: unknown): value is Record<string, unknown> & LinearIssueSignalExtraApi {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const extra = value as Record<string, unknown>
-    return 'identifier' in extra && 'priority_label' in extra && typeof extra.url === 'string'
-}
+import { linearIssueTitle } from './signalCardParsing'
+import type { SignalCardProps } from './types'
 
 export function LinearIssueSignalCard({ signal }: SignalCardProps): JSX.Element {
     const extra = signal.extra as Record<string, unknown> & LinearIssueSignalExtraApi
 
-    const title = extra.identifier || `#${extra.number}`
+    const title = linearIssueTitle(extra)
 
     return (
         <ExternalSignalCard
@@ -29,10 +18,4 @@ export function LinearIssueSignalCard({ signal }: SignalCardProps): JSX.Element 
             {signal.content}
         </ExternalSignalCard>
     )
-}
-
-export const linearIssueSignalCardEntry: SignalCardEntry = {
-    key: 'linear',
-    matches: (signal) => signal.source_product === 'linear' && isLinearIssueExtra(signal.extra),
-    Component: LinearIssueSignalCard,
 }

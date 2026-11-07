@@ -6,9 +6,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getExportsContentRetrieveUrl } from '~/generated/core/api'
@@ -19,32 +18,14 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { RecordingPreview } from './RecordingPreview'
+import {
+    TIMELINE_PREVIEW_COUNT,
+    recordingDurationSummary,
+    recordingSeekTime,
+    shortDistinctId,
+} from './signalCardParsing'
 import { SignalCardShell } from './SignalCardShell'
-import type { SignalCardEntry, SignalCardProps } from './types'
-
-/** How many timeline events to show before collapsing the rest behind a toggle. */
-const TIMELINE_PREVIEW_COUNT = 4
-
-/** Narrows a raw `extra` payload to the live session-problem shape. */
-export function isSessionProblemExtra(value: unknown): value is Record<string, unknown> & SessionProblemSignalExtraApi {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const extra = value as Record<string, unknown>
-    return typeof extra.session_id === 'string' && 'problem_type' in extra
-}
-
-/**
- * Segment and event times arrive as recording-relative offsets (`MM:SS` / `HH:MM:SS`), not datetimes.
- * Combine the offset with the session start to get an absolute timestamp the player can seek to.
- */
-function recordingSeekTime(sessionStartTime: string | undefined, offset: string | undefined): Dayjs | undefined {
-    const offsetSeconds = reverseColonDelimitedDuration(offset)
-    if (!sessionStartTime || offsetSeconds === null) {
-        return undefined
-    }
-    return dayjs(sessionStartTime).add(offsetSeconds, 'second')
-}
+import type { SignalCardProps } from './types'
 
 /** Picks a glyph for a timeline event based on its interaction type. */
 function EventGlyph({ entry }: { entry: SessionProblemEventEntryApi }): JSX.Element {
@@ -117,6 +98,7 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
         extra.session_active_seconds !== undefined ? humanFriendlyDuration(extra.session_active_seconds) : undefined
     const totalDuration =
         extra.session_duration !== undefined ? humanFriendlyDuration(extra.session_duration) : undefined
+    const durationSummary = recordingDurationSummary(activeDuration, totalDuration)
 
     return (
         <SignalCardShell signal={signal} label={extra.segment_title}>
@@ -161,19 +143,15 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
 
             {/* Dot-separated meta line: affected user, segment window, active/total duration. */}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-tertiary mb-2">
-                <span className="font-mono">{extra.distinct_id.slice(0, 10)}…</span>
+                <span className="font-mono">{shortDistinctId(extra.distinct_id)}</span>
                 <span>·</span>
                 <span className="font-mono">
                     {extra.start_time} to {extra.end_time}
                 </span>
-                {(activeDuration || totalDuration) && (
+                {durationSummary && (
                     <>
                         <span>·</span>
-                        <span>
-                            {activeDuration ? `${activeDuration} active` : null}
-                            {activeDuration && totalDuration ? ' / ' : null}
-                            {totalDuration ? `${totalDuration} total` : null}
-                        </span>
+                        <span>{durationSummary}</span>
                     </>
                 )}
             </div>
@@ -205,10 +183,4 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
             )}
         </SignalCardShell>
     )
-}
-
-export const sessionReplaySignalCardEntry: SignalCardEntry = {
-    key: 'session_replay',
-    matches: (signal) => signal.source_product === 'session_replay' && isSessionProblemExtra(signal.extra),
-    Component: SessionReplaySignalCard,
 }

@@ -1,25 +1,9 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { IconPlay } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
-import { RecordingPlayerType, useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { Dayjs } from 'lib/dayjs'
-
-// Long enough for a thumbnail render to land, short enough that a reader still sees the frame appear.
-const THUMBNAIL_RETRY_MS = 45_000
-
-interface RecordingPreviewProps {
-    sessionId: string
-    /** Instant the player seeks to when the frame is clicked. */
-    seekTime?: Dayjs
-    /** Image of that moment, shown as the frame's background while it can be fetched. */
-    thumbnailSrc?: string
-    alt: string
-}
+import { RecordingPreviewProps, useRecordingPreview } from './useRecordingPreview'
 
 /**
  * 16:9 preview frame for a moment in a recording. The whole frame is the play affordance: clicking
@@ -27,47 +11,8 @@ interface RecordingPreviewProps {
  * empty player, when the recording wasn't captured or has expired.
  */
 export function RecordingPreview({ sessionId, seekTime, thumbnailSrc, alt }: RecordingPreviewProps): JSX.Element {
-    // A replay signal reaches the inbox before its frame finishes rendering, so the first fetch usually 404s.
-    // One delayed retry covers that; between the two the frame is unmounted, so nothing waits on a dead image.
-    const [attempt, setAttempt] = useState(0)
-    const [waiting, setWaiting] = useState(false)
-    const [gaveUp, setGaveUp] = useState(false)
-
-    useEffect(() => {
-        setAttempt(0)
-        setWaiting(false)
-        setGaveUp(false)
-    }, [thumbnailSrc])
-
-    useEffect(() => {
-        if (!waiting) {
-            return
-        }
-        const timer = setTimeout(() => {
-            setAttempt(1)
-            setWaiting(false)
-        }, THUMBNAIL_RETRY_MS)
-        return () => clearTimeout(timer)
-    }, [waiting])
-
-    const onError = (): void => (attempt === 0 ? setWaiting(true) : setGaveUp(true))
-
-    const src = thumbnailSrc && !waiting && !gaveUp ? `${thumbnailSrc}?attempt=${attempt}` : undefined
-
-    const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
-    const { getRecordingExists, isRecordingExistsLoading } = useValues(sessionRecordingInfoLogic)
-    useEffect(() => {
-        checkRecordingInfo(sessionId)
-    }, [sessionId, checkRecordingInfo])
-    const hasRecording = getRecordingExists(sessionId)
-    const recordingCheckLoading = isRecordingExistsLoading(sessionId)
-
-    const { onClick: openRecording, disabledReason } = useRecordingButton({
-        sessionId,
-        timestamp: seekTime,
-        openPlayerIn: RecordingPlayerType.Modal,
-        hasRecording,
-    })
+    const { src, onThumbnailError, openRecording, disabledReason, hasRecording, recordingCheckLoading } =
+        useRecordingPreview({ sessionId, seekTime, thumbnailSrc })
 
     return (
         <>
@@ -89,7 +34,7 @@ export function RecordingPreview({ sessionId, seekTime, thumbnailSrc, alt }: Rec
                         className="absolute inset-0 size-full object-cover"
                         loading="lazy"
                         decoding="async"
-                        onError={onError}
+                        onError={onThumbnailError}
                     />
                 )}
                 <div

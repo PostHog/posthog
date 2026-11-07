@@ -4,7 +4,8 @@ import { cleanup, render, screen } from '@testing-library/react'
 
 import type { SignalNode } from 'scenes/debug/signals/types'
 
-import { isSignalsScoutExtra, SignalsScoutSignalCard } from './SignalsScoutSignalCard'
+import { isSignalsScoutExtra } from './signalCardMatchers'
+import { SignalsScoutSignalCard } from './SignalsScoutSignalCard'
 
 jest.mock('lib/components/TZLabel', () => ({
     TZLabel: ({ time }: { time: string }) => <span>{time}</span>,

@@ -1,75 +1,36 @@
-import {
-    AnalyticsAnomalyInvestigationSignalCard,
-    analyticsAnomalyInvestigationSignalCardEntry,
-} from './AnalyticsAnomalyInvestigationSignalCard'
-import { ConversationsTicketSignalCard, conversationsTicketSignalCardEntry } from './ConversationsTicketSignalCard'
-import {
-    EndpointExecutionFailedSignalCard,
-    endpointExecutionFailedSignalCardEntry,
-} from './EndpointExecutionFailedSignalCard'
-import { EngineeringAnalyticsSignalCard, engineeringAnalyticsSignalCardEntry } from './EngineeringAnalyticsSignalCard'
-import { ErrorTrackingSignalCard, errorTrackingSignalCardEntry } from './ErrorTrackingSignalCard'
-import { GithubIssueSignalCard, githubIssueSignalCardEntry } from './GithubIssueSignalCard'
-import { HealthCheckSignalCard, healthCheckSignalCardEntry } from './HealthCheckSignalCard'
-import { LinearIssueSignalCard, linearIssueSignalCardEntry } from './LinearIssueSignalCard'
-import {
-    LlmEvalReportSignalCard,
-    LlmEvalTraceSignalCard,
-    llmEvalReportSignalCardEntry,
-    llmEvalTraceSignalCardEntry,
-} from './LlmAnalyticsSignalCard'
-import { LogsAlertSignalCard, logsAlertSignalCardEntry } from './LogsAlertSignalCard'
-import { PgAnalyzeSignalCard, pgAnalyzeSignalCardEntry } from './PgAnalyzeSignalCard'
-import { ScannerFindingSignalCard, scannerFindingSignalCardEntry } from './ScannerFindingSignalCard'
-import { SessionReplaySignalCard, sessionReplaySignalCardEntry } from './SessionReplaySignalCard'
-import { SignalsScoutSignalCard, signalsScoutSignalCardEntry } from './SignalsScoutSignalCard'
-import type { SignalCardEntry } from './types'
-import { ZendeskTicketSignalCard, zendeskTicketSignalCardEntry } from './ZendeskTicketSignalCard'
+import { AnalyticsAnomalyInvestigationSignalCard } from './AnalyticsAnomalyInvestigationSignalCard'
+import { ConversationsTicketSignalCard } from './ConversationsTicketSignalCard'
+import { EndpointExecutionFailedSignalCard } from './EndpointExecutionFailedSignalCard'
+import { EngineeringAnalyticsSignalCard } from './EngineeringAnalyticsSignalCard'
+import { ErrorTrackingSignalCard } from './ErrorTrackingSignalCard'
+import { GithubIssueSignalCard } from './GithubIssueSignalCard'
+import { HealthCheckSignalCard } from './HealthCheckSignalCard'
+import { LinearIssueSignalCard } from './LinearIssueSignalCard'
+import { LlmEvalReportSignalCard, LlmEvalTraceSignalCard } from './LlmAnalyticsSignalCard'
+import { LogsAlertSignalCard } from './LogsAlertSignalCard'
+import { PgAnalyzeSignalCard } from './PgAnalyzeSignalCard'
+import { ScannerFindingSignalCard } from './ScannerFindingSignalCard'
+import { SessionReplaySignalCard } from './SessionReplaySignalCard'
+import { SignalsScoutSignalCard } from './SignalsScoutSignalCard'
+import type { SignalCardRegistry } from './types'
+import { ZendeskTicketSignalCard } from './ZendeskTicketSignalCard'
 
-// Re-export every per-source card so consumers (stories, tests) can reach them by name.
-export {
-    AnalyticsAnomalyInvestigationSignalCard,
-    ConversationsTicketSignalCard,
-    EndpointExecutionFailedSignalCard,
-    EngineeringAnalyticsSignalCard,
-    ErrorTrackingSignalCard,
-    GithubIssueSignalCard,
-    HealthCheckSignalCard,
-    LinearIssueSignalCard,
-    LlmEvalReportSignalCard,
-    LlmEvalTraceSignalCard,
-    LogsAlertSignalCard,
-    PgAnalyzeSignalCard,
-    ScannerFindingSignalCard,
-    SessionReplaySignalCard,
-    SignalsScoutSignalCard,
-    ZendeskTicketSignalCard,
+/** The Lemon card for each matcher key in `SIGNAL_CARD_MATCHERS`, which owns the matching order. */
+export const SIGNAL_CARD_REGISTRY: SignalCardRegistry = {
+    error_tracking: ErrorTrackingSignalCard,
+    session_replay: SessionReplaySignalCard,
+    replay_vision: ScannerFindingSignalCard,
+    'llm_analytics:evaluation_report': LlmEvalReportSignalCard,
+    'llm_analytics:evaluation': LlmEvalTraceSignalCard,
+    health_checks: HealthCheckSignalCard,
+    conversations: ConversationsTicketSignalCard,
+    endpoints: EndpointExecutionFailedSignalCard,
+    engineering_analytics: EngineeringAnalyticsSignalCard,
+    logs: LogsAlertSignalCard,
+    analytics: AnalyticsAnomalyInvestigationSignalCard,
+    signals_scout: SignalsScoutSignalCard,
+    github: GithubIssueSignalCard,
+    linear: LinearIssueSignalCard,
+    zendesk: ZendeskTicketSignalCard,
+    pganalyze: PgAnalyzeSignalCard,
 }
-
-/**
- * Ordered list of signal-card renderers. `SignalCard` picks the first entry whose `matches`
- * returns true. Every entry gates on `source_product`, so entries are mutually exclusive and
- * order is not load-bearing — but keep richer/more-specific variants first as a safety net.
- */
-export const SIGNAL_CARD_REGISTRY: SignalCardEntry[] = [
-    // PostHog products with live embeds
-    errorTrackingSignalCardEntry,
-    sessionReplaySignalCardEntry,
-    scannerFindingSignalCardEntry,
-    // LLM analytics: report variant first (mutually exclusive guards, but explicit)
-    llmEvalReportSignalCardEntry,
-    llmEvalTraceSignalCardEntry,
-    // Other PostHog-native products
-    healthCheckSignalCardEntry,
-    conversationsTicketSignalCardEntry,
-    endpointExecutionFailedSignalCardEntry,
-    engineeringAnalyticsSignalCardEntry,
-    logsAlertSignalCardEntry,
-    analyticsAnomalyInvestigationSignalCardEntry,
-    signalsScoutSignalCardEntry,
-    // External sources
-    githubIssueSignalCardEntry,
-    linearIssueSignalCardEntry,
-    zendeskTicketSignalCardEntry,
-    pgAnalyzeSignalCardEntry,
-]

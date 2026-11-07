@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 
-import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils/durations'
 import { teamLogic } from 'scenes/teamLogic'
@@ -9,30 +8,9 @@ import { getVisionObservationsThumbnailRetrieveUrl } from 'products/replay_visio
 import type { ReplayVisionScannerFindingSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { RecordingPreview } from './RecordingPreview'
+import { findingSeekTime, recordingDurationSummary, shortDistinctId } from './signalCardParsing'
 import { SignalCardShell } from './SignalCardShell'
-import type { SignalCardEntry, SignalCardProps } from './types'
-
-/** Narrows a raw `extra` payload to the replay-vision scanner-finding shape. */
-export function isScannerFindingExtra(
-    value: unknown
-): value is Record<string, unknown> & ReplayVisionScannerFindingSignalExtraApi {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const extra = value as Record<string, unknown>
-    return typeof extra.session_id === 'string' && typeof extra.problem_type === 'string' && 'confidence' in extra
-}
-
-/**
- * Findings carry `start_time`/`end_time` as second offsets from the recording start, and
- * `recording_start_time` as an absolute datetime. Combine them to get an instant the player can seek to.
- */
-function findingSeekTime(recordingStartTime: string | null | undefined, offsetSeconds: number): Dayjs | undefined {
-    if (!recordingStartTime) {
-        return undefined
-    }
-    return dayjs(recordingStartTime).add(offsetSeconds, 'second')
-}
+import type { SignalCardProps } from './types'
 
 /** Live card for a replay-vision scanner finding: thumbnail preview and a play affordance that seeks to the observation. */
 export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Element {
@@ -44,6 +22,7 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
     const totalDuration = extra.recording_duration != null ? humanFriendlyDuration(extra.recording_duration) : undefined
 
     const findingWindow = `${colonDelimitedDuration(extra.start_time, 2)} to ${colonDelimitedDuration(extra.end_time, 2)}`
+    const durationSummary = recordingDurationSummary(activeDuration, totalDuration)
 
     return (
         <SignalCardShell signal={signal} label={extra.scanner_name}>
@@ -68,28 +47,18 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-tertiary">
                 {extra.distinct_id && (
                     <>
-                        <span className="font-mono">{extra.distinct_id.slice(0, 10)}…</span>
+                        <span className="font-mono">{shortDistinctId(extra.distinct_id)}</span>
                         <span>·</span>
                     </>
                 )}
                 <span className="font-mono">{findingWindow}</span>
-                {(activeDuration || totalDuration) && (
+                {durationSummary && (
                     <>
                         <span>·</span>
-                        <span>
-                            {activeDuration ? `${activeDuration} active` : null}
-                            {activeDuration && totalDuration ? ' / ' : null}
-                            {totalDuration ? `${totalDuration} total` : null}
-                        </span>
+                        <span>{durationSummary}</span>
                     </>
                 )}
             </div>
         </SignalCardShell>
     )
-}
-
-export const scannerFindingSignalCardEntry: SignalCardEntry = {
-    key: 'replay_vision',
-    matches: (signal) => signal.source_product === 'replay_vision' && isScannerFindingExtra(signal.extra),
-    Component: ScannerFindingSignalCard,
 }

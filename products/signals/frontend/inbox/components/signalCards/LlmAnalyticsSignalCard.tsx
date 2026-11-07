@@ -10,33 +10,15 @@ import { urls } from 'scenes/urls'
 
 import { LLMProviderIcon } from 'products/ai_observability/frontend/LLMProviderIcon'
 import { normalizeLLMProvider } from 'products/ai_observability/frontend/settings/llmProviderKeysLogic'
-import { formatLLMCost, formatLLMLatency, formatTokens } from 'products/ai_observability/frontend/utils'
 import type {
     LlmEvalReportSignalExtraApi,
     LlmEvalSignalExtraApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { inboxLlmTraceLogic } from './inboxLlmTraceLogic'
+import { llmTraceMetrics, llmTracePreviewText } from './signalCardParsing'
 import { SignalCardShell } from './SignalCardShell'
-import type { SignalCardEntry, SignalCardProps } from './types'
-
-// ── Type guards ──────────────────────────────────────────────────────────────────
-
-export function isLlmEvalTraceExtra(value: unknown): value is Record<string, unknown> & LlmEvalSignalExtraApi {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const extra = value as Record<string, unknown>
-    return 'evaluation_id' in extra && 'trace_id' in extra
-}
-
-export function isLlmEvalReportExtra(value: unknown): value is Record<string, unknown> & LlmEvalReportSignalExtraApi {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const extra = value as Record<string, unknown>
-    return 'evaluation_id' in extra && 'report_run_id' in extra
-}
+import type { SignalCardProps } from './types'
 
 // ── Shared link-out ────────────────────────────────────────────────────────────────
 
@@ -72,21 +54,7 @@ function TraceMetricStrip({ extra }: { extra: LlmEvalSignalExtraApi }): JSX.Elem
     }
 
     const provider = normalizeLLMProvider(extra.provider ?? undefined)
-    const metrics: React.ReactNode[] = []
-
-    if (typeof trace.totalLatency === 'number') {
-        metrics.push(<span key="latency">{formatLLMLatency(trace.totalLatency)}</span>)
-    }
-    if (typeof trace.totalCost === 'number') {
-        metrics.push(<span key="cost">{formatLLMCost(trace.totalCost)}</span>)
-    }
-    if (typeof trace.inputTokens === 'number' || typeof trace.outputTokens === 'number') {
-        metrics.push(
-            <span key="tokens">
-                {formatTokens(trace.inputTokens ?? 0)} → {formatTokens(trace.outputTokens ?? 0)}
-            </span>
-        )
-    }
+    const metrics = llmTraceMetrics(trace)
 
     if (metrics.length === 0 && !extra.model && !provider) {
         return <></>
@@ -105,7 +73,7 @@ function TraceMetricStrip({ extra }: { extra: LlmEvalSignalExtraApi }): JSX.Elem
                     {metrics.map((metric, index) => (
                         <span key={index} className="flex items-center gap-2">
                             {index > 0 && <span className="text-border">·</span>}
-                            {metric}
+                            <span>{metric}</span>
                         </span>
                     ))}
                 </span>
@@ -122,31 +90,13 @@ function TracePreview(): JSX.Element | null {
         return null
     }
 
-    const previewText = [stringifyState(trace.inputState), stringifyState(trace.outputState)]
-        .filter(Boolean)
-        .join('\n')
-        .trim()
+    const previewText = llmTracePreviewText(trace)
 
     if (!previewText) {
         return null
     }
 
     return <div className="text-xs text-tertiary line-clamp-2 mt-1 whitespace-pre-wrap break-words">{previewText}</div>
-}
-
-// Reduce an arbitrary input/output state payload to a short displayable string.
-function stringifyState(state: unknown): string {
-    if (state == null) {
-        return ''
-    }
-    if (typeof state === 'string') {
-        return state
-    }
-    try {
-        return JSON.stringify(state)
-    } catch {
-        return ''
-    }
 }
 
 function LlmEvalTraceSignalCardBody({
@@ -214,18 +164,4 @@ export function LlmEvalReportSignalCard({ signal }: SignalCardProps): JSX.Elemen
             </div>
         </SignalCardShell>
     )
-}
-
-// ── Registry entries ──────────────────────────────────────────────────────────────
-
-export const llmEvalTraceSignalCardEntry: SignalCardEntry = {
-    key: 'llm_analytics:evaluation',
-    matches: (signal) => signal.source_product === 'llm_analytics' && isLlmEvalTraceExtra(signal.extra),
-    Component: LlmEvalTraceSignalCard,
-}
-
-export const llmEvalReportSignalCardEntry: SignalCardEntry = {
-    key: 'llm_analytics:evaluation_report',
-    matches: (signal) => signal.source_product === 'llm_analytics' && isLlmEvalReportExtra(signal.extra),
-    Component: LlmEvalReportSignalCard,
 }
