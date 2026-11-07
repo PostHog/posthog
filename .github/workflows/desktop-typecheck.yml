@@ -148,7 +148,7 @@ jobs:
     desktop-typecheck-pass:
         needs: [changes, typecheck]
         name: Desktop Typecheck Pass
-        runs-on: depot-ubuntu-24.04
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

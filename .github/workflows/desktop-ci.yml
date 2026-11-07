@@ -196,7 +196,7 @@ jobs:
         name: Desktop Tests Pass
         needs: [changes, build, quality, typecheck, test, backend-coupling]
         if: ${{ !cancelled() }}
-        runs-on: depot-ubuntu-24.04
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         steps:
             - name: Check results

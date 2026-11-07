@@ -402,7 +402,7 @@ jobs:
     desktop-tests-pass:
         needs: [changes, unit-test, electron-test, e2e]
         name: Desktop Tests Pass
-        runs-on: depot-ubuntu-24.04
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

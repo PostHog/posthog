@@ -165,7 +165,7 @@ jobs:
     desktop-build-pass:
         needs: [changes, build]
         name: Desktop Build Pass
-        runs-on: depot-ubuntu-24.04
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:
