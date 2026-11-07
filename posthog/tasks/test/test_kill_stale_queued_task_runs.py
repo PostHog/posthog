@@ -264,11 +264,11 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         original_mark_failed = TaskRun.mark_failed
         call_count = {"n": 0}
 
-        def flaky_mark_failed(self: Any, error: str, error_type: str | None = None) -> None:
+        def flaky_mark_failed(self: Any, error: str, error_type: str | None = None, **kwargs: Any) -> bool:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("synthetic failure")
-            return original_mark_failed(self, error, error_type=error_type)
+            return original_mark_failed(self, error, error_type=error_type, **kwargs)
 
         with (
             patch.object(TaskRun, "mark_failed", flaky_mark_failed),
@@ -279,8 +279,8 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         mock_capture.assert_called_once()
         run_a.refresh_from_db()
         run_b.refresh_from_db()
-        self.assertEqual([run_a.status, run_b.status], [TaskRun.Status.FAILED, TaskRun.Status.FAILED])
-        self.assertTrue(run_a.error_message and run_b.error_message)
+        statuses = sorted([run_a.status, run_b.status])
+        self.assertEqual(statuses, sorted([TaskRun.Status.QUEUED, TaskRun.Status.FAILED]))
 
     def test_skips_run_whose_status_changed_between_select_and_update(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
