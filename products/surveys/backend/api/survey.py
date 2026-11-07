@@ -1077,7 +1077,42 @@ class SurveyResponsesListSerializer(PageLinksSerializer):
     offset = serializers.IntegerField(help_text="The offset applied to this query (echoed back for pagination).")
 
 
-class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer):
+IN_APP_SURVEY_TYPES = (Survey.SurveyType.POPOVER, Survey.SurveyType.WIDGET)
+SURVEYS_OFF_DISPLAY_WARNING = (
+    "Surveys are off in every environment of this project, so your app won't show this survey automatically. "
+    "Turning on surveys in project settings (surveys_opt_in) also shows every other running popover and widget "
+    "survey in this project. To show only this survey, call posthog.displaySurvey() with its ID from your app."
+)
+DISPLAY_WARNING_HELP_TEXT = (
+    "Set when posthog-js won't show this survey on its own, because surveys are off in every environment of the project. "
+    "Null when the survey can display."
+)
+
+
+class DisplayWarningMixin(serializers.Serializer):
+    display_warning = serializers.SerializerMethodField(help_text=DISPLAY_WARNING_HELP_TEXT)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_display_warning(self, survey: Survey) -> str | None:
+        if survey.type not in IN_APP_SURVEY_TYPES:
+            return None
+        return None if self._project_shows_surveys(survey) else SURVEYS_OFF_DISPLAY_WARNING
+
+    def _project_shows_surveys(self, survey: Survey) -> bool:
+        # Every environment of the project serves the project's surveys, gated by its own surveys_opt_in.
+        # Cached on the shared context so a list response runs the query once.
+        if "project_shows_surveys" not in self.context:
+            get_team = self.context.get("get_team")
+            team = get_team() if get_team else survey.team
+            self.context["project_shows_surveys"] = Team.objects.filter(
+                project_id=team.project_id, surveys_opt_in=True
+            ).exists()
+        return self.context["project_shows_surveys"]
+
+
+class SurveySerializer(
+    DisplayWarningMixin, SearchMatchTypeSerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
+):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     linked_insight_id = serializers.IntegerField(required=False, allow_null=True, source="linked_insight.id")
@@ -1163,6 +1198,7 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
             "user_access_level",
             "form_content",
             "search_match_type",
+            "display_warning",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -1204,7 +1240,7 @@ def _free_name_hint(name: str, project_id: int) -> str:
     return f'Use a different name, such as "{free_name}".'
 
 
-class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
+class SurveySerializerCreateUpdateOnly(DisplayWarningMixin, serializers.ModelSerializer):
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     linked_insight_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
@@ -1316,6 +1352,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "translations",
             "_create_in_folder",
             "form_content",
+            "display_warning",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 

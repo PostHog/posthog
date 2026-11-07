@@ -41,6 +41,7 @@ from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
     SURVEY_APPEARANCE_HTML_FIELDS,
+    SURVEYS_OFF_DISPLAY_WARNING,
     SurveyAppearanceSchemaSerializer,
     SurveyOpenQuestionSchemaSerializer,
     SurveySerializerCreateUpdateOnly,
@@ -3155,6 +3156,7 @@ class TestSurvey(APIBaseTest):
                     "linked_insight_id": None,
                     "conditions": None,
                     "archived": False,
+                    "display_warning": SURVEYS_OFF_DISPLAY_WARNING,
                     "start_date": None,
                     "end_date": None,
                     "responses_limit": None,
@@ -8172,6 +8174,67 @@ class TestSurveyLifecycleActions(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.survey.refresh_from_db()
         self.assertEqual(self.survey.end_date, original_end)
+
+    @parameterized.expand(
+        [
+            ("launch_popover_opt_in_unset", "launch", "popover", None, True),
+            ("launch_widget_opt_in_off", "launch", "widget", False, True),
+            ("launch_popover_opt_in_on", "launch", "popover", True, False),
+            ("launch_api_opt_in_unset", "launch", "api", None, False),
+            ("launch_hosted_opt_in_unset", "launch", "external_survey", None, False),
+            ("create_launched_popover_opt_in_unset", "create", "popover", None, True),
+            ("create_launched_api_opt_in_unset", "create", "api", None, False),
+            ("get_draft_popover_opt_in_off", "get", "popover", False, True),
+        ]
+    )
+    def test_response_warns_when_surveys_are_off_for_in_app_surveys(
+        self, _name: str, via: str, survey_type: str, surveys_opt_in: bool | None, expect_warning: bool
+    ) -> None:
+        self.team.surveys_opt_in = surveys_opt_in
+        self.team.save()
+        self.survey.type = survey_type
+        self.survey.save()
+        base = f"/api/projects/{self.team.id}/surveys"
+        if via == "launch":
+            response = self.client.post(f"{base}/{self.survey.id}/launch/")
+        elif via == "create":
+            response = self.client.post(
+                f"{base}/",
+                data={
+                    "name": "Launched on create",
+                    "type": survey_type,
+                    "questions": [{"type": "open", "question": "Q?"}],
+                    "start_date": datetime.now(UTC).isoformat(),
+                },
+                format="json",
+            )
+        else:
+            response = self.client.get(f"{base}/{self.survey.id}/")
+        self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json())
+        self.assertEqual(bool(response.json()["display_warning"]), expect_warning)
+
+    @parameterized.expand(
+        [
+            ("only_child_environment_on", None, True, False),
+            ("only_root_environment_on", True, False, False),
+            ("no_environment_on", False, None, True),
+        ]
+    )
+    def test_response_warns_only_when_no_environment_shows_surveys(
+        self, _name: str, root_opt_in: bool | None, child_opt_in: bool | None, expect_warning: bool
+    ) -> None:
+        self.team.surveys_opt_in = root_opt_in
+        self.team.save()
+        Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            parent_team=self.team,
+            name="Second environment",
+            surveys_opt_in=child_opt_in,
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(bool(response.json()["display_warning"]), expect_warning)
 
 
 class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
