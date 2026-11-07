@@ -151,6 +151,7 @@ class CodeEmail:
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
+    sensitive: bool = False
 
 
 class DeliveryUnavailable(Exception):

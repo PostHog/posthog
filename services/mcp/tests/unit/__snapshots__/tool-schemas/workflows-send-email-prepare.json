@@ -37,6 +37,10 @@
             "maxItems": 10,
             "type": "array"
         },
+        "sensitive": {
+            "description": "For an email your code rendered that carries a login code, a reset link or another secret. PostHog keeps no copy of the email's body or subject, clicked links keep only the site address, and the send can't be rerun from its logs. Defaults to false.",
+            "type": "boolean"
+        },
         "subject": {
             "description": "Subject of the email your code rendered.",
             "type": "string"

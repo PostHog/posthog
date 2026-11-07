@@ -554,22 +554,21 @@ def _send_payload(
 
 
 def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
-    accepted: dict[str, Any] = {
-        "content": _without_empty(
-            {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
-        ),
-        "from": _without_empty(_code_send_sender(team_id, email.sender)),
-        "tracking": {"captureEngagement": email.capture_engagement},
-    }
-    if email.reply_to:
-        accepted["replyTo"] = list(email.reply_to)
-    if email.cc:
-        accepted["cc"] = list(email.cc)
-    if email.bcc:
-        accepted["bcc"] = list(email.bcc)
-    if email.attachments:
-        accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
-    return accepted
+    # Empty and false fields stay out, so the retry of a send queued before a field existed matches its idempotency key.
+    return _without_empty(
+        {
+            "content": _without_empty(
+                {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
+            ),
+            "from": _without_empty(_code_send_sender(team_id, email.sender)),
+            "tracking": {"captureEngagement": email.capture_engagement},
+            "replyTo": list(email.reply_to),
+            "cc": list(email.cc),
+            "bcc": list(email.bcc),
+            "attachments": [_accepted_attachment(attachment) for attachment in email.attachments],
+            "sensitive": email.sensitive,
+        }
+    )
 
 
 def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:

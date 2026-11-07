@@ -465,6 +465,7 @@ CODE_SEND_FIELDS = (
     "reply_to",
     "capture_engagement",
     *CODE_SEND_EXTRA_FIELDS,
+    "sensitive",
 )
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
 
@@ -543,6 +544,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
         "rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned "
         "engagement capture off captures nothing, whatever the send says.",
+    )
+    sensitive = serializers.BooleanField(
+        required=False,
+        help_text="For an email your code rendered that carries a login code, a reset link or another secret. "
+        "PostHog keeps no copy of the email's body or subject, clicked links keep only the site address, and the "
+        "send can't be rerun from its logs. Defaults to false.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -843,7 +850,7 @@ class TransactionalEmailSendMixin:
         send: Callable[[str | None], QueuedEmail],
         *,
         route: str,
-        addressed: dict[str, str],
+        addressed: dict[str, Any],
         unavailable: type[TransactionalEmailUnavailable] = TransactionalEmailUnavailable,
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
@@ -1326,6 +1333,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             cc=tuple(data.get("cc") or ()),
             bcc=tuple(data.get("bcc") or ()),
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
+            sensitive=data.get("sensitive", False),
         )
         return self._queue_send(
             request,
@@ -1337,7 +1345,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 idempotency_key=idempotency_key,
             ),
             route="send_email",
-            addressed={"addressed_by": "template_key"},
+            addressed={"addressed_by": "template_key", "sensitive": email.sensitive},
             unavailable=UnconfirmedEmailSend,
         )
 
