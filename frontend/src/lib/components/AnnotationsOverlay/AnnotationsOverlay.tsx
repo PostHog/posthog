@@ -381,7 +381,7 @@ function AnnotationsPopover({
 }): JSX.Element {
     const { activeDate, groupingUnit, isDateLocked, insightId, isPopoverShown, annotationsOverlayProps, readOnly } =
         useValues(annotationsOverlayLogic)
-    const { closePopover } = useActions(annotationsOverlayLogic)
+    const { closePopover, lockDate } = useActions(annotationsOverlayLogic)
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
     const handleClose = (): void => {
         hover.cancel()
@@ -438,14 +438,18 @@ function AnnotationsPopover({
                         readOnly ? undefined : (
                             <LemonButton
                                 type="primary"
-                                onClick={() =>
+                                onClick={() => {
+                                    // Lock the hover-opened popover so it stays open behind the modal
+                                    if (!isDateLocked) {
+                                        hover.cancel()
+                                        lockDate()
+                                    }
                                     openModalToCreateAnnotation(
                                         activeDate,
                                         insightId,
                                         annotationsOverlayProps.dashboardId
                                     )
-                                }
-                                disabled={!isDateLocked}
+                                }}
                             >
                                 Add annotation
                             </LemonButton>
