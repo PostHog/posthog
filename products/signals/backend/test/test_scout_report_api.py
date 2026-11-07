@@ -521,6 +521,43 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [created["report_id"]]
 
+    def test_emit_and_edit_repair_over_escaped_summary_and_return_hints(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(CAPTURE_PATH) as capture:
+            emitted = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(
+                    title="fix(checkout): p99 regressed", summary="## Problem\\n\\nThe \\`/checkout\\` p99 doubled."
+                ),
+                format="json",
+            ).json()
+            report = SignalReport.objects.get(id=emitted["report_id"])
+            assert report.summary == "## Problem\n\nThe `/checkout` p99 doubled."
+            assert [(h["check_id"], h["severity"]) for h in emitted["quality_hints"]] == [
+                ("literal_newline_escapes", "repair"),
+                ("escaped_backticks", "repair"),
+                ("pr_style_title", "hint"),
+            ]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": emitted["report_id"], "summary": "Line one\\nLine two"},
+                format="json",
+            ).json()
+        report.refresh_from_db()
+        assert report.summary == "Line one\nLine two"
+        assert [h["check_id"] for h in edited["quality_hints"]] == ["literal_newline_escapes"]
+        hint_events = [
+            c.kwargs["properties"]
+            for c in capture.call_args_list
+            if c.kwargs["event"] == "signals_scout_report_quality_hint"
+        ]
+        assert [(e["tool"], e["check_id"], e["skill_name"]) for e in hint_events] == [
+            ("emit_report", "literal_newline_escapes", run.skill_name),
+            ("emit_report", "escaped_backticks", run.skill_name),
+            ("emit_report", "pr_style_title", run.skill_name),
+            ("edit_report", "literal_newline_escapes", run.skill_name),
+        ]
+
     def test_edit_report_writes_typed_links_and_rejects_a_cycle(self) -> None:
         # A scout that splits one finding into a stack has to be able to record the order, and the
         # cycle guard has to hold on this path too, not only on the REST action.
