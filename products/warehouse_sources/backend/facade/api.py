@@ -402,8 +402,7 @@ def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.Ext
 
 def github_repositories_syncing(team_id: int, endpoint: str) -> frozenset[str]:
     """The repositories, lowercased `owner/repo`, whose `endpoint` a live GitHub source of this team syncs."""
-    # The GitHub naming helpers sit under the source registry package, and the inputs store pulls the
-    # credential stores, so both load at call time to stay off the `django.setup()` import path.
+    # Imported here to keep the source registry and the credential stores off the `django.setup()` path.
     from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore  # noqa: PLC0415
     from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import (  # noqa: PLC0415
         normalize_repository,
@@ -423,8 +422,7 @@ def github_repositories_syncing(team_id: int, endpoint: str) -> frozenset[str]:
         repository, schema_endpoint = schema_repo_endpoint(schema.schema_metadata, schema.name, None)
         if schema_endpoint != endpoint:
             continue
-        # A bare row comes from a single-repository source that names its repository only in its
-        # encrypted inputs, so the inputs are decrypted only for those rows.
+        # Only a bare single-repository row keeps its repository in encrypted inputs, so decrypt just those.
         if repository is None:
             try:
                 legacy = str(SourceInputsStore.load(schema.source).get("repository") or "")
