@@ -5,6 +5,7 @@ import {
     MIN_BUBBLE_RADIUS,
     OUTLIER_COLOR,
     UNASSIGNED_COLOR,
+    assignTopicColorSlots,
     bubbleRadius,
     buildPointSeries,
     buildTopicSeries,
@@ -15,6 +16,7 @@ const topics: MCPIntentMapTopic[] = [
     { topic_id: 'a', label: 'Create insights', summary: '', x: 1, y: 0, calls: 400, share_pct: 80 },
     { topic_id: 'b', label: 'List flags', summary: '', x: 0, y: 1, calls: 100, share_pct: 20 },
 ]
+const slots = assignTopicColorSlots({}, topics)
 
 function point(overrides: Partial<MCPIntentMapPoint>): MCPIntentMapPoint {
     return {
@@ -41,7 +43,7 @@ describe('bubbleRadius', () => {
 
 describe('buildTopicSeries', () => {
     it('makes one bubble per topic, sized by calls, with topic meta', () => {
-        const series = buildTopicSeries(topics)
+        const series = buildTopicSeries(topics, slots)
 
         expect(series.map((s) => s.key)).toEqual(['topic-a', 'topic-b'])
         expect(series[0].points[0].radius).toBe(MAX_BUBBLE_RADIUS)
@@ -53,7 +55,7 @@ describe('buildTopicSeries', () => {
             calls: 400,
             sharePct: 80,
         })
-        expect(series[0].color).toBe(topicColor('a', topics))
+        expect(series[0].color).toBe(topicColor('a', slots))
     })
 })
 
@@ -67,7 +69,8 @@ describe('buildPointSeries', () => {
                 point({ intent_hash: '4', topic_id: null }),
                 point({ intent_hash: '5', topic_id: 'archived' }),
             ],
-            topics
+            topics,
+            slots
         )
 
         expect(series.map((s) => [s.key, s.points.length, s.shape])).toEqual([
@@ -77,7 +80,7 @@ describe('buildPointSeries', () => {
         ])
         expect(series[1].color).toBe(UNASSIGNED_COLOR)
         expect(series[2].color).toBe(OUTLIER_COLOR)
-        expect(series[0].color).toBe(buildTopicSeries(topics)[0].color)
+        expect(series[0].color).toBe(buildTopicSeries(topics, slots)[0].color)
         expect(series[2].points[0].meta).toMatchObject({
             kind: 'intent',
             intentHash: '3',
@@ -87,6 +90,6 @@ describe('buildPointSeries', () => {
     })
 
     it('returns nothing for no points', () => {
-        expect(buildPointSeries([], topics)).toEqual([])
+        expect(buildPointSeries([], topics, slots)).toEqual([])
     })
 })

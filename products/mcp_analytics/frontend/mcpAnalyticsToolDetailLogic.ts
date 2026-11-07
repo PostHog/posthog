@@ -775,7 +775,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         // The window and pinned interval reload through the urlToAction handler below instead of a
         // listener on setDateFilter; the shared filters have no URL round-trip of their own here, so
         // they reload directly the same way that handler reloads on a date change.
@@ -795,7 +795,9 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             actions.loadSummary()
             actions.loadDescriptions()
             actions.loadIntentCoverage()
-            if (values.featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]) {
+            cache.sectionsLoaded = true
+            cache.intentProfileRequested = !!values.featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]
+            if (cache.intentProfileRequested) {
                 actions.loadIntentProfile()
             }
             actions.loadDailyStats()
@@ -805,6 +807,16 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             actions.loadNeighborsAfterRows()
             actions.loadByHarnessRows()
             actions.loadTopUserRows()
+        },
+        // The scene can mount before /flags answers, so the first load may have skipped the profile.
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            const enabled = !!values.featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]
+            if (!enabled) {
+                cache.intentProfileRequested = false
+            } else if (cache.sectionsLoaded && !cache.intentProfileRequested) {
+                cache.intentProfileRequested = true
+                actions.loadIntentProfile()
+            }
         },
     })),
 

@@ -37,21 +37,35 @@ export function bubbleRadius(
     return min + (max - min) * Math.sqrt(Math.min(calls, maxCalls) / maxCalls)
 }
 
-/** Colour by the topic's rank in the topics list, so a topic keeps its colour across re-renders of the same data. */
-export function topicColor(topicId: string | null, topics: MCPIntentMapTopic[]): string {
-    if (topicId === null) {
-        return UNASSIGNED_COLOR
+export type TopicColorSlots = Record<string, number>
+
+/** Gives each topic not seen before the next palette slot, so filtering or re-ranking never swaps colors. */
+export function assignTopicColorSlots(slots: TopicColorSlots, topics: MCPIntentMapTopic[]): TopicColorSlots {
+    const unseen = topics.filter((topic) => !(topic.topic_id in slots))
+    if (unseen.length === 0) {
+        return slots
     }
-    const index = topics.findIndex((topic) => topic.topic_id === topicId)
-    return index === -1 ? UNASSIGNED_COLOR : getSeriesColor(index)
+    const next = { ...slots }
+    let slot = Object.keys(slots).length
+    for (const topic of unseen) {
+        next[topic.topic_id] = slot++
+    }
+    return next
 }
 
-export function buildTopicSeries(topics: MCPIntentMapTopic[]): IntentScatterSeries[] {
+export function topicColor(topicId: string | null, slots: TopicColorSlots): string {
+    if (topicId === null || !(topicId in slots)) {
+        return UNASSIGNED_COLOR
+    }
+    return getSeriesColor(slots[topicId])
+}
+
+export function buildTopicSeries(topics: MCPIntentMapTopic[], slots: TopicColorSlots): IntentScatterSeries[] {
     const maxCalls = Math.max(0, ...topics.map((topic) => topic.calls))
     return topics.map((topic) => ({
         key: `topic-${topic.topic_id}`,
         label: topic.label,
-        color: topicColor(topic.topic_id, topics),
+        color: topicColor(topic.topic_id, slots),
         shape: 'circle',
         points: [
             {
@@ -71,7 +85,11 @@ export function buildTopicSeries(topics: MCPIntentMapTopic[]): IntentScatterSeri
 }
 
 /** One series per topic for assigned points, one grey series for unassigned, one cross series for outliers. */
-export function buildPointSeries(points: MCPIntentMapPoint[], topics: MCPIntentMapTopic[]): IntentScatterSeries[] {
+export function buildPointSeries(
+    points: MCPIntentMapPoint[],
+    topics: MCPIntentMapTopic[],
+    slots: TopicColorSlots
+): IntentScatterSeries[] {
     const labels = new Map(topics.map((topic) => [topic.topic_id, topic.label]))
     const byTopic = new Map<string | null, MCPIntentMapPoint[]>()
     const outliers: MCPIntentMapPoint[] = []
@@ -106,7 +124,7 @@ export function buildPointSeries(points: MCPIntentMapPoint[], topics: MCPIntentM
             series.push({
                 key: `points-${topic.topic_id}`,
                 label: topic.label,
-                color: topicColor(topic.topic_id, topics),
+                color: topicColor(topic.topic_id, slots),
                 pointRadius: POINT_RADIUS,
                 shape: 'circle',
                 points: bucket.map(toPoint),

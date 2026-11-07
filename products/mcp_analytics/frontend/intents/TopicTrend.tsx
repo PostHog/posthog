@@ -7,8 +7,8 @@ export function TopicTrend({ trendPp }: { trendPp: number | null }): JSX.Element
         return <span className="text-xs text-secondary">flat</span>
     }
     return (
-        <span className={`text-xs ${trendPp > 0 ? 'text-success' : 'text-danger'}`}>
-            {trendPp > 0 ? '▲' : '▼'} {Math.abs(trendPp).toFixed(1)} pp
+        <span className={`text-xs ${trendPp > 0 ? 'text-success' : 'text-danger'}`} translate="no">
+            {`${trendPp > 0 ? '▲' : '▼'} ${Math.abs(trendPp).toFixed(1)} pp`}
         </span>
     )
 }
