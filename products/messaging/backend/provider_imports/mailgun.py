@@ -44,6 +44,7 @@ from products.messaging.backend.provider_imports.base import (
     StepCheckpoint,
     UnknownImportStep,
 )
+from products.messaging.backend.provider_imports.imported_senders import apply_sender
 from products.messaging.backend.provider_imports.mailgun_templates import ConvertedVersion, convert_version
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
@@ -922,17 +923,7 @@ def _email_content(
     if not address:
         fallback = f"postmaster@{target.name}" if target.name else "postmaster at your sending domain"
         return email, (f"This template has no From header, so Mailgun sent it from {fallback}. Choose a sender.",)
-    sender = senders.get(address.lower())
-    if sender is None:
-        return email, (f"{address} isn't a PostHog sender yet. Add it, then choose it on this template.",)
-    email["from"] = {
-        "integrationId": sender.id,
-        "email": address,
-        "name": display_name or str(sender.config.get("name") or ""),
-    }
-    if not sender.config.get("verified"):
-        return email, (f"{address} isn't verified in PostHog yet, so this template can't send until it is.",)
-    return email, ()
+    return email, apply_sender(email, display_name, address, senders)
 
 
 def _fetch_domains(
