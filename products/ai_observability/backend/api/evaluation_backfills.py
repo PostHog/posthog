@@ -171,6 +171,7 @@ def start_backfill(
     rerun_existing: bool,
     total_count: int,
     user: User,
+    max_units: int | None = None,
 ) -> EvaluationBackfill:
     """Create the backfill row and start its walk. Raises a ValidationError when one already runs."""
     try:
@@ -183,6 +184,7 @@ def start_backfill(
             conditions=conditions,
             rerun_existing=rerun_existing,
             total_count=total_count,
+            max_units=max_units,
             created_by=user,
         )
     except IntegrityError:
@@ -336,6 +338,7 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "window_end",
             "conditions",
             "rerun_existing",
+            "max_units",
             "total_count",
             "dispatched_count",
             "completed_count",
@@ -355,6 +358,9 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "window_start": {"help_text": "Inclusive start of the window, by unit timestamp."},
             "window_end": {"help_text": "Exclusive end of the window."},
             "rerun_existing": {"help_text": "Whether units with an existing result are evaluated again."},
+            "max_units": {
+                "help_text": "Most units this backfill evaluates, for a capped preview such as an accepted eval suggestion. Null means no cap."
+            },
             "total_count": {
                 "help_text": "Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it."
             },
