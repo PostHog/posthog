@@ -219,7 +219,7 @@ export function ToolIntentProfile({
             </Card>
             <Card
                 title="Drift"
-                help="Topics whose share moved by at least 1.5 times versus the previous window, with at least 5 calls. Shares here count only calls that have a topic, so they can differ from Top topics."
+                help="Topics whose share of calls with an intent moved by at least 1.5 times versus the previous window. A topic needs at least 5 calls to count."
             >
                 {hasDrift ? (
                     <div className="flex flex-col gap-2">
