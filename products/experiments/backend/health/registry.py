@@ -1,4 +1,5 @@
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import assert_never
 
 from posthog.dataclasses import frozen
@@ -8,35 +9,66 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
     ExperimentHealthCheckKey,
     ExperimentHealthCheckResult,
+    ExperimentHealthCheckRule,
     ExperimentHealthCheckStatus,
     ExperimentHealthFinding,
-    ExperimentHealthMeasurement,
+    ExperimentHealthRuleMinimum,
+    ExperimentHealthRuleSide,
+    ExperimentHealthRuleTest,
+    ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.checks.bias_risk import bias_risk_multiple_excluded
+from products.experiments.backend.health.checks.bias_risk import (
+    MULTIPLE_VARIANT_BIAS_MINIMUM_COUNT,
+    MULTIPLE_VARIANT_BIAS_THRESHOLD,
+    bias_risk_multiple_excluded,
+    bias_risk_values,
+)
 from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
 from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
 from products.experiments.backend.health.checks.early_significance import early_significance
 from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
 from products.experiments.backend.health.checks.exposure_filters import exposure_filters
-from products.experiments.backend.health.checks.filtered_exposures import exposures_removed_by_test_account_filter
+from products.experiments.backend.health.checks.filtered_exposures import (
+    KEPT_SHARE_THRESHOLD,
+    MINIMUM_EXPOSED_WITHOUT_FILTER,
+    exposures_removed_by_test_account_filter,
+    test_account_filter_values,
+)
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
-from products.experiments.backend.health.checks.flag_state import flag_state
+from products.experiments.backend.health.checks.flag_state import flag_state, flag_state_values
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
 from products.experiments.backend.health.checks.metric_all_zero import metric_all_zero
-from products.experiments.backend.health.checks.metric_calculation_failed import metric_calculation_failed
+from products.experiments.backend.health.checks.metric_calculation_failed import (
+    metric_calculation_failed,
+    metric_calculation_values,
+)
 from products.experiments.backend.health.checks.metric_cannot_compile import metric_cannot_compile
 from products.experiments.backend.health.checks.metric_event_not_ingested import metric_event_not_ingested
-from products.experiments.backend.health.checks.metrics_not_matured import metrics_not_matured
-from products.experiments.backend.health.checks.multiple_variants import multiple_variants_share
+from products.experiments.backend.health.checks.metrics_not_matured import (
+    metrics_not_matured,
+    metrics_not_matured_values,
+)
+from products.experiments.backend.health.checks.multiple_variants import (
+    MULTIPLE_VARIANTS_MINIMUM_COUNT,
+    MULTIPLE_VARIANTS_SHARE_THRESHOLD,
+    multiple_variants_share,
+    multiple_variants_values,
+)
 from products.experiments.backend.health.checks.new_flag_no_traffic import new_flag_no_traffic
 from products.experiments.backend.health.checks.no_metric import no_metric
 from products.experiments.backend.health.checks.shared_flag import flag_shared
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
-from products.experiments.backend.health.checks.srm import srm
-from products.experiments.backend.health.checks.zero_exposures import zero_exposures
+from products.experiments.backend.health.checks.srm import (
+    SAMPLE_RATIO_MISMATCH_P_VALUE,
+    SRM_MINIMUM_SAMPLE_SIZE,
+    srm,
+    srm_values,
+)
+from products.experiments.backend.health.checks.zero_exposures import zero_exposures, zero_exposures_values
 from products.experiments.backend.health.context import HealthContext
-from products.experiments.backend.health.skips import CheckOutcome, CheckPassed, CheckSkip
+from products.experiments.backend.health.delays import ZERO_EXPOSURES_GRACE_HOURS
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, CheckValues
 
 
 @frozen
@@ -46,6 +78,10 @@ class HealthCheck:
     # What the check looks for and why it matters. The tab shows it for every status, so it holds for every experiment.
     description: str
     run: Callable[[HealthContext], CheckOutcome]
+    # What the check read, for every status. It doesn't run when `run` raised.
+    read: Callable[[HealthContext], CheckValues] | None = None
+    # How the check decides, for every status. None for a check without a numeric rule.
+    rule: ExperimentHealthCheckRule | None = None
 
 
 EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
@@ -58,6 +94,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "serves variants shows them to users that the results don't count."
         ),
         run=flag_state,
+        read=flag_state_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_SHARED,
@@ -168,6 +205,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "results or none, and some failures repeat until you change the metric or a setting."
         ),
         run=metric_calculation_failed,
+        read=metric_calculation_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_ALL_ZERO,
@@ -216,6 +254,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "while nothing is wrong."
         ),
         run=metrics_not_matured,
+        read=metrics_not_matured_values,
     ),
 )
 
@@ -232,6 +271,15 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "means that your code doesn't evaluate the flag or that no event matches the exposure criteria."
         ),
         run=zero_exposures,
+        read=zero_exposures_values,
+        rule=ExperimentHealthCheckRule(
+            value=ExperimentHealthValueKey.EXPOSED_COUNT,
+            threshold=1,
+            warns=ExperimentHealthRuleSide.BELOW,
+            minimum=ExperimentHealthRuleMinimum(
+                value=ExperimentHealthValueKey.SINCE_LAUNCH_HOURS, threshold=ZERO_EXPOSURES_GRACE_HOURS
+            ),
+        ),
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
@@ -241,6 +289,19 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "often match real users by mistake, so the results measure only a small part of your users."
         ),
         run=exposures_removed_by_test_account_filter,
+        read=test_account_filter_values,
+        # The check also waits for `ZERO_EXPOSURES_GRACE_HOURS` after launch and stops at `FEW_EXPOSURES_LIMIT` exposed
+        # users, because its count scans the exposure events. Those limits decide whether it runs, not what it finds,
+        # so its reason states them and the rule leaves them out.
+        rule=ExperimentHealthCheckRule(
+            value=ExperimentHealthValueKey.KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE,
+            threshold=KEPT_SHARE_THRESHOLD,
+            warns=ExperimentHealthRuleSide.BELOW,
+            minimum=ExperimentHealthRuleMinimum(
+                value=ExperimentHealthValueKey.EXPOSED_WITHOUT_TEST_ACCOUNT_FILTER_COUNT,
+                threshold=MINIMUM_EXPOSED_WITHOUT_FILTER,
+            ),
+        ),
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.SRM,
@@ -251,6 +312,16 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "one variant, which can bias the results."
         ),
         run=srm,
+        read=srm_values,
+        rule=ExperimentHealthCheckRule(
+            value=ExperimentHealthValueKey.P_VALUE,
+            threshold=SAMPLE_RATIO_MISMATCH_P_VALUE,
+            warns=ExperimentHealthRuleSide.BELOW,
+            test=ExperimentHealthRuleTest.CHI_SQUARED,
+            minimum=ExperimentHealthRuleMinimum(
+                value=ExperimentHealthValueKey.COMPARED_COUNT, threshold=SRM_MINIMUM_SAMPLE_SIZE
+            ),
+        ),
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.BIAS_RISK_MULTIPLE_EXCLUDED,
@@ -260,6 +331,15 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "users out, and the smaller variant loses a larger share of its users, which biases the comparison."
         ),
         run=bias_risk_multiple_excluded,
+        read=bias_risk_values,
+        rule=ExperimentHealthCheckRule(
+            value=ExperimentHealthValueKey.MULTIPLE_VARIANT_PERCENTAGE,
+            threshold=MULTIPLE_VARIANT_BIAS_THRESHOLD,
+            warns=ExperimentHealthRuleSide.ABOVE,
+            minimum=ExperimentHealthRuleMinimum(
+                value=ExperimentHealthValueKey.MULTIPLE_VARIANT_COUNT, threshold=MULTIPLE_VARIANT_BIAS_MINIMUM_COUNT
+            ),
+        ),
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.MULTIPLE_VARIANTS_SHARE,
@@ -270,6 +350,15 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "results."
         ),
         run=multiple_variants_share,
+        read=multiple_variants_values,
+        rule=ExperimentHealthCheckRule(
+            value=ExperimentHealthValueKey.MULTIPLE_VARIANT_PERCENTAGE,
+            threshold=MULTIPLE_VARIANTS_SHARE_THRESHOLD,
+            warns=ExperimentHealthRuleSide.ABOVE,
+            minimum=ExperimentHealthRuleMinimum(
+                value=ExperimentHealthValueKey.MULTIPLE_VARIANT_COUNT, threshold=MULTIPLE_VARIANTS_MINIMUM_COUNT
+            ),
+        ),
     ),
 )
 
@@ -287,28 +376,38 @@ def evaluate(ctx: HealthContext, checks: Sequence[HealthCheck]) -> ExperimentHea
             # The findings ride on the health action, the exposure answer and `experiment launched`, so one
             # failing check must not fail them or hide the findings of the other checks.
             capture_exception(error)
-            results.append(_result(check, ExperimentHealthCheckStatus.NOT_CHECKED, _CHECK_FAILED))
+            results.append(_result(check, ExperimentHealthCheckStatus.NOT_CHECKED, _CHECK_FAILED, {}))
             continue
+        values = _read(check, ctx)
         match outcome:
             case CheckSkip(status=status, reason=reason):
-                results.append(_result(check, status, reason))
+                results.append(_result(check, status, reason, values))
             case ExperimentHealthFinding():
-                findings.append(outcome)
-                results.append(_result(check, ExperimentHealthCheckStatus.FINDING, None))
-            case CheckPassed(measurement=measurement):
-                results.append(_result(check, ExperimentHealthCheckStatus.PASSED, None, measurement))
+                findings.append(replace(outcome, check=check.key))
+                results.append(_result(check, ExperimentHealthCheckStatus.FINDING, None, values))
             case None:
-                results.append(_result(check, ExperimentHealthCheckStatus.PASSED, None))
+                results.append(_result(check, ExperimentHealthCheckStatus.PASSED, None, values))
             case _:
                 assert_never(outcome)
     return ExperimentHealth(findings=tuple(findings), checks=tuple(results))
+
+
+def _read(check: HealthCheck, ctx: HealthContext) -> CheckValues:
+    if check.read is None:
+        return {}
+    try:
+        return check.read(ctx)
+    except Exception as error:
+        # The values only explain the status, so a failed read keeps the status and shows no values.
+        capture_exception(error)
+        return {}
 
 
 def _result(
     check: HealthCheck,
     status: ExperimentHealthCheckStatus,
     reason: str | None,
-    measurement: ExperimentHealthMeasurement | None = None,
+    values: CheckValues,
 ) -> ExperimentHealthCheckResult:
     return ExperimentHealthCheckResult(
         key=check.key,
@@ -316,5 +415,6 @@ def _result(
         description=check.description,
         status=status,
         reason=reason,
-        measurement=measurement,
+        values=values,
+        rule=check.rule,
     )

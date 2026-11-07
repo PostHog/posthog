@@ -315,6 +315,8 @@ class ReviewMeta:
     empty_diff: bool = False
     already_completed: bool = False
     pr_open: bool = True
+    # Only forwarded to the acting-user re-check; the workflow does not branch on it.
+    draft: bool = False
     # Decided here so the workflow branches on a recorded result; older histories decode as the pipeline.
     review_design: str = REVIEW_DESIGN_PIPELINE
     # Why the design was chosen, for the started event. Empty on histories from before it existed.
@@ -358,6 +360,11 @@ class ResolveActingUserInput:
     repository: str | None = None
     installation_id: str | None = None
     github_repo_id: int | None = None
+    # Whether the PR was a draft when the turn fetched it, for the automatic trigger's re-check of the draft rules.
+    # False in older payloads, which reviews the draft as before.
+    draft: bool = False
+    # Read GitHub again before a draft skip. None in older payloads, which keeps the fetched draft state.
+    pr_number: int | None = None
     # The PR's head branch, which links a self-driving PR to its Inbox report. The fetch refuses forks,
     # so the branch is in the base repository. None in older payloads: such a PR then has no owner.
     head_branch: str | None = None
@@ -968,6 +975,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         empty_diff=pr_number is None and not fetched.pr_files,
         already_completed=already_completed,
         pr_open=fetched.pr_metadata.state == "open",
+        draft=fetched.pr_metadata.draft,
         review_design=design_choice.design,
         review_design_reason=design_choice.reason,
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
@@ -1001,6 +1009,22 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
     return await database_sync_to_async(_fetch_and_persist, thread_sensitive=False)(input)
 
 
+def _pr_draft_on_github(repository: str, pr_number: int, *, token: str, installation_id: str | None) -> bool | None:
+    """The PR's draft state on GitHub now, or None when the read fails."""
+    try:
+        response = github_api_request(
+            "GET",
+            f"/repos/{repository}/pulls/{pr_number}",
+            token=token,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            installation_id=installation_id,
+        )
+    except (GitHubAPIError, GitHubRateLimitError, GitHubEgressBudgetExhausted, requests.RequestException):
+        logger.warning("Could not re-read the draft state of %s#%s", repository, pr_number)
+        return None
+    return response.json().get("draft") is True
+
+
 def _login_to_user_id(team_id: int, login: str | None) -> int | None:
     if not login:
         return None
@@ -1015,14 +1039,27 @@ def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int
         report = ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first()
         if full_review_published(report):
             return False
-    return automatic_flash_allowed(
-        team_id=input.team_id,
-        repository=input.repository,
-        user_id=acting_user_id,
-        author_login=input.author_login,
-        installation_id=input.installation_id,
-        github_repo_id=input.github_repo_id,
-    )
+    repository, user_id = input.repository, acting_user_id
+
+    def allowed(draft: bool) -> bool:
+        return automatic_flash_allowed(
+            team_id=input.team_id,
+            repository=repository,
+            user_id=user_id,
+            author_login=input.author_login,
+            installation_id=input.installation_id,
+            github_repo_id=input.github_repo_id,
+            draft=draft,
+        )
+
+    if allowed(input.draft):
+        return True
+    if not input.draft or input.pr_number is None or not allowed(False):
+        return False
+    # The queue drops a ready request for the head this turn already holds, so a PR marked ready after the
+    # fetch would stay unreviewed. Unlike the push gate, a failed read keeps the skip: the repository said no drafts.
+    token, installation_id = _installation_auth(input.team_id, repository)
+    return _pr_draft_on_github(repository, input.pr_number, token=token, installation_id=installation_id) is False
 
 
 def _flash_after_full(input: ResolveActingUserInput) -> bool:
@@ -2445,22 +2482,6 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, d
     )
 
 
-def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installation_id: str | None) -> bool:
-    """The PR's draft state on GitHub now. A failed read counts as ready, so the gate reviews the push."""
-    try:
-        response = github_api_request(
-            "GET",
-            f"/repos/{repository}/pulls/{pr_number}",
-            token=token,
-            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
-            installation_id=installation_id,
-        )
-    except (GitHubAPIError, GitHubRateLimitError, GitHubEgressBudgetExhausted, requests.RequestException):
-        logger.warning("Could not re-read the draft state of %s#%s; reviewing the push", repository, pr_number)
-        return False
-    return response.json().get("draft") is True
-
-
 def _previous_turn_findings(input: GatePushInput) -> int | None:
     """The findings the last counted turn kept. A turn that failed before publishing does not count."""
     try:
@@ -2501,7 +2522,8 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
         # ready before this turn reads as ready. One marked ready while this turn runs does not: the queue
         # drops the ready request for the head this turn gates. So a draft skip reads GitHub again after the
         # gate's other reads, which leaves only the moment between this read and the end of the turn.
-        if decision.reason == "draft" and not _pr_is_draft_now(
+        # A failed read counts as ready, so the gate reviews the push.
+        if decision.reason == "draft" and not _pr_draft_on_github(
             input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
         ):
             draft = False

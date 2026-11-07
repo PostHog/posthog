@@ -30,6 +30,7 @@ from ..facade.enums import (
     WarehouseSuggestionRefreshMode,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
+    WarehouseSuggestionSurface,
 )
 
 MAX_REFRESH_INTERVAL_SECONDS = int(timedelta(days=30).total_seconds())
@@ -338,6 +339,14 @@ class WarehouseSuggestionListQuerySerializer(serializers.Serializer):
     )
     assignee_id = serializers.IntegerField(
         required=False, help_text="Only return suggestions assigned to the user with this ID."
+    )
+
+
+class WarehouseSuggestionDecisionQuerySerializer(serializers.Serializer):
+    surface = serializers.ChoiceField(
+        choices=WarehouseSuggestionSurface.choices,
+        required=False,
+        help_text="Page the decision was made on. Only recorded on the analytics event.",
     )
 
 

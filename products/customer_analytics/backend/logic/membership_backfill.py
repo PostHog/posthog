@@ -788,7 +788,7 @@ class MembershipBackfillService:
 
         results = (
             get_cluster(cluster=settings.CLICKHOUSE_MIGRATIONS_CLUSTER, data_cluster=settings.CLICKHOUSE_CLUSTER)
-            .map_hosts_by_roles(check, [NodeRole.INGESTION_SMALL], concurrency=2, require_hosts=True)
+            .map_hosts_by_roles(check, [NodeRole.INGESTION_EVENTS], concurrency=2, require_hosts=True)
             .result()
         )
         self.check_attempt()

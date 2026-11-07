@@ -1,5 +1,5 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native'
 import { actionErrorMessage } from '@/lib/errors'
 import type { Person, Reviewer } from '@/model/types'
 import { Avatar } from '@/ui/Avatar'
@@ -81,8 +81,6 @@ export function AssigneeSheet({
     const { colors, scheme } = useTheme()
     const insets = useScreenInsets()
     const { height: windowHeight } = useSceneDimensions()
-    const { width: windowWidth } = useWindowDimensions()
-    const side = Math.max(14, (windowWidth - insets.left - insets.right - 600) / 2)
     const compact = windowHeight < 480
     const top = topOffset(insets, 120)
     const cardHeight = Math.max(320, Math.round((windowHeight - top) * 0.52))
@@ -147,7 +145,7 @@ export function AssigneeSheet({
             onClose={onClose}
             accessibilityLabel="Assignee"
             testID="assignee-sheet"
-            style={[styles.card, compact && styles.cardCompact, { left: side, right: side }, cardStyle]}
+            style={[styles.card, compact && styles.cardCompact, cardStyle]}
         >
             <View style={compact ? styles.controlsCompact : undefined}>
                 <View style={[styles.header, compact && styles.headerCompact]}>

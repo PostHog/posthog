@@ -2,12 +2,14 @@ import { renderRouter } from 'expo-router/testing-library'
 import type { ComponentType, ReactElement } from 'react'
 import { View } from 'react-native'
 import { FEATURE_FLAGS, type FeatureFlagKey, setFeatureFlags } from '@/lib/featureFlags'
-import ErrorsTab from '../../../app/(tabs)/errors'
-import ReplayTab from '../../../app/(tabs)/replay'
+import ErrorsRoute from '../../../app/(stack)/errors/index'
+import ReplayRoute from '../../../app/(stack)/replay/index'
+import ErrorsTab from '../../../app/(tabs)/errors/index'
+import ReplayTab from '../../../app/(tabs)/replay/index'
 import IssueRoute from '../../../app/errors/[id]'
-import ErrorsRoute from '../../../app/errors/index'
 import SessionRoute from '../../../app/replay/[sessionId]'
-import ReplayRoute from '../../../app/replay/index'
+
+jest.mock('./TabScene', () => ({ TabScene: ({ children }: { children: React.ReactNode }) => children }))
 
 jest.mock('@/features/errors/ErrorsListScreen', () => ({ ErrorsListScreen: () => null }))
 jest.mock('@/features/errors/IssueScreen', () => ({ IssueScreen: () => null }))
@@ -20,9 +22,9 @@ function Inbox(): ReactElement {
 }
 
 const ROUTES: { path: string; url: string; component: ComponentType; flag: FeatureFlagKey }[] = [
-    { path: 'errors/index', url: '/errors', component: ErrorsRoute, flag: FEATURE_FLAGS.errorTracking },
+    { path: '(stack)/errors/index', url: '/errors', component: ErrorsRoute, flag: FEATURE_FLAGS.errorTracking },
     { path: 'errors/[id]', url: '/errors/example-issue', component: IssueRoute, flag: FEATURE_FLAGS.errorTracking },
-    { path: 'replay/index', url: '/replay', component: ReplayRoute, flag: FEATURE_FLAGS.sessionReplay },
+    { path: '(stack)/replay/index', url: '/replay', component: ReplayRoute, flag: FEATURE_FLAGS.sessionReplay },
     {
         path: 'replay/[sessionId]',
         url: '/replay/example-session',
@@ -36,16 +38,16 @@ const ROUTES: { path: string; url: string; component: ComponentType; flag: Featu
 describe('mobile product release gates', () => {
     afterEach(() => setFeatureFlags({}))
 
-    test.each(ROUTES)('blocks $path unless its own flag is enabled', ({ path, url, component, flag }) => {
+    test.each(ROUTES)('blocks $path unless its own flag is enabled', async ({ path, url, component, flag }) => {
         const other = flag === FEATURE_FLAGS.errorTracking ? FEATURE_FLAGS.sessionReplay : FEATURE_FLAGS.errorTracking
         setFeatureFlags({ [other]: true })
-        const app = renderRouter({ inbox: Inbox, [path]: component }, { initialUrl: url })
+        const app = await renderRouter({ inbox: Inbox, [path]: component }, { initialUrl: url })
         expect(app.getPathname()).toBe('/inbox')
     })
 
-    test.each(ROUTES)('opens $path with its flag enabled', ({ path, url, component, flag }) => {
+    test.each(ROUTES)('opens $path with its flag enabled', async ({ path, url, component, flag }) => {
         setFeatureFlags({ [flag]: true })
-        const app = renderRouter({ inbox: Inbox, [path]: component }, { initialUrl: url })
+        const app = await renderRouter({ inbox: Inbox, [path]: component }, { initialUrl: url })
         expect(app.getSegments().join('/')).toBe(path.replace('/index', ''))
     })
 })

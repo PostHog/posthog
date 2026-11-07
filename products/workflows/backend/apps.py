@@ -23,8 +23,15 @@ class WorkflowsConfig(AppConfig):
         )
         from posthog.models.file_system.unfiled_file_saver import register_mixin_model  # noqa: PLC0415
 
+        from products.actions.backend.facade.api import on_action_saved  # noqa: PLC0415
         from products.workflows.backend import receivers  # noqa: F401, PLC0415 — registers signal receivers
-        from products.workflows.backend.models.hog_flow.hog_flow import HogFlow  # noqa: PLC0415
+        from products.workflows.backend.models.hog_flow.hog_flow import (  # noqa: PLC0415
+            HogFlow,
+            action_saved_for_hog_flows,
+        )
+
+        # Compiled filters embed each action's matcher, so they must be rebuilt when an action is saved.
+        on_action_saved(action_saved_for_hog_flows, dispatch_uid="workflows.hog_flows.action_saved")
 
         def log_deletion(context: "DeletionContext", instance: "HogFlow") -> None:
             from products.workflows.backend.services.hog_flow_activity import (  # noqa: PLC0415 — keeps activity dependencies off startup
