@@ -7,7 +7,7 @@ from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.tools import ConsoleTool
 
 # Navigation headings. Add one here, in the shell, only when no existing group fits a new tool.
-TOOL_GROUPS = frozenset({"Data", "Billing", "Organizations"})
+TOOL_GROUPS = frozenset({"Data", "Incidents", "Billing", "Organizations"})
 KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 

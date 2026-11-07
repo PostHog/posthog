@@ -6,7 +6,9 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django import forms
 from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth.models import Group
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
@@ -17,9 +19,25 @@ from django.utils.html import format_html
 from parameterized import parameterized
 
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
+from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.registry import ConsoleRegistry, console
-from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
+from posthog.admin.console.tools import (
+    Cell,
+    ConsoleTool,
+    FieldGroup,
+    Filters,
+    Link,
+    Links,
+    Live,
+    Notice,
+    Page,
+    Paging,
+    Row,
+    Stat,
+    Stats,
+    Table,
+    ToolOperation,
+)
 from posthog.csp_middleware import CSPMiddleware
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
@@ -59,6 +77,57 @@ class _Tool(ConsoleTool):
     title = "Some report"
     owner = Owner(name="Dev experience", crest="dev-experience")
     group = "Data"
+
+
+class _ToolActionForm(forms.Form):
+    reason = forms.CharField()
+    confirm = forms.CharField(required=False)
+
+
+class _ToolFiltersForm(forms.Form):
+    since = forms.CharField()
+    step = forms.CharField(widget=forms.HiddenInput, required=False)
+
+
+class _ActingTool(_Tool):
+    key = "acting-tool"
+    title = "Acting tool"
+    runs: list[str] = []
+
+    def _act(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
+        assert form is not None
+        if form.cleaned_data["confirm"] != "yes":
+            messages.error(request, "Type yes to confirm.")
+            return HttpResponse(status=400)
+        self.runs.append(form.cleaned_data["reason"])
+        return None
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        if request.GET.get("state") == "stale":
+            return []
+        return [
+            ToolOperation(
+                key="act", label="Act", handler=self._act, form_class=_ToolActionForm, pending_label="Acting..."
+            )
+        ]
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(
+            blocks=(
+                Notice(text="Check the window first.", tone=Tone.WARNING),
+                Stats(items=(Stat(label="Runs to replay", value="1,234"),)),
+                Links(
+                    items=(
+                        Link(label="Show details", href="/admin/console/", primary=True, pending_label="Loading..."),
+                    )
+                ),
+                Filters(
+                    form=_ToolFiltersForm(request.GET),
+                    groups=(FieldGroup(title="Window", field_names=("since",)),),
+                    submit_label="Preview",
+                ),
+            )
+        )
 
 
 def _register_twice() -> None:
@@ -150,6 +219,32 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "undo_hint",
             ),
             (
+                "danger_tool_operation_without_reason",
+                lambda: ToolOperation(
+                    key="wipe",
+                    label="Wipe",
+                    handler=lambda request, form: None,
+                    form_class=forms.Form,
+                    danger=True,
+                    undo_hint="It cannot be undone.",
+                ),
+                "reason",
+            ),
+            (
+                "link_off_site",
+                lambda: Link(label="Docs", href="//example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "filters_that_would_hide_a_field",
+                lambda: Filters(
+                    form=_ToolActionForm(),
+                    groups=(FieldGroup(title="Only one", field_names=("reason",)),),
+                    submit_label="Go",
+                ),
+                "must name each form field",
+            ),
+            (
                 "owner_gate_for_an_owner_without_a_staff_group",
                 lambda: Gate.owner().resolve(Owner(name="Dev experience", crest="dev-experience")),
                 "has no staff_group",
@@ -158,6 +253,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
             (
                 "fact_linking_off_site",
                 lambda: Fact(label="Docs", value="Read", href="//example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "notice_linking_off_site_with_a_backslash",
+                lambda: Notice(text="Moved", link_text="Open", href="/\\example.com/phish"),
                 "starts with /",
             ),
             (
@@ -183,7 +283,7 @@ class TestAdminConsoleAssets(SimpleTestCase):
                         ),
                     )
                 ),
-                "not a table, notice or output",
+                "not a table, notice, output or stats",
             ),
             (
                 "table_row_missing_a_cell",
@@ -455,6 +555,57 @@ class TestAdminConsoleViews(BaseTest):
         content = response.content.decode()
         assert "gateway down" in content
         assert "Outage goodwill" in content
+
+    @parameterized.expand(
+        [
+            ("runs_and_keeps_the_query", "?window=1", {"reason": "outage", "confirm": "yes"}, 302, ["outage"]),
+            ("handler_refusal_keeps_what_staff_typed", "", {"reason": "kept text", "confirm": "no"}, 400, []),
+            ("invalid_form_runs_nothing", "", {"reason": "", "confirm": "yes"}, 400, []),
+            ("operation_the_tool_no_longer_offers", "?state=stale", {"reason": "late", "confirm": "yes"}, 404, []),
+        ]
+    )
+    def test_a_tool_operation_runs_only_when_offered_and_valid(
+        self, _name: str, query: str, data: dict[str, str], status: int, runs: list[str]
+    ) -> None:
+        _ActingTool.runs = []
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = self.client.post(f"/admin/console/tools/acting-tool/act/{query}", data)
+
+        assert response.status_code == status
+        assert _ActingTool.runs == runs
+        if status == 302:
+            assert response["Location"] == f"/admin/console/tools/acting-tool/{query}"
+        if data["reason"] == "kept text":
+            content = response.content.decode()
+            assert "Type yes to confirm." in content
+            assert 'value="kept text"' in content
+            assert 'data-pending-label="Acting..."' in content
+
+    def test_a_tool_page_renders_every_block_it_holds(self) -> None:
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = self.client.get("/admin/console/tools/acting-tool/?since=2026-10-22&step=details")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'data-tone="warning"' in content and "Check the window first." in content
+        assert "Runs to replay" in content and "1,234" in content
+        assert 'data-pending-label="Loading..."' in content and "Show details" in content
+        assert 'value="2026-10-22"' in content and "Preview" in content
+        assert re.search(r'<input type="hidden" name="step" value="details"', content)
+
+    def test_a_tool_operation_needs_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        _ActingTool.runs = []
+
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = client.post(
+                "/admin/console/tools/acting-tool/act/?personal_api_key=phx_example",
+                {"reason": "forged", "confirm": "yes"},
+            )
+
+        assert response.status_code == 403
+        assert _ActingTool.runs == []
 
     @parameterized.expand(
         [
