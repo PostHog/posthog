@@ -80,6 +80,10 @@ export async function resolveSubject(
     }
 }
 
+function canonicalConditions(conditions: WorkloadConditions): string {
+    return JSON.stringify(Object.entries(conditions).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+}
+
 export function policyRequestFlow(
     api: PostHogApi,
     target: { host: Host; projectId: ProjectId },
@@ -91,7 +95,7 @@ export function policyRequestFlow(
         existing.projectId === target.projectId &&
         existing.provider === settings.key &&
         existing.subject === subject.subject &&
-        JSON.stringify(existing.conditions) === JSON.stringify(conditions) &&
+        canonicalConditions(existing.conditions) === canonicalConditions(conditions) &&
         existing.scopes.join(' ') === scopes.join(' ')
     return {
         ...policyRequestWait(api, target),
