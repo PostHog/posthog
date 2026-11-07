@@ -460,6 +460,20 @@ class FakePersonHogClient:
             ]
         return cohort_pb2.DeleteCohortMembersBulkResponse(deleted_count=len(to_remove))
 
+    def delete_cohort_members_by_person_ids(
+        self, request: cohort_pb2.DeleteCohortMembersByPersonIdsRequest, timeout: float | None = None
+    ) -> cohort_pb2.DeleteCohortMembersByPersonIdsResponse:
+        self.calls.append(_Call("delete_cohort_members_by_person_ids", request))
+        deleted = 0
+        for pid in set(request.person_ids):
+            key = (request.cohort_id, pid)
+            if key in self._cohort_members:
+                del self._cohort_members[key]
+                memberships = self._cohort_memberships.get(pid, [])
+                self._cohort_memberships[pid] = [m for m in memberships if m.cohort_id != request.cohort_id]
+                deleted += 1
+        return cohort_pb2.DeleteCohortMembersByPersonIdsResponse(deleted_count=deleted)
+
     def insert_cohort_members(
         self, request: cohort_pb2.InsertCohortMembersRequest, timeout: float | None = None
     ) -> cohort_pb2.InsertCohortMembersResponse:

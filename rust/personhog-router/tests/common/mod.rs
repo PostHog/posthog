@@ -31,13 +31,14 @@ use personhog_proto::personhog::types::v1::{
     CohortMembershipResponse, CountCohortMembersRequest, CountCohortMembersResponse,
     CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse, CreateGroupRequest,
     CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
-    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
-    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
-    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
-    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
-    DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteCohortMembersByPersonIdsRequest, DeleteCohortMembersByPersonIdsResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
     EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse, GetDistinctIdRowsRequest,
     GetDistinctIdRowsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -308,6 +309,15 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<DeleteCohortMembersBulkRequest>,
     ) -> Result<Response<DeleteCohortMembersBulkResponse>, Status> {
         Ok(Response::new(DeleteCohortMembersBulkResponse {
+            deleted_count: 0,
+        }))
+    }
+
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        _request: Request<DeleteCohortMembersByPersonIdsRequest>,
+    ) -> Result<Response<DeleteCohortMembersByPersonIdsResponse>, Status> {
+        Ok(Response::new(DeleteCohortMembersByPersonIdsResponse {
             deleted_count: 0,
         }))
     }

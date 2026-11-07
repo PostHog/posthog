@@ -93,6 +93,20 @@ class DeleteCohortMembersBulkResponse(_message.Message):
     deleted_count: int
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
 
+class DeleteCohortMembersByPersonIdsRequest(_message.Message):
+    __slots__ = ("cohort_id", "person_ids")
+    COHORT_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_IDS_FIELD_NUMBER: _ClassVar[int]
+    cohort_id: int
+    person_ids: _containers.RepeatedScalarFieldContainer[int]
+    def __init__(self, cohort_id: _Optional[int] = ..., person_ids: _Optional[_Iterable[int]] = ...) -> None: ...
+
+class DeleteCohortMembersByPersonIdsResponse(_message.Message):
+    __slots__ = ("deleted_count",)
+    DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
+    deleted_count: int
+    def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
+
 class InsertCohortMembersRequest(_message.Message):
     __slots__ = ("cohort_id", "person_ids", "version")
     COHORT_ID_FIELD_NUMBER: _ClassVar[int]

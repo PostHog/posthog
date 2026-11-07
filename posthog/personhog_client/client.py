@@ -32,6 +32,8 @@ from posthog.personhog_client.proto import (
     DeleteCohortMemberResponse,
     DeleteCohortMembersBulkRequest,
     DeleteCohortMembersBulkResponse,
+    DeleteCohortMembersByPersonIdsRequest,
+    DeleteCohortMembersByPersonIdsResponse,
     DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse,
     DeleteGroupTypeMappingRequest,
@@ -435,6 +437,11 @@ class PersonHogClient:
         self, request: DeleteCohortMembersBulkRequest, timeout: float | None = None
     ) -> DeleteCohortMembersBulkResponse:
         return self._stub.DeleteCohortMembersBulk(request, timeout=timeout or self._timeout)
+
+    def delete_cohort_members_by_person_ids(
+        self, request: DeleteCohortMembersByPersonIdsRequest, timeout: float | None = None
+    ) -> DeleteCohortMembersByPersonIdsResponse:
+        return self._stub.DeleteCohortMembersByPersonIds(request, timeout=timeout or self._timeout)
 
     def insert_cohort_members(
         self, request: InsertCohortMembersRequest, timeout: float | None = None
