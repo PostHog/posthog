@@ -2034,8 +2034,8 @@ export interface hogFlowEditorLogicActions {
               }
         payload?: any
     } // workflowLogic
-    rememberSandboxSender: (integrationId: number) => {
-        integrationId: number
+    rememberSandboxSender: (integrationId: number | null) => {
+        integrationId: number | null
     } // workflowLogic
     setWorkflowAction: (
         actionId: string,
