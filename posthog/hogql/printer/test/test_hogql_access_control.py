@@ -1,3 +1,5 @@
+import re
+from pathlib import Path
 from typing import cast
 
 from posthog.test.base import BaseTest
@@ -14,7 +16,11 @@ from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.printer.access_control import build_access_control_guard
+from posthog.hogql.printer.access_control import (
+    INTERNAL_LOG_SOURCE_RESOURCES,
+    INTERNAL_LOG_SOURCE_SERVICES,
+    build_access_control_guard,
+)
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import OrganizationMembership, User
@@ -542,6 +548,70 @@ class TestRestParityForObjectGrants(BaseTest):
         assert f"ifNull(equals(system__{parent}.created_by_id, {self.user.pk}), 0)" in sql
         assert sql.count("or(") == 1
         assert len(self._id_list_placeholders(context)) == 1
+
+    def test_internal_log_services_match_the_producer_policies(self) -> None:
+        policies = (Path(__file__).parents[4] / "nodejs/src/logs/internal-logs.ts").read_text()
+        producer_services = dict(re.findall(r"^\s+(\w+): \{[^}]*serviceName: '([^']+)'", policies, re.MULTILINE))
+
+        assert producer_services == INTERNAL_LOG_SOURCE_SERVICES
+        assert set(INTERNAL_LOG_SOURCE_SERVICES) == set(INTERNAL_LOG_SOURCE_RESOURCES)
+
+    @parameterized.expand(
+        [
+            ("full_access", None, None, "logs", None),
+            ("workflows_denied", "hog_flow", "resource", "logs", ("posthog-internal-workflows", "hog_function")),
+            ("one_workflow_denied", "hog_flow", "object", "logs", ("posthog-internal-workflows", "hog_function")),
+            (
+                "rollup_one_workflow_denied",
+                "hog_flow",
+                "object",
+                "posthog.logs_volume_buckets",
+                ("posthog-internal-workflows", "hog_function"),
+            ),
+            (
+                "attributes_one_workflow_denied",
+                "hog_flow",
+                "object",
+                "log_attributes",
+                ("posthog-internal-workflows", None),
+            ),
+            ("destinations_denied", "hog_function", "resource", "logs", ("posthog-internal-hog-functions", "hog_flow")),
+            (
+                "one_destination_denied",
+                "hog_function",
+                "object",
+                "logs",
+                ("posthog-internal-hog-functions", "hog_flow"),
+            ),
+        ]
+    )
+    def test_internal_logs_need_access_to_every_object_of_their_source(
+        self,
+        _name: str,
+        resource: str | None,
+        denial: str | None,
+        table: str,
+        expected: tuple[str, str | None] | None,
+    ) -> None:
+        if denial == "resource":
+            self._ac(resource=resource, access_level="none")
+        elif denial == "object":
+            self._ac(resource=resource, resource_id="obj-1", access_level="none", organization_member=self.membership)
+
+        sql, context = self._compile(f"SELECT count() FROM {table}")
+        values = sorted(v for v in context.values.values() if isinstance(v, str))
+
+        if expected is None:
+            assert ".service_name" not in sql and ".internal_source" not in sql
+            return
+        hidden_service, readable_source = expected
+        assert "notIn(" in sql and ".service_name, tuple(" in sql
+        if readable_source is None:
+            assert ".internal_source" not in sql
+            assert values == [hidden_service]
+        else:
+            assert ".internal_source, tuple(" in sql
+            assert values == sorted(["", readable_source, hidden_service])
 
 
 class TestDeniedTableError(BaseTest):

@@ -141,6 +141,40 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
 
+    @parameterized.expand(
+        [
+            ("logs_scope_only", ["logs:read"], 0),
+            ("one_source_scope", ["logs:read", "hog_flow:read"], 0),
+            ("every_source_scope", ["logs:read", "hog_flow:read", "hog_function:read"], 1),
+        ]
+    )
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_internal_logs_need_read_scope_for_every_source(self, _name, scopes, expected_for_key):
+        window = {"date_from": "2025-12-20T00:00:00Z", "date_to": "2025-12-21T00:00:00Z"}
+        with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
+            log_item = json.loads(f.readline())
+        log_item.update(
+            team_id=self.team.id,
+            uuid="01936e8e-0000-7000-8000-00000000f10e",
+            timestamp="2025-12-20 12:00:00",
+            observed_timestamp="2025-12-20 12:00:00",
+            internal_source="hog_flow",
+        )
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow {json.dumps(log_item)}")
+
+        session_count = self._count({"dateRange": window})["count"]
+        token = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        key_response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/count",
+            data={"query": {"dateRange": window}},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(session_count, 1)
+        self.assertEqual(key_response.json()["count"], expected_for_key)
+
     @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_full_team_concurrency_limit_refuses_personal_api_key_requests_but_not_sessions(self):
         limiter = get_logs_api_team_rate_limiter()

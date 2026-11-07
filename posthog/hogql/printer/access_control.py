@@ -149,3 +149,70 @@ def _build_creator_exemption(
             ast.Constant(value=False),
         ],
     )
+
+
+# The resource that owns each `internal_source` value. A source missing here is hidden from everyone
+# except organization admins, so add it here before its producer starts sending.
+INTERNAL_LOG_SOURCE_RESOURCES: dict[str, "APIScopeObject"] = {"hog_flow": "hog_flow", "hog_function": "hog_function"}
+
+# The service name each source's producer stamps, from `INTERNAL_SOURCE_POLICIES` in nodejs/src/logs/internal-logs.ts.
+INTERNAL_LOG_SOURCE_SERVICES: dict[str, str] = {
+    "hog_flow": "posthog-internal-workflows",
+    "hog_function": "posthog-internal-hog-functions",
+}
+
+
+def readable_internal_log_sources(user_access_control: Optional["UserAccessControl"]) -> list[str]:
+    """The internal log sources the user may read.
+
+    The workflow and destination logs endpoints check access per object. The logs tables cannot map every
+    row to its object, so this check fails closed: one denied object hides every row of its source.
+    """
+    if user_access_control is None:
+        return []
+    if user_access_control.is_organization_admin:
+        return list(INTERNAL_LOG_SOURCE_RESOURCES)
+    return [
+        source
+        for source, resource in INTERNAL_LOG_SOURCE_RESOURCES.items()
+        if user_access_control.check_access_level_for_resource(resource, "viewer")
+        and not user_access_control.blocked_resource_ids_by_scope.get(resource)
+    ]
+
+
+def build_internal_logs_guard(
+    table_type: ast.TableOrSelectType, context: HogQLContext, has_internal_source: bool
+) -> Optional[ast.Expr]:
+    """Hides the internal log sources the user cannot read, unless the user reads every source."""
+    user_access_control = context.database.user_access_control if context.database else None
+    readable = readable_internal_log_sources(user_access_control)
+    if len(readable) == len(INTERNAL_LOG_SOURCE_RESOURCES):
+        return None
+
+    def field(name: str) -> ast.Field:
+        return ast.Field(chain=[name], type=ast.FieldType(name=name, table_type=table_type))
+
+    # service_name is in the sort key, so this filter skips the hidden sources' granules. A customer row
+    # that reuses an internal service name is hidden too, which never exposes anything.
+    hidden_services = ast.CompareOperation(
+        op=ast.CompareOperationOp.NotIn,
+        left=field("service_name"),
+        right=ast.Tuple(
+            exprs=[
+                ast.Constant(value=service)
+                for source, service in INTERNAL_LOG_SOURCE_SERVICES.items()
+                if source not in readable
+            ]
+        ),
+        type=ast.BooleanType(),
+    )
+    if not has_internal_source:
+        return hidden_services
+    # Fails closed for a source that has no entry above yet.
+    readable_sources = ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=field("internal_source"),
+        right=ast.Tuple(exprs=[ast.Constant(value=source) for source in ["", *readable]]),
+        type=ast.BooleanType(),
+    )
+    return ast.And(exprs=[hidden_services, readable_sources], type=ast.BooleanType())
