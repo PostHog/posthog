@@ -1,6 +1,7 @@
 import math
 import unicodedata
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import date
 from enum import StrEnum
 from zoneinfo import ZoneInfo
@@ -30,6 +31,7 @@ from products.experiments.backend.health.context import (
     ExposureSegment,
     ExposureTotals,
     FlagHistory,
+    FlagHistoryNotChecked,
     FlagState,
     HealthContext,
     ReachableCondition,
@@ -40,6 +42,7 @@ from products.experiments.backend.health.skips import (
     NEEDS_SPLIT_VARIANTS,
     RUNS_AFTER_LAUNCH,
     SPLIT_ASSIGNS_NOBODY,
+    SPLIT_CHANGED_AFTER_END,
     CheckOutcome,
     CheckValues,
     not_applicable,
@@ -182,6 +185,9 @@ def srm(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(NEEDS_EXPOSURES)
     if p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE:
         return None
+    # The test compares the run's exposures with the flag's current split, and the exposures count only its variants.
+    if _split_changed_after_the_end(ctx):
+        return not_applicable(SPLIT_CHANGED_AFTER_END)
     share_off_split = _share_off_split(exposures.total_exposures, exposures.sample_ratio_expected)
     split_change = _split_change_warning(ctx)
     history = ctx.flag_history
@@ -255,7 +261,8 @@ def _after_split_change(
                 "variants from another split, which can cause this.",
                 *retest,
                 *(cause.sentences if cause is not None else ()),
-                f'Follow the steps in "{split_change.title}" to fix the results.',
+                # The split check doesn't run after the end, so its finding isn't there to follow.
+                *([] if ctx.has_ended else [f'Follow the steps in "{split_change.title}" to fix the results.']),
             ]
         ),
         evidence=evidence,
@@ -347,9 +354,25 @@ def _skew_predates_the_change(ctx: HealthContext, exposures: ExposureTotals, his
     )
 
 
+def _split_changed_after_the_end(ctx: HealthContext) -> bool:
+    history = ctx.flag_history
+    if ctx.ended_at is None or not isinstance(history, FlagHistory | FlagHistoryNotChecked):
+        return False
+    ended_at = ctx.ended_at
+    return any(change.changed_at > ended_at for change in history.of_kind(SplitChange))
+
+
+def _during_the_run(ctx: HealthContext) -> HealthContext:
+    """The context as the split check reads it before the end. After the end that check stops, because the flag often
+    holds the shipped decision. Without a split change after the end, the flag's split is still the run's."""
+    if ctx.has_ended and not _split_changed_after_the_end(ctx):
+        return replace(ctx, has_ended=False)
+    return ctx
+
+
 def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
     try:
-        outcome = split_changed_mid_run(ctx)
+        outcome = split_changed_mid_run(_during_the_run(ctx))
     except Exception as error:
         # The health endpoint reports the failure of the split check itself. Here it must not hide the mismatch.
         capture_exception(error)
