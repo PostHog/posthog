@@ -151,6 +151,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
                 messageCategoryType: 'marketing',
                 trackingEnabled: false,
                 utmTagsEnabled: true,
+                skipFrequencyCap: true,
                 utmParams: { utm_campaign: '{{ person.properties.plan }}' },
             },
             broadcast: existing as unknown as HogFlowApi | null,
@@ -162,6 +163,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             message_category_type: 'marketing',
             tracking_enabled: false,
             utm_tags_enabled: true,
+            skip_frequency_cap: true,
             utm_params: { utm_campaign: '{{ person.properties.plan }}' },
         })
     })
