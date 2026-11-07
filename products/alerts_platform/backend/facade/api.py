@@ -206,12 +206,13 @@ def list_configurations(
     )
 
 
-def list_native_configurations(
+def native_configuration_keys(
     *, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None
-) -> tuple[PlatformAlertConfigurationView, ...]:
-    """Every alert of a kind with no source row, newest first. A source that keeps rows for its other
-    alerts lists these beside them. With `created_by_uuid`, only the ones that user created."""
-    return platform_reads.list_native_configurations(
+) -> tuple[tuple[datetime, UUID], ...]:
+    """`(created_at, id)` of every alert of a kind with no source row, newest first. A source that keeps
+    rows for its other alerts pages the two together on these, then reads only the page with
+    `list_configurations`. With `created_by_uuid`, only the ones that user created."""
+    return platform_reads.native_configuration_keys(
         team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
     )
 
