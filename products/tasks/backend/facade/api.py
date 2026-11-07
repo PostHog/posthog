@@ -2562,16 +2562,19 @@ def set_task_run_created_at_for_seeding(
 def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
     """Mark a QUEUED run as failed. Returns whether a run was acted on.
 
-    Refetches filtered on ``status=QUEUED`` so a run that left the queue between the
-    candidate scan and this call is skipped. Intentionally cross-team (janitor sweep).
+    The conditional update flips the run only while it is still ``QUEUED``, so a run that left the
+    queue between the candidate scan and this call is skipped. Intentionally cross-team (janitor sweep).
     """
-    run = TaskRun.objects.filter(
-        pk=run_id, status=TaskRun.Status.QUEUED
-    ).first()  # nosemgrep: celery-task-team-scope-audit
-    if run is None:
+    claimed = TaskRun.objects.filter(pk=run_id, status=TaskRun.Status.QUEUED).update(
+        status=TaskRun.Status.FAILED, error_message=error, completed_at=django_timezone.now()
+    )  # nosemgrep: celery-task-team-scope-audit
+    if not claimed:
         return False
-    run.mark_failed(error, error_type=error_type)
-    run.task.soft_delete_if_unclaimed_prewarm(run)
+    run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
+    if run is not None:
+        run.mark_failed(error, error_type=error_type)
+        _observe_claimed_terminal(run, error_type=error_type)
+        run.task.soft_delete_if_unclaimed_prewarm(run)
     return True
 
 
