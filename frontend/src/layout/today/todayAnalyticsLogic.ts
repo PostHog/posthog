@@ -32,6 +32,11 @@ import { newestByName } from './todayNewestByName'
 import { matchesPaneQuery } from './todayPaneSearch'
 import { TODAY_USER_PERSIST_OPTIONS } from './todayUserPersistOptions'
 
+type SidebarRequest =
+    | { operation: 'load' }
+    | { operation: 'reset'; previous: AnalyticsSidebarLayoutApi }
+    | { operation: 'restore'; layout: AnalyticsSidebarLayoutApi }
+
 export const DEFAULT_ANALYTICS_SIDEBAR: AnalyticsSidebarApi = {
     customized: false,
     layout: {
@@ -116,50 +121,29 @@ export interface todayAnalyticsLogicActions {
     folderCreationFailed: () => {
         value: true
     }
-    loadSidebar: () => any
-    loadSidebarFailure: (
+    loadSidebar: () => {
+        value: true
+    }
+    requestSidebar: (request: SidebarRequest) => SidebarRequest
+    requestSidebarFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadSidebarSuccess: (
+    requestSidebarSuccess: (
         sidebar: AnalyticsSidebarApi,
-        payload?: any
+        payload?: SidebarRequest
     ) => {
         sidebar: AnalyticsSidebarApi
-        payload?: any
+        payload?: SidebarRequest
     }
-    resetSidebar: (_previous: AnalyticsSidebarLayoutApi) => AnalyticsSidebarLayoutApi
-    resetSidebarFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
+    resetSidebar: (previous: AnalyticsSidebarLayoutApi) => {
+        previous: AnalyticsSidebarLayoutApi
     }
-    resetSidebarSuccess: (
-        sidebar: AnalyticsSidebarApi,
-        payload?: AnalyticsSidebarLayoutApi
-    ) => {
-        sidebar: AnalyticsSidebarApi
-        payload?: AnalyticsSidebarLayoutApi
-    }
-    restoreSidebar: (layout: AnalyticsSidebarLayoutApi) => AnalyticsSidebarLayoutApi
-    restoreSidebarFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    restoreSidebarSuccess: (
-        sidebar: AnalyticsSidebarApi,
-        payload?: AnalyticsSidebarLayoutApi
-    ) => {
-        sidebar: AnalyticsSidebarApi
-        payload?: AnalyticsSidebarLayoutApi
+    restoreSidebar: (layout: AnalyticsSidebarLayoutApi) => {
+        layout: AnalyticsSidebarLayoutApi
     }
     setNewFolderDialogOpen: (
         open: boolean,
@@ -170,6 +154,9 @@ export interface todayAnalyticsLogicActions {
     }
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
+    }
+    sidebarReadFailed: () => {
+        value: true
     }
     storeRecentAnalytics: (items: AnalyticsItem[]) => {
         items: AnalyticsItem[]
@@ -224,6 +211,10 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
         actions: [projectTreeDataLogic, ['createSavedItem']],
     })),
     actions({
+        loadSidebar: true,
+        resetSidebar: (previous: AnalyticsSidebarLayoutApi) => ({ previous }),
+        restoreSidebar: (layout: AnalyticsSidebarLayoutApi) => ({ layout }),
+        sidebarReadFailed: true,
         toggleSection: (section: string) => ({ section }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         storeRecentAnalytics: (items: AnalyticsItem[]) => ({ items }),
@@ -232,16 +223,50 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
         folderCreated: true,
         folderCreationFailed: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, cache, values }) => ({
         sidebar: [
             null as AnalyticsSidebarApi | null,
             {
-                loadSidebar: async () => await todayAnalyticsSidebarRetrieve(String(values.currentProjectId)),
-                // The layout before the reset rides along as the payload, so the toast can put it back.
-                resetSidebar: async (_previous: AnalyticsSidebarLayoutApi) =>
-                    await todayAnalyticsSidebarDestroy(String(values.currentProjectId)),
-                restoreSidebar: async (layout: AnalyticsSidebarLayoutApi) =>
-                    await todayAnalyticsSidebarUpdate(String(values.currentProjectId), { layout }),
+                requestSidebar: async (request: SidebarRequest, breakpoint) => {
+                    const teamId = String(values.currentProjectId)
+                    const isWrite = request.operation !== 'load'
+                    let response: Promise<AnalyticsSidebarApi>
+                    if (isWrite) {
+                        cache.sidebarPendingWrites = (cache.sidebarPendingWrites ?? 0) + 1
+                        response = (cache.sidebarWriteTail ?? Promise.resolve()).then(() =>
+                            request.operation === 'reset'
+                                ? todayAnalyticsSidebarDestroy(teamId)
+                                : todayAnalyticsSidebarUpdate(teamId, { layout: request.layout })
+                        )
+                        // A failed write must not prevent a later Reset or Undo from reaching the server.
+                        cache.sidebarWriteTail = response.catch(() => undefined)
+                    } else {
+                        response = todayAnalyticsSidebarRetrieve(teamId)
+                    }
+                    try {
+                        const sidebar = await response
+                        breakpoint()
+                        return sidebar
+                    } catch (error) {
+                        breakpoint()
+                        if (request.operation === 'load') {
+                            actions.sidebarReadFailed()
+                        } else {
+                            cache.sidebarReloadAfterWrite = true
+                            toast.error({
+                                title:
+                                    request.operation === 'reset'
+                                        ? 'Couldn’t reset the sidebar. Try again.'
+                                        : 'Couldn’t bring back your sidebar. Ask PostHog AI to build it again.',
+                            })
+                        }
+                        throw error
+                    } finally {
+                        if (isWrite) {
+                            cache.sidebarPendingWrites -= 1
+                        }
+                    }
+                },
             },
         ],
     })),
@@ -251,12 +276,13 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
             null as AnalyticsSidebarApi | null,
             TODAY_USER_PERSIST_OPTIONS,
             {
-                loadSidebarSuccess: (_, { sidebar }) => sidebar,
-                resetSidebarSuccess: (_, { sidebar }) => sidebar,
-                restoreSidebarSuccess: (_, { sidebar }) => sidebar,
+                requestSidebarSuccess: (_, { sidebar }) => sidebar,
             },
         ],
-        sidebarFailed: [false, { loadSidebar: () => false, loadSidebarFailure: () => true }],
+        sidebarFailed: [
+            false,
+            { requestSidebar: () => false, requestSidebarSuccess: () => false, sidebarReadFailed: () => true },
+        ],
         // pinned: storage key for the saved Recents list. Renaming it makes everyone's Recents pop in once more.
         savedRecentAnalytics: [
             [] as AnalyticsItem[],
@@ -344,22 +370,35 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
                 recentsHasLoaded ? fresh : saved.filter((item) => !pinnedShortcutIds.has(pinKey(item.type, item.id))),
         ],
     }),
-    listeners(({ actions, values }) => ({
-        resetSidebarSuccess: ({ payload }) => {
-            // pinned: analytics event name. Renaming it breaks dashboards.
-            posthog.capture('analytics sidebar reset')
-            if (payload) {
+    listeners(({ actions, asyncActions, cache, values }) => ({
+        loadSidebar: () => {
+            if (cache.sidebarPendingWrites) {
+                cache.sidebarReloadAfterWrite = true
+                return
+            }
+            return asyncActions.requestSidebar({ operation: 'load' })
+        },
+        resetSidebar: ({ previous }) => asyncActions.requestSidebar({ operation: 'reset', previous }),
+        restoreSidebar: ({ layout }) => asyncActions.requestSidebar({ operation: 'restore', layout }),
+        requestSidebarSuccess: ({ payload }) => {
+            if (payload?.operation === 'reset') {
+                // pinned: analytics event name. Renaming it breaks dashboards.
+                posthog.capture('analytics sidebar reset')
                 toast.success({
                     title: 'Sidebar reset to the default',
-                    action: { label: 'Undo', onClick: () => actions.restoreSidebar(payload) },
+                    action: { label: 'Undo', onClick: () => actions.restoreSidebar(payload.previous) },
                 })
             }
+            if (!cache.sidebarPendingWrites && cache.sidebarReloadAfterWrite) {
+                cache.sidebarReloadAfterWrite = false
+                actions.loadSidebar()
+            }
         },
-        resetSidebarFailure: () => {
-            toast.error({ title: 'Couldn’t reset the sidebar. Try again.' })
-        },
-        restoreSidebarFailure: () => {
-            toast.error({ title: 'Couldn’t bring back your sidebar. Ask PostHog AI to build it again.' })
+        requestSidebarFailure: () => {
+            if (!cache.sidebarPendingWrites && cache.sidebarReloadAfterWrite) {
+                cache.sidebarReloadAfterWrite = false
+                actions.loadSidebar()
+            }
         },
         toggleSection: ({ section }) => {
             // pinned: analytics event name and properties. Renaming them breaks dashboards.
