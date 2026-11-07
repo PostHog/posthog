@@ -59,6 +59,7 @@ from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
+    TransactionalEmailSandboxSender,
     TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
     code_send_sender_id,
@@ -66,6 +67,10 @@ from products.workflows.backend.facade.transactional_emails import (
     create_transactional_email_workflow,
     resolve_transactional_email_sender,
     update_transactional_email_workflow,
+)
+
+SANDBOX_SENDER_TRANSACTIONAL_MESSAGE = (
+    "The sandbox sender can't send transactional email. Choose a sender on your own verified domain."
 )
 
 logger = structlog.get_logger(__name__)
@@ -292,6 +297,8 @@ def make_transactional(
             hog_flow_id = create_transactional_email_workflow(
                 team_id=team_id, user_id=user_id, content=_content(template)
             )
+        except TransactionalEmailSandboxSender as e:
+            raise SenderUnavailable(SANDBOX_SENDER_TRANSACTIONAL_MESSAGE) from e
         except TransactionalEmailSenderUnavailable as e:
             raise SenderUnavailable(
                 "No verified email sender. Verify a sending domain or pass from_integration_id."
@@ -359,6 +366,8 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
         MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)
     except TransactionalEmailContentInvalid as e:
         raise TemplateNotSendable("The template needs a subject and a body to send.") from e
+    except TransactionalEmailSandboxSender as e:
+        raise SenderUnavailable(SANDBOX_SENDER_TRANSACTIONAL_MESSAGE) from e
     except TransactionalEmailSenderUnavailable as e:
         raise SenderUnavailable("No verified email sender. Verify a sending domain first.") from e
 
@@ -591,6 +600,8 @@ def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
         raise SenderRequired(
             "This project has more than one verified sender and no default sender. Send `from` to choose one."
         ) from e
+    except TransactionalEmailSandboxSender as e:
+        raise SenderUnavailable(SANDBOX_SENDER_TRANSACTIONAL_MESSAGE) from e
     except TransactionalEmailSenderUnavailable as e:
         if address:
             raise NamedSenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e

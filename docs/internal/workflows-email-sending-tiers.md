@@ -25,6 +25,15 @@ Transactional email is never delayed by the send-time caps, but it is still char
 
 ## Configuration
 
+### Sandbox sender
+
+`WORKFLOWS_SANDBOX_SENDER_DOMAIN` names the shared sandbox domain.
+While it is empty, the check that stops a team from registering its own sender on that domain does nothing.
+Users cannot edit, verify, or remove the managed integration, make it the project default, use it for transactional email, or register their own integration on the shared domain.
+The managed integration is excluded from project SES tenant migration, identity cleanup, data suggestions, and the reputation page's domain breakdown.
+
+### Sending tiers
+
 Two sides read their own env vars because the worker never reads Django settings.
 Set them together; drift means the UI describes limits the worker does not apply, or the reverse.
 

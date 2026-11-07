@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.models import Team
-from posthog.models.integration import Integration
+from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER, Integration
 from posthog.models.scoping import team_scope
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -15,6 +15,7 @@ from products.workflows.backend.facade.api import set_default_email_sender_if_un
 from products.workflows.backend.facade.contracts import (
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
+    TransactionalEmailSandboxSender,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
 )
@@ -122,18 +123,33 @@ class TestTransactionalEmailWorkflows(BaseTest):
         assert serializer.validated_data["trigger"] == flow.trigger == {"type": "api"}
         assert serializer.validated_data["billable_action_types"] == flow.billable_action_types
 
-    @parameterized.expand([("unverified_default", False, None), ("another_teams_sender", True, "other")])
-    def test_a_new_transactional_email_needs_a_verified_sender_of_its_own(self, _name, verified, requested):
+    @parameterized.expand(
+        [
+            ("unverified_default", False, None, TransactionalEmailSenderUnavailable),
+            ("another_teams_sender", True, "other", TransactionalEmailSenderUnavailable),
+            ("sandbox_sender", True, "sandbox", TransactionalEmailSandboxSender),
+        ]
+    )
+    def test_a_new_transactional_email_needs_a_verified_sender_of_its_own(self, _name, verified, requested, error):
         self.sender.config = {"verified": verified}
         self.sender.save()
         requested_id = None
         if requested == "other":
             requested_id = self._other_teams_sender()
+        elif requested == "sandbox":
+            requested_id = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=SANDBOX_EMAIL_INTEGRATION_ID,
+                config={"provider": SANDBOX_EMAIL_PROVIDER, "verified": True},
+            ).id
 
-        with self.assertRaises(TransactionalEmailSenderUnavailable):
+        with self.assertRaises(error) as raised:
             create_transactional_email_workflow(
                 team_id=self.team.id, user_id=self.user.id, content=_content(from_integration_id=requested_id)
             )
+
+        assert type(raised.exception) is error
 
         assert not HogFlow.objects.filter(team_id=self.team.id).exists()
 
@@ -146,6 +162,27 @@ class TestTransactionalEmailWorkflows(BaseTest):
                 user_id=self.user.id,
                 hog_flow_id=flow_id,
                 content=_content(from_integration_id=self._other_teams_sender()),
+            )
+
+        assert HogFlow.objects.get(id=flow_id).version == 1
+
+    def test_an_update_refuses_a_sandbox_sender_set_on_the_workflow_directly(self):
+        flow_id = create_transactional_email_workflow(team_id=self.team.id, user_id=self.user.id, content=_content())
+        sandbox_id = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id=SANDBOX_EMAIL_INTEGRATION_ID,
+            config={"provider": SANDBOX_EMAIL_PROVIDER, "verified": True},
+        ).id
+        flow = HogFlow.objects.get(id=flow_id)
+        for action in flow.actions:
+            if action["type"] == "function_email":
+                action["config"]["inputs"]["email"]["value"]["from"] = {"integrationId": sandbox_id}
+        flow.save()
+
+        with self.assertRaises(TransactionalEmailSandboxSender):
+            update_transactional_email_workflow(
+                team_id=self.team.id, user_id=self.user.id, hog_flow_id=flow_id, content=_content()
             )
 
         assert HogFlow.objects.get(id=flow_id).version == 1

@@ -7,13 +7,15 @@ from uuid import UUID
 
 from django.db import transaction
 
-from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import is_sandbox_email_sender
 from posthog.models.scoping import with_team_scope
 
 from products.workflows.backend.facade.contracts import (
     TRANSACTIONAL_EMAIL_ACTION_ID,
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
+    TransactionalEmailSandboxSender,
     TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
@@ -141,7 +143,8 @@ def _default_sender_id(team_id: int) -> int | None:
 
 
 def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -> int:
-    """The requested sender, or the project's default when none is requested. Raise when it isn't verified."""
+    """The requested sender, or the project's default when none is requested. Raise when it isn't verified,
+    or when it is the sandbox sender, which only workflow email steps and test sends may use."""
     sender_id = requested_id or _default_sender_id(team_id)
     sender = None
     if sender_id:
@@ -149,17 +152,33 @@ def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -
             sender = IntegrationManager.email.credentials.get(team_id, sender_id)
         except IntegrationNotFound:
             pass
+    if sender is not None and is_sandbox_email_sender(sender.config):
+        raise TransactionalEmailSandboxSender()
     if sender is None or not sender.config.get("verified"):
         raise TransactionalEmailSenderUnavailable()
     return sender.id
 
 
+def _is_sandbox_sender(team_id: int, sender_id: int) -> bool:
+    try:
+        sender = IntegrationManager.email.credentials.get(team_id, sender_id)
+    except IntegrationNotFound:
+        return False
+    return is_sandbox_email_sender(sender.config)
+
+
+def _own_verified_senders(team_id: int) -> list[IntegrationRecord]:
+    return [
+        sender
+        for sender in IntegrationManager.email.credentials.list(team_id)
+        if sender.config.get("verified") and not is_sandbox_email_sender(sender.config)
+    ]
+
+
 def _sender_without_address(team_id: int) -> int:
     if _default_sender_id(team_id) is not None:
         return resolve_transactional_email_sender(team_id, None)
-    verified = [
-        sender.id for sender in IntegrationManager.email.credentials.list(team_id) if sender.config.get("verified")
-    ]
+    verified = [sender.id for sender in _own_verified_senders(team_id)]
     if len(verified) > 1:
         raise TransactionalEmailSenderRequired()
     if not verified:
@@ -171,9 +190,7 @@ def _sender_on_domain(team_id: int, email: str) -> int:
     address = email.lower()
     domain = address.rpartition("@")[2]
     on_domain: list[int] = []
-    for sender in IntegrationManager.email.credentials.list(team_id):
-        if not sender.config.get("verified"):
-            continue
+    for sender in _own_verified_senders(team_id):
         own = str(sender.config.get("email") or sender.integration_id or "").lower()
         if own == address:
             return sender.id
@@ -235,7 +252,10 @@ def update_transactional_email_workflow(
         if content.from_integration_id:
             from_integration_id = resolve_transactional_email_sender(team_id, content.from_integration_id)
         else:
-            from_integration_id = _current_sender(flow) or resolve_transactional_email_sender(team_id, None)
+            current_sender = _current_sender(flow)
+            if current_sender is not None and _is_sandbox_sender(team_id, current_sender):
+                raise TransactionalEmailSandboxSender()
+            from_integration_id = current_sender or resolve_transactional_email_sender(team_id, None)
         update_workflow(
             team_id=team_id,
             user_id=user_id,
