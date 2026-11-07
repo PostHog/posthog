@@ -148,14 +148,14 @@ describe('InsightPageHeader', () => {
                 dashboardItemId: 'new' as const,
                 canEdit: true,
                 visible: ['insight-save-button'],
-                notVisible: ['insight-cancel-edit-button', 'insight-edit-button'],
+                notVisible: ['insight-cancel-edit-button', 'insight-edit-button', 'insight-header-favorite'],
             },
             {
                 scenario: 'Saved insight, View mode, can edit',
                 insightMode: ItemMode.View,
                 dashboardItemId: SAVED_INSIGHT_ID,
                 canEdit: true,
-                visible: ['insight-edit-button'],
+                visible: ['insight-edit-button', 'insight-header-favorite'],
                 notVisible: ['insight-cancel-edit-button', 'insight-save-button'],
             },
             {
@@ -172,7 +172,7 @@ describe('InsightPageHeader', () => {
                 dashboardItemId: SAVED_INSIGHT_ID,
                 canEdit: true,
                 visible: ['insight-cancel-edit-button', 'insight-save-button'],
-                notVisible: ['insight-edit-button'],
+                notVisible: ['insight-edit-button', 'insight-header-favorite'],
             },
             {
                 scenario: 'Saved insight, Edit mode, cannot edit',
@@ -390,6 +390,35 @@ describe('InsightPageHeader', () => {
             })
 
             expect(screen.queryByPlaceholderText('Enter name')).not.toBeInTheDocument()
+        })
+    })
+
+    describe('favorite', () => {
+        it('saves the favorite to the server from the header', async () => {
+            let patchBody: Record<string, unknown> | null = null
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                },
+                patch: {
+                    '/api/environments/:team_id/insights/:id/': async ({ request }: { request: Request }) => {
+                        patchBody = await request.json()
+                        return [200, makeInsight({ favorited: true })]
+                    },
+                },
+            })
+
+            renderHeader({
+                insightMode: ItemMode.View,
+                dashboardItemId: SAVED_INSIGHT_ID,
+                insight: makeInsight({ favorited: false }),
+            })
+
+            fireEvent.click(queryByAttr('insight-header-favorite')!)
+
+            await waitFor(() => {
+                expect(patchBody).toEqual({ favorited: true })
+            })
         })
     })
 
