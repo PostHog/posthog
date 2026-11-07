@@ -847,7 +847,6 @@ ignore_imports = [
     # TODO: views still registered from backend/api/ — move them into presentation/ and drop the line
     "products.ai_observability.backend.routes -> products.ai_observability.backend.api",
     "products.analytics_platform.backend.routes -> products.analytics_platform.backend.api.precompute_debug",
-    "products.annotations.backend.routes -> products.annotations.backend.api.annotation",
     "products.approvals.backend.routes -> products.approvals.backend.api",
     "products.business_knowledge.backend.routes -> products.business_knowledge.backend.api",
     "products.cdp.backend.routes -> products.cdp.backend.api.hog_function",
