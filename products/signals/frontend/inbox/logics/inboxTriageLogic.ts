@@ -84,9 +84,11 @@ export interface inboxTriageLogicActions {
     implementReport: (
         report: SignalReport,
         feedback: string | undefined,
-        surface: import('../inboxAnalytics').InboxReportActionSurface
+        surface: import('../inboxAnalytics').InboxReportActionSurface,
+        openedFromLink?: boolean | undefined
     ) => {
         feedback: string | undefined
+        openedFromLink: boolean
         report: SignalReport
         surface: import('../inboxAnalytics').InboxReportActionSurface
     } // inboxTaskKickoffLogic

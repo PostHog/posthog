@@ -139,9 +139,11 @@ export interface todayReportLogicActions {
     implementReport: (
         report: SignalReport,
         feedback: string | undefined,
-        surface: import('products/signals/frontend/inbox/inboxAnalytics').InboxReportActionSurface
+        surface: import('products/signals/frontend/inbox/inboxAnalytics').InboxReportActionSurface,
+        openedFromLink?: boolean | undefined
     ) => {
         feedback: string | undefined
+        openedFromLink: boolean
         report: SignalReport
         surface: import('products/signals/frontend/inbox/inboxAnalytics').InboxReportActionSurface
     } // inboxTaskKickoffLogic
