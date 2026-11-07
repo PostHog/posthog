@@ -55,6 +55,7 @@ from posthog.rate_limit import (
 from posthog.scopes import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
 from posthog.workload_identity.providers import (
+    SNIPPET_HOST,
     ConditionPreset,
     WorkloadProvider,
     WorkloadProviderKey,
@@ -163,12 +164,10 @@ def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any |
     if instance is not None and "issuer" not in attrs and "conditions" not in attrs:
         # Disabling or renaming a policy stays possible after its provider leaves the registry.
         return attrs
-    if "issuer" in attrs:
+    if instance is None or "issuer" in attrs:
         provider = supported_provider_for(attrs["issuer"])
-    elif instance is not None:
-        provider = supported_provider_for(instance.issuer, instance.provider)
     else:
-        raise serializers.ValidationError({"issuer": UNSUPPORTED_ISSUER_MESSAGE})
+        provider = supported_provider_for(instance.issuer, instance.provider)
     attrs["provider"] = provider.key
     raw_conditions = attrs["conditions"] if "conditions" in attrs else getattr(instance, "conditions", {})
     attrs["conditions"] = normalize_workload_conditions(raw_conditions, provider)
@@ -404,7 +403,7 @@ class WorkloadProviderSerializer(serializers.Serializer):
 
     def get_setup_snippet(self, provider: WorkloadProvider) -> str:
         # The job asks its provider for a token whose audience is this host.
-        return provider.setup_snippet_for(expected_audience(provider))
+        return provider.setup_snippet.replace(SNIPPET_HOST, expected_audience(provider))
 
 
 class WorkloadJobSettingsSerializer(serializers.Serializer):
@@ -433,17 +432,13 @@ class WorkloadProvidersResponseSerializer(serializers.Serializer):
 POSTHOG_JSON_HOSTS = ("https://us.posthog.com", "https://eu.posthog.com")
 
 
-def workload_job_settings(project_id: int) -> dict[str, Any]:
-    host = workload_site_url()
-    return {"host": host, "project_id": project_id, "host_in_posthog_json": host in POSTHOG_JSON_HOSTS}
-
-
 def workload_providers_data(project_id: int) -> ReturnDict:
     """The registry and job settings that the policy form and `hog ci setup` build their prompts from."""
     grantable = workload_trust_policy_grantable_scopes()
+    host = workload_site_url()
     payload = {
         "supported": get_supported_workload_providers(),
-        "job_settings": workload_job_settings(project_id),
+        "job_settings": {"host": host, "project_id": project_id, "host_in_posthog_json": host in POSTHOG_JSON_HOSTS},
         "grantable_scopes": sorted(grantable),
         "risky_scopes": {scope: warning for scope, warning in RISKY_SCOPE_WARNINGS.items() if scope in grantable},
     }
@@ -818,8 +813,7 @@ class WorkloadTrustPolicyRequestViewSet(
     def resolve_subject(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         """Find a workload's immutable ID from the name people know it by, so nobody has to look the ID up
         to ask for or write a policy."""
-        # validate_issuer refused any issuer without a provider.
-        provider = cast(WorkloadProvider, get_workload_provider_by_issuer(request.validated_query_data["issuer"]))
+        provider = supported_provider_for(request.validated_query_data["issuer"])
         if provider.resolve_subject is None:
             raise NotFound(
                 f"PostHog can't look up {provider.subject_claim.label} for {provider.name}. Enter it by hand."

@@ -7,19 +7,17 @@ import { GITLAB } from './gitlab/gitlab'
 
 export type WorkloadConditions = Record<string, string>
 
-// The backend keeps the matching entry in posthog/workload_identity/providers.py, under the same key and issuer.
+// The backend keeps the matching entry in posthog/workload_identity/providers.py, under the same key.
 export interface WorkloadProvider {
     readonly key: string
     readonly name: string
-    readonly issuer: string
-    readonly docsUrl: string
     detect(env: Env): boolean
     // Resolves to undefined when the job isn't set up to get a token, so other credentials can apply.
     fetchToken(runtime: Runtime, audience: Host): Promise<ProviderIdToken | undefined>
     missingTokenHint: string
 
-    // The rest is for `hog ci setup`. Config paths are relative to the repository root.
-    readonly configPaths: readonly string[]
+    // The rest is for `hog ci setup`. The config path is relative to the repository root.
+    readonly configPath: string
     nameFromRemote(remote: string): string | undefined
 }
 

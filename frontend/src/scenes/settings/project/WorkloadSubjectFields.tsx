@@ -16,7 +16,7 @@ export function WorkloadSubjectFields(): JSX.Element {
     const found = subjectLookup && subjectLookup.subject === editingPolicy.subject ? subjectLookup : null
 
     return (
-        <div className="deprecated-space-y-4">
+        <>
             <LemonField
                 name="subject_name"
                 label={claimLabels.subjectName}
@@ -67,6 +67,6 @@ export function WorkloadSubjectFields(): JSX.Element {
                     data-attr="workload-trust-policy-subject"
                 />
             </LemonField>
-        </div>
+        </>
     )
 }

@@ -7,6 +7,8 @@ import { sendRequest } from '@/posthog/api'
 import type { Host } from '@/posthog/host'
 import { ProviderIdTokenSchema, type ProviderIdToken } from '@/posthog/tokens'
 
+import type { WorkloadProvider } from './registry'
+
 // The OIDC token request GitHub Actions defines. CI services that run Actions workflows reuse it, so
 // their providers share this module.
 
@@ -49,4 +51,11 @@ export async function fetchActionsIdToken(
         code: 'oidc_token_unavailable',
         context: `${providerName}'s OIDC token answer isn't what hog expects.`,
     }).value
+}
+
+export function actionsIdTokenSource(providerName: string): Pick<WorkloadProvider, 'fetchToken' | 'missingTokenHint'> {
+    return {
+        fetchToken: (runtime, audience) => fetchActionsIdToken(runtime, audience, providerName),
+        missingTokenHint: `Add \`permissions: id-token: write\` to the job, so ${providerName} issues it an OIDC token. Run \`hog ci setup\` on your machine for the full snippet.`,
+    }
 }

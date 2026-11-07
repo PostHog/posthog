@@ -326,12 +326,10 @@ export async function runHog(argv: string[], options: FakeRuntimeOptions = {}): 
 export const FAKE_WORKLOAD_PROVIDER: WorkloadProvider = {
     key: 'fake_ci',
     name: 'Fake CI',
-    issuer: 'https://ci.example.com',
-    docsUrl: 'https://example.com/docs/fake-ci',
     detect: (env) => env.FAKE_CI === 'true',
     fetchToken: async (runtime) =>
         runtime.env.FAKE_CI_TOKEN ? parseProviderIdToken(runtime.env.FAKE_CI_TOKEN) : undefined,
     missingTokenHint: 'Turn on OIDC tokens in Fake CI.',
-    configPaths: ['.fake-ci.yml'],
+    configPath: '.fake-ci.yml',
     nameFromRemote: (remote) => remote.match(/ci\.example\.com[:/](.+?)(?:\.git)?$/)?.[1],
 }

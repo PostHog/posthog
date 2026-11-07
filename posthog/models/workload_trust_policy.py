@@ -91,11 +91,11 @@ def workload_trust_policy_active_cache_key(policy_id: str) -> str:
 
 
 # Callable so a new provider in the registry needs no migration.
-def workload_provider_choices() -> list[tuple[str, str]]:
+def workload_provider_choices() -> dict[str, str]:
     # The registry imports integration models, which import this module through `posthog.models`.
     from posthog.workload_identity.providers import get_supported_workload_providers  # noqa: PLC0415
 
-    return [(provider.key, provider.name) for provider in get_supported_workload_providers()]
+    return {provider.key: provider.name for provider in get_supported_workload_providers()}
 
 
 PROVIDER_MAX_LENGTH = 64
