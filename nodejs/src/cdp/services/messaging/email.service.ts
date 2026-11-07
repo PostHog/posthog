@@ -432,6 +432,14 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
+type SesRoute = {
+    tenantName: string
+    configurationSetName: string
+    unsubscribeHeaders: MessageHeader[]
+    ccAddresses?: string[]
+    bccAddresses?: string[]
+}
+
 export class EmailService {
     sesV2Client: SESv2Client | null
 
@@ -1080,6 +1088,28 @@ export class EmailService {
         }
     }
 
+    private teamSesRoute(
+        invocation: CyclotronJobInvocationHogFunction,
+        trackingEnabled: boolean,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): SesRoute {
+        return {
+            // `team-<id>` is the provisioning convention (products/workflows/backend/providers/ses.py and
+            // posthog/management/commands/migrate_ses_tenants.py).
+            tenantName: `team-${invocation.teamId}`,
+            configurationSetName: this.resolveConfigurationSetName(trackingEnabled, invocation),
+            unsubscribeHeaders:
+                invocation.hogFunction?.metadata?.message_category_type === 'transactional'
+                    ? []
+                    : this.generateUnsubscribeHeaders(
+                          { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+                          preferencesTokenSourceForInvocation(invocation)
+                      ),
+            ccAddresses: parseAddressList(params.cc),
+            bccAddresses: parseAddressList(params.bcc),
+        }
+    }
+
     // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
     // destination (suppression and the Metrics tab depend on those events); they differ only in
     // ESP-level open/click tracking.
@@ -1261,11 +1291,13 @@ export class EmailService {
         trackingEnabled: boolean,
         isTest = false,
         queueWait?: EmailQueueWait,
-        files: DecodedAttachment[] = []
+        files: DecodedAttachment[] = [],
+        customRoute?: SesRoute
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
+        const route = customRoute ?? this.teamSesRoute(result.invocation, trackingEnabled, params)
         const distinctId = resolveEmailTrackingDistinctId(result.invocation)
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
@@ -1314,7 +1346,7 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
+            ConfigurationSetName: route.configurationSetName,
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [
@@ -1329,17 +1361,15 @@ export class EmailService {
             FeedbackForwardingEmailAddress: from.email,
         }
 
-        // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
-        // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
-        // is the provisioning convention (products/workflows/backend/providers/ses.py and
-        // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
-        // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
+        // Attributes the send to the route's SES tenant so AWS tracks reputation per tenant and
+        // its reputation policy can pause one tenant instead of the shared account. Deliberately
+        // NOT gated on isTest: test-panel sends are real over-the-wire SES sends, so leaving them
         // unattributed would (a) push their bounces onto the shared account's reputation and
         // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
         // this class only shield our internal metrics, a separate concern from SES-side
         // attribution; test volume is far below the representative volume AWS needs for a
         // reputation finding.
-        sendEmailParams.TenantName = `team-${result.invocation.teamId}`
+        sendEmailParams.TenantName = route.tenantName
 
         // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
         // 256-char-bounded the way SES tag values are, so they safely carry the signed code
@@ -1347,15 +1377,12 @@ export class EmailService {
         // `IncludeOriginalHeaders: true` for the webhook to surface this header.
         const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
 
-        const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
-            const unsubscribeHeaders = !isTransactionalEmail
-                ? this.generateUnsubscribeHeaders(
-                      { team_id: result.invocation.teamId, identifier: unquoteMailbox(params.to.email) },
-                      preferencesTokenSourceForInvocation(result.invocation)
-                  )
-                : []
-            sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
+            sendEmailParams.Content.Simple.Headers = [
+                ...route.unsubscribeHeaders,
+                trackingHeader,
+                AUTO_SUBMITTED_HEADER,
+            ]
             if (files.length) {
                 sendEmailParams.Content.Simple.Attachments = files.map((file) => ({
                     RawContent: file.content,
@@ -1369,16 +1396,15 @@ export class EmailService {
         }
 
         const replyToAddresses = parseAddressList(params.replyTo)
-        const ccAddresses = parseAddressList(params.cc)
-        const bccAddresses = parseAddressList(params.bcc)
+        const { ccAddresses, bccAddresses } = route
 
         if (replyToAddresses) {
             sendEmailParams.ReplyToAddresses = replyToAddresses
         }
-        if (ccAddresses) {
+        if (ccAddresses?.length) {
             sendEmailParams.Destination!.CcAddresses = ccAddresses
         }
-        if (bccAddresses) {
+        if (bccAddresses?.length) {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
