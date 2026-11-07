@@ -56,8 +56,15 @@ class TestMypyCacheKey(unittest.TestCase):
             (root / "mypy.ini" / "data").write_text("directory match")
             self.assertEqual(
                 [str(file.relative_to(root)) for file in config_files(root)],
-                ["alias/mypy.ini", "mypy.ini/data", "nested/mypy.ini", "pyproject.toml"],
+                ["mypy.ini/data", "nested/mypy.ini", "pyproject.toml"],
             )
+
+    def test_broken_matching_symlink_fails(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").symlink_to(root / "missing")
+            with self.assertRaises(FileNotFoundError):
+                config_hash(root)
 
     def test_no_matches(self) -> None:
         with TemporaryDirectory() as temporary:

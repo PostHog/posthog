@@ -6,23 +6,19 @@ from pathlib import Path
 
 
 def config_files(root: Path) -> Iterator[Path]:
-    def walk(directory: Path, ancestors: frozenset[Path], matched_directory: bool = False) -> Iterator[Path]:
-        resolved = directory.resolve()
-        if resolved in ancestors:
-            return
-        ancestors = ancestors | {resolved}
+    def walk(directory: Path, matched_directory: bool = False) -> Iterator[Path]:
         for child in sorted(directory.iterdir(), key=lambda entry: entry.name):
             try:
-                child_stat = child.stat()
+                child_stat = child.lstat()
             except FileNotFoundError:
                 continue
             matched = matched_directory or child.name in {"pyproject.toml", "mypy.ini"} or child == root / "uv.lock"
             if stat.S_ISDIR(child_stat.st_mode):
-                yield from walk(child, ancestors, matched)
-            elif matched:
+                yield from walk(child, matched)
+            elif matched and not child.is_dir():
                 yield child
 
-    yield from walk(root, frozenset())
+    yield from walk(root)
 
 
 def config_hash(root: Path) -> str:
