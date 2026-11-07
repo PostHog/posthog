@@ -276,11 +276,10 @@ function buildVisibleBoundaries(parsedDates: Dayjs[]): Set<number> {
     const visible = new Set(boundaries)
     const minGap = Math.max(3, Math.floor(parsedDates.length / 10))
 
+    // The last boundary is never dropped here because it labels the most recent month. When it
+    // crowds the boundary before it, the axis overlap pass drops that earlier label instead.
     if (boundaries.length >= 2 && boundaries[1] - boundaries[0] < minGap) {
         visible.delete(boundaries[0])
-    }
-    if (boundaries.length >= 2 && boundaries[boundaries.length - 1] - boundaries[boundaries.length - 2] < minGap) {
-        visible.delete(boundaries[boundaries.length - 1])
     }
 
     return visible

@@ -48,35 +48,60 @@ function truncateWithTitle(fullText: string, maxCategoryLabelWidth: number): { t
     return { text, title: text === fullText ? undefined : fullText }
 }
 
-/** Greedily keep entries left→right. Horizontal labels use their measured text boxes; rotated
- *  labels use the minimum perpendicular separation between parallel lines of text. */
-function dropOverlappingLabels<T extends { text: string; x: number }>(candidates: T[], padding: number): T[] {
-    if (candidates.length === 0) {
+interface LabelExtent<T> {
+    label: T
+    left: number
+    right: number
+}
+
+/** Keep labels left→right while each clears the previous kept one by `padding`. With `pinLast`,
+ *  the final label is always kept and every earlier label must also clear it, so a crowded axis
+ *  gives up labels before the last one instead of the last one itself. */
+function keepSeparatedLabels<T>(extents: LabelExtent<T>[], padding: number, pinLast: boolean): T[] {
+    if (extents.length === 0) {
         return []
     }
 
+    const pinned = pinLast ? extents[extents.length - 1] : undefined
+    const rest = pinned ? extents.slice(0, -1) : extents
+    const visible: T[] = []
+    let lastRightEdge = -Infinity
+
+    for (const extent of rest) {
+        const clearsPrevious = extent.left >= lastRightEdge + padding
+        const clearsPinned = !pinned || extent.right + padding <= pinned.left
+        if (clearsPrevious && clearsPinned) {
+            visible.push(extent.label)
+            lastRightEdge = extent.right
+        }
+    }
+
+    if (pinned) {
+        visible.push(pinned.label)
+    }
+    return visible
+}
+
+function dropOverlappingLabels<T extends { text: string; x: number }>(
+    candidates: T[],
+    padding: number,
+    pinLast = false
+): T[] {
     const ctx = getTextMeasureCtx()
     if (!ctx) {
         return candidates
     }
     ctx.font = AXIS_LABEL_FONT
 
-    const visible: T[] = []
-    let lastRightEdge = -Infinity
-
-    for (const candidate of candidates) {
-        const halfWidth = ctx.measureText(candidate.text).width / 2
-        const leftEdge = candidate.x - halfWidth
-
-        if (leftEdge >= lastRightEdge + padding) {
-            visible.push(candidate)
-            lastRightEdge = candidate.x + halfWidth
-        }
-    }
-
-    return visible
+    const extents = candidates.map((label) => {
+        const halfWidth = ctx.measureText(label.text).width / 2
+        return { label, left: label.x - halfWidth, right: label.x + halfWidth }
+    })
+    return keepSeparatedLabels(extents, padding, pinLast)
 }
 
+/** Horizontal labels use their measured text boxes; rotated labels use the minimum perpendicular
+ *  separation between parallel lines of text. */
 export function computeVisibleXLabels(
     labels: string[],
     xScale: (label: string) => number | undefined,
@@ -86,8 +111,6 @@ export function computeVisibleXLabels(
 ): XLabelCandidate[] {
     const candidates: XLabelCandidate[] = []
     const rotation = normalizeTickLabelRotation(tickLabelRotation)
-    const minimumGap = rotation === 0 ? 0 : Math.max(minimumRotatedTickLabelGap(rotation), CATEGORY_LABEL_PADDING)
-    let lastX = -Infinity
 
     for (let i = 0; i < labels.length; i++) {
         const x = xScale(labels[i])
@@ -95,17 +118,22 @@ export function computeVisibleXLabels(
             continue
         }
         const fullText = formatter ? formatter(labels[i], i) : labels[i]
-        if (fullText === null || (rotation !== 0 && x < lastX + minimumGap)) {
+        if (fullText === null) {
             continue
         }
         const { text, title } = truncateWithTitle(fullText, maxCategoryLabelWidth)
         candidates.push({ index: i, text, title, x })
-        if (rotation !== 0) {
-            lastX = x
-        }
     }
 
-    return rotation === 0 ? dropOverlappingLabels(candidates, CATEGORY_LABEL_PADDING) : candidates
+    if (rotation === 0) {
+        return dropOverlappingLabels(candidates, CATEGORY_LABEL_PADDING, true)
+    }
+    const minimumGap = Math.max(minimumRotatedTickLabelGap(rotation), CATEGORY_LABEL_PADDING)
+    return keepSeparatedLabels(
+        candidates.map((label) => ({ label, left: label.x, right: label.x })),
+        minimumGap,
+        true
+    )
 }
 
 interface ValueTickCandidate {

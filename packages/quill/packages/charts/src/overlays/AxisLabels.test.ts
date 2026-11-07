@@ -51,6 +51,29 @@ describe('computeVisibleXLabels', () => {
         expect(horizontal.length).toBeLessThan(labels.length)
         expect(rotated.map((label) => label.text)).toEqual(labels)
     })
+
+    it.each([
+        { description: 'horizontal', rotation: 0, spacing: 15 },
+        { description: 'rotated', rotation: -45, spacing: 12 },
+    ])('keeps the first and last labels on a crowded $description axis', ({ rotation, spacing }) => {
+        const labels = Array.from({ length: 13 }, (_, i) => `Month ${i}`)
+        const scale = (label: string): number => labels.indexOf(label) * spacing
+
+        const visible = computeVisibleXLabels(labels, scale, undefined, 0, rotation)
+
+        expect(visible.length).toBeLessThan(labels.length)
+        expect(visible[0].index).toBe(0)
+        expect(visible[visible.length - 1].index).toBe(labels.length - 1)
+    })
+
+    it('keeps only the last label when the first would collide with it', () => {
+        const labels = ['September', 'October']
+        const scale = (label: string): number => labels.indexOf(label) * 10
+
+        const visible = computeVisibleXLabels(labels, scale)
+
+        expect(visible.map((v) => v.index)).toEqual([1])
+    })
 })
 
 describe('computeVisibleValueTicks', () => {
