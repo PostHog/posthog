@@ -10,11 +10,18 @@ from products.alerts_platform.backend.facade.contracts import Grouping
 from products.logs.backend import platform_ownership
 from products.logs.backend.alert_deletion import delete_alert
 from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.native_alerts import delete_native, native_alert_view, native_alert_views, update_native
+from products.logs.backend.native_alerts import (
+    delete_native,
+    native_alert_keys,
+    native_alert_view,
+    native_alert_views,
+    update_native,
+)
 
 __all__ = [
     "delete_alert",
     "delete_native",
+    "native_alert_keys",
     "native_alert_view",
     "native_alert_views",
     "on_created",
