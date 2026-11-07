@@ -27,6 +27,7 @@ import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -46,6 +47,9 @@ export function TodayAccountMenu(): JSX.Element {
         }
     }, [isAccountMenuOpen, loadEarlyAccessFeatures])
     const todayNavFeature = earlyAccessFeatures.find((feature) => feature.flagKey === FEATURE_FLAGS.TODAY_RAIL_NAV)
+    // Experiment cohorts must not see the other experience advertised, so the switch rides its own flag.
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showNavSwitch = !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV_SWITCH]
 
     return (
         <DropdownMenu open={isAccountMenuOpen} onOpenChange={setAccountMenuOpen}>
@@ -116,21 +120,29 @@ export function TodayAccountMenu(): JSX.Element {
                         </DropdownMenuGroup>
                     </>
                 )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                    onClick={() => {
-                        // pinned: analytics event name and properties. The exit survey triggers on this event.
-                        posthog.capture('today nav switched off', { surface: 'account_menu' })
-                        updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.TODAY_RAIL_NAV, false, todayNavFeature?.stage)
-                        lemonToast.success(
-                            'You are back on the old navigation. Turn the new navigation on again from the account menu.'
-                        )
-                    }}
-                    data-attr="today-rail-switch-old-nav"
-                >
-                    <IconArrowLeft />
-                    Switch to the old navigation
-                </DropdownMenuItem>
+                {showNavSwitch && (
+                    <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            onClick={() => {
+                                // pinned: analytics event name and properties. The exit survey triggers on this event.
+                                posthog.capture('today nav switched off', { surface: 'account_menu' })
+                                updateEarlyAccessFeatureEnrollment(
+                                    FEATURE_FLAGS.TODAY_RAIL_NAV,
+                                    false,
+                                    todayNavFeature?.stage
+                                )
+                                lemonToast.success(
+                                    'You are back on the old navigation. Turn the new navigation on again from the account menu.'
+                                )
+                            }}
+                            data-attr="today-rail-switch-old-nav"
+                        >
+                            <IconArrowLeft />
+                            Switch to the old navigation
+                        </DropdownMenuItem>
+                    </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => logout()} data-attr="new-account-menu-logout-button">
                     <IconLeave />

@@ -499,28 +499,30 @@ export function NewAccountMenu({
                                     )}
                                 />
 
-                                {todayNavFeature && !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && (
-                                    <Menu.Item
-                                        onClick={() => {
-                                            // pinned: analytics event name and properties. Renaming them breaks dashboards.
-                                            posthog.capture('today nav switched on', { surface: 'account_menu' })
-                                            updateEarlyAccessFeatureEnrollment(
-                                                FEATURE_FLAGS.TODAY_RAIL_NAV,
-                                                true,
-                                                todayNavFeature.stage
-                                            )
-                                            lemonToast.success(
-                                                'New navigation is on. Switch back any time from the account menu.'
-                                            )
-                                        }}
-                                        render={
-                                            <ButtonPrimitive menuItem data-attr="top-menu-try-new-navigation">
-                                                <IconSparkles />
-                                                Try the new navigation
-                                            </ButtonPrimitive>
-                                        }
-                                    />
-                                )}
+                                {!!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV_SWITCH] &&
+                                    todayNavFeature &&
+                                    !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && (
+                                        <Menu.Item
+                                            onClick={() => {
+                                                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                                                posthog.capture('today nav switched on', { surface: 'account_menu' })
+                                                updateEarlyAccessFeatureEnrollment(
+                                                    FEATURE_FLAGS.TODAY_RAIL_NAV,
+                                                    true,
+                                                    todayNavFeature.stage
+                                                )
+                                                lemonToast.success(
+                                                    'New navigation is on. Switch back any time from the account menu.'
+                                                )
+                                            }}
+                                            render={
+                                                <ButtonPrimitive menuItem data-attr="top-menu-try-new-navigation">
+                                                    <IconSparkles />
+                                                    Try the new navigation
+                                                </ButtonPrimitive>
+                                            }
+                                        />
+                                    )}
                                 <Menu.Item
                                     onClick={() => logout()}
                                     render={
