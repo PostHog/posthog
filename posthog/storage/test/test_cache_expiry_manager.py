@@ -427,6 +427,42 @@ class TestCleanupStaleExpiryTracking(BaseTest):
         assert self.entry_state(deleted_team) == (False, False, False)
         assert mirror.get(key) is None
 
+    def test_an_entry_restored_without_a_new_score_stays_tracked(self) -> None:
+        self.given_cache(token_based=True)
+        deleted_team = self.deleted_team()
+        self.write_entry(deleted_team)
+        delete_object = object_storage.delete
+
+        def restore_then_delete(key: str) -> None:
+            # A read between the Redis delete and the object-storage delete copies the object back
+            # into Redis. That path does not add the member again.
+            self.hypercache._set_cache_value_redis(deleted_team, {"id": deleted_team.id})
+            delete_object(key)
+
+        with patch("posthog.storage.hypercache.object_storage.delete", side_effect=restore_then_delete):
+            assert cleanup_stale_expiry_tracking(self.config) == 0
+
+        assert self.entry_state(deleted_team) == (True, False, True)
+
+        assert cleanup_stale_expiry_tracking(self.config) == 1
+        assert self.entry_state(deleted_team) == (False, False, False)
+
+    def test_a_failed_existence_check_keeps_the_entry_tracked_for_the_next_cleanup(self) -> None:
+        self.given_cache(token_based=True)
+        deleted_team = self.deleted_team()
+        self.write_entry(deleted_team)
+
+        with patch(
+            "posthog.storage.cache_expiry_manager.object_storage.head_object_strict",
+            side_effect=object_storage.ObjectStorageError("down"),
+        ):
+            assert cleanup_stale_expiry_tracking(self.config) == 0
+
+        assert self.entry_state(deleted_team) == (False, False, True)
+
+        assert cleanup_stale_expiry_tracking(self.config) == 1
+        assert self.entry_state(deleted_team) == (False, False, False)
+
     def test_a_failed_untrack_keeps_the_entry_tracked_outside_the_refresh_window(self) -> None:
         self.given_cache(token_based=True)
         deleted_team = self.deleted_team()

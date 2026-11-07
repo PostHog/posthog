@@ -12,6 +12,9 @@ import random
 from itertools import batched
 from typing import Literal
 
+from django.conf import settings
+
+import redis
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
 
@@ -20,6 +23,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
+from posthog.storage import object_storage
 from posthog.storage.hypercache import HyperCache
 from posthog.storage.hypercache_manager import (
     HyperCacheManagementConfig,
@@ -459,6 +463,35 @@ def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> Refresh
 _DELETE_RETRY_DELAY_SECONDS = 2 * 24 * 3600 + 0.5
 
 
+def _retrack_if_still_stored(
+    hypercache: HyperCache, identifier: str | int, redis_client: redis.Redis, sorted_set_key: str, retry_score: float
+) -> bool:
+    """Re-add the member at the retry score when any tier holds the entry after its member left the set.
+
+    A read between the Redis delete and the object-storage delete copies the object back into Redis
+    without adding the member. So does a rewrite whose own add failed. A failed check re-adds the
+    member and raises, so the next cleanup retries the entry.
+    """
+    cache_key = hypercache.get_cache_key(identifier)
+    secondary = hypercache.secondary_cache_client
+    still_stored = True
+    try:
+        still_stored = (
+            hypercache.cache_client.has_key(cache_key)
+            or (secondary is not None and secondary.has_key(cache_key))
+            # Without object storage the client is a stub whose existence check always raises.
+            or (
+                hypercache.s3_enabled
+                and settings.OBJECT_STORAGE_ENABLED
+                and object_storage.head_object_strict(cache_key) is not None
+            )
+        )
+        return still_stored
+    finally:
+        if still_stored:
+            redis_client.zadd(sorted_set_key, {str(identifier): retry_score}, nx=True)
+
+
 def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
     """
     Delete the cache entries of deleted teams and remove them from the expiry tracking sorted set.
@@ -471,7 +504,9 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
     The member leaves the sorted set only after every delete succeeds and only while it still
     holds that score. Every writer stores the entry before it adds the member, so a rewrite during
     the cleanup re-scores the member and keeps it. A failed delete or a failed remove leaves the
-    member at the retry score, outside the refresh window, and the next cleanup retries it.
+    member at the retry score, outside the refresh window, and the next cleanup retries it. After
+    the member leaves, the cleanup checks every tier and re-adds the member when a tier still
+    holds the entry.
 
     Args:
         config: HyperCache management config specifying which cache to clean up
@@ -515,10 +550,12 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
             try:
                 redis_client.zadd(sorted_set_key, {member: retry_score}, xx=True)
                 hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=retry_score)
-                if redis_client.zscore(sorted_set_key, member) is None:
-                    removed += 1
-                else:
+                if redis_client.zscore(sorted_set_key, member) is not None or _retrack_if_still_stored(
+                    hypercache, identifier, redis_client, sorted_set_key, retry_score
+                ):
                     kept += 1
+                else:
+                    removed += 1
             except SoftTimeLimitExceeded:
                 raise
             except Exception as e:
