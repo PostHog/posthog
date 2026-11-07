@@ -15835,9 +15835,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-surveys--light:
         hash: v1.k794b7964.e9827e5efbfff9b19d1b4f098f696ad6d296f6add9613ce8ffbe009cc6fded44.l7ZGtwkwtPW0kyb9a-szWxrK6JH4AmtiTJ_lYSUeu7s
     scenes-app-settings-environment--settings-environment-web-analytics--dark:
-        hash: v1.k794b7964.4eb3b9dbab28f073eee1539ce28432547e85a41c499ee95c488465a5bf89eb6f.6pWNDFX_tGOvFobThL_9cVyZSLbobpm0c44SnSXc5p4
+        hash: v1.k794b7964.c8198a6d9f8cd4a2bbd15b2846d793ce92c0b7050b69786e630ac48590abe9bd.kPOJOARyo1hmxWZnfLG7GNnURZjq7QwyP3_oa2M5lNk
     scenes-app-settings-environment--settings-environment-web-analytics--light:
-        hash: v1.k794b7964.325010cf6189e34c2180eecbee28ed168fc787a7685572fbf22e0452d9a25e59.CwjnFv1AQ35ES1bCjZD4hTVI1thvG8vkTZcK8OcshK4
+        hash: v1.k794b7964.a10573636fbdc42fd099e202fb20e504f8a28ca47500646fe35e1c63c355044e.2TT4Bc9o4aAravNEyVvHrtQp5tz-snU963KdXggVfeE
     scenes-app-settings-environment--settings-mcp-analytics-custom-harnesses--dark:
         hash: v1.k794b7964.8b9284d27c164bda6e3890920f638b4a3fcac7a43bf3229340e854588a431fea.wIRwiaah0nvMmvF4AotThQ1Wb_gT1kYUl6qkng1e6j4
     scenes-app-settings-environment--settings-mcp-analytics-custom-harnesses--light:
@@ -17331,21 +17331,21 @@ snapshots:
     scenes-other-toolbar-extension--web-vitals--light:
         hash: v1.k794b7964.359b0bb9673b02483ba075c403627a50b464f8ab5dacbedf55edc3d62a340721.N5zZFfSviHABKxfqoSFeY-qOhODsfCFqxL3_TPEZwE0
     scenes-other-toolbarlaunch--default--dark:
-        hash: v1.k794b7964.e40308bf4cd225c11272879842feec6c42e817868081bc9e38ac7395dc37a2fd.0UqNVZGTldUPnS_tl6Auj2I_LjYTRPYffIPGWzA6-mc
+        hash: v1.k794b7964.5c61ce9e8760573d0fdfc8cf6a902890dc6fbc7d903f8cd6859909f1854821e8.dvQvaQrWfRBupAxqxV-d5IcwQ9EP00cCSwbv_Lc3UKk
     scenes-other-toolbarlaunch--default--light:
-        hash: v1.k794b7964.54d99a7f50b4ff322d77b91517f8192652f8a413b236ea984c43d1c5a6771863.JLgK3Hx7PT0RFXTLjTdjKDSsXwobXlISFxbnYwumXKQ
+        hash: v1.k794b7964.bebcf4524f884a69e912c04f71057a670c4786ac85612d45f5f6df39a004ff46.kgDPJsLCN_Te_6pHdoWkzCbR5o2yQerYk-vT2WNYvaM
     scenes-other-toolbarlaunch--empty-state-template--dark:
-        hash: v1.k794b7964.f4a64a7467fd1afd5a8a70d14f6dec6bf79ed08b404ef7c23b4b5b16db669143.7-_PesN6pUHYNAkxgV_9QQjQb6DhoL5nL-gSZt_Ah_Y
+        hash: v1.k794b7964.da29136c3737ba548ef9f57a8b465ee8aed877619972f20bebf91590f4360bcd.KtfUeVlVPPGtKn1RO2mmdrT0wU1yBjwniH2H8yCLIxg
     scenes-other-toolbarlaunch--empty-state-template--light:
-        hash: v1.k794b7964.1e73019975f70b1602fdfa52dddfc42b3c301dc7098decae80e322b1e4899a0a.jjmZN2fOYem6E2kVueJZty6wPnnM8Fu1n0qWI709ELg
+        hash: v1.k794b7964.79ba48fa364369767a712fb258ba5a0214237be7a710371d594d90bf636ddffe.dOXtpkDMXACQHVVxqTYQ4e8f71b7i2xQgJ2zyk1XVPI
     scenes-other-toolbarlaunch--no-suggestions-template--dark:
-        hash: v1.k794b7964.6e7afbf0b3a9467ac307fca2425798f72f072c84730eb6ca2e2abbeffa4b887a.3hrJ8DIT4Aiqq5r_1Ymmrjf6lfEmkmzBR-vvEOHVvhg
+        hash: v1.k794b7964.1bcffd8365997378cea081d72ee7b4bc10796b1c8c0e33ea44c5d2b845153627.Ps5pSxtj-gSyPyxxRbQH9d9h8Oe-WVtF19QAFYMaonU
     scenes-other-toolbarlaunch--no-suggestions-template--light:
-        hash: v1.k794b7964.7dd95d6828c619ee77c2ad806568d55472e1058ec81eb6568fc75674bd315b2d.2jzwpR5KIpMraVRUwL_XeDG85y217pkbgy-lY-pxMeQ
+        hash: v1.k794b7964.ad9d5323b8374e845378d6461805e9db27b895e1aae3547607f2c98778bf81f8.AiPXZzjLHUC180jqKW1yFwh-Q-qOT0be4rB6JRTfOHk
     scenes-other-toolbarlaunch--no-urls-template--dark:
-        hash: v1.k794b7964.46a826a1f25001061b7e9c92bcb84b6b6bd1ded1ef9ed26cd4475d54d3f0795d.3fwl6lN38jkNeokaQxqRdY8pEcAna5VudZvPQh-jJ8s
+        hash: v1.k794b7964.6ab05acc4c4adc7b1e522457ade2377be0618b62b169a1bbe942a2902567b41a.revm0bTVsl_P3rOr77y_pOhsrBdHIXa_qFYZJ15obZY
     scenes-other-toolbarlaunch--no-urls-template--light:
-        hash: v1.k794b7964.382affdb4a2da5da05b98d2157cb42f23c6d898d92a1ba5a5ab434ad651f64fd.kGm3rT8KT_LA0U0umItCRcQfBXpE0xu28xXxKzbw29k
+        hash: v1.k794b7964.809df8de7b690d50978c6096cbd43701306d1e717c495d416a4ba44b19fc1d35.Xf589psvgAO6JzNjLGQLTk6e_Danho9HULIId0rwxO0
     scenes-other-unsubscribe--unsubscribe-scene--dark:
         hash: v1.k794b7964.edf72647d38238fcbf4971f0650ce2714dcaf8cc74de13cffe66da88dcd5cf2f.db7vGipUsWVyRVTdF0VJc6x1L6ChKabAu6PPxBTv4FM
     scenes-other-unsubscribe--unsubscribe-scene--light:
