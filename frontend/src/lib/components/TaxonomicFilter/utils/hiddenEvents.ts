@@ -14,17 +14,24 @@ const REACHES_SECOND_WORD = /[_\s]\S/
  * `searchTerms` are every string a search has to equal for us to treat it as a hunt for that event.
  * The label is in there because lists render core events by their label, so "Feature flag called" is
  * a string the user has actually seen and is as likely to type as the raw key.
+ *
+ * `standInPrefixTerms` add the name without its `$`, because the posthog.com docs write the event that way.
  */
-const eventsHiddenInQueryBuilders = deriveFromCoreFilterDefinitions((): { name: string; searchTerms: string[] }[] =>
-    Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.events)
-        // The "All Events" remap in the taxonomy leaves the '' key holding no definition, so read defensively.
-        .filter(([, definition]) => definition?.hidden_in_query_builders)
-        .map(([name, definition]) => ({
-            name,
-            searchTerms: [name, definition.label]
-                .filter((term): term is string => typeof term === 'string' && term.length > 0)
-                .map((term) => term.toLowerCase()),
-        }))
+const eventsHiddenInQueryBuilders = deriveFromCoreFilterDefinitions(
+    (): { name: string; searchTerms: string[]; standInPrefixTerms: string[] }[] =>
+        Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.events)
+            // The "All Events" remap in the taxonomy leaves the '' key holding no definition, so read defensively.
+            .filter(([, definition]) => definition?.hidden_in_query_builders)
+            .map(([name, definition]) => {
+                const searchTerms = [name, definition.label]
+                    .filter((term): term is string => typeof term === 'string' && term.length > 0)
+                    .map((term) => term.toLowerCase())
+                return {
+                    name,
+                    searchTerms,
+                    standInPrefixTerms: [...searchTerms, name.replace(/^\$/, '').toLowerCase()],
+                }
+            })
 )
 
 const hiddenEventNamesInTaxonomy = deriveFromCoreFilterDefinitions((): string[] =>
@@ -57,7 +64,6 @@ export function hiddenEventNames(
  * Unlike `hiddenEventMatchingSearch`, this matches a prefix, so "feature flag" finds the event.
  * The prefix has to reach the second word of the name or label. The stand-in leads the list, and a search for
  * "feature" or "$feature_" must keep a real event such as `$feature_view` at row 0.
- * It also matches the name without its `$`, because the posthog.com docs write the event that way.
  */
 export function hiddenEventStandInsMatchingSearch(searchQuery: string): HiddenEventStandIn[] {
     const query = searchQuery.trim().toLowerCase()
@@ -65,9 +71,7 @@ export function hiddenEventStandInsMatchingSearch(searchQuery: string): HiddenEv
         return []
     }
     return eventsHiddenInQueryBuilders()
-        .filter(({ name, searchTerms }) =>
-            [...searchTerms, name.replace(/^\$/, '')].some((term) => term.startsWith(query))
-        )
+        .filter(({ standInPrefixTerms }) => standInPrefixTerms.some((term) => term.startsWith(query)))
         .map(({ name }) => ({ _type: 'hidden_event_stand_in', name, value: name }))
 }
 

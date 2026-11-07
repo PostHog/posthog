@@ -75,9 +75,13 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition, GroupTypeIndex, PropertyType, TeamPublicType, TeamType } from '~/types'
 
+import type { DataWarehouseTableForInsight } from '../../../../../products/data_warehouse/frontend/types'
+import type { MaxContextTaxonomicFilterOption } from '../../../scenes/max/maxTypes'
 import { teamLogic } from '../../../scenes/teamLogic'
+import type { ActionType, PersonProperty, PropertyDefinition } from '../../../types'
 import { getItemGroup } from './InfiniteList'
 import type { SelectItemMeta, TopMatchItem } from './taxonomicFilterLogic'
+import type { HiddenEventStandIn } from './types'
 
 function pinnedItemMatchesSearch(
     item: TaxonomicDefinitionTypes,
@@ -310,7 +314,18 @@ export interface infiniteListLogicValues {
         count: number
         first: boolean | undefined
         queryChanged: boolean | undefined
-        results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+        results: (
+            | ActionType
+            | CohortType
+            | DataWarehouseTableForInsight
+            | EventDefinition
+            | HiddenEventStandIn
+            | MaxContextTaxonomicFilterOption
+            | PersonProperty
+            | PropertyDefinition
+            | QuickFilterItem
+            | SkeletonItem
+        )[]
         searchQuery: string | undefined
         syntheticSelectedCount: number
     }
@@ -761,7 +776,18 @@ export interface infiniteListLogicMeta {
             count: number
             first: boolean | undefined
             queryChanged: boolean | undefined
-            results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+            results: (
+                | ActionType
+                | CohortType
+                | DataWarehouseTableForInsight
+                | EventDefinition
+                | HiddenEventStandIn
+                | MaxContextTaxonomicFilterOption
+                | PersonProperty
+                | PropertyDefinition
+                | QuickFilterItem
+                | SkeletonItem
+            )[]
             searchQuery: string | undefined
             syntheticSelectedCount: number
         }

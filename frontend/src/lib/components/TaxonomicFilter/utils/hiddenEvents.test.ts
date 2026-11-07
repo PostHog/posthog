@@ -37,6 +37,8 @@ describe('events hidden from query builders', () => {
         ['the start of the name without its $', ' FEATURE_FLAG ', ['$feature_flag_called']],
         ['the start of the label', 'feature flag c', ['$feature_flag_called']],
         ['the name as typed', '$feature_flag_called', ['$feature_flag_called']],
+        ['the name without its $', 'feature_flag_called', ['$feature_flag_called']],
+        ['the label', 'Feature flag called', ['$feature_flag_called']],
         ['the first word alone', 'feature', []],
         ['the first word and a separator', '$feature_', []],
         ['a word from inside the name', 'flag called', []],

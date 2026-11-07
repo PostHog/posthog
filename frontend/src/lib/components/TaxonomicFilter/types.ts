@@ -55,12 +55,16 @@ export interface HiddenEventStandIn {
 
 export type LeadingSearchItem = HiddenEventStandIn | QuickFilterItem
 
+function hasItemType(item: unknown, type: string): boolean {
+    return item != null && typeof item === 'object' && '_type' in item && item._type === type
+}
+
 export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
-    return item != null && typeof item === 'object' && '_type' in item && item._type === 'quick_filter'
+    return hasItemType(item, 'quick_filter')
 }
 
 export function isHiddenEventStandIn(item: unknown): item is HiddenEventStandIn {
-    return item != null && typeof item === 'object' && '_type' in item && item._type === 'hidden_event_stand_in'
+    return hasItemType(item, 'hidden_event_stand_in')
 }
 
 export function quickFilterToPropertyFilter(item: QuickFilterItem): EventPropertyFilter | PersonPropertyFilter {
@@ -165,8 +169,9 @@ export interface TaxonomicFilterProps {
      */
     includeHiddenEvents?: boolean
     /**
-     * A search that starts to spell a hidden event offers a stand-in row for it, and the event's own row stays out of
-     * the list, whatever `includeHiddenEvents` says. Picking the stand-in commits the event's name.
+     * A search that starts to spell a hidden event offers a stand-in row for it.
+     * The event's own row stays out of the list, whatever `includeHiddenEvents` says.
+     * Picking the stand-in commits the event's name.
      * Set it only where the host turns that pick into a query on the table that now holds the event, and only for a
      * team whose `events` table no longer receives the event. Such a team may have no definition to list, or one that
      * drops out of searches once it is 30 days stale.

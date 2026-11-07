@@ -932,7 +932,8 @@ describe('ActionFilterRow', () => {
 
         async function flagCalledRowsAfterSearching(searchQuery: string): Promise<HTMLElement[]> {
             await userEvent.click(screen.getByTestId('trend-element-subject-0'))
-            await userEvent.type(await screen.findByTestId('taxonomic-filter-searchfield'), searchQuery)
+            await userEvent.click(await screen.findByTestId('taxonomic-filter-searchfield'))
+            await userEvent.paste(searchQuery)
             // The wait covers the search debounce and the mock round trip, which outrun the default 1s on a loaded runner.
             await screen.findAllByText(`settled: ${searchQuery}`, undefined, { timeout: 5000 })
             const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-attr^="prop-filter-"]')).filter(
@@ -944,8 +945,6 @@ describe('ActionFilterRow', () => {
 
         it.each([
             ['$feature_flag_called', false, false],
-            ['feature_flag_called', false, false],
-            ['Feature flag called', false, false],
             ['feature flag', false, false],
             ['$feature_flag_called', true, false],
             ['$feature_flag_called', true, true],
