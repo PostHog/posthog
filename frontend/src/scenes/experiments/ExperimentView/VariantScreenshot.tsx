@@ -82,7 +82,8 @@ export function VariantScreenshot({
 
     const handlePaste = useCallback(
         (e: React.ClipboardEvent): void => {
-            if (uploading) {
+            // The viewer can show another variant, and a paste there would save to this row's variant.
+            if (uploading || selectedKey !== null) {
                 return
             }
 
@@ -109,7 +110,7 @@ export function VariantScreenshot({
                 }
             }
         },
-        [mediaIds.length, setFilesToUpload, uploading]
+        [mediaIds.length, setFilesToUpload, uploading, selectedKey]
     )
 
     const handleImageLoad = (mediaId: string): void => {
