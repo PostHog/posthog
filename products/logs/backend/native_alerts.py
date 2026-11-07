@@ -12,6 +12,7 @@ from uuid import UUID
 from django.utils import timezone
 
 from products.alerts_platform.backend.facade.api import (
+    create_configuration,
     delete_configuration,
     get_configuration,
     list_configurations,
@@ -20,7 +21,7 @@ from products.alerts_platform.backend.facade.api import (
 )
 from products.alerts_platform.backend.facade.contracts import Grouping, PlatformAlertConfigurationView, SourceKind
 from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.platform_ownership import platform_change_of
+from products.logs.backend.platform_ownership import platform_change_of, platform_edit_of
 
 _LOGS: Final = (SourceKind.LOGS.value,)
 
@@ -45,6 +46,22 @@ def native_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[Platf
         team_id=team_id, source_kinds=_LOGS, limit=len(alert_ids), offset=0, configuration_ids=alert_ids
     )
     return tuple(view for view in page.configurations if view.legacy_configuration_id is None)
+
+
+def create_native(
+    *, team_id: int, fields: Mapping[str, Any], grouping: Grouping | None, created_by_id: int
+) -> PlatformAlertConfigurationView:
+    """Creates a logs alert on the platform alone, from the logs API's settings with their defaults applied.
+
+    Raises `PlatformAlertCreateRefused` at the team's cap, and `InvalidPlatformAlertEdit` for settings the
+    platform's logs schema rejects.
+    """
+    edit = platform_edit_of(
+        LogsAlertConfiguration(team_id=team_id, **fields), grouping if grouping is not None else Grouping()
+    )
+    return create_configuration(
+        team_id=team_id, source_kind=SourceKind.LOGS, edit=edit, created_by_id=created_by_id, natively=True
+    )
 
 
 def update_native(

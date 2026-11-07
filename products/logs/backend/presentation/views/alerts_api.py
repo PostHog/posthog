@@ -64,6 +64,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PagerDutyRegion,
     PagerDutySeverity,
     PlatformAlertConfigurationView,
+    PlatformAlertCreateRefused,
     PlatformAlertHistory,
     PlatformAlertRuntime,
 )
@@ -111,6 +112,8 @@ from products.logs.backend.facade.api import (
     platform_check_rows,
 )
 from products.logs.backend.facade.platform_ownership import (
+    create_native,
+    creates_native_alert,
     delete_alert,
     delete_native,
     native_alert_keys,
@@ -941,6 +944,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if validated_data.get("enabled", True):
             validated_data["first_enabled_at"] = timezone.now()
         grouping: Grouping | None = validated_data.pop("grouping", None)
+        if creates_native_alert(validated_data["team_id"]):
+            return _write_platform_edit(lambda: _create_native_alert(validated_data, grouping))
 
         with transaction.atomic():
             try:
@@ -960,6 +965,34 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
                 )
             return created
+
+
+def _create_native_alert(validated_data: dict, grouping: Grouping | None) -> LogsAlertConfiguration:
+    team_id = validated_data["team_id"]
+    snooze_until = validated_data.get("snooze_until")
+    # Settings only: the creator travels as an id, and the team as the call's own argument.
+    fields = {name: value for name, value in validated_data.items() if name not in ("team_id", "created_by")}
+    # One transaction, so no check sees the alert before its snooze holds.
+    with transaction.atomic():
+        try:
+            created = create_native(
+                team_id=team_id, fields=fields, grouping=grouping, created_by_id=validated_data["created_by"].id
+            )
+        except PlatformAlertCreateRefused as error:
+            raise ValidationError(str(error)) from error
+        if snooze_until is not None:
+            created = (
+                update_native(
+                    team_id=team_id,
+                    alert_id=created.id,
+                    changes={},
+                    grouping=None,
+                    snooze_until=snooze_until,
+                    snooze_changed=True,
+                )
+                or created
+            )
+    return _listed_alert(created, team_id=team_id)
 
 
 def _listed_alert(view: PlatformAlertConfigurationView, *, team_id: int) -> LogsAlertConfiguration:

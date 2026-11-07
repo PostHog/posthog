@@ -1176,7 +1176,8 @@ class SourceConfigSpec:
     `native`: then the platform creates and deletes them itself, and the source keeps no row.
 
     A kind can have both. `mirror` and `delete` then serve the alerts that have a source row, and
-    `native` serves the ones that have none. A create goes through `create` while the kind has one.
+    `native` serves the ones that have none. A create goes through `create`, unless `native_create`
+    says the team's new alerts get no source row.
     """
 
     model: type[BaseModel]
@@ -1191,6 +1192,8 @@ class SourceConfigSpec:
     incident_event_ids: Mapping[str, str] | None = None
     alert_url: Callable[[int, UUID], str] | None = None
     native: NativeAlertLifecycle | None = None
+    # For a kind with both `create` and `native`: whether a team's new alert gets no source row.
+    native_create: Callable[[int], bool] | None = None
     # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
@@ -1204,9 +1207,11 @@ class SourceConfigSpec:
     def creatable(self) -> bool:
         return self.native is not None or self.create is not None
 
-    def creates_natively(self) -> bool:
-        """Whether a create makes only the configuration, with no source row."""
-        return self.native is not None and self.create is None
+    def creates_natively(self, team_id: int) -> bool:
+        """Whether a create for the team makes only the configuration, with no source row."""
+        if self.native is None:
+            return False
+        return self.create is None or (self.native_create is not None and self.native_create(team_id))
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
