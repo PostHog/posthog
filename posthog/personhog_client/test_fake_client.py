@@ -208,6 +208,28 @@ class TestFakePersonHogClientCohorts:
         )
         assert len(resp.memberships) == 0
 
+    @parameterized.expand(
+        [
+            ("subset", [10, 11], 2, {12}),
+            ("skips_non_members_and_repeats", [10, 10, 99], 1, {11, 12}),
+        ]
+    )
+    def test_delete_cohort_members_by_person_ids(self, _name, person_ids, expected_deleted, expected_remaining):
+        for cohort_id in (5, 6):
+            self.client.insert_cohort_members(
+                cohort_pb2.InsertCohortMembersRequest(cohort_id=cohort_id, person_ids=[10, 11, 12])
+            )
+
+        resp = self.client.delete_cohort_members_by_person_ids(
+            cohort_pb2.DeleteCohortMembersByPersonIdsRequest(cohort_id=5, person_ids=person_ids)
+        )
+
+        assert resp.deleted_count == expected_deleted
+        remaining = self.client.list_cohort_member_ids(cohort_pb2.ListCohortMemberIdsRequest(cohort_id=5))
+        assert set(remaining.person_ids) == expected_remaining
+        other = self.client.list_cohort_member_ids(cohort_pb2.ListCohortMemberIdsRequest(cohort_id=6))
+        assert set(other.person_ids) == {10, 11, 12}
+
 
 class TestCallTracking:
     def test_assert_called(self):

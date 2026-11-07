@@ -92,7 +92,7 @@ Each write takes at most 250 keys in one transaction. Use the helper in `posthog
 
 **Cohort membership:**
 `check_cohort_membership`, `count_cohort_members`, `insert_cohort_members`,
-`delete_cohort_member`, `delete_cohort_members_bulk`, `list_cohort_member_ids`
+`delete_cohort_member`, `delete_cohort_members_bulk`, `delete_cohort_members_by_person_ids`, `list_cohort_member_ids`
 
 **Groups:**
 `get_group`, `get_groups`, `get_groups_batch`
