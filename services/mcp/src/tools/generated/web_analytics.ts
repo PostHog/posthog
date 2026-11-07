@@ -508,7 +508,7 @@ const CustomEventConversionGoal = z.object({
 
 const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
 
-const AssistantDateRange = z.object({
+const AssistantBasicDateRange = z.object({
     date_from: z.string().describe('ISO8601 date string.'),
     date_to: z
         .string()
@@ -519,7 +519,7 @@ const AssistantDateRange = z.object({
         .optional(),
 })
 
-const AssistantDurationRange = z.object({
+const AssistantBasicDurationRange = z.object({
     date_from: z
         .string()
         .describe(
@@ -527,7 +527,7 @@ const AssistantDurationRange = z.object({
         ),
 })
 
-const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
+const AssistantBasicDateRangeFilter = z.union([AssistantBasicDateRange, AssistantBasicDurationRange])
 
 const AssistantWebOverviewQuery = z.object({
     compareFilter: CompareFilter.describe(
@@ -539,7 +539,7 @@ const AssistantWebOverviewQuery = z.object({
             'Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.'
         )
         .optional(),
-    dateRange: AssistantDateRangeFilter.describe(
+    dateRange: AssistantBasicDateRangeFilter.describe(
         'Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.'
     ).optional(),
     doPathCleaning: z.coerce
@@ -614,7 +614,7 @@ const AssistantWebStatsTableQuery = z.object({
             'Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.'
         )
         .optional(),
-    dateRange: AssistantDateRangeFilter.describe(
+    dateRange: AssistantBasicDateRangeFilter.describe(
         'Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.'
     ).optional(),
     doPathCleaning: z.coerce
@@ -666,7 +666,7 @@ const WebVitalsMetric = z.enum(['INP', 'LCP', 'CLS', 'FCP'])
 const WebVitalsPercentile = z.enum(['p75', 'p90', 'p99'])
 
 const AssistantWebVitalsPathBreakdownQuery = z.object({
-    dateRange: AssistantDateRangeFilter.describe(
+    dateRange: AssistantBasicDateRangeFilter.describe(
         'Date range for the query. Defaults to the last 7 days when omitted — a good window for a stable percentile.'
     ).optional(),
     doPathCleaning: z.coerce

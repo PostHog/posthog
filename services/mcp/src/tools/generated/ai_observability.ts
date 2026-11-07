@@ -3196,7 +3196,7 @@ const llmaTraceReviewUpdate = (): ToolBase<
 
 // --- Query wrapper schemas from schema.json ---
 
-const AssistantDateRange = z.object({
+const AssistantBasicDateRange = z.object({
     date_from: z.string().describe('ISO8601 date string.'),
     date_to: z
         .string()
@@ -3207,7 +3207,7 @@ const AssistantDateRange = z.object({
         .optional(),
 })
 
-const AssistantDurationRange = z.object({
+const AssistantBasicDurationRange = z.object({
     date_from: z
         .string()
         .describe(
@@ -3215,7 +3215,7 @@ const AssistantDurationRange = z.object({
         ),
 })
 
-const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
+const AssistantBasicDateRangeFilter = z.union([AssistantBasicDateRange, AssistantBasicDurationRange])
 
 const integer = z.coerce.number().int()
 
@@ -3476,7 +3476,7 @@ const AssistantPropertyFilter = z.union([
 ])
 
 const AssistantTracesQuery = z.object({
-    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
+    dateRange: AssistantBasicDateRangeFilter.describe('Date range for the query.').optional(),
     filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
     filterTestAccounts: z.coerce
         .boolean()
@@ -3506,7 +3506,7 @@ const AssistantTracesQuery = z.object({
 })
 
 const AssistantTraceQuery = z.object({
-    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
+    dateRange: AssistantBasicDateRangeFilter.describe('Date range for the query.').optional(),
     kind: z.literal('TraceQuery').default('TraceQuery'),
     properties: z
         .array(AssistantPropertyFilter)
