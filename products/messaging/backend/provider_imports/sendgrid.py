@@ -588,7 +588,8 @@ def _sample_data_line(version: dict[str, Any]) -> str:
 
 
 def _taken_keys(team_id: int, keys: list[str]) -> set[str]:
-    return set(MessageTemplate.objects.filter(team_id=team_id, key__in=keys).values_list("key", flat=True))
+    rows = MessageTemplate.objects.filter(team_id=team_id, key__in=keys).values_list("key", flat=True)
+    return {key for key in rows if key}
 
 
 def _create(
@@ -743,7 +744,8 @@ def _single_send_sender(
     senders: Mapping[int, dict[str, Any] | None],
     posthog_senders: Mapping[str, IntegrationRecord],
 ) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
-    sender = senders.get(config.get("sender_id")) if isinstance(config.get("sender_id"), int) else None
+    sender_id = config.get("sender_id")
+    sender = senders.get(sender_id) if isinstance(sender_id, int) else None
     if not sender or not sender.get("from_email"):
         return None, ("Choose a sender on this template before you send it.",)
     address = str(sender["from_email"])
@@ -824,7 +826,7 @@ def _fetch_senders(
         yield ImportPage(
             processed=len(results),
             save=partial(_save_senders, context, results),
-            checkpoint={"key": fingerprint, "last_seen": last_seen} if more else None,
+            checkpoint={"key": fingerprint, "last_seen": last_seen} if last_seen is not None else None,
         )
         if not more:
             return
@@ -907,5 +909,7 @@ def _save_domains(context: ImportContext, domains: list[dict[str, Any]]) -> Save
 
 
 def _dns_hosts(domain: dict[str, Any]) -> list[str]:
-    dns = domain.get("dns") if isinstance(domain.get("dns"), dict) else {}
+    dns = domain.get("dns")
+    if not isinstance(dns, dict):
+        return []
     return [str(record["host"]) for record in dns.values() if isinstance(record, dict) and record.get("host")]

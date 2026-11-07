@@ -326,10 +326,9 @@ class TestSendGridImport(BaseTest):
         emails = [f"g{i:04}@example.com" for i in range(1250)]
         self.state.account["group_suppressions"]["101"] = list(reversed(emails))
         run = self._start(["group_unsubscribes"])
-        pages = SendGridImportProvider().run_step("group_unsubscribes", self._context(), None)
         runs._claim_step(self.team.id, run.id, "group_unsubscribes", 1)
-        runs._save_page(self.team.id, run.id, "group_unsubscribes", 1, next(pages))
-        pages.close()
+        first_page = next(SendGridImportProvider().run_step("group_unsubscribes", self._context(), None))
+        runs._save_page(self.team.id, run.id, "group_unsubscribes", 1, first_page)
         self.state.account["group_suppressions"]["101"] = emails
 
         runs.run_step(self.team.id, run.id, "group_unsubscribes", attempt=2)

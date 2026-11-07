@@ -223,18 +223,18 @@ def _read_tag(source: str, start: int, is_html: bool) -> tuple[_Tag, int]:
     strip_before = body.startswith("~")
     strip_after = body.endswith("~")
     body = body.strip("~").strip()
-    flags = {"source": raw_tag, "strip_before": strip_before, "strip_after": strip_after}
+    comment = _Tag(kind="comment", source=raw_tag, strip_before=strip_before, strip_after=strip_after)
     if body.startswith("!"):
-        return _Tag(kind="comment", **flags), end
+        return comment, end
     if body.startswith("#") and not body.startswith("#>") and not body.startswith("#*"):
-        return _Tag(kind="open", body=body[1:].strip(), **flags), end
+        return replace(comment, kind="open", body=body[1:].strip()), end
     if body.startswith("^") and body[1:].strip():
-        return _Tag(kind="open", body=body[1:].strip(), inverted=True, **flags), end
+        return replace(comment, kind="open", body=body[1:].strip(), inverted=True), end
     if body.startswith("/"):
-        return _Tag(kind="close", body=body[1:].strip(), **flags), end
+        return replace(comment, kind="close", body=body[1:].strip()), end
     if body == "^" or body == "else" or body.startswith("else "):
-        return _Tag(kind="else", body=body[4:].strip() if body != "^" else "", **flags), end
-    return _Tag(kind="output", body=body, raw=triple, **flags), end
+        return replace(comment, kind="else", body=body[4:].strip() if body != "^" else ""), end
+    return replace(comment, kind="output", body=body, raw=triple), end
 
 
 def _strip_whitespace(tags: list[_Tag]) -> list[_Tag]:
