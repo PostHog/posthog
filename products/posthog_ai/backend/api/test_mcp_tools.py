@@ -52,6 +52,20 @@ def _wrapped_hogql_error(cause: Exception, message: str) -> ExposedHogQLError:
     return error
 
 
+_LONG_NOT_AN_AGGREGATE_ERROR = (
+    "Code: 215. DB::Exception: Column `events.distinct_id` is not under aggregate function and not in GROUP BY. "
+    "In query: SELECT events.distinct_id, count() FROM events WHERE "
+    + " AND ".join(f"properties.flag_{i} = '1'" for i in range(40))
+    + " GROUP BY events.event. (NOT_AN_AGGREGATE)"
+)
+_NOT_AN_AGGREGATE_HINT = (
+    "<hogql_compatibility_hint>\n"
+    "`events.distinct_id` is selected without an aggregate in a query that has GROUP BY. Add it to GROUP BY, "
+    "or wrap it in an aggregate such as any(events.distinct_id) or max(events.distinct_id).\n"
+    "</hogql_compatibility_hint>"
+)
+
+
 class TestMCPToolsAPI(APIBaseTest):
     def test_unauthenticated_request(self):
         self.client.logout()
@@ -517,6 +531,14 @@ class TestMCPToolsAPI(APIBaseTest):
                 "instead: greatest(x1, greatest(x2, x3)).\n"
                 "</hogql_compatibility_hint>. You may retry with adjusted inputs.",
                 query_args={"query": "SELECT greatest(1, 2, 3)", "connectionId": "example-connection"},
+            ),
+            param(
+                "long_rejection_keeps_the_hint_past_the_summary_cut",
+                None,
+                _LONG_NOT_AN_AGGREGATE_ERROR,
+                None,
+                f"Tool failed: MaxToolRetryableError: {_LONG_NOT_AN_AGGREGATE_ERROR[:500]}…\n\n"
+                f"{_NOT_AN_AGGREGATE_HINT}. You may retry with adjusted inputs.",
             ),
             param(
                 "memory_limit",
