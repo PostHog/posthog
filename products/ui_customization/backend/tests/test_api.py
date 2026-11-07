@@ -87,6 +87,7 @@ class TestAnalyticsSidebarAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
                     )
 
         customization_facade.delete_fragments_for_teams([self.team.id])
+        customization_facade.delete_fragments_for_teams([self.team.id])
 
         assert not UserInterfaceFragment.objects.for_team(self.team.id).exists()
         assert set(UserInterfaceFragment.objects.for_team(other_team.id).values_list("user_id", "context")) == {
