@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -52,7 +52,7 @@ from products.cohorts.backend.backfill.runs import BackfillRefusalReason
 from products.cohorts.backend.backfill.sizing import PersonSeedEstimate
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRun
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode, CohortType
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
     StaticCohortReadBackIncomplete,
@@ -564,6 +564,8 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                     "kind": "HogQLQuery",
                     "query": "SELECT person_id FROM cohort_people WHERE cohort_id = 123",
                 },
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_marker=now - relativedelta(hours=2),
             )
             # Set created_at to more than 1 hour ago (auto_now_add prevents setting on create)
             Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
@@ -573,6 +575,9 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             stuck_static_cohort.refresh_from_db()
             self.assertFalse(stuck_static_cohort.is_calculating)
             self.assertEqual(stuck_static_cohort.errors_calculating, 1)
+            # The redispatched population needs the run fields to replace again.
+            self.assertEqual(stuck_static_cohort.pending_population_mode, CohortPopulationMode.REPLACE)
+            self.assertIsNotNone(stuck_static_cohort.population_marker)
 
             # Verify insert_cohort_from_query was re-dispatched
             mock_insert_cohort_from_query.delay.assert_called_with(stuck_static_cohort.pk, self.team.pk)
@@ -597,6 +602,8 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                     "kind": "HogQLQuery",
                     "query": "SELECT person_id FROM cohort_people WHERE cohort_id = 123",
                 },
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_marker=now - relativedelta(hours=2),
             )
             # Set created_at to more than 1 hour ago
             Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
@@ -606,6 +613,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             stuck_static_cohort.refresh_from_db()
             self.assertFalse(stuck_static_cohort.is_calculating)
             mock_insert_cohort_from_query.delay.assert_not_called()
+            # Nothing will run the replace now, so a later edit must not inherit it.
+            self.assertEqual(
+                (stuck_static_cohort.pending_population_mode, stuck_static_cohort.population_marker), (None, None)
+            )
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         @patch("posthog.tasks.calculate_cohort.logger")
@@ -1709,6 +1720,100 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertEqual(mock_sync.call_args.kwargs["min_rows"], 7)
         self.assertEqual(scheduled.exception.sig.kwargs["written_since"], "2026-03-01 12:00:00")
         self.assertEqual(mock_sync.call_args.kwargs["written_since"], "2026-03-01 12:00:00")
+
+    @parameterized.expand(
+        [
+            # name, pending mode, Postgres sync error, retries already used, mode left, marker left
+            ("replace_success_clears", CohortPopulationMode.REPLACE, None, 0, None, False),
+            ("replace_retry_keeps", CohortPopulationMode.REPLACE, grpc.StatusCode.UNAVAILABLE, 0, "replace", True),
+            (
+                "replace_exhausted_clears",
+                CohortPopulationMode.REPLACE,
+                grpc.StatusCode.UNAVAILABLE,
+                STATIC_POPULATION_MAX_RETRIES,
+                None,
+                False,
+            ),
+            # The create path never claims, so a NULL mode has to run as an append.
+            ("null_mode_appends", None, None, 0, None, False),
+        ]
+    )
+    def test_query_population_run_fields_on_each_exit(
+        self,
+        _name: str,
+        mode: CohortPopulationMode | None,
+        sync_error: grpc.StatusCode | None,
+        retries: int,
+        mode_left: str | None,
+        marker_left: bool,
+    ) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            query=PERSONS_HOGQL_QUERY,
+            is_calculating=True,
+            pending_population_mode=mode,
+        )
+        insert_cohort_from_query.push_request(retries=retries, called_directly=False, is_eager=True)
+        try:
+            with (
+                patch(QUERY_CH_INSERT_PATH, return_value=0) as mock_insert_ch,
+                patch(PG_SYNC_PATH, return_value=0, side_effect=_rpc_error(sync_error) if sync_error else None),
+                suppress(Retry),
+            ):
+                insert_cohort_from_query.run(cohort.id, self.team.pk)
+        finally:
+            insert_cohort_from_query.pop_request()
+
+        cohort.refresh_from_db()
+        self.assertEqual(
+            (
+                cohort.pending_population_mode,
+                cohort.population_marker is not None,
+                mock_insert_ch.call_args.kwargs.get("replace_marker") is not None,
+            ),
+            (mode_left, marker_left, mode == CohortPopulationMode.REPLACE),
+        )
+        self.assertEqual(cohort.is_calculating, sync_error is not None and retries == 0)
+
+    @parameterized.expand([("resumes_at_its_marker", False), ("superseded_writes_nothing", True)])
+    def test_query_replace_retry_after_the_clickhouse_insert(self, _name: str, superseded: bool) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            query=PERSONS_HOGQL_QUERY,
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
+        insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
+        try:
+            with (
+                patch(QUERY_CH_INSERT_PATH, return_value=0),
+                patch(PG_SYNC_PATH, side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE)),
+                self.assertRaises(Retry) as scheduled,
+            ):
+                insert_cohort_from_query.run(cohort.id, self.team.pk)
+            first_marker = Cohort.objects.get(pk=cohort.pk).population_marker
+            if superseded:
+                # A sweep redispatch minted a newer marker while this retry waited in its backoff.
+                Cohort.objects.filter(pk=cohort.pk).update(population_marker=first_marker + timedelta(seconds=30))
+            stored_before_retry = Cohort.objects.get(pk=cohort.pk).population_marker
+
+            with patch(QUERY_CH_INSERT_PATH) as mock_insert_ch, patch(PG_SYNC_PATH, return_value=0) as mock_sync:
+                insert_cohort_from_query.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
+        finally:
+            insert_cohort_from_query.pop_request()
+
+        mock_insert_ch.assert_not_called()
+        cohort.refresh_from_db()
+        if superseded:
+            mock_sync.assert_not_called()
+            self.assertEqual((cohort.is_calculating, cohort.population_marker), (True, stored_before_retry))
+        else:
+            self.assertEqual(mock_sync.call_args.kwargs["replace_marker"], first_marker)
+            self.assertEqual((cohort.is_calculating, cohort.population_marker), (False, None))
 
     @parameterized.expand(
         [

@@ -5,7 +5,7 @@ import time
 import uuid
 import dataclasses
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -49,6 +49,7 @@ from posthog.models import Team
 from posthog.models.event.new_events_schema import events_read_settings
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
+    INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
@@ -840,7 +841,7 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
             "person_id": str(person_uuid),
             "cohort_id": cohort_id,
             "team_id": team_id,
-            "_timestamp": datetime.now(),
+            "_timestamp": population_timestamp_now(),
         }
         for person_uuid in person_uuids
     ]
@@ -1367,14 +1368,25 @@ def insert_actors_into_cohort_by_query(
     context: HogQLContext,
     *,
     team_id: int,
+    replace_marker: datetime | None = None,
 ) -> int:
-    """Return how many rows the insert wrote."""
+    """Insert the query's actors into person_static_cohort and return how many rows were written.
+
+    With ``replace_marker``, every match is inserted at that ``_timestamp`` as a quorum write, so the
+    sequentially consistent reads that follow see all of it. Without it, only people who aren't members
+    yet are inserted, at the current time.
+    """
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    insert_sql = (
+        INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE
+        if replace_marker is not None
+        else INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID
+    )
     written = sync_execute(
-        INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
+        insert_sql.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
         {
             "cohort_id": cohort.pk,
-            "_timestamp": datetime.now(),
+            "_timestamp": replace_marker if replace_marker is not None else population_timestamp_now(),
             "team_id": team_id,
             **context.values,
             **params,
@@ -1385,6 +1397,7 @@ def insert_actors_into_cohort_by_query(
             # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
             # trims it so the query can be embedded), so the native read settings travel on the INSERT.
             **events_read_settings(context.uses_new_events_schema()),
+            **(REPLACE_INSERT_QUORUM_SETTINGS if replace_marker is not None else {}),
         },
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.COHORTS,
@@ -1394,12 +1407,14 @@ def insert_actors_into_cohort_by_query(
     return written if isinstance(written, int) else 0
 
 
-def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team) -> int:
+def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team, replace_marker: datetime | None = None) -> int:
     # SECURITY-SENSITIVE: background population from the cohort's saved source query, with no
     # acting user - the query was run by its author when they created the cohort from it.
     context = HogQLContext(enable_select_queries=True, team_id=team.id, bypass_warehouse_access_control=True)
     query = print_cohort_hogql_query(cohort, context, team=team)
-    return insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
+    return insert_actors_into_cohort_by_query(
+        cohort, query, {}, context, team_id=team.id, replace_marker=replace_marker
+    )
 
 
 def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[str, dict[str, Any], HogQLContext]:
@@ -1414,13 +1429,20 @@ def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[st
     return f"SELECT id AS actor_id FROM ({cohort_query})", {}, hogql_context
 
 
-def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team) -> int:
+def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team, replace_marker: datetime | None = None) -> int:
     query, params, context = build_static_cohort_filters_query(cohort, team=team)
-    return insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
+    return insert_actors_into_cohort_by_query(
+        cohort, query, params, context, team_id=team.id, replace_marker=replace_marker
+    )
 
 
 def insert_cohort_people_into_pg(
-    cohort: Cohort, *, team_id: int, min_rows: int = 0, written_since: str | None = None
+    cohort: Cohort,
+    *,
+    team_id: int,
+    min_rows: int = 0,
+    written_since: str | None = None,
+    replace_marker: datetime | None = None,
 ) -> None:
     """Copy the cohort's ClickHouse rows to Postgres.
 
@@ -1428,10 +1450,16 @@ def insert_cohort_people_into_pg(
     a replica that has not received the write yet reads as a smaller cohort, so the copy repeats until it has seen them.
     `written_since` is a `_timestamp` from before that write. Only rows at or after it count, because a cohort's
     existing members can otherwise reach `min_rows` on a replica that has none of the new rows.
+
+    With ``replace_marker``, only rows at or after that ``_timestamp`` are read, with sequential
+    consistency, and each of them counts. The stored marker is checked before each page. A newer
+    replace attempt makes this raise ``PopulationSuperseded`` before it writes another page.
     """
     try:
         for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
-            new_rows_read = _copy_static_cohort_rows_to_pg(cohort, team_id=team_id, written_since=written_since)
+            new_rows_read = _copy_static_cohort_rows_to_pg(
+                cohort, team_id=team_id, written_since=written_since, replace_marker=replace_marker
+            )
             if new_rows_read >= min_rows:
                 return
             if wait_seconds is None:
@@ -1443,13 +1471,28 @@ def insert_cohort_people_into_pg(
         cohort._refresh_count(team_id=team_id)
 
 
-def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_since: str | None) -> int:
-    """Return how many of the copied rows have a `_timestamp` at or after `written_since`."""
+def _copy_static_cohort_rows_to_pg(
+    cohort: Cohort, *, team_id: int, written_since: str | None, replace_marker: datetime | None = None
+) -> int:
+    """Return how many of the copied rows have a `_timestamp` at or after `written_since`.
+
+    A replace counts against its own marker instead: its rows carry the marker as `_timestamp`, which can be
+    earlier than `written_since`.
+    """
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
 
     CH_PAGE_SIZE = 10_000
+    timestamp_filter = " AND _timestamp >= %(replace_marker)s" if replace_marker is not None else ""
+    # The table is sorted by person_id within a cohort, so this streams the GROUP BY instead of
+    # holding every remaining person_id in a hash table.
+    read_settings: dict[str, Any] = {"optimize_aggregation_in_order": 1}
+    if replace_marker is not None:
+        read_settings |= REPLACE_READ_SETTINGS
+    counted_since: str | datetime = (
+        replace_marker if replace_marker is not None else written_since or "1970-01-01 00:00:00"
+    )
     new_rows_read = 0
 
     # Use cursor-based pagination to stream from ClickHouse in pages instead of
@@ -1457,19 +1500,20 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
     # of LIMIT/OFFSET where later pages must scan and discard all preceding rows.
     def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
         nonlocal new_rows_read
+        if replace_marker is not None and not population_marker_is_current(cohort.pk, replace_marker):
+            raise PopulationSuperseded(cohort.pk)
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT person_id, max(_timestamp) >= %(written_since)s FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
+            f"SELECT person_id, max(_timestamp) >= %(written_since)s FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s{timestamp_filter} AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
             {
                 "cohort_id": cohort.pk,
                 "team_id": team_id,
                 "cursor": cursor,
                 "limit": batch_size,
-                "written_since": written_since or "1970-01-01 00:00:00",
+                "written_since": counted_since,
+                "replace_marker": replace_marker,
             },
-            # The table is sorted by person_id within a cohort, so this streams the GROUP BY instead of
-            # holding every remaining person_id in a hash table.
-            settings={"optimize_aggregation_in_order": 1},
+            settings=read_settings,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
             team_id=team_id,
@@ -1490,6 +1534,106 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
         batch_iterator, insert_in_clickhouse=False, team_id=team_id, raise_on_error=True, save_state=False
     )
     return new_rows_read
+
+
+# ?????? Static population replace: marker and fence ??????????????????????????????????????????????????????????????????
+
+# Quorum is 1 on the single-node ClickHouse used in tests and local dev, where 'auto' waits for a
+# replica that never answers. Production waits for a majority. The timeout is explicit because the
+# server default is ten minutes; a replace inserts one large part, so it gets a minute, not seconds.
+REPLACE_INSERT_QUORUM_SETTINGS: dict[str, Any] = {
+    "insert_quorum": 1 if settings.TEST or settings.DEBUG else "auto",
+    "insert_quorum_parallel": 0,
+    "insert_quorum_timeout": 60_000,
+}
+# Reads of a replace's rows must see the whole quorum insert. A replica that is behind fails the read
+# instead of returning a partial set, which the task retries rather than pruning on.
+REPLACE_READ_SETTINGS: dict[str, Any] = {"select_sequential_consistency": 1}
+
+# How far ahead of this host's clock an existing _timestamp may be before minting gives up. Hosts run
+# NTP, so a larger gap is a clock fault, and waiting it out would stall the worker.
+MAX_MARKER_CLOCK_SKEW_SECONDS = 5
+
+
+class PopulationSuperseded(Exception):
+    """A newer replace attempt owns the cohort, so this attempt must stop without writing anything."""
+
+    def __init__(self, cohort_id: int):
+        super().__init__(f"A newer population attempt owns cohort {cohort_id}")
+        self.cohort_id = cohort_id
+
+
+class PopulationMarkerClockSkew(Exception):
+    """The cohort holds rows stamped too far ahead of this host's clock to mint a marker after them."""
+
+
+def population_timestamp_now() -> datetime:
+    """The current time as a UTC whole second, the precision of person_static_cohort._timestamp."""
+    return timezone.now().astimezone(UTC).replace(microsecond=0)
+
+
+def _as_utc(value: datetime) -> datetime:
+    # ClickHouse returns DateTime values without a timezone, in the server's timezone, which is UTC.
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def population_marker_is_current(cohort_id: int, marker: datetime) -> bool:
+    """Whether ``marker`` is still the stored replace marker, read from the primary database."""
+    return Cohort.objects.filter(pk=cohort_id, population_marker=marker).exists()
+
+
+def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
+    """Store a new replace marker on the cohort and return it, or None when a newer attempt owns it.
+
+    The marker is later than every row the cohort already holds and than the marker it replaces, and
+    never ahead of the wall clock. The compare-and-set against the value this attempt read means only
+    one attempt can own the cohort at a time.
+    """
+    stored = cohort.population_marker
+    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+    rows = sync_execute(
+        f"SELECT max(_timestamp) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+        {"team_id": team_id, "cohort_id": cohort.pk},
+        settings=REPLACE_READ_SETTINGS,
+    )
+    floor = _as_utc(rows[0][0]) if rows and rows[0][0] is not None else None
+    if stored is not None:
+        floor = max(floor, _as_utc(stored)) if floor is not None else _as_utc(stored)
+
+    marker = population_timestamp_now()
+    if floor is not None and marker <= floor:
+        wait_seconds = (floor - marker).total_seconds() + 1
+        if wait_seconds > MAX_MARKER_CLOCK_SKEW_SECONDS:
+            raise PopulationMarkerClockSkew(
+                f"Cohort {cohort.pk} holds rows stamped {wait_seconds:.0f}s ahead of this host's clock"
+            )
+        time.sleep(wait_seconds)
+        marker = population_timestamp_now()
+        if marker <= floor:
+            raise PopulationMarkerClockSkew(f"Cohort {cohort.pk} could not mint a marker after {floor.isoformat()}")
+
+    owned = Cohort.objects.filter(pk=cohort.pk)
+    owned = (
+        owned.filter(population_marker=stored) if stored is not None else owned.filter(population_marker__isnull=True)
+    )
+    if not owned.update(population_marker=marker):
+        return None
+    cohort.population_marker = marker
+    return marker
+
+
+def clear_population_run_fields(cohort: Cohort, *, marker: datetime | None) -> None:
+    """Clear the pending mode and marker, but only if ``marker`` is still the stored one.
+
+    The compare-and-clear leaves a newer attempt's marker, and the mode written with it, untouched.
+    """
+    owned = Cohort.objects.filter(pk=cohort.pk)
+    owned = (
+        owned.filter(population_marker=marker) if marker is not None else owned.filter(population_marker__isnull=True)
+    )
+    if owned.update(pending_population_mode=None, population_marker=None):
+        cohort.pending_population_mode = None
+        cohort.population_marker = None
 
 
 # ── Cohort membership operations (Postgres / personhog) ───────────────

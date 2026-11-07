@@ -160,6 +160,8 @@ COHORT_RECALCULATION_FIELDS = frozenset(
         "count",
         "last_import_total_count",
         "last_import_unmatched_count",
+        "pending_population_mode",
+        "population_marker",
     }
 )
 
