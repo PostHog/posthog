@@ -12,6 +12,7 @@ import { CANVAS_EVENTS } from '../../canvasAnalytics'
 import {
     CanvasGenerationTask,
     CanvasTaskRun,
+    isRunEndedError,
     isTerminalRunStatus,
     loadCanvasGenerationTask,
     resumeCanvasTask,
@@ -370,9 +371,18 @@ export const canvasChatLogic = kea<canvasChatLogicType>([
             })
             try {
                 const run = task.latest_run
-                if (run && !isTerminalRunStatus(run.status)) {
-                    await sendCanvasRunMessage(projectId, task.id, run.id, message)
-                } else {
+                let resume = !run || isTerminalRunStatus(run.status)
+                if (run && !resume) {
+                    try {
+                        await sendCanvasRunMessage(projectId, task.id, run.id, message)
+                    } catch (error) {
+                        if (!isRunEndedError(error)) {
+                            throw error
+                        }
+                        resume = true
+                    }
+                }
+                if (resume) {
                     const resumed = await resumeCanvasTask(projectId, task.id, {
                         resumeFromRunId: run?.id ?? null,
                         message,
