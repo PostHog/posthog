@@ -1,8 +1,19 @@
+import {
+    MOCK_DEFAULT_ORGANIZATION_MEMBER,
+    MOCK_DEFAULT_USER,
+    MOCK_SECOND_BASIC_USER,
+    MOCK_SECOND_ORGANIZATION_MEMBER,
+} from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 
 import { messageTemplateLogic } from './messageTemplateLogic'
@@ -18,6 +29,11 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
 
 const mockToast = require('lib/lemon-ui/LemonToast').lemonToast
 
+const VERIFIED_MEMBERS = [MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER].map((member) => ({
+    ...member,
+    user: { ...member.user, is_email_verified: true },
+}))
+
 describe('messageTemplateTestSendLogic', () => {
     let logic: ReturnType<typeof messageTemplateTestSendLogic.build>
     let templateLogic: ReturnType<typeof messageTemplateLogic.build>
@@ -29,6 +45,7 @@ describe('messageTemplateTestSendLogic', () => {
 
         useMocks({
             get: {
+                '/api/organizations/:organization_id/members/': { results: VERIFIED_MEMBERS },
                 '/api/projects/:team_id/integrations/': {
                     results: [
                         {
@@ -96,6 +113,12 @@ describe('messageTemplateTestSendLogic', () => {
             senderIntegrationId: 5,
             emailIntegrations: [expect.objectContaining({ id: 5 }), expect.objectContaining({ id: 7 })],
         })
+    })
+
+    it('keeps the chosen sender even when the listed senders do not include it', async () => {
+        logic.actions.setSenderIntegrationId(99)
+
+        await expectLogic(logic).toMatchValues({ senderIntegrationId: 99 })
     })
 
     it('sends a one-step synthetic workflow carrying the typed recipient and template content, stripping any cc/bcc', async () => {
@@ -166,6 +189,335 @@ describe('messageTemplateTestSendLogic', () => {
         expect(mockToast.error).not.toHaveBeenCalled()
         expect(logic.values.isModalOpen).toBe(true)
         expect(logic.values.testSendSkipReason).toBe(expectedReason)
+    })
+
+    describe('sandbox sender', () => {
+        const SANDBOX_SENDER = {
+            id: 7,
+            kind: 'email',
+            display_name: 'Acme via PostHog <sandbox@example.com>',
+            config: { provider: 'sandbox', name: 'Acme via PostHog', email: 'sandbox@example.com', verified: true },
+        }
+        const UNVERIFIED_OWN_SENDER = {
+            id: 4,
+            kind: 'email',
+            display_name: 'Unverified sender <unverified@example.com>',
+            config: { verified: false },
+        }
+        const VERIFIED_OWN_SENDER = {
+            id: 5,
+            kind: 'email',
+            display_name: 'Sender <sender@example.com>',
+            config: { verified: true },
+        }
+
+        let integrationsPayload: Record<string, any>[]
+
+        const loadIntegrations = async (integrations: Record<string, any>[]): Promise<void> => {
+            integrationsPayload = integrations
+            await expectLogic(integrationsLogic, () => {
+                integrationsLogic.actions.loadIntegrations()
+            }).toDispatchActions(['loadIntegrationsSuccess'])
+        }
+
+        beforeEach(() => {
+            integrationsPayload = []
+            useMocks({
+                get: { '/api/projects/:team_id/integrations/': () => [200, { results: integrationsPayload }] },
+            })
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+                [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+            })
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it.each([
+            {
+                description: 'preselects the sandbox sender when the project has no verified own sender',
+                integrations: [UNVERIFIED_OWN_SENDER, SANDBOX_SENDER],
+                expectedSenderId: 7,
+                expectedSenderIds: [7],
+            },
+            {
+                description: 'prefers a verified own sender and lists the sandbox sender last',
+                integrations: [SANDBOX_SENDER, VERIFIED_OWN_SENDER],
+                expectedSenderId: 5,
+                expectedSenderIds: [5, 7],
+            },
+        ])('$description', async ({ integrations, expectedSenderId, expectedSenderIds }) => {
+            await loadIntegrations(integrations)
+
+            await expectLogic(logic).toMatchValues({ senderIntegrationId: expectedSenderId })
+            expect(logic.values.emailIntegrations.map((integration) => integration.id)).toEqual(expectedSenderIds)
+        })
+
+        it('lists the sandbox sender only while the flag is on, and drops a selection that is no longer listed', async () => {
+            await loadIntegrations([SANDBOX_SENDER, VERIFIED_OWN_SENDER])
+            logic.actions.setSenderIntegrationId(7)
+            await expectLogic(logic).toMatchValues({ senderIntegrationId: 7 })
+
+            featureFlagLogic.actions.setFeatureFlags([], {})
+
+            await expectLogic(logic).toMatchValues({
+                senderIntegrationId: 5,
+                emailIntegrations: [expect.objectContaining({ id: 5 })],
+            })
+        })
+
+        it.each([
+            {
+                description: 'leaves the recipient empty for the sandbox sender, so the member suggestions show',
+                integrations: [SANDBOX_SENDER],
+                expectedRecipient: '',
+            },
+            {
+                description: 'prefills the user email when an own sender is selected',
+                integrations: [SANDBOX_SENDER, VERIFIED_OWN_SENDER],
+                expectedRecipient: 'john.doe@posthog.com',
+            },
+        ])('$description', async ({ integrations, expectedRecipient }) => {
+            await loadIntegrations(integrations)
+
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ recipientEmail: expectedRecipient })
+        })
+
+        it('waits for the senders to load before prefilling, so a modal opened first still suggests members', async () => {
+            integrationsLogic.actions.clearIntegrations()
+            logic.actions.setModalOpen(true)
+            expect(logic.values.recipientEmail).toBe('')
+
+            await loadIntegrations([SANDBOX_SENDER])
+
+            await expectLogic(logic)
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ recipientEmail: '', isSandboxSenderSelected: true })
+        })
+
+        it('does not load the member list while the project has no sandbox sender', async () => {
+            await loadIntegrations([VERIFIED_OWN_SENDER])
+
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([membersLogic.actionTypes.loadAllMembers])
+            expect(logic.values.recipientEmail).toBe('john.doe@posthog.com')
+        })
+
+        it('loads the member suggestions once when the flag lands on an open modal', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            await loadIntegrations([SANDBOX_SENDER])
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            }).toNotHaveDispatchedActions([membersLogic.actionTypes.loadAllMembers])
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+                    [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+                })
+            }).toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER, 'some-other-flag'], {
+                    [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+                    'some-other-flag': true,
+                })
+            }).toNotHaveDispatchedActions([membersLogic.actionTypes.loadAllMembers])
+        })
+
+        it('reloads the member suggestions on reopen, so a lapsed verification shows', async () => {
+            await loadIntegrations([SANDBOX_SENDER])
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            }).toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+            templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
+            logic.actions.setRecipientEmail('rose.dawson@posthog.com')
+            await expectLogic(logic).toMatchValues({ recipientNotSuggested: false })
+
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/members/': {
+                        results: [
+                            VERIFIED_MEMBERS[0],
+                            { ...VERIFIED_MEMBERS[1], user: { ...VERIFIED_MEMBERS[1].user, is_email_verified: false } },
+                        ],
+                    },
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(false)
+                logic.actions.setModalOpen(true)
+            })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ recipientNotSuggested: true })
+            expect(logic.values.recipientSuggestions).not.toContain('rose.dawson@posthog.com')
+        })
+
+        it('sends a sandbox test without the template Reply-To and custom From, which the sandbox sender ignores', async () => {
+            await loadIntegrations([SANDBOX_SENDER])
+            templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
+            templateLogic.actions.setTemplateValue('content.email.replyTo', 'replies@example.com')
+            templateLogic.actions.setTemplateValue('content.email.from', {
+                integrationId: 7,
+                name: 'Security team',
+                email: 'alerts@example.com',
+            })
+            logic.actions.setRecipientEmail('rose.dawson@posthog.com')
+
+            await expectLogic(logic, () => {
+                logic.actions.sendTestEmail()
+            }).toDispatchActions(['sendTestEmailSuccess'])
+
+            const emailAction = capturedBody.configuration.actions.find((a: any) => a.type === 'function_email')
+            expect(emailAction.config.inputs.email.value.from).toEqual({ integrationId: 7 })
+            expect(emailAction.config.inputs.email.value.replyTo).toBe('')
+        })
+
+        it('warns about addresses absent from visible verified suggestions without blocking server authorization', async () => {
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/members/': {
+                        results: [
+                            ...VERIFIED_MEMBERS,
+                            {
+                                ...MOCK_SECOND_ORGANIZATION_MEMBER,
+                                id: 'unverified-member',
+                                user: {
+                                    ...MOCK_SECOND_BASIC_USER,
+                                    id: 303,
+                                    email: 'unverified@example.com',
+                                    is_email_verified: false,
+                                },
+                            },
+                            {
+                                ...MOCK_SECOND_ORGANIZATION_MEMBER,
+                                id: 'verification-unknown-member',
+                                user: {
+                                    ...MOCK_SECOND_BASIC_USER,
+                                    id: 304,
+                                    email: 'unknown@example.com',
+                                    is_email_verified: undefined,
+                                },
+                            },
+                        ],
+                    },
+                },
+            })
+            await loadIntegrations([SANDBOX_SENDER, VERIFIED_OWN_SENDER])
+            templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
+
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+                logic.actions.setSenderIntegrationId(7)
+                logic.actions.setRecipientEmail('outsider@example.com')
+            })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({
+                    recipientNotSuggested: true,
+                    sendDisabledReason: undefined,
+                    recipientSuggestions: expect.arrayContaining(['rose.dawson@posthog.com']),
+                })
+
+            logic.actions.setRecipientEmail('Rose.Dawson@posthog.com')
+            await expectLogic(logic).toMatchValues({ recipientNotSuggested: false, sendDisabledReason: undefined })
+
+            logic.actions.setRecipientEmail('unverified@example.com')
+            await expectLogic(logic).toMatchValues({ recipientNotSuggested: true })
+            expect(logic.values.recipientSuggestions).not.toContain('unverified@example.com')
+
+            logic.actions.setRecipientEmail('unknown@example.com')
+            await expectLogic(logic).toMatchValues({ recipientNotSuggested: true })
+            expect(logic.values.recipientSuggestions).not.toContain('unknown@example.com')
+
+            logic.actions.setRecipientEmail('outsider@example.com')
+            logic.actions.setSenderIntegrationId(5)
+            await expectLogic(logic).toMatchValues({ recipientNotSuggested: false, sendDisabledReason: undefined })
+        })
+
+        it.each([
+            {
+                description: 'an unverified user sending to their own address',
+                verified: false,
+                recipient: 'John.Doe@posthog.com',
+                sender: 7,
+                expected: true,
+            },
+            {
+                description: 'a verified user sending to their own address',
+                verified: true,
+                recipient: 'john.doe@posthog.com',
+                sender: 7,
+                expected: false,
+            },
+            {
+                description: 'an unverified user sending to another address',
+                verified: false,
+                recipient: 'rose.dawson@posthog.com',
+                sender: 7,
+                expected: false,
+            },
+            {
+                description: 'an unverified user sending from their own sender',
+                verified: false,
+                recipient: 'john.doe@posthog.com',
+                sender: 5,
+                expected: false,
+            },
+        ])(
+            'flags $description as an unverified self send: $expected',
+            async ({ verified, recipient, sender, expected }) => {
+                userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: verified })
+                await loadIntegrations([SANDBOX_SENDER, VERIFIED_OWN_SENDER])
+                logic.actions.setSenderIntegrationId(sender)
+                logic.actions.setRecipientEmail(recipient)
+
+                await expectLogic(logic).toMatchValues({ recipientIsUnverifiedSelf: expected })
+            }
+        )
+
+        it('suggests the verified user first even when the member list leaves them out', async () => {
+            useMocks({ get: { '/api/organizations/:organization_id/members/': { results: [VERIFIED_MEMBERS[1]] } } })
+            await loadIntegrations([SANDBOX_SENDER])
+
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            }).toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+
+            expect(logic.values.recipientSuggestions).toEqual(['john.doe@posthog.com', VERIFIED_MEMBERS[1].user.email])
+        })
+
+        it('holds the send while the member list loads or reloads, and does not warn before it has loaded', async () => {
+            await loadIntegrations([SANDBOX_SENDER])
+            templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
+            logic.actions.setRecipientEmail('outsider@example.com')
+
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            })
+                .toDispatchActions(membersLogic, ['loadAllMembers'])
+                .toMatchValues({
+                    recipientNotSuggested: false,
+                    sendDisabledReason: 'Checking your organization members',
+                })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ recipientNotSuggested: true, sendDisabledReason: undefined })
+
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(false)
+                logic.actions.setModalOpen(true)
+            })
+                .toDispatchActions(membersLogic, ['loadAllMembers'])
+                .toMatchValues({ sendDisabledReason: 'Checking your organization members' })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ sendDisabledReason: undefined })
+        })
     })
 
     it('keeps the modal open and surfaces the error when the send fails', async () => {
