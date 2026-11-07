@@ -1695,9 +1695,14 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             actions.loadPipeline()
             lemonToast.success('Training run started')
         },
-        startTrainingFailure: () => {
-            posthog.capture('autoresearch model action failed', { action: 'train', pipeline_id: props.id })
-            lemonToast.error('Could not start training run')
+        startTrainingFailure: ({ errorObject }) => {
+            posthog.capture('autoresearch model action failed', {
+                action: 'train',
+                pipeline_id: props.id,
+                status: errorObject?.status,
+            })
+            // A project at its daily training limit explains when the next run can start in `detail`.
+            lemonToast.error(errorObject?.detail ?? errorObject?.data?.detail ?? 'Could not start training run')
         },
         pausePipelineSuccess: () => {
             posthog.capture('autoresearch model paused', { pipeline_id: props.id })
@@ -1711,9 +1716,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             posthog.capture('autoresearch model resumed', { pipeline_id: props.id })
             lemonToast.success('Model resumed')
         },
-        resumePipelineFailure: () => {
+        resumePipelineFailure: ({ errorObject }) => {
             posthog.capture('autoresearch model action failed', { action: 'resume', pipeline_id: props.id })
-            lemonToast.error('Could not resume the model')
+            // A project at its active model limit explains it in `detail`.
+            lemonToast.error(errorObject?.detail ?? errorObject?.data?.detail ?? 'Could not resume the model')
         },
         scoreNowSuccess: ({ scoreResult }) => {
             if (!scoreResult) {

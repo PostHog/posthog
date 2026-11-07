@@ -1,10 +1,9 @@
 import { defineCommand } from '@/core/command'
 import { escapeControls, Output } from '@/core/output'
 import { plural } from '@/core/text'
-import { listEndpoints, listInsightVariables } from '@/endpoints/api'
+import { findEndpoints, findInsightVariables } from '@/endpoints/api'
 import { readEndpointFiles, type FileProblem } from '@/endpoints/files'
-import type { InsightVariable } from '@/endpoints/model'
-import { applyPush, planPush, type PushItem, type PushOutcome } from '@/endpoints/plan'
+import { applyPush, planPush, pushScopes, type PushItem, type PushOutcome } from '@/endpoints/plan'
 
 import {
     actionLabel,
@@ -65,12 +64,16 @@ export default defineCommand({
             return { status: 'nothing_to_do', plan: [], outcomes: [], problems }
         }
         const api = await ctx.posthog()
-        const usesVariables = endpoints.some((local) => (local.file.variables ?? []).length > 0)
-        const [remotes, variables] = await Promise.all([
-            listEndpoints(api),
-            usesVariables ? listInsightVariables(api) : Promise.resolve([] as InsightVariable[]),
+        const variableNames = endpoints.flatMap((local) => (local.file.variables ?? []).map(({ name }) => name))
+        const [remotes, known] = await Promise.all([
+            findEndpoints(
+                api,
+                endpoints.map((local) => local.file.name)
+            ),
+            findInsightVariables(api, variableNames),
         ])
-        const items = planPush(endpoints, remotes, variables)
+        const variables = [...known.found.values()]
+        const items = planPush(endpoints, [...remotes.values()], variables)
         const plan = items.map(({ file: _file, ...item }) => item)
         const pending = plan.filter((item) => item.action !== 'skip')
         if (pending.length === 0) {
@@ -85,6 +88,7 @@ export default defineCommand({
         if (!(await confirm(ctx, options, pushPlanLines(pending, style), question))) {
             return { status: 'cancelled', plan, outcomes: [], problems }
         }
+        await ctx.ensureScopes(pushScopes(items, variables))
         return { status: 'applied', plan, outcomes: await applyPush(api, items, variables), problems }
     },
 

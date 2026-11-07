@@ -5,7 +5,6 @@ import { OnboardingStepKey } from '~/types'
 
 const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
     [OnboardingStepKey.LINK_DATA]: 'Import data',
-    [OnboardingStepKey.MCP]: 'Connect MCP',
 }
 
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {

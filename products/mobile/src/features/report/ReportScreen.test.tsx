@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
-import { AppState, Dimensions } from 'react-native'
+import { AppState, Dimensions, Platform } from 'react-native'
 
 import { setAuthProvider } from '@/api/client'
 import { useDemoMode } from '@/demo/demoMode'
@@ -44,6 +44,13 @@ const EXISTING = { uuid: 'existing-user', first_name: 'Existing', last_name: 'Re
 const ADDED = { uuid: 'added-user', first_name: 'Added', last_name: 'Reviewer', email: 'added@example.com' }
 
 describe('ReportScreen', () => {
+    const originalPlatform = Platform.OS
+    beforeAll(() => {
+        Platform.OS = 'android'
+    })
+    afterAll(() => {
+        Platform.OS = originalPlatform
+    })
     test.each([
         { width: 951, height: 669, navigation: true },
         { width: 874, height: 402, navigation: false },

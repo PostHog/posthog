@@ -8,7 +8,7 @@ from django.apps import apps
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.context.entity_search.context import ENTITY_MAP
+from ee.hogai.context.entity_search.context import ACTION_ENTITY, COUNTED_ENTITIES, ENTITY_MAP, FACADE_SEARCHES
 from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 
 if TYPE_CHECKING:
@@ -46,7 +46,17 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
             {"type": "action", "result_id": "101", "extra_fields": {"name": "Test Action"}, "rank": 0.80},
         ]
 
-        def side_effect_func(entities, query, project_id, view, entity_map, limit=100, offset=0):
+        def side_effect_func(
+            entities,
+            query,
+            project_id,
+            view,
+            entity_map,
+            limit=100,
+            offset=0,
+            facade_searches=None,
+            counted_entities=None,
+        ):
             return (all_results, dict.fromkeys(entities, 1), len(all_results))
 
         mock_search_entities.side_effect = side_effect_func
@@ -54,7 +64,13 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
         _ = await self.toolkit.execute(query="test query", search_kind=EntityKind.ALL)
 
         mock_search_entities.assert_called_once_with(
-            set(ENTITY_MAP.keys()), "test query", self.team.project_id, ANY, ENTITY_MAP
+            {*ENTITY_MAP.keys(), ACTION_ENTITY},
+            "test query",
+            self.team.project_id,
+            ANY,
+            ENTITY_MAP,
+            facade_searches=FACADE_SEARCHES,
+            counted_entities=COUNTED_ENTITIES,
         )
 
     @patch("ee.hogai.context.entity_search.context.search_entities_fts")
@@ -83,7 +99,17 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
             },
         ]
 
-        def side_effect_func(entities, query, project_id, view, entity_map, limit=100, offset=0):
+        def side_effect_func(
+            entities,
+            query,
+            project_id,
+            view,
+            entity_map,
+            limit=100,
+            offset=0,
+            facade_searches=None,
+            counted_entities=None,
+        ):
             result = [result for result in all_results if result["type"] in entities]
             return (result, {result["type"]: len(result) for result in result}, len(result))
 

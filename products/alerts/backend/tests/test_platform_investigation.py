@@ -161,6 +161,18 @@ class TestPlatformInvestigation(BaseTest):
         assert self._claim() == first
         assert first.claimed is claimed
 
+    def test_the_daily_prune_drops_only_investigations_past_retention(self) -> None:
+        self._investigation(at=NOW - InsightAlertInvestigation.RETENTION - timedelta(hours=1), key="slot:old")
+        self._investigation(at=NOW - InsightAlertInvestigation.RETENTION + timedelta(hours=1), key="slot:recent")
+
+        with time_machine.travel(NOW, tick=False):
+            deleted = InsightAlertInvestigation.clean_up_old_investigations()
+
+        assert deleted == 1
+        assert list(
+            InsightAlertInvestigation.objects.for_team(self.team.id).values_list("evaluation_key", flat=True)
+        ) == ["slot:recent"]
+
 
 class TestFinishInvestigation(BaseTest):
     def setUp(self) -> None:
@@ -219,13 +231,20 @@ class TestFinishInvestigation(BaseTest):
 
     @parameterized.expand(
         [
-            ("a true positive sends", "true_positive", True, HoldRelease.SEND),
-            ("a false positive suppresses", "false_positive", True, HoldRelease.SUPPRESS),
-            ("a disabled alert suppresses", "true_positive", False, HoldRelease.SUPPRESS),
+            ("a true positive sends", "true_positive", True, HoldRelease.SEND, HoldReleasedBy.VERDICT),
+            ("a false positive suppresses", "false_positive", True, HoldRelease.SUPPRESS, HoldReleasedBy.VERDICT),
+            ("a disabled alert suppresses", "true_positive", False, HoldRelease.SUPPRESS, HoldReleasedBy.SAFETY_NET),
+            (
+                "a disabled alert's false positive is the agent's",
+                "false_positive",
+                False,
+                HoldRelease.SUPPRESS,
+                HoldReleasedBy.VERDICT,
+            ),
         ]
     )
     def test_a_verdict_releases_the_held_firing(
-        self, _name: str, verdict: str, enabled: bool, action: HoldRelease
+        self, _name: str, verdict: str, enabled: bool, action: HoldRelease, released_by: HoldReleasedBy
     ) -> None:
         self.alert.enabled = enabled
         self.alert.save()
@@ -238,7 +257,7 @@ class TestFinishInvestigation(BaseTest):
         expected = (self.request,) if action == HoldRelease.SEND else ()
         assert release.deliveries == repeated.deliveries == expected
         hold = platform_testing.hold_release(self.address)
-        assert (hold.release_action, hold.released_by) == (action, HoldReleasedBy.VERDICT)
+        assert (hold.release_action, hold.released_by) == (action, released_by)
         investigation.refresh_from_db()
         assert (investigation.status, investigation.verdict) == (InvestigationStatus.DONE, verdict)
 

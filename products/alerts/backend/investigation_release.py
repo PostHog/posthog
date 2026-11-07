@@ -129,6 +129,7 @@ def finish_investigation(
         investigation.episode_started_at,
         investigation.evaluation_key,
     )
+    verdict_suppresses = _should_suppress_notification(verdict, alert.investigation_inconclusive_action)
     with transaction.atomic():
         InsightAlertInvestigation.objects.for_team(investigation.team_id).filter(id=investigation.id).update(
             status=InvestigationStatus.DONE, verdict=verdict, summary=summary, notebook_id=notebook_id, error=None
@@ -136,9 +137,10 @@ def finish_investigation(
         delivery = release_held(
             _hold_of(investigation),
             # As the safety net does, so turning the alert back on never sends a firing that old.
-            suppress=not alert.enabled
-            or _should_suppress_notification(verdict, alert.investigation_inconclusive_action),
-            released_by=HoldReleasedBy.VERDICT,
+            suppress=not alert.enabled or verdict_suppresses,
+            # A firing only the disabled alert holds back is the safety net's suppress, so history does
+            # not show it as the agent's.
+            released_by=HoldReleasedBy.VERDICT if verdict_suppresses or alert.enabled else HoldReleasedBy.SAFETY_NET,
         )
     if delivery is None:
         delivery = _announce_verdict_change(alert, investigation, verdict=verdict, previous_verdict=previous_verdict)

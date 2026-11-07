@@ -25,7 +25,7 @@ import {
     trackToolsList,
     trackToolSpan,
 } from '@/hono/analytics'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import type { ResolvedState } from '@/hono/request-state-resolver'
@@ -67,6 +67,9 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             mcpConsumer: 'request-consumer',
             mode: 'cli',
             region: 'us',
+            features: ['insights', 'product_analytics', 'insights', 'bad\nvalue'],
+            tools: ['dashboard-get', 'x'.repeat(200)],
+            excludeTools: ['insight-delete'],
             mcpVendorClient: 'ClaudeAI',
         },
         sessionContext: {
@@ -204,12 +207,19 @@ describe('Hono MCP analytics contexts', () => {
         }
     })
 
-    it.each([true, false, undefined])('records the evaluated intent prompt flag: %s', async (flagValue) => {
-        const state = makeState({ toolFeatureFlags: { [MCP_INTENT_PROMPT_FLAG]: flagValue } })
+    it.each([
+        [MCP_INTENT_PROMPT_FLAG, true],
+        [MCP_INTENT_PROMPT_FLAG, false],
+        [MCP_INTENT_PROMPT_FLAG, undefined],
+        [MCP_INBOX_FIRST_FLAG, true],
+        [MCP_INBOX_FIRST_FLAG, false],
+        [MCP_INBOX_FIRST_FLAG, undefined],
+    ])('records the evaluated experiment flag %s: %s', async (flagKey, flagValue) => {
+        const state = makeState({ toolFeatureFlags: { [flagKey]: flagValue } })
 
         await trackToolCall('user-get', 12, false, state)
 
-        expect(mockCaptureToolCall.mock.calls[0]![0].properties[`$feature/${MCP_INTENT_PROMPT_FLAG}`]).toBe(flagValue)
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties[`$feature/${flagKey}`]).toBe(flagValue)
     })
 
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {
@@ -237,6 +247,9 @@ describe('Hono MCP analytics contexts', () => {
             mcp_session_protocol_version: '2025-03-26',
             mcp_session_consumer: 'session-consumer',
             mcp_session_vendor_client: 'ClaudeCode',
+            requested_features: ['insights', 'product_analytics'],
+            requested_tools: ['dashboard-get'],
+            requested_exclude_tools: ['insight-delete'],
         })
     })
 
@@ -554,6 +567,54 @@ describe('Hono MCP analytics contexts', () => {
                 { id: '1', method: 'GET', path: 'api/projects/1/persons/' },
                 false,
             ],
+            [
+                'an email log search by recipient',
+                'workflows-transactional-emails-list',
+                { search: 'jane@example.com' },
+                false,
+            ],
+            [
+                'one email log entry',
+                'workflows-transactional-email-get',
+                { id: '01a19f0e-9fd0-0001-a1d4-3a2b4579b763' },
+                false,
+            ],
+            [
+                'an email log search through exec',
+                'exec',
+                { command: 'call workflows-transactional-emails-list {"search":"jane@example.com"}' },
+                false,
+            ],
+            ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
+            [
+                'preparing an email send',
+                'workflows-send-email-prepare',
+                { to: 'ada@example.com', html: '<a href="https://example.com/reset?t=1">Reset</a>' },
+                false,
+            ],
+            ['executing an email send', 'workflows-send-email-execute', { confirmation: 'confirm' }, false],
+            [
+                'an email send through exec',
+                'exec',
+                { command: 'call workflows-send-email-prepare {"to":"ada@example.com","html":"<p>code 123456</p>"}' },
+                false,
+            ],
+            [
+                'an email send forwarded through a PostHog connection',
+                'exec',
+                {
+                    command:
+                        'call posthog-connection-call {"connection_id":"1","tool":"workflows-send-email-prepare","arguments":{"html":"<p>code 123456</p>"}}',
+                },
+                false,
+            ],
+            [
+                'an email send exec rejects for a missing verb',
+                'exec',
+                { command: 'workflows-send-email-prepare {"html":"<p>code 123456</p>"}' },
+                false,
+            ],
+            ['another tool through exec', 'exec', { command: 'call feature-flag-get-all {}' }, true],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 

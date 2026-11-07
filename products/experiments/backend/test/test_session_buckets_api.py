@@ -14,14 +14,15 @@ import posthog.hogql.query as hogql_query_module
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.models import EventProperty, Team, User
+from posthog.models import Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend import session_buckets
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
@@ -362,11 +363,11 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert expected_reason in response.json()["detail"]
 
     def test_funnel_dropoff_completion_check_survives_an_action_step(self) -> None:
-        action = Action.objects.create(team=self.team, name="Viewed cart", steps_json=[{"event": "cart viewed"}])
+        action = create_action(team=self.team, name="Viewed cart", steps_json=[{"event": "cart viewed"}])
         metric = _funnel(
             "a7777777-7777-7777-7777-777777777777",
             "Checkout via action",
-            [CART, {"kind": "ActionsNode", "id": action.pk}, SERVER_CHARGE],
+            [CART, {"kind": "ActionsNode", "id": action.id}, SERVER_CHARGE],
         )
         experiment = self._create_experiment(metrics=[metric])
         self._session(events=[("cart viewed", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
@@ -620,8 +621,8 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
     @parameterized.expand([("custom_event",), ("action",)])
     def test_session_linkable_custom_exposure_defines_the_population(self, exposure_kind: str) -> None:
         if exposure_kind == "action":
-            action = Action.objects.create(team=self.team, name="Checkout", steps_json=[{"event": "checkout started"}])
-            exposure_config: dict[str, Any] = {"kind": "ActionsNode", "id": action.pk}
+            action = create_action(team=self.team, name="Checkout", steps_json=[{"event": "checkout started"}])
+            exposure_config: dict[str, Any] = {"kind": "ActionsNode", "id": action.id}
         else:
             exposure_config = {
                 "kind": "ExperimentEventExposureConfig",
@@ -650,13 +651,13 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert response.json()["used_exposure_fallback"] is False
 
     def test_action_metrics_are_not_excluded_by_the_linkability_check(self) -> None:
-        action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
+        action = create_action(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
         action_metric = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
             "uuid": "88888888-8888-8888-8888-888888888888",
             "name": "Purchased (action)",
-            "source": {"kind": "ActionsNode", "id": action.pk},
+            "source": {"kind": "ActionsNode", "id": action.id},
         }
         experiment = self._create_experiment(metrics=[action_metric])
         purchased = self._session(events=[("purchase", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])

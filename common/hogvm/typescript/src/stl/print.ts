@@ -119,7 +119,7 @@ export function printHogStringOutput(obj: any): string {
     return printHogValue(obj)
 }
 
-type ASTNode = Map<string, any> | null
+export type ASTNode = Map<string, any> | null
 
 // Note: this printer currently is experimental and used for debugging/printing SQL only.
 // When making queries via run(query), we send the AST nodes directly to the server.

@@ -9,32 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Send feedback about an element or page of the PostHog web app to the team's Slack channel.
- */
-export const internalFeedbackCreateBodyCommentMax = 4000
-
-export const internalFeedbackCreateBodyPageUrlMax = 2000
-
-export const internalFeedbackCreateBodyElementIdentifierMax = 1000
-
-export const InternalFeedbackCreateBody = /* @__PURE__ */ zod.object({
-    comment: zod
-        .string()
-        .max(internalFeedbackCreateBodyCommentMax)
-        .describe('What the person wants to tell the developers.'),
-    page_url: zod.url().max(internalFeedbackCreateBodyPageUrlMax).describe('URL of the page the feedback is about.'),
-    element_identifier: zod
-        .string()
-        .max(internalFeedbackCreateBodyElementIdentifierMax)
-        .optional()
-        .describe('CSS selector of the element the person selected. Empty for feedback about the whole page.'),
-    screenshot: zod
-        .instanceof(File)
-        .optional()
-        .describe('JPEG screenshot of the page, with the selected element outlined when there is one.'),
-})
-
 export const createBodyNameMax = 64
 
 export const createBodyMemberNoticeOneMessageMax = 1000
@@ -585,7 +559,7 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team. Only the person who started a ticket discussion can send it (403), and it cannot go to a channel shared with another Slack workspace (400). 429 when the Slack integration has made too many channel lookups in the last minute.
  */
 export const commentsSendToSlackCreateBodyChannelIdMax = 255
 

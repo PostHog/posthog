@@ -3,8 +3,6 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useMemo, useRef } from 'react'
 
-import { LemonTag } from '@posthog/lemon-ui'
-
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
@@ -107,10 +105,9 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
                     hasSceneTitleSection={false}
                     className="flex flex-wrap items-center justify-between gap-2"
                 >
-                    <div className="flex flex-wrap items-center gap-2">
-                        <h1 className="mb-0 text-2xl font-semibold">New evaluation</h1>
-                        {template && <LemonTag type="muted">{`From the ${template.name} template`}</LemonTag>}
-                    </div>
+                    <h1 className="mb-0 text-2xl font-semibold">
+                        {template ? `New ${template.name.toLowerCase()} evaluation` : 'New evaluation'}
+                    </h1>
                 </SceneStickyBar>
                 <div className="w-full max-w-4xl mx-auto">
                     <EvaluationFormSteps checklist={checklist} onCreate={handleCreate} onCancel={handleCancel} />

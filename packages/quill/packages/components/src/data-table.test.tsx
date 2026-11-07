@@ -41,6 +41,39 @@ describe('DataTable', () => {
         expect(onRowClick).toHaveBeenCalledWith(data[0])
     })
 
+    it('shows a selection made from a cell on the row', () => {
+        const columns: ColumnDef<TestRow>[] = [
+            {
+                id: 'select',
+                cell: ({ row }) => (
+                    <input type="checkbox" checked={row.getIsSelected()} onChange={() => row.toggleSelected()} />
+                ),
+            },
+            { accessorKey: 'name', header: 'Name' },
+        ]
+        const { container } = render(<DataTable columns={columns} data={data} />)
+
+        fireEvent.click(screen.getByRole('checkbox'))
+
+        expect(container.querySelector('tbody tr')!.getAttribute('data-state')).toBe('selected')
+        expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
+    })
+
+    it('applies a row class name per row', () => {
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+        const { container } = render(
+            <DataTable
+                columns={columns}
+                data={[{ name: 'Ada' }, { name: 'Grace' }]}
+                rowClassName={(row) => (row.name === 'Grace' ? 'highlighted-row' : undefined)}
+            />
+        )
+        const rows = container.querySelectorAll('tbody tr')
+
+        expect(rows[0].classList.contains('highlighted-row')).toBe(false)
+        expect(rows[1].classList.contains('highlighted-row')).toBe(true)
+    })
+
     it('reports page changes with one-based page numbers', () => {
         const onPageChange = jest.fn()
         const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]

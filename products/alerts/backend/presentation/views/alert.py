@@ -1530,6 +1530,10 @@ def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) ->
 MOVED_ALERT_FIRED_CHECKS_LIMIT: Final = 500
 
 
+# The notebook model, reached through the check's link so this product does not import another's models.
+_NOTEBOOK: Final = cast(type[Any], AlertCheck._meta.get_field("investigation_notebook").related_model)
+
+
 def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertCheck:
     # Never saved. It carries what the check serializer shows.
     return AlertCheck(
@@ -1548,6 +1552,13 @@ def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertC
         triggered_dates=list(check.triggered_dates) or None,
         interval=check.interval,
         triggered_metadata=check.triggered_metadata,
+        investigation_status=check.investigation_status,
+        investigation_verdict=check.investigation_verdict,
+        investigation_summary=check.investigation_summary,
+        investigation_notebook=_NOTEBOOK(short_id=check.investigation_notebook_short_id)
+        if check.investigation_notebook_short_id
+        else None,
+        notification_suppressed_by_agent=check.notification_suppressed_by_agent,
     )
 
 

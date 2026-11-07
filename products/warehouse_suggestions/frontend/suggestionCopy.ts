@@ -465,6 +465,10 @@ export function spokenDuration(seconds: number, maxUnits: number): string {
     return parts.length > 0 ? parts.join(' and ') : 'under a minute'
 }
 
+export function unusedViewsNote(unusedViews: number): string {
+    return unusedViews > 0 ? `. ${countOf(unusedViews, 'unused view', 'unused views')} to mark deprecated` : ''
+}
+
 export function countOf(count: number, singular: string, plural: string): string {
     return `${count} ${count === 1 ? singular : plural}`
 }

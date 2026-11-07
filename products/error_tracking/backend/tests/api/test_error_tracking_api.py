@@ -38,10 +38,6 @@ from posthog.settings import (
 )
 
 from products.access_control.backend.facade.testing import add_role_member, create_role
-from products.error_tracking.backend.facade import (
-    contracts,
-    summaries as summaries_facade,
-)
 from products.error_tracking.backend.logic import symbol_sets as symbol_sets_logic
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
@@ -57,6 +53,12 @@ from products.error_tracking.backend.presentation.views.issues import ErrorTrack
 from products.error_tracking.backend.presentation.views.symbol_sets import (
     BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS,
     ErrorTrackingSymbolSetBulkCheckUploadSerializer,
+)
+from products.error_tracking.backend.tests.api.issue_summary_states import (
+    STORED_CONTENT,
+    SUMMARY_STATES,
+    lock_held,
+    summary_state,
 )
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
@@ -652,82 +654,48 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == 404
 
-    @parameterized.expand(
-        [
-            ("read_none_started", "get", "", False, True, "generating"),
-            ("read_none_blocked", "get", "", False, False, "unavailable"),
-            ("read_stale_refreshes", "get", "", True, True, "ready"),
-            ("read_fresh", "get", "", True, False, "ready"),
-            ("regenerate_started", "post", "/regenerate", True, True, "generating"),
-            ("regenerate_fresh", "post", "/regenerate", True, False, "ready"),
-            ("regenerate_blocked", "post", "/regenerate", False, False, "unavailable"),
-        ]
-    )
+    @parameterized.expand(SUMMARY_STATES)
     def test_issue_summary_status(
-        self, _name: str, method: str, suffix: str, stored: bool, started: bool, expected_status: str
+        self,
+        _name: str,
+        flag: bool,
+        readable: bool,
+        approved: bool,
+        stored: bool,
+        expected_status: str,
+        expected_reason: str | None,
     ) -> None:
         issue = self.create_issue()
-        summary = contracts.ErrorTrackingIssueSummary(
-            issue_id=issue.id,
-            what_happened="A TypeError in checkout.",
-            likely_cause="",
-            who_is_affected="Signed-in users on Safari.",
-            suggested_next_step="Guard the null cart.",
-            category=contracts.IssueSummaryCategory.OWN_CODE,
-            model="gpt-4.1-mini",
-            generated_at=datetime(2026, 10, 20, 12, 0, tzinfo=UTC),
-            checked_at=datetime(2026, 10, 21, 12, 0, tzinfo=UTC),
-        )
-        with (
-            patch.object(summaries_facade, "get_issue_summary", return_value=summary if stored else None) as get,
-            patch.object(summaries_facade, "start_issue_summary_generation", return_value=started) as start,
-        ):
-            response = getattr(self.client, method)(
-                f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary{suffix}"
-            )
+
+        with summary_state(self, issue.id, flag=flag, readable=readable, approved=approved, stored=stored) as publish:
+            response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary")
 
         assert response.status_code == 200
-        get.assert_called_once_with(self.team.id, issue.id, user=self.user)
-        start.assert_called_once_with(self.team.id, issue.id, user=self.user)
         expected_summary = (
             {
-                "what_happened": "A TypeError in checkout.",
-                "likely_cause": "",
-                "who_is_affected": "Signed-in users on Safari.",
-                "suggested_next_step": "Guard the null cart.",
-                "category": "own_code",
-                "model": "gpt-4.1-mini",
+                **STORED_CONTENT,
+                "model": "test-model",
                 "generated_at": "2026-10-20T12:00:00Z",
-                "checked_at": "2026-10-21T12:00:00Z",
+                "checked_at": "2026-10-20T12:00:00Z",
             }
-            if stored
+            if expected_status == "ready"
             else None
         )
-        assert response.json() == {"status": expected_status, "summary": expected_summary}
+        assert response.json() == {"status": expected_status, "summary": expected_summary, "reason": expected_reason}
+        publish.assert_not_called()
+        assert not lock_held(self.team.id, issue.id)
 
-    @parameterized.expand(
-        [
-            ("other_team_get", "get", "", True),
-            ("other_team_post", "post", "/regenerate", True),
-            ("malformed_id_get", "get", "", False),
-            ("malformed_id_post", "post", "/regenerate", False),
-        ]
-    )
-    def test_issue_summary_is_scoped_to_team(self, _name: str, method: str, suffix: str, other_team: bool) -> None:
+    @parameterized.expand([("other_team", True), ("malformed_id", False)])
+    def test_issue_summary_is_scoped_to_team(self, _name: str, other_team: bool) -> None:
         if other_team:
-            issue_id = str(
-                ErrorTrackingIssue.objects.create(team=Team.objects.create(organization=self.organization)).id
-            )
+            issue = ErrorTrackingIssue.objects.create(team=Team.objects.create(organization=self.organization))
+            issue_id = str(issue.id)
         else:
             issue_id = "not-a-uuid"
 
-        with patch.object(summaries_facade, "start_issue_summary_generation") as start:
-            response = getattr(self.client, method)(
-                f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/summary{suffix}"
-            )
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/summary")
 
         assert response.status_code == 404
-        start.assert_not_called()
 
     @parameterized.expand(
         [
@@ -2645,6 +2613,62 @@ class TestErrorTracking(APIBaseTest):
         assert patched_capture.call_args.kwargs["properties"]["success"] is True
         symbol_set.refresh_from_db()
         assert symbol_set.content_hash == "hash"
+
+    @parameterized.expand(
+        [
+            ("file_not_found", None, ["first", "failing", "second"]),
+            ("file_too_large", "file/oversized", ["first", "second"]),
+        ]
+    )
+    @patch("posthog.storage.object_storage.head_object")
+    def test_bulk_finish_upload_rejects_the_batch_when_one_symbol_set_fails(
+        self,
+        expected_code: str,
+        failing_storage_ptr: str | None,
+        surviving_refs: list[str],
+        patched_head_object: Mock,
+    ) -> None:
+        sizes = {
+            "file/first": 1000,
+            "file/second": 1000,
+            "file/oversized": symbol_sets_logic.ONE_HUNDRED_MEGABYTES + 1,
+        }
+        patched_head_object.side_effect = lambda file_key: {"ContentLength": sizes[file_key]}
+        symbol_sets = [
+            ErrorTrackingSymbolSet.objects.create(team=self.team, ref="first", storage_ptr="file/first"),
+            ErrorTrackingSymbolSet.objects.create(team=self.team, ref="failing", storage_ptr=failing_storage_ptr),
+            ErrorTrackingSymbolSet.objects.create(team=self.team, ref="second", storage_ptr="file/second"),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
+            data={"content_hashes": {str(symbol_set.id): f"hash-{symbol_set.ref}" for symbol_set in symbol_sets}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == expected_code
+        assert dict(
+            ErrorTrackingSymbolSet.objects.filter(team=self.team).values_list("ref", "content_hash")
+        ) == dict.fromkeys(surviving_refs)
+
+    @patch("posthog.storage.object_storage.head_object", return_value=None)
+    def test_bulk_finish_upload_sends_no_more_head_requests_after_a_failed_batch(
+        self, patched_head_object: Mock
+    ) -> None:
+        symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(
+            ErrorTrackingSymbolSet(team=self.team, ref=f"ref-{i}", storage_ptr=f"file/{i}")
+            for i in range(symbol_sets_logic.HEAD_OBJECT_PARALLELISM + 1)
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
+            data={"content_hashes": {str(symbol_set.id): "hash" for symbol_set in symbol_sets}},
+            format="json",
+        )
+
+        assert response.json()["code"] == "file_not_found"
+        assert patched_head_object.call_count <= symbol_sets_logic.HEAD_OBJECT_PARALLELISM
 
     def _assert_logs_the_activity(self, error_tracking_issue_id: int, expected: list[dict]) -> None:
         activity_response = self._get_error_tracking_issue_activity(error_tracking_issue_id)

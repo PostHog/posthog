@@ -499,10 +499,12 @@ class CTETableAliasType(BaseTableType):
         return self.cte_table_type.resolve_column_constant_type(name, context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType
+    # The lazy table that this subquery stands for, when lazy table resolution built it.
+    lazy_table: Optional[LazyTable] = field(default=None, repr=False, compare=False)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
