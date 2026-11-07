@@ -17,6 +17,7 @@ interface TodayPaneRowProps {
     /** Keeps the action shown without a hover, for a state the row must always show, like a star. */
     actionVisible?: boolean
     dataAttr?: string
+    onClick?: () => void
 }
 
 export function TodayPaneRow({
@@ -30,6 +31,7 @@ export function TodayPaneRow({
     action,
     actionVisible = false,
     dataAttr,
+    onClick,
 }: TodayPaneRowProps): JSX.Element {
     return (
         <div className="group/row relative flex min-w-0 items-center">
@@ -40,6 +42,10 @@ export function TodayPaneRow({
                 variant={variant}
                 title={label}
                 data-attr={dataAttr}
+                // Capture-phase, so Cmd/Ctrl-clicks count too: the link's own handler returns
+                // for those before it calls onClick. Middle-clicks only fire auxclick.
+                onClickCapture={onClick}
+                onAuxClick={(event) => event.button === 1 && onClick?.()}
                 className={cn(action && 'pr-8')}
             >
                 {icon && (
