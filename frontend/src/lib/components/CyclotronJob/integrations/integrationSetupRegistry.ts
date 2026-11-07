@@ -15,10 +15,14 @@ export type IntegrationSetupContext = {
     uploadKey: (kind: string) => void
 }
 
+/** What the connection is for, so a setup modal can ask only for the access that use needs. */
+export type IntegrationSetupPurpose = 'import' | 'export'
+
 type IntegrationSetupModalProps = {
     isOpen: boolean
     kind: string
     integration?: any
+    purpose?: IntegrationSetupPurpose
     onComplete: (id?: number) => void
     onClose: () => void
 }
