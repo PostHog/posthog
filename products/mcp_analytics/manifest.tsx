@@ -67,10 +67,17 @@ export const manifest: ProductManifest = {
         mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
         mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
         mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
-        mcpAnalyticsIntentMap: (params?: { tool?: string; topic?: string }): string =>
+        mcpAnalyticsIntentMap: (params?: {
+            tool?: string
+            topic?: string
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): string =>
             combineUrl('/mcp-analytics/intents', {
                 ...(params?.tool ? { tool: params.tool } : {}),
                 ...(params?.topic ? { topic: params.topic } : {}),
+                ...(params?.dateFrom ? { date_from: params.dateFrom } : {}),
+                ...(params?.dateTo ? { date_to: params.dateTo } : {}),
             }).url,
         mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
         mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',

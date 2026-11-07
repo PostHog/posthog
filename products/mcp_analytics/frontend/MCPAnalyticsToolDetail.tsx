@@ -585,6 +585,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                         failureBucketsLoading ||
                         sampleIntentRowsLoading ||
                         intentCoverageLoading ||
+                        intentProfileLoading ||
                         neighborsBeforeRowsLoading ||
                         neighborsAfterRowsLoading ||
                         byHarnessRowsLoading ||
@@ -692,7 +693,13 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
 
                     <div className="flex flex-col gap-3 px-4 pb-4">
                         <SectionHeader title="How this tool is used" subtitle={dateRangeLabel} />
-                        <ToolIntentProfile toolName={toolName} profile={intentProfile} loading={intentProfileLoading} />
+                        <ToolIntentProfile
+                            toolName={toolName}
+                            dateFrom={dateFilter.dateFrom}
+                            dateTo={dateFilter.dateTo}
+                            profile={intentProfile}
+                            loading={intentProfileLoading}
+                        />
                     </div>
                 </>
             )}
