@@ -240,7 +240,6 @@ GITLAB = WorkloadProvider(
     name="GitLab",
     issuer="https://gitlab.com",
     jwks_url="https://gitlab.com/oauth/discovery/keys",
-    audience_check=AudienceCheck.SITE_URL,
     subject_claim=WorkloadClaim(
         name="project_id",
         label="Project ID",
