@@ -1557,6 +1557,7 @@ export type ActivityLogListParams = {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -1606,6 +1607,7 @@ export type ActivityLogListParams = {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalSourceConfig` - SignalSourceConfig
      * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
@@ -1677,6 +1679,7 @@ export const ActivityLogListScope = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    OrganizationIPRestrictions: 'OrganizationIPRestrictions',
     IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
@@ -1726,6 +1729,7 @@ export const ActivityLogListScope = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalSourceConfig: 'SignalSourceConfig',
     SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
@@ -1784,6 +1788,7 @@ export const ActivityLogListScope = {
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
  * * `OrganizationDomain` - OrganizationDomain
+ * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
  * * `IdentityProviderConfig` - IdentityProviderConfig
  * * `OrganizationMembership` - OrganizationMembership
  * * `Role` - Role
@@ -1833,6 +1838,7 @@ export const ActivityLogListScope = {
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
+ * * `SignalSourceConfig` - SignalSourceConfig
  * * `SignalTeamConfig` - SignalTeamConfig
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
@@ -1892,6 +1898,7 @@ export const ActivityLogListScopesItem = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    OrganizationIPRestrictions: 'OrganizationIPRestrictions',
     IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
@@ -1941,6 +1948,7 @@ export const ActivityLogListScopesItem = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalSourceConfig: 'SignalSourceConfig',
     SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',

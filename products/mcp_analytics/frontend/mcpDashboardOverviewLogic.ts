@@ -1,4 +1,15 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import {
+    BreakPointFunction,
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -69,10 +80,12 @@ ORDER BY bucket
 // Users are counted by distinct_id, not person_id. HogQL resolves person_id through a join
 // over every person override of the project, and on large projects that join runs out of
 // memory. A person with several distinct_ids counts once per distinct_id.
-const USERS_QUERY = `
+const PERIOD_TOTALS_QUERY = `
 SELECT
     uniqIf(distinct_id, timestamp >= __CUR_START__) AS current_users,
-    uniqIf(distinct_id, timestamp < __CUR_START__) AS prior_users
+    uniqIf(distinct_id, timestamp < __CUR_START__) AS prior_users,
+    round(quantileIf(0.95)(toFloat(properties.$mcp_duration_ms), timestamp >= __CUR_START__)) AS current_p95,
+    round(quantileIf(0.95)(toFloat(properties.$mcp_duration_ms), timestamp < __CUR_START__)) AS prior_p95
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
@@ -159,6 +172,12 @@ export interface KPIData {
     p95LatencyMs: KPIMetric
 }
 
+// Window-level figures that can't be summed from per-bucket rows: distinct users and a percentile.
+export interface PeriodTotals {
+    users: KPIMetric
+    p95LatencyMs: KPIMetric
+}
+
 export interface ToolRow {
     tool: string
     total_calls: number
@@ -196,6 +215,16 @@ export interface HarnessRow {
     errors: number
     error_rate_pct: number
     sessions: number
+}
+
+export function toHarnessRow(item: MCPHarnessBreakdownItem): HarnessRow {
+    return {
+        category: item.harness,
+        total_calls: item.total_calls,
+        errors: item.errors,
+        error_rate_pct: item.error_rate_pct,
+        sessions: item.sessions,
+    }
 }
 
 export interface ModelRow {
@@ -236,6 +265,10 @@ const EMPTY_METRIC: KPIMetric = {
     sparkline: [],
     sparklineLabels: [],
     goodDirection: 'up',
+}
+const EMPTY_PERIOD_TOTALS: PeriodTotals = {
+    users: { ...EMPTY_METRIC, goodDirection: 'up' },
+    p95LatencyMs: { ...EMPTY_METRIC, goodDirection: 'down' },
 }
 const EMPTY_KPIS: KPIData = {
     sessions: { ...EMPTY_METRIC, goodDirection: 'up' },
@@ -314,32 +347,38 @@ function parseRows(rawRows: unknown[][]): BucketRow[] {
     }))
 }
 
+// A tool with a handful of calls swings to 100% on one failure, so ranking needs a minimum sample.
+export const MIN_CALLS_TO_RANK_ERRORS = 20
+
+export function rankToolsByErrorRate(rows: ToolRow[]): ToolRow[] {
+    return rows
+        .filter((r) => r.total_calls >= MIN_CALLS_TO_RANK_ERRORS)
+        .sort((a, b) => b.error_rate_pct - a.error_rate_pct)
+}
+
+export function rankedToolsEmptyMessage(rows: ToolRow[]): string | undefined {
+    return rows.length > 0 ? `No tool has ${MIN_CALLS_TO_RANK_ERRORS} or more calls in this date range yet.` : undefined
+}
+
 // Buckets at or after `currentStartBucket` belong to the selected window; the
 // rest are the equal-length window immediately before it.
 export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIData {
     const current = rows.filter((r) => r.bucket >= currentStartBucket).sort((a, b) => a.bucket.localeCompare(b.bucket))
     const previous = rows.filter((r) => r.bucket < currentStartBucket)
 
-    // Newest bucket with latency data — p95 === 0 marks a bucket without any.
-    const latestP95 = (rows_: BucketRow[]): number =>
-        [...rows_].sort((a, b) => b.bucket.localeCompare(a.bucket)).find((r) => r.p95 > 0)?.p95 ?? 0
-
-    // Newest bucket with any calls — a 0% rate from an empty bucket would be meaningless.
-    const latestErrorRate = (rows_: BucketRow[]): number => {
-        const row = [...rows_].sort((a, b) => b.bucket.localeCompare(a.bucket)).find((r) => r.tool_calls > 0)
-        return row ? (row.errors / row.tool_calls) * 100 : 0
+    const errorRate = (rows_: BucketRow[]): number => {
+        const calls = rows_.reduce((acc, r) => acc + r.tool_calls, 0)
+        return calls ? (rows_.reduce((acc, r) => acc + r.errors, 0) / calls) * 100 : 0
     }
 
     const curSessions = current.reduce((acc, r) => acc + r.sessions, 0)
     const curCalls = current.reduce((acc, r) => acc + r.tool_calls, 0)
-    const curP95 = latestP95(current)
 
     const prevSessions = previous.reduce((acc, r) => acc + r.sessions, 0)
     const prevCalls = previous.reduce((acc, r) => acc + r.tool_calls, 0)
-    const prevP95 = latestP95(previous)
 
-    const curErrorRate = latestErrorRate(current)
-    const prevErrorRate = latestErrorRate(previous)
+    const curErrorRate = errorRate(current)
+    const prevErrorRate = errorRate(previous)
     const sparklineLabels = current.map((r) => r.bucket)
 
     return {
@@ -367,14 +406,38 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             sparklineLabels,
             goodDirection: 'down',
         },
+        // The headline value comes from PeriodTotals; a period p95 can't be built from bucket p95s.
         p95LatencyMs: {
-            value: curP95,
-            previousValue: prevP95,
-            deltaPct: deltaPct(curP95, prevP95),
+            ...EMPTY_METRIC,
             sparkline: current.map((r) => r.p95),
             sparklineLabels,
             goodDirection: 'down',
         },
+    }
+}
+
+export type FailedLoads = Partial<
+    Record<
+        | 'kpis'
+        | 'periodTotals'
+        | 'toolRows'
+        | 'sessionRows'
+        | 'harnessRows'
+        | 'modelRows'
+        | 'protocolVersionRows'
+        | 'activityRows'
+        | 'toolDailyRows',
+        boolean
+    >
+>
+
+// Drops a request superseded by a newer one, even when it fails, so a late failure can't mark the
+// newer result as failed.
+async function queryLatest<T>(query: Parameters<typeof api.query>[0], breakpoint: BreakPointFunction): Promise<T> {
+    try {
+        return (await api.query(query)) as T
+    } finally {
+        breakpoint()
     }
 }
 
@@ -394,6 +457,7 @@ export interface mcpDashboardOverviewLogicValues {
     dailyActivity: DailyActivity
     dashboardLoading: boolean
     dateFilter: DateFilter
+    failedLoads: FailedLoads
     feedbackContextKey: string
     feedbackLoadFailed: boolean
     harnessRows: HarnessRow[]
@@ -401,6 +465,7 @@ export interface mcpDashboardOverviewLogicValues {
     hasFilterInteraction: boolean
     hasModelData: boolean
     hasProtocolVersionData: boolean
+    headlineKpis: KPIData
     intentClusterCount: KPIMetric
     interval: IntervalType
     kpiIncompleteTail: boolean
@@ -409,6 +474,8 @@ export interface mcpDashboardOverviewLogicValues {
     modelRows: ModelRow[]
     modelRowsLoading: boolean
     notableSessions: NotableSession[]
+    periodTotals: PeriodTotals
+    periodTotalsLoading: boolean
     protocolVersionRows: MCPProtocolVersionBreakdownItem[]
     protocolVersionRowsLoading: boolean
     queryFilters: HogQLFilters
@@ -419,8 +486,6 @@ export interface mcpDashboardOverviewLogicValues {
     toolDailySeries: ToolDailySeries
     toolRows: ToolRow[]
     toolRowsLoading: boolean
-    users: KPIMetric
-    usersLoading: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -462,22 +527,10 @@ export interface mcpDashboardOverviewLogicActions {
         errorObject?: any
     }
     loadHarnessRowsSuccess: (
-        harnessRows: {
-            category: string
-            error_rate_pct: number
-            errors: number
-            sessions: number
-            total_calls: number
-        }[],
+        harnessRows: HarnessRow[],
         payload?: void
     ) => {
-        harnessRows: {
-            category: string
-            error_rate_pct: number
-            errors: number
-            sessions: number
-            total_calls: number
-        }[]
+        harnessRows: HarnessRow[]
         payload?: void
     }
     loadKPIs: (_: void) => void
@@ -508,6 +561,21 @@ export interface mcpDashboardOverviewLogicActions {
         payload?: void
     ) => {
         modelRows: ModelRow[]
+        payload?: void
+    }
+    loadPeriodTotals: (_: void) => void
+    loadPeriodTotalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPeriodTotalsSuccess: (
+        periodTotals: PeriodTotals,
+        payload?: void
+    ) => {
+        periodTotals: PeriodTotals
         payload?: void
     }
     loadProtocolVersionRows: (_: void) => void
@@ -598,21 +666,6 @@ export interface mcpDashboardOverviewLogicActions {
         }[]
         payload?: void
     }
-    loadUsers: (_: void) => void
-    loadUsersFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadUsersSuccess: (
-        users: KPIMetric,
-        payload?: void
-    ) => {
-        users: KPIMetric
-        payload?: void
-    }
     markFilterInteraction: () => {
         value: true
     }
@@ -636,7 +689,7 @@ export interface mcpDashboardOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dashboardLoading: (
             kpisLoading: boolean,
-            usersLoading: boolean,
+            periodTotalsLoading: boolean,
             toolRowsLoading: boolean,
             sessionRowsLoading: boolean,
             harnessRowsLoading: boolean,
@@ -644,6 +697,22 @@ export interface mcpDashboardOverviewLogicMeta {
             protocolVersionRowsLoading: boolean,
             activityRowsLoading: boolean,
             toolDailyRowsLoading: boolean
+        ) => boolean
+        feedbackLoadFailed: (
+            failedLoads: Partial<
+                Record<
+                    | 'activityRows'
+                    | 'harnessRows'
+                    | 'kpis'
+                    | 'modelRows'
+                    | 'periodTotals'
+                    | 'protocolVersionRows'
+                    | 'sessionRows'
+                    | 'toolDailyRows'
+                    | 'toolRows',
+                    boolean
+                >
+            >
         ) => boolean
         canShowFeedback: (
             hasFilterInteraction: boolean,
@@ -659,6 +728,7 @@ export interface mcpDashboardOverviewLogicMeta {
         interval: (dateFilter: DateFilter) => IntervalType
         bucketKeys: (dateFilter: DateFilter, timezone: string, interval: IntervalType) => string[]
         activityIncompleteTail: (bucketKeys: string[], timezone: string, interval: IntervalType) => boolean
+        headlineKpis: (kpis: KPIData, periodTotals: PeriodTotals) => KPIData
         kpiIncompleteTail: (kpis: KPIData, timezone: string, interval: IntervalType) => boolean
         dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
@@ -697,18 +767,27 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     }),
     reducers({
         hasFilterInteraction: [false, { markFilterInteraction: () => true }],
-        feedbackLoadFailed: [
-            false,
+        failedLoads: [
+            {} as FailedLoads,
             {
-                reloadAll: () => false,
-                loadKPIsFailure: () => true,
-                loadUsersFailure: () => true,
-                loadToolRowsFailure: () => true,
-                loadSessionRowsFailure: () => true,
-                loadHarnessRowsFailure: () => true,
-                loadModelRowsFailure: () => true,
-                loadActivityRowsFailure: () => true,
-                loadToolDailyRowsFailure: () => true,
+                loadKPIs: (state) => ({ ...state, kpis: false }),
+                loadKPIsFailure: (state) => ({ ...state, kpis: true }),
+                loadPeriodTotals: (state) => ({ ...state, periodTotals: false }),
+                loadPeriodTotalsFailure: (state) => ({ ...state, periodTotals: true }),
+                loadToolRows: (state) => ({ ...state, toolRows: false }),
+                loadToolRowsFailure: (state) => ({ ...state, toolRows: true }),
+                loadSessionRows: (state) => ({ ...state, sessionRows: false }),
+                loadSessionRowsFailure: (state) => ({ ...state, sessionRows: true }),
+                loadHarnessRows: (state) => ({ ...state, harnessRows: false }),
+                loadHarnessRowsFailure: (state) => ({ ...state, harnessRows: true }),
+                loadModelRows: (state) => ({ ...state, modelRows: false }),
+                loadModelRowsFailure: (state) => ({ ...state, modelRows: true }),
+                loadProtocolVersionRows: (state) => ({ ...state, protocolVersionRows: false }),
+                loadProtocolVersionRowsFailure: (state) => ({ ...state, protocolVersionRows: true }),
+                loadActivityRows: (state) => ({ ...state, activityRows: false }),
+                loadActivityRowsFailure: (state) => ({ ...state, activityRows: true }),
+                loadToolDailyRows: (state) => ({ ...state, toolDailyRows: false }),
+                loadToolDailyRowsFailure: (state) => ({ ...state, toolDailyRows: true }),
             },
         ],
         dateFilter: [
@@ -730,21 +809,23 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                         values.timezone,
                         interval
                     )
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: KPI_QUERY.replace('__BUCKET__', bucketExpr(interval)),
-                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
-                    })) as HogQLQueryResponse
-                    breakpoint()
+                    const response = await queryLatest<HogQLQueryResponse>(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: KPI_QUERY.replace('__BUCKET__', bucketExpr(interval)),
+                            filters: kpiWindowFilters(values.queryFilters, kpiWindow),
+                        },
+                        breakpoint
+                    )
                     const rows = parseRows((response?.results as unknown[][]) ?? [])
                     return buildKPIs(rows, kpiWindow.currentStartBucket)
                 },
             },
         ],
-        users: [
-            EMPTY_METRIC,
+        periodTotals: [
+            EMPTY_PERIOD_TOTALS,
             {
-                loadUsers: async (_: void, breakpoint): Promise<KPIMetric> => {
+                loadPeriodTotals: async (_: void, breakpoint): Promise<PeriodTotals> => {
                     const { interval, timezone } = values
                     const kpiWindow = buildComparisonWindow(
                         values.dateFilter.dateFrom,
@@ -760,23 +841,30 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     // same bounded skew the KPI tiles already carry; splitting on the raw start instead
                     // would equalize the halves but desync Users from the other tiles, so don't.)
                     const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: USERS_QUERY.replace(/__CUR_START__/g, curStart),
-                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
-                    })) as HogQLQueryResponse
-                    breakpoint()
+                    const response = await queryLatest<HogQLQueryResponse>(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: PERIOD_TOTALS_QUERY.replace(/__CUR_START__/g, curStart),
+                            filters: kpiWindowFilters(values.queryFilters, kpiWindow),
+                        },
+                        breakpoint
+                    )
                     const row = (response?.results as unknown[][])?.[0] ?? []
-                    const value = Number(row[0] ?? 0)
-                    const previousValue = Number(row[1] ?? 0)
-                    return {
+                    const metric = (
+                        value: number,
+                        previousValue: number,
+                        goodDirection: KPIMetric['goodDirection']
+                    ): KPIMetric => ({
                         value,
                         previousValue,
                         deltaPct: deltaPct(value, previousValue),
-                        // No sparkline: the headline is a window-level distinct count, not a per-bucket series.
                         sparkline: [],
                         sparklineLabels: [],
-                        goodDirection: 'up',
+                        goodDirection,
+                    })
+                    return {
+                        users: metric(Number(row[0] ?? 0), Number(row[1] ?? 0), 'up'),
+                        p95LatencyMs: metric(Number(row[2] ?? 0), Number(row[3] ?? 0), 'down'),
                     }
                 },
             },
@@ -785,12 +873,14 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as ToolRow[],
             {
                 loadToolRows: async (_: void, breakpoint) => {
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: TOOL_ROWS_QUERY,
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
-                    breakpoint()
+                    const response = await queryLatest<HogQLQueryResponse>(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: TOOL_ROWS_QUERY,
+                            filters: values.queryFilters,
+                        },
+                        breakpoint
+                    )
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         tool: String(r[0] ?? ''),
@@ -806,12 +896,14 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as SessionRow[],
             {
                 loadSessionRows: async (_: void, breakpoint) => {
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: SESSION_ROWS_QUERY,
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
-                    breakpoint()
+                    const response = await queryLatest<HogQLQueryResponse>(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: SESSION_ROWS_QUERY,
+                            filters: values.queryFilters,
+                        },
+                        breakpoint
+                    )
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         session_id: String(r[0] ?? ''),
@@ -830,20 +922,16 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadHarnessRows: async (_: void, breakpoint) => {
                     const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = (await api.query({
-                        kind: NodeKind.MCPHarnessBreakdownQuery,
-                        dateRange,
-                        properties,
-                        filterTestAccounts,
-                    })) as { results?: MCPHarnessBreakdownItem[] }
-                    breakpoint()
-                    return (response?.results ?? []).map((r) => ({
-                        category: r.harness,
-                        total_calls: r.total_calls,
-                        errors: r.errors,
-                        error_rate_pct: r.error_rate_pct,
-                        sessions: r.sessions,
-                    }))
+                    const response = await queryLatest<{ results?: MCPHarnessBreakdownItem[] }>(
+                        {
+                            kind: NodeKind.MCPHarnessBreakdownQuery,
+                            dateRange,
+                            properties,
+                            filterTestAccounts,
+                        },
+                        breakpoint
+                    )
+                    return (response?.results ?? []).map(toHarnessRow)
                 },
             },
         ],
@@ -852,13 +940,15 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadModelRows: async (_: void, breakpoint): Promise<ModelRow[]> => {
                     const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = (await api.query({
-                        kind: NodeKind.MCPModelBreakdownQuery,
-                        dateRange,
-                        properties,
-                        filterTestAccounts,
-                    })) as { results?: MCPModelBreakdownItem[] }
-                    breakpoint()
+                    const response = await queryLatest<{ results?: MCPModelBreakdownItem[] }>(
+                        {
+                            kind: NodeKind.MCPModelBreakdownQuery,
+                            dateRange,
+                            properties,
+                            filterTestAccounts,
+                        },
+                        breakpoint
+                    )
                     return response?.results ?? []
                 },
             },
@@ -868,13 +958,15 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadProtocolVersionRows: async (_: void, breakpoint): Promise<MCPProtocolVersionBreakdownItem[]> => {
                     const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = (await api.query({
-                        kind: NodeKind.MCPProtocolVersionBreakdownQuery,
-                        dateRange,
-                        properties,
-                        filterTestAccounts,
-                    })) as { results?: MCPProtocolVersionBreakdownItem[] }
-                    breakpoint()
+                    const response = await queryLatest<{ results?: MCPProtocolVersionBreakdownItem[] }>(
+                        {
+                            kind: NodeKind.MCPProtocolVersionBreakdownQuery,
+                            dateRange,
+                            properties,
+                            filterTestAccounts,
+                        },
+                        breakpoint
+                    )
                     return response?.results ?? []
                 },
             },
@@ -884,14 +976,16 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadActivityRows: async (_: void, breakpoint): Promise<ActivityRow[]> => {
                     const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolCallsAndErrorsQuery,
-                        dateRange,
-                        properties,
-                        filterTestAccounts,
-                        interval: values.interval,
-                    })) as { results?: MCPToolCallsAndErrorsItem[] }
-                    breakpoint()
+                    const response = await queryLatest<{ results?: MCPToolCallsAndErrorsItem[] }>(
+                        {
+                            kind: NodeKind.MCPToolCallsAndErrorsQuery,
+                            dateRange,
+                            properties,
+                            filterTestAccounts,
+                            interval: values.interval,
+                        },
+                        breakpoint
+                    )
                     return (response?.results ?? []).map((r) => ({
                         day: normalizeBucket(r.bucket),
                         successes: r.successes,
@@ -905,14 +999,16 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadToolDailyRows: async (_: void, breakpoint): Promise<ToolDailyRow[]> => {
                     const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolCallBreakdownQuery,
-                        dateRange,
-                        properties,
-                        filterTestAccounts,
-                        interval: values.interval,
-                    })) as { results?: MCPToolCallBreakdownItem[] }
-                    breakpoint()
+                    const response = await queryLatest<{ results?: MCPToolCallBreakdownItem[] }>(
+                        {
+                            kind: NodeKind.MCPToolCallBreakdownQuery,
+                            dateRange,
+                            properties,
+                            filterTestAccounts,
+                            interval: values.interval,
+                        },
+                        breakpoint
+                    )
                     return (response?.results ?? []).map((r) => ({
                         day: normalizeBucket(r.bucket),
                         tool: r.tool,
@@ -926,7 +1022,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         dashboardLoading: [
             (s) => [
                 s.kpisLoading,
-                s.usersLoading,
+                s.periodTotalsLoading,
                 s.toolRowsLoading,
                 s.sessionRowsLoading,
                 s.harnessRowsLoading,
@@ -936,6 +1032,10 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 s.toolDailyRowsLoading,
             ],
             (...loading: boolean[]): boolean => loading.some(Boolean),
+        ],
+        feedbackLoadFailed: [
+            (s) => [s.failedLoads],
+            (failedLoads: FailedLoads): boolean => Object.values(failedLoads).some(Boolean),
         ],
         canShowFeedback: [
             (s) => [s.hasFilterInteraction, s.dashboardLoading, s.feedbackLoadFailed, s.kpis],
@@ -968,6 +1068,18 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         ],
         // Read off the KPI sparkline's own labels, not `bucketKeys`: the sparkline is not zero-filled,
         // so on a day with no calls yet its last point is yesterday, which is settled.
+        headlineKpis: [
+            (s) => [s.kpis, s.periodTotals],
+            (kpis: KPIData, periodTotals: PeriodTotals): KPIData => ({
+                ...kpis,
+                p95LatencyMs: {
+                    ...kpis.p95LatencyMs,
+                    ...periodTotals.p95LatencyMs,
+                    sparkline: kpis.p95LatencyMs.sparkline,
+                    sparklineLabels: kpis.p95LatencyMs.sparklineLabels,
+                },
+            }),
+        ],
         kpiIncompleteTail: [
             (s) => [s.kpis, s.timezone, s.interval],
             (kpis: KPIData, timezone: string, interval: IntervalType): boolean =>
@@ -1033,7 +1145,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         },
         reloadAll: () => {
             actions.loadKPIs()
-            actions.loadUsers()
+            actions.loadPeriodTotals()
             actions.loadToolRows()
             actions.loadSessionRows()
             actions.loadHarnessRows()
