@@ -634,8 +634,8 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 "America/Los_Angeles",
                 "toMonday(toDateTime('2026-08-02 22:00:00')) - INTERVAL 1 HOUR",
             ),
-            # Troll is on UTC+0 now and was on UTC+2 91 days back, so subtracting 91 days lands two hours earlier
-            # in UTC than 91 times 24 hours does.
+            # Troll is on UTC+0 now and was on UTC+2 91 days back. Subtracting 91 days therefore lands two hours
+            # earlier in UTC than 91 times 24 hours does.
             (
                 "day_rounding_across_a_two_hour_dst_change",
                 datetime(2026, 10, 28, 23, 30, tzinfo=UTC),
