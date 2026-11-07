@@ -3,6 +3,7 @@ from celery import shared_task
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference
+from products.messaging.backend.provider_imports.runs import close_stale_runs
 from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
 
 
@@ -19,3 +20,9 @@ def sync_preferences_to_customerio_task(team_id: int, identifier: str) -> None:
     if preference is None:
         return
     sync_preferences_to_customerio(team_id, identifier, preference.preferences)
+
+
+@shared_task(ignore_result=True, name="products.messaging.backend.tasks.close_stale_provider_import_runs")
+def close_stale_provider_import_runs() -> None:
+    """End import runs whose workflow is gone, so a vendor key never outlives its run."""
+    close_stale_runs()

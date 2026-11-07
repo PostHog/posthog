@@ -520,18 +520,20 @@ export const MessagingPreferencesRemoveOptOutCreateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
  */
 export const messagingProviderImportsCreateBodyStepsItemMax = 64
 
+export const messagingProviderImportsCreateBodyApiKeyMax = 512
+
 export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['customerio'])
-        .describe('\* `customerio` - Customer.io')
-        .describe('The provider to import from.\n\n\* `customerio` - Customer.io'),
+        .enum(['customerio', 'resend'])
+        .describe('\* `customerio` - Customer.io\n\* `resend` - Resend')
+        .describe('The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend'),
     steps: zod
         .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
         .min(1)
@@ -540,8 +542,11 @@ export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
         ),
     api_key: zod
         .string()
+        .max(messagingProviderImportsCreateBodyApiKeyMax)
         .optional()
-        .describe("The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key."),
+        .describe(
+            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time."
+        ),
 })
 
 /**

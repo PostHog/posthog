@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from django.db import transaction
-from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -19,7 +18,8 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
-from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.models.message_suppression import SuppressionSource
+from products.messaging.backend.services.imported_data import ImportedSuppression, import_suppressions
 
 from .customerio_client import CustomerIOAPIError, CustomerIOClient
 
@@ -539,44 +539,20 @@ class CustomerIOImportService:
         purpose, or a row the bounce feedback already manages. The one exception is a row an earlier import of
         this list created without Customer.io's date and diagnostic, which gets them filled in.
         """
-        suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
-        existing = {row.identifier: row for row in suppressions.filter(identifier__in=list(imported))}
-        now = timezone.now()
-        is_bounce = source == SuppressionSource.BOUNCE
-        new_rows = [
-            MessageSuppression(
-                team_id=team_id,
-                identifier=email,
-                source=source,
-                reason=reason,
-                suppressed=True,
-                suppressed_at=details.suppressed_at or now,
-                last_bounce_at=details.suppressed_at if is_bounce else None,
-                last_bounce_diagnostic=details.diagnostic,
-                # Customer.io lists an address under bounces or invalid emails only when it can't receive
-                # mail, so these block transactional email the way our own hard bounces do.
-                hard_bounced_at=(details.suppressed_at or now) if is_bounce else None,
-                created_by_id=self.created_by_id,
-            )
-            for email, details in sorted(imported.items())
-            if email not in existing
-        ]
-        # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
-        suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
-
-        backfilled = []
-        for email, row in existing.items():
-            details = imported[email]
-            if row.reason != reason or row.deleted or row.last_bounce_diagnostic or not details.suppressed_at:
-                continue
-            row.suppressed_at = details.suppressed_at
-            row.last_bounce_at = details.suppressed_at if is_bounce else row.last_bounce_at
-            row.last_bounce_diagnostic = details.diagnostic
-            backfilled.append(row)
-        suppressions.bulk_update(
-            backfilled, ["suppressed_at", "last_bounce_at", "last_bounce_diagnostic"], batch_size=500
-        )
-        return len(new_rows)
+        return import_suppressions(
+            team_id,
+            (
+                ImportedSuppression(
+                    identifier=email,
+                    source=source,
+                    reason=reason,
+                    suppressed_at=details.suppressed_at,
+                    diagnostic=details.diagnostic,
+                )
+                for email, details in imported.items()
+            ),
+            self.created_by_id,
+        ).total_added
 
     def _bulk_update_all_preferences(self, emails: list[str], category_ids: list[str]) -> None:
         """Bulk update preferences to opt out users from ALL categories"""

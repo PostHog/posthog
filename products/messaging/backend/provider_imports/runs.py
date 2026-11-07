@@ -1,7 +1,8 @@
 """Start provider import runs, run their steps page by page, and record the outcome."""
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import asdict
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -22,6 +23,7 @@ from products.messaging.backend.models.provider_import_run import (
 )
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
+    ImportItem,
     ImportPage,
     ImportProvider,
     ImportStepError,
@@ -35,6 +37,7 @@ logger = logging.getLogger(__name__)
 # A run still active after the workflow's execution timeout has no workflow left to finish it.
 STALE_RUN_AGE = RUN_EXECUTION_TIMEOUT + timedelta(hours=1)
 MAX_STEP_WARNINGS = 50
+MAX_STEP_ITEMS = 200
 UNEXPECTED_ERROR_MESSAGE = "An unexpected error interrupted this step."
 
 
@@ -76,6 +79,9 @@ def start_run(
         raise ProviderImportAlreadyRunning(f"A {provider.label} import is already running.")
 
     credentials = provider.check_credentials(team_id, api_key)
+    progress = {step: _new_step_progress() for step in ordered_steps}
+    if provider.resumes_after_failure:
+        _continue_failed_steps(team_id, provider.key, progress)
     try:
         with transaction.atomic():
             # Create the run before storing the credentials. A concurrent start then waits on the active-run index
@@ -85,10 +91,13 @@ def start_run(
                 provider=provider.key,
                 steps=ordered_steps,
                 created_by_id=created_by_id,
-                progress={step: _new_step_progress() for step in ordered_steps},
+                progress=progress,
             )
-            run.integration_id = provider.store_credentials(team_id, credentials, created_by_id)
-            run.save(update_fields=["integration"])
+            if provider.retains_credentials:
+                run.integration_id = provider.store_credentials(team_id, credentials, created_by_id)
+            else:
+                run.temporary_api_key = credentials.api_key
+            run.save(update_fields=["integration", "temporary_api_key"])
     except IntegrityError as e:
         raise ProviderImportAlreadyRunning(f"A {provider.label} import is already running.") from e
 
@@ -114,7 +123,12 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
     if claim.completed:
         return
 
-    context = ImportContext(team_id=team_id, created_by_id=run.created_by_id, integration_id=run.integration_id)
+    context = ImportContext(
+        team_id=team_id,
+        created_by_id=run.created_by_id,
+        integration_id=run.integration_id,
+        api_key=run.temporary_api_key,
+    )
     try:
         for page in provider.run_step(step, context, claim.checkpoint):
             _save_page(team_id, run_id, step, attempt, page)
@@ -137,6 +151,18 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
 def finish_run(team_id: int, run_id: UUID) -> None:
     """Fail the steps that did not complete, and set the run's final status. A run that already ended stays as it is."""
     _close_run(team_id, run_id)
+
+
+def close_stale_runs() -> int:
+    """End runs whose workflow is gone, in every team. A timed-out workflow can't clear its own key."""
+    stale = list(
+        ProviderImportRun.objects.unscoped()
+        .filter(status__in=ACTIVE_IMPORT_STATUSES, created_at__lt=timezone.now() - STALE_RUN_AGE)
+        .values_list("team_id", "id")
+    )
+    for team_id, run_id in stale:
+        _close_run(team_id, run_id)
+    return len(stale)
 
 
 def list_runs(team_id: int, limit: int) -> list[ProviderImportRun]:
@@ -163,6 +189,14 @@ def _order_steps(provider: ImportProvider, steps: list[str]) -> list[str]:
     return [key for key in known if key in steps]
 
 
+def _continue_failed_steps(team_id: int, provider_key: str, progress: dict[str, dict[str, Any]]) -> None:
+    latest = _runs(team_id).filter(provider=provider_key).order_by("-created_at").first()
+    if latest is None or latest.status != ProviderImportStatus.FAILED:
+        return
+    for step, step_progress in progress.items():
+        step_progress["checkpoint"] = latest.progress.get(step, {}).get("checkpoint")
+
+
 def _fail_stale_runs(team_id: int) -> None:
     stale_ids = list(
         _runs(team_id)
@@ -185,7 +219,8 @@ def _close_run(team_id: int, run_id: UUID) -> None:
         completed = all(run.progress[step]["status"] == ImportStepStatus.COMPLETED for step in run.steps)
         run.status = ProviderImportStatus.COMPLETED if completed else ProviderImportStatus.FAILED
         run.finished_at = timezone.now()
-        run.save(update_fields=["progress", "status", "finished_at"])
+        run.temporary_api_key = None
+        run.save(update_fields=["progress", "status", "finished_at", "temporary_api_key"])
 
     _report_finished(run)
 
@@ -214,7 +249,9 @@ def _save_page(team_id: int, run_id: UUID, step: str, attempt: int, page: Import
         saved = page.save()
         progress["processed"] += page.processed
         progress["imported"] += saved.imported
-        progress["warnings"] = (progress["warnings"] + list(saved.warnings))[:MAX_STEP_WARNINGS]
+        _add_warnings(progress, saved.warnings)
+        _add_counts(progress, saved.counts)
+        _add_items(progress, saved.items)
         progress["checkpoint"] = page.checkpoint
         if page.checkpoint is None:
             _mark_completed(progress)
@@ -238,6 +275,30 @@ def _lock_owned_step(team_id: int, run_id: UUID, step: str, attempt: int) -> tup
     if progress.get("attempt") != attempt:
         raise StaleImportAttempt(f"Attempt {attempt} of step {step} no longer owns import run {run_id}.")
     return run, progress
+
+
+def _add_warnings(progress: dict[str, Any], warnings: tuple[str, ...]) -> None:
+    combined = progress["warnings"] + list(warnings)
+    progress["warnings"] = combined[:MAX_STEP_WARNINGS]
+    if len(combined) > MAX_STEP_WARNINGS:
+        progress["warnings_omitted"] = progress.get("warnings_omitted", 0) + len(combined) - MAX_STEP_WARNINGS
+
+
+def _add_counts(progress: dict[str, Any], counts: Mapping[str, int]) -> None:
+    if not counts:
+        return
+    totals = progress.setdefault("counts", {})
+    for key, value in counts.items():
+        totals[key] = totals.get(key, 0) + value
+
+
+def _add_items(progress: dict[str, Any], items: tuple[ImportItem, ...]) -> None:
+    if not items:
+        return
+    combined = progress.get("items", []) + [asdict(item) for item in items]
+    progress["items"] = combined[:MAX_STEP_ITEMS]
+    if len(combined) > MAX_STEP_ITEMS:
+        progress["items_omitted"] = progress.get("items_omitted", 0) + len(combined) - MAX_STEP_ITEMS
 
 
 def _new_step_progress() -> dict[str, Any]:
