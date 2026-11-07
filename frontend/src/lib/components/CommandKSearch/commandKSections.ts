@@ -170,13 +170,22 @@ const loadingSection = (key: Exclude<CommandKSectionKey, `group-${string}`>): Co
 
 const isSettled = (slot: RemoteSlot, query: string | undefined): boolean => !query || query in slot.cache
 
+// The persons API returns no total, so a full page is the only sign that more people match.
+const seeAllRows = (source: RemoteSource, found: SearchItem[]): CommandKRow[] =>
+    source === 'persons' && found.length >= SECONDARY_LIMIT
+        ? [{ kind: 'scope', key: 'persons/see-all', type: 'person', label: 'See all persons' }]
+        : []
+
 function remoteSection(
     source: RemoteSource,
     items: SearchItem[],
-    state: CommandKSection['state']
+    state: CommandKSection['state'],
+    found: SearchItem[] = items
 ): CommandKSection | null {
     const limit = source === 'results' ? RESULTS_LIMIT : SECONDARY_LIMIT
-    return items.length > 0 ? { ...readySection(source, itemRows(source, items, limit)), state } : null
+    return items.length > 0
+        ? { ...readySection(source, [...itemRows(source, items, limit), ...seeAllRows(source, found)]), state }
+        : null
 }
 
 export interface SuggestionsLoading {
@@ -410,7 +419,8 @@ function lowerSections(
                     ? remoteSection(
                           source,
                           remote[source].cache[query].filter((item) => !shown.has(item.id)),
-                          state
+                          state,
+                          remote[source].cache[query]
                       )
                     : null
             )

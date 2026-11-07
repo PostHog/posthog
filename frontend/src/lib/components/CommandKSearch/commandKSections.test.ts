@@ -13,7 +13,7 @@ import {
     resultsSettled,
     themeSearchItem,
 } from './commandKSections'
-import { RESULTS_LIMIT } from './commandKSources'
+import { RESULTS_LIMIT, SECONDARY_LIMIT } from './commandKSources'
 
 const dashboard = (id: string, ref: string): SearchItem => ({
     id,
@@ -296,6 +296,27 @@ describe('buildSections', () => {
             })
         )
         expect(sectionKinds(sections)).toEqual(expected)
+    })
+
+    test.each([
+        ['ends with a See all persons row when the person search fills its page', SECONDARY_LIMIT, 'scope'],
+        ['ends with the last person when fewer people match', SECONDARY_LIMIT - 1, 'item'],
+    ])('Persons %s', (_, count, lastKind) => {
+        const persons = Array.from({ length: count }, (_, index) => ({
+            id: `person-${index}`,
+            name: `person${index}@example.com`,
+            category: 'persons',
+            record: { type: 'person', ref: String(index) },
+        }))
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { 'type:dashboard': [dashboard('a', '1')] } }
+        remote.persons = { cache: { acme: persons } }
+        const sections = buildSections(
+            input('search', { remote, remoteQueries: { results: 'type:dashboard', persons: 'acme' } })
+        )
+        const personRows = sections.find((section) => section.key === 'persons')?.rows ?? []
+        expect(personRows.at(-1)).toMatchObject({ kind: lastKind })
+        expect(personRows.filter((row) => row.kind === 'item')).toHaveLength(count)
     })
 
     it('ranks a person who matches every word of an email search above results that match fewer', () => {
