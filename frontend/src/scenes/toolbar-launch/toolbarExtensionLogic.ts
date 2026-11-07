@@ -12,9 +12,11 @@ import {
     OpenUrlResponse,
 } from '~/toolbar/extension/messaging/appMessages'
 
-// An installed extension answers in milliseconds. The wait only runs out when another extension made Chrome expose
-// `chrome.runtime` on this page and ours isn't installed.
-const EXTENSION_RESPONSE_TIMEOUT_MS = 1000
+// An installed extension answers a ping in milliseconds. The wait only runs out when another extension made Chrome
+// expose `chrome.runtime` on this page and ours isn't installed.
+const PING_TIMEOUT_MS = 1000
+// Opening a URL also waits up to a second for the side panel, so it gets more time before the app gives up on it.
+const OPEN_URL_TIMEOUT_MS = 5000
 
 interface ChromeRuntime {
     sendMessage: (extensionId: string, message: AppMessage, callback: (response: unknown) => void) => void
@@ -22,7 +24,7 @@ interface ChromeRuntime {
 }
 
 /** Resolves `null` when the extension isn't installed, or doesn't answer this message. */
-export function sendToToolbarExtension(message: AppMessage): Promise<unknown> {
+export function sendToToolbarExtension(message: AppMessage, timeoutMs: number): Promise<unknown> {
     // Chrome defines `chrome.runtime` on a page only when an installed extension lists the page in
     // `externally_connectable`, so other browsers and Chrome without the extension stop here.
     const runtime = (window as { chrome?: { runtime?: ChromeRuntime } }).chrome?.runtime
@@ -30,7 +32,7 @@ export function sendToToolbarExtension(message: AppMessage): Promise<unknown> {
         return Promise.resolve(null)
     }
     return new Promise((resolve) => {
-        const timeout = window.setTimeout(() => resolve(null), EXTENSION_RESPONSE_TIMEOUT_MS)
+        const timeout = window.setTimeout(() => resolve(null), timeoutMs)
         const finish = (response: unknown): void => {
             window.clearTimeout(timeout)
             resolve(response ?? null)
@@ -70,7 +72,11 @@ export interface toolbarExtensionLogicActions {
         extensionInstalled: boolean
         payload?: any
     }
-    openInExtension: (url: string) => {
+    openInExtension: (
+        url: string,
+        toolbarLaunchUrl: string
+    ) => {
+        toolbarLaunchUrl: string
         url: string
     }
 }
@@ -80,30 +86,35 @@ export type toolbarExtensionLogicType = MakeLogicType<toolbarExtensionLogicValue
 export const toolbarExtensionLogic = kea<toolbarExtensionLogicType>([
     path(['scenes', 'toolbar-launch', 'toolbarExtensionLogic']),
     actions({
-        openInExtension: (url: string) => ({ url }),
+        openInExtension: (url: string, toolbarLaunchUrl: string) => ({ url, toolbarLaunchUrl }),
     }),
     loaders({
         extensionInstalled: [
             null as boolean | null,
             {
                 detectExtension: async (): Promise<boolean> => {
-                    const response = await sendToToolbarExtension({ type: APP_MESSAGE_PING })
+                    const response = await sendToToolbarExtension({ type: APP_MESSAGE_PING }, PING_TIMEOUT_MS)
                     return (response as { installed?: unknown } | null)?.installed === true
                 },
             },
         ],
     }),
     listeners({
-        openInExtension: async ({ url }) => {
-            const response = (await sendToToolbarExtension({
-                type: APP_MESSAGE_OPEN_URL,
-                url,
-            })) as OpenUrlResponse | null
-            posthog.capture('toolbar extension url opened', { panel_opened: response?.panelOpened ?? false })
+        openInExtension: async ({ url, toolbarLaunchUrl }) => {
+            const response = (await sendToToolbarExtension(
+                { type: APP_MESSAGE_OPEN_URL, url },
+                OPEN_URL_TIMEOUT_MS
+            )) as OpenUrlResponse | null
+            posthog.capture('toolbar extension url opened', {
+                opened: response?.opened ?? false,
+                panel_opened: response?.panelOpened ?? false,
+            })
             if (!response?.opened) {
-                window.open(url, '_blank', 'noopener')
+                // The extension was disabled or removed since the page checked, so launch the floating toolbar instead.
+                window.open(toolbarLaunchUrl, '_blank', 'noopener')
+                return
             }
-            if (!response?.panelOpened) {
+            if (!response.panelOpened) {
                 lemonToast.info(`Click the PostHog extension in Chrome's toolbar to use it on ${new URL(url).host}.`)
             }
         },

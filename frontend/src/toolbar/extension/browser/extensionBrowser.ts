@@ -15,9 +15,14 @@ type RuntimeMessageListener = (
     sendResponse: (response: unknown) => void
 ) => boolean | void
 
+interface ExternalMessageSender {
+    origin?: string
+    tab?: { windowId?: number }
+}
+
 type ExternalMessageListener = (
     message: unknown,
-    sender: { tab?: { windowId?: number } },
+    sender: ExternalMessageSender,
     sendResponse: (response: unknown) => void
 ) => boolean | void
 
@@ -121,7 +126,7 @@ export function openPanelFromToolbarButton(): void {
 /** Answers the PostHog app, which the manifest lets message the extension through `externally_connectable`. */
 export function listenForAppMessages(): void {
     extensionBrowser.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-        const response = respondToAppMessage(message, sender.tab?.windowId)
+        const response = respondToAppMessage(message, sender)
         if (!response) {
             return false
         }
@@ -133,7 +138,7 @@ export function listenForAppMessages(): void {
 /** `undefined` for a message this version doesn't know, so it ignores what a newer app build sends. */
 export function respondToAppMessage(
     message: unknown,
-    windowId: number | undefined
+    sender: ExternalMessageSender
 ): Promise<PingResponse | OpenUrlResponse> | undefined {
     if (typeof message !== 'object' || message === null) {
         return undefined
@@ -143,13 +148,22 @@ export function respondToAppMessage(
         return Promise.resolve({ installed: true })
     }
     if (type === APP_MESSAGE_OPEN_URL && typeof url === 'string' && isWebUrl(url)) {
+        // The panel signs in to the host the user opened it from, for example EU Cloud on a fresh install.
+        if (sender.origin) {
+            void setStoredUiHost(sender.origin)
+        }
+        const windowId = sender.tab?.windowId
         // Called before any await, so Chrome can still count the click in the app as the user action it requires.
         const panelOpened =
             windowId === undefined
                 ? Promise.resolve(false)
-                : extensionBrowser.sidePanel.open({ windowId }).then(
-                      () => true,
-                      () => false
+                : withTimeout(
+                      extensionBrowser.sidePanel.open({ windowId }).then(
+                          () => true,
+                          () => false
+                      ),
+                      PANEL_OPEN_TIMEOUT_MS,
+                      false
                   )
         return extensionBrowser.tabs.create({ url }).then(
             async () => ({ opened: true, panelOpened: await panelOpened }),
@@ -157,6 +171,13 @@ export function respondToAppMessage(
         )
     }
     return undefined
+}
+
+// The app gives up after a few seconds, so a slow panel must not hold back the answer that the tab opened.
+const PANEL_OPEN_TIMEOUT_MS = 1000
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+    return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs))])
 }
 
 function isWebUrl(url: string): boolean {

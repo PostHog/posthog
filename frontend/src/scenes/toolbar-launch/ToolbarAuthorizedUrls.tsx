@@ -171,7 +171,7 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
                                 {...(isWildcard
                                     ? {}
                                     : extensionInstalled
-                                      ? { onClick: () => openInExtension(keyedURL.url) }
+                                      ? { onClick: () => openInExtension(keyedURL.url, target) }
                                       : { render: <LinkPrimitive to={target} target="_blank" /> })}
                                 data-attr={openDataAttr}
                             >
