@@ -14,7 +14,7 @@ tools:
         description: >
             Get the person's layout for a supported UI customization context. For analytics_sidebar, this is the
             Analytics pane in the new navigation. It is the person's own layout, or the default when customized is
-            false. Call it before you change the sidebar, then send the whole changed layout to ui-customization-set.
+            false. Call it before you change the fragment, then send the whole changed layout to ui-customization-set.
         feature_flag: ui-customization
     ui-customization-reset:
         operation: ui_customization_destroy

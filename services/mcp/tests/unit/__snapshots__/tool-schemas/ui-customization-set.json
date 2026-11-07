@@ -7,7 +7,7 @@
             "type": "string"
         },
         "layout": {
-            "description": "The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole sidebar, so send every section to keep.",
+            "description": "The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole fragment, so send every section to keep.",
             "properties": {
                 "sections": {
                     "items": {
@@ -56,7 +56,7 @@
                                 "items": {
                                     "anyOf": [
                                         {
-                                            "description": "A row that opens a page or an object.",
+                                            "description": "A link to an Analytics page or a project object. Pages supply their own label and icon.",
                                             "properties": {
                                                 "icon": {
                                                     "anyOf": [
@@ -88,8 +88,7 @@
                                                         {
                                                             "type": "null"
                                                         }
-                                                    ],
-                                                    "description": "Icon of the row. A page has its own icon."
+                                                    ]
                                                 },
                                                 "label": {
                                                     "anyOf": [
@@ -102,8 +101,7 @@
                                                         {
                                                             "type": "null"
                                                         }
-                                                    ],
-                                                    "description": "Text of the row. Leave it out for a page to use the page's name. Required otherwise."
+                                                    ]
                                                 },
                                                 "to": {
                                                     "anyOf": [
@@ -189,7 +187,7 @@
                                             "type": "object"
                                         },
                                         {
-                                            "description": "A button that opens a page or an object. Use it for an action, such as a new insight.",
+                                            "description": "A button that opens an Analytics page or a project object.",
                                             "properties": {
                                                 "icon": {
                                                     "anyOf": [
@@ -341,7 +339,7 @@
                                             "type": "object"
                                         },
                                         {
-                                            "description": "A list that PostHog fills, such as the items the person pinned.",
+                                            "description": "A list of pinned, recent, or built-in Analytics items.",
                                             "properties": {
                                                 "source": {
                                                     "enum": ["pinned", "recents", "by_posthog"],

@@ -15102,7 +15102,7 @@
         "feature_flag": "tasks"
     },
     "ui-customization-get": {
-        "description": "Get the person's layout for a supported UI customization context. For analytics_sidebar, this is the Analytics pane in the new navigation. It is the person's own layout, or the default when customized is false. Call it before you change the sidebar, then send the whole changed layout to ui-customization-set.",
+        "description": "Get the person's layout for a supported UI customization context. For analytics_sidebar, this is the Analytics pane in the new navigation. It is the person's own layout, or the default when customized is false. Call it before you change the fragment, then send the whole changed layout to ui-customization-set.",
         "category": "UI customization",
         "feature": "ui_customization",
         "summary": "Get UI customization",

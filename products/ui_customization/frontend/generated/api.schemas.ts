@@ -7,9 +7,9 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export type SidebarIconApi = (typeof SidebarIconApi)[keyof typeof SidebarIconApi]
+export type FragmentIconApi = (typeof FragmentIconApi)[keyof typeof FragmentIconApi]
 
-export const SidebarIconApi = {
+export const FragmentIconApi = {
     List: 'list',
     Person: 'person',
     People: 'people',
@@ -32,9 +32,9 @@ export const SidebarIconApi = {
     Warning: 'warning',
 } as const
 
-export type SidebarPageApi = (typeof SidebarPageApi)[keyof typeof SidebarPageApi]
+export type AnalyticsPageApi = (typeof AnalyticsPageApi)[keyof typeof AnalyticsPageApi]
 
-export const SidebarPageApi = {
+export const AnalyticsPageApi = {
     AnalyticsAll: 'analytics_all',
     AnalyticsMine: 'analytics_mine',
     Collections: 'collections',
@@ -49,12 +49,12 @@ export const SidebarPageApi = {
 /**
  * A PostHog page. It has its own label and icon.
  */
-export interface SidebarPageTargetApi {
+export interface AnalyticsPageTargetApi {
     kind: 'page'
-    page: SidebarPageApi
+    page: AnalyticsPageApi
 }
 
-export interface SidebarInsightTargetApi {
+export interface AnalyticsInsightTargetApi {
     kind: 'insight'
     /**
      * The insight's short ID, as in /insights/<short_id>.
@@ -63,7 +63,7 @@ export interface SidebarInsightTargetApi {
     short_id: string
 }
 
-export interface SidebarDashboardTargetApi {
+export interface AnalyticsDashboardTargetApi {
     kind: 'dashboard'
     /**
      * The dashboard's numeric ID.
@@ -72,7 +72,7 @@ export interface SidebarDashboardTargetApi {
     id: number
 }
 
-export interface SidebarNotebookTargetApi {
+export interface AnalyticsNotebookTargetApi {
     kind: 'notebook'
     /**
      * The notebook's short ID, as in /notebooks/<short_id>.
@@ -82,47 +82,45 @@ export interface SidebarNotebookTargetApi {
 }
 
 /**
- * A row that opens a page or an object.
+ * A link to an Analytics page or a project object. Pages supply their own label and icon.
  */
-export interface SidebarLinkApi {
+export interface AnalyticsFragmentLinkApi {
     type: 'link'
     /** What the item opens. Only pages and objects of this project. */
-    to: SidebarPageTargetApi | SidebarInsightTargetApi | SidebarDashboardTargetApi | SidebarNotebookTargetApi
-    /** Text of the row. Leave it out for a page to use the page's name. Required otherwise. */
+    to: AnalyticsPageTargetApi | AnalyticsInsightTargetApi | AnalyticsDashboardTargetApi | AnalyticsNotebookTargetApi
     label?: string | null
-    /** Icon of the row. A page has its own icon. */
-    icon?: SidebarIconApi | null
+    icon?: FragmentIconApi | null
 }
 
-export type SidebarButtonVariantApi = (typeof SidebarButtonVariantApi)[keyof typeof SidebarButtonVariantApi]
+export type FragmentButtonVariantApi = (typeof FragmentButtonVariantApi)[keyof typeof FragmentButtonVariantApi]
 
-export const SidebarButtonVariantApi = {
+export const FragmentButtonVariantApi = {
     Default: 'default',
     Primary: 'primary',
     Outline: 'outline',
 } as const
 
 /**
- * A button that opens a page or an object. Use it for an action, such as a new insight.
+ * A button that opens an Analytics page or a project object.
  */
-export interface SidebarButtonApi {
+export interface AnalyticsFragmentButtonApi {
     type: 'button'
     /** What the item opens. Only pages and objects of this project. */
-    to: SidebarPageTargetApi | SidebarInsightTargetApi | SidebarDashboardTargetApi | SidebarNotebookTargetApi
+    to: AnalyticsPageTargetApi | AnalyticsInsightTargetApi | AnalyticsDashboardTargetApi | AnalyticsNotebookTargetApi
     /**
      * @minLength 1
      * @maxLength 60
      * @pattern ^[^\x00]*$
      */
     label: string
-    icon?: SidebarIconApi | null
-    variant?: SidebarButtonVariantApi
+    icon?: FragmentIconApi | null
+    variant?: FragmentButtonVariantApi
 }
 
 /**
  * The latest value of a trends insight, with a sparkline of its first series. Opens the insight.
  */
-export interface SidebarMetricApi {
+export interface AnalyticsFragmentMetricApi {
     type: 'metric'
     /**
      * Short ID of a trends insight.
@@ -138,23 +136,23 @@ export interface SidebarMetricApi {
     label: string
 }
 
-export type SidebarListSourceApi = (typeof SidebarListSourceApi)[keyof typeof SidebarListSourceApi]
+export type AnalyticsListSourceApi = (typeof AnalyticsListSourceApi)[keyof typeof AnalyticsListSourceApi]
 
-export const SidebarListSourceApi = {
+export const AnalyticsListSourceApi = {
     Pinned: 'pinned',
     Recents: 'recents',
     ByPosthog: 'by_posthog',
 } as const
 
 /**
- * A list that PostHog fills, such as the items the person pinned.
+ * A list of pinned, recent, or built-in Analytics items.
  */
-export interface SidebarListApi {
+export interface AnalyticsFragmentListApi {
     type: 'list'
-    source: SidebarListSourceApi
+    source: AnalyticsListSourceApi
 }
 
-export interface SidebarSectionApi {
+export interface AnalyticsFragmentSectionApi {
     /**
      * Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID.
      * @minLength 1
@@ -165,34 +163,39 @@ export interface SidebarSectionApi {
     /** Heading of the section. A section with a heading can be closed. Without one, its items show at the top. */
     title?: string | null
     /** Icon before the heading. */
-    icon?: SidebarIconApi | null
+    icon?: FragmentIconApi | null
     /**
      * @minItems 1
      * @maxItems 12
      */
-    items: (SidebarLinkApi | SidebarButtonApi | SidebarMetricApi | SidebarListApi)[]
+    items: (
+        | AnalyticsFragmentLinkApi
+        | AnalyticsFragmentButtonApi
+        | AnalyticsFragmentMetricApi
+        | AnalyticsFragmentListApi
+    )[]
 }
 
 /**
- * The sections of the Analytics pane, from top to bottom. A section with no items to show is hidden.
+ * The Analytics context's fragment. A section with no items to show is hidden.
  */
-export interface AnalyticsSidebarLayoutApi {
+export interface AnalyticsFragmentLayoutApi {
     version?: 1
     /**
      * @minItems 1
      * @maxItems 10
      */
-    sections: SidebarSectionApi[]
+    sections: AnalyticsFragmentSectionApi[]
 }
 
 export interface CustomizationApi {
     /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. */
-    layout: AnalyticsSidebarLayoutApi
+    layout: AnalyticsFragmentLayoutApi
     /** True when the person saved their own layout. False for the default layout. */
     customized: boolean
 }
 
 export interface CustomizationRequestApi {
-    /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole sidebar, so send every section to keep. */
-    layout: AnalyticsSidebarLayoutApi
+    /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole fragment, so send every section to keep. */
+    layout: AnalyticsFragmentLayoutApi
 }

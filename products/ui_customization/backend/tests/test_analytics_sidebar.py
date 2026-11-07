@@ -50,7 +50,7 @@ def _item(item: dict[str, Any]) -> dict[str, Any]:
     return _with(["sections", 0, "items", 0], item)
 
 
-class TestAnalyticsSidebarLayout(SimpleTestCase):
+class TestAnalyticsFragmentLayout(SimpleTestCase):
     @parameterized.expand([(30, True), (31, False)])
     def test_total_item_limit_across_sections(self, item_count: int, accepted: bool) -> None:
         layout = {

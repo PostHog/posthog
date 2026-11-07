@@ -199,10 +199,7 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                                         ),
                                                     zod.null(),
                                                 ])
-                                                .optional()
-                                                .describe(
-                                                    "Text of the row. Leave it out for a page to use the page's name. Required otherwise."
-                                                ),
+                                                .optional(),
                                             icon: zod
                                                 .union([
                                                     zod.enum([
@@ -229,10 +226,11 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .optional()
-                                                .describe('Icon of the row. A page has its own icon.'),
+                                                .optional(),
                                         })
-                                        .describe('A row that opens a page or an object.'),
+                                        .describe(
+                                            'A link to an Analytics page or a project object. Pages supply their own label and icon.'
+                                        ),
                                     zod
                                         .object({
                                             type: zod.literal('button'),
@@ -324,9 +322,7 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                                     uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemTwoVariantDefault
                                                 ),
                                         })
-                                        .describe(
-                                            'A button that opens a page or an object. Use it for an action, such as a new insight.'
-                                        ),
+                                        .describe('A button that opens an Analytics page or a project object.'),
                                     zod
                                         .object({
                                             type: zod.literal('metric'),
@@ -355,7 +351,7 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                             type: zod.literal('list'),
                                             source: zod.enum(['pinned', 'recents', 'by_posthog']),
                                         })
-                                        .describe('A list that PostHog fills, such as the items the person pinned.'),
+                                        .describe('A list of pinned, recent, or built-in Analytics items.'),
                                 ])
                             )
                             .min(1)
@@ -365,9 +361,9 @@ export const UiCustomizationUpdateBody = () => zod.object({
                 .min(1)
                 .max(uiCustomizationUpdateBodyLayoutOneSectionsMax),
         })
-        .describe('The sections of the Analytics pane, from top to bottom. A section with no items to show is hidden.')
+        .describe("The Analytics context's fragment. A section with no items to show is hidden.")
         .describe(
-            "The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole sidebar, so send every section to keep."
+            "The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole fragment, so send every section to keep."
         ),
 })
 

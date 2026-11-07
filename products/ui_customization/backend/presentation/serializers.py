@@ -34,7 +34,7 @@ LAYOUT_HELP_TEXT = (
 
 class CustomizationRequestSerializer(serializers.Serializer):
     layout = CustomizationLayoutField(
-        help_text=f"{LAYOUT_HELP_TEXT} The layout replaces the whole sidebar, so send every section to keep."
+        help_text=f"{LAYOUT_HELP_TEXT} The layout replaces the whole fragment, so send every section to keep."
     )
 
 

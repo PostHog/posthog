@@ -5,19 +5,7 @@ class CustomizationContext(LabeledStrEnum):
     ANALYTICS_SIDEBAR = "analytics_sidebar", "Analytics sidebar"
 
 
-class SidebarPage(LabeledStrEnum):
-    ANALYTICS_ALL = "analytics_all", "View all"
-    ANALYTICS_MINE = "analytics_mine", "My work"
-    COLLECTIONS = "collections", "Collections"
-    ALERTS = "alerts", "Alerts"
-    SUBSCRIPTIONS = "subscriptions", "Subscriptions"
-    PRODUCT_ANALYTICS = "product_analytics", "Product analytics"
-    WEB_ANALYTICS = "web_analytics", "Web analytics"
-    SQL_EDITOR = "sql_editor", "SQL editor"
-    NEW_INSIGHT = "new_insight", "New insight"
-
-
-class SidebarIcon(LabeledStrEnum):
+class FragmentIcon(LabeledStrEnum):
     LIST = "list", "List"
     PERSON = "person", "Person"
     PEOPLE = "people", "People"
@@ -40,13 +28,7 @@ class SidebarIcon(LabeledStrEnum):
     WARNING = "warning", "Warning"
 
 
-class SidebarListSource(LabeledStrEnum):
-    PINNED = "pinned", "Items the person pinned"
-    RECENTS = "recents", "Items the person opened recently"
-    BY_POSTHOG = "by_posthog", "Ready-made analytics by PostHog"
-
-
-class SidebarButtonVariant(LabeledStrEnum):
+class FragmentButtonVariant(LabeledStrEnum):
     DEFAULT = "default", "Default"
     PRIMARY = "primary", "Primary"
     OUTLINE = "outline", "Outline"
