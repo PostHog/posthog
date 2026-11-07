@@ -227,6 +227,14 @@ class AccountAudienceFilters:
     custom_properties: tuple[AccountAudienceCustomPropertyFilter, ...] = ()
 
 
+@frozen
+class PersonGroupMembership:
+    """The group type whose person-to-group membership is recorded, and whether that record is complete."""
+
+    group_type_index: int
+    ready: bool
+
+
 class AccountAudienceProvider(Protocol):
     def count_accounts(self, team: "Team", filters: AccountAudienceFilters) -> int: ...
 
@@ -235,6 +243,8 @@ class AccountAudienceProvider(Protocol):
     ) -> list[str]: ...
 
     def get_account_group_type_name(self, team: "Team") -> str | None: ...
+
+    def get_person_group_membership(self, team: "Team") -> PersonGroupMembership | None: ...
 
 
 @frozen
