@@ -57,8 +57,21 @@ export async function readRepository(runtime: Runtime): Promise<Repository | und
     return { root: found.root, remote: url === undefined ? undefined : stripCredentials(url) }
 }
 
-export function pickProviderHint(): string {
+function pickProviderHint(): string {
     return `Pass --provider with one of: ${WORKLOAD_PROVIDERS.map((provider) => provider.key).join(', ')}.`
+}
+
+export function providerByKey(key: string): WorkloadProvider {
+    const provider = WORKLOAD_PROVIDERS.find((candidate) => candidate.key === key)
+    if (!provider) {
+        throw new HogError(
+            'unknown_provider',
+            `hog doesn't support the CI provider ${key}.`,
+            pickProviderHint(),
+            EXIT_USAGE
+        )
+    }
+    return provider
 }
 
 export async function detectRepositoryProvider(

@@ -6,12 +6,10 @@ import { GITHUB_ACTIONS } from './github-actions/github-actions'
 
 export type WorkloadConditions = Record<string, string>
 
-// The backend keeps the matching entry in posthog/workload_identity/providers.py, under the same key and issuer.
+// The backend keeps the matching entry in posthog/workload_identity/providers.py, under the same key.
 export interface WorkloadProvider {
     readonly key: string
     readonly name: string
-    readonly issuer: string
-    readonly docsUrl: string
     detect(env: Env): boolean
     // Resolves to undefined when the job isn't set up to get a token, so other credentials can apply.
     fetchToken(runtime: Runtime, audience: Host): Promise<ProviderIdToken | undefined>

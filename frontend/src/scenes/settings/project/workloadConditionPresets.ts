@@ -13,7 +13,7 @@ export interface WorkloadConditionRow {
     claim?: string
 }
 
-export interface WorkloadConditionsResult {
+interface WorkloadConditionsResult {
     conditions: Record<string, string>
     conflict?: string
 }
