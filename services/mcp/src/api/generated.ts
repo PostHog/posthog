@@ -9573,6 +9573,7 @@ export namespace Schemas {
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
       AwsRedshift: 'aws-redshift',
+      AwsKinesis: 'aws-kinesis',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
       YoutubeAnalytics: 'youtube-analytics',
@@ -60091,6 +60092,7 @@ export namespace Schemas {
      * * `anthropic` - Anthropic
      * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
+     * * `aws-kinesis` - Aws Kinesis
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
@@ -60146,6 +60148,7 @@ export namespace Schemas {
       Anthropic: 'anthropic',
       AppleAds: 'apple-ads',
       Apns: 'apns',
+      AwsKinesis: 'aws-kinesis',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
@@ -60201,6 +60204,7 @@ export namespace Schemas {
        * * `anthropic` - Anthropic
        * * `apple-ads` - Apple Ads
        * * `apns` - Apple Push
+       * * `aws-kinesis` - Aws Kinesis
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
        * * `azure-blob` - Azure Blob
@@ -60367,6 +60371,7 @@ export namespace Schemas {
        * * `anthropic` - Anthropic
        * * `apple-ads` - Apple Ads
        * * `apns` - Apple Push
+       * * `aws-kinesis` - Aws Kinesis
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
        * * `azure-blob` - Azure Blob
@@ -132074,6 +132079,7 @@ export namespace Schemas {
      * * `anthropic` - Anthropic
      * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
+     * * `aws-kinesis` - Aws Kinesis
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
@@ -132140,6 +132146,7 @@ export namespace Schemas {
       Anthropic: 'anthropic',
       Apns: 'apns',
       AppleAds: 'apple-ads',
+      AwsKinesis: 'aws-kinesis',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',

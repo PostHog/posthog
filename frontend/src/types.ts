@@ -4825,6 +4825,8 @@ export interface PreflightStatus {
     licensed_users_available?: number | null
     openai_available?: boolean
     anthropic_available?: boolean
+    /** PostHog's role for AWS destination connections, which a customer's role must trust. */
+    cdp_aws_external_role_arn?: string | null
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
@@ -5689,6 +5691,7 @@ export const INTEGRATION_KINDS = [
     'postgresql',
     'aws-s3',
     'aws-redshift',
+    'aws-kinesis',
     's3-compatible',
     'snowflake',
     'youtube-analytics',

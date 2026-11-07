@@ -144,6 +144,7 @@ export interface integrationsLogicValues {
         kinds: (
             | 'apns'
             | 'apple-ads'
+            | 'aws-kinesis'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -265,6 +266,7 @@ export interface integrationsLogicActions {
         kind:
             | 'apns'
             | 'apple-ads'
+            | 'aws-kinesis'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -402,6 +404,7 @@ export interface integrationsLogicActions {
             kind:
                 | 'apns'
                 | 'apple-ads'
+                | 'aws-kinesis'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -468,6 +471,7 @@ export interface integrationsLogicActions {
             kind:
                 | 'apns'
                 | 'apple-ads'
+                | 'aws-kinesis'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -528,6 +532,7 @@ export interface integrationsLogicActions {
         kind:
             | 'apns'
             | 'apple-ads'
+            | 'aws-kinesis'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -594,6 +599,7 @@ export interface integrationsLogicActions {
         accessRequest:
             | 'apns'
             | 'apple-ads'
+            | 'aws-kinesis'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -645,6 +651,7 @@ export interface integrationsLogicActions {
         accessRequest:
             | 'apns'
             | 'apple-ads'
+            | 'aws-kinesis'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -743,6 +750,7 @@ export interface integrationsLogicMeta {
             kinds: (
                 | 'apns'
                 | 'apple-ads'
+                | 'aws-kinesis'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
