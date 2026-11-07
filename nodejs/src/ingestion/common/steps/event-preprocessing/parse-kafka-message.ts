@@ -137,6 +137,10 @@ function applyCaptureOptions(options: unknown, properties: Properties, headers: 
         count('req_lib', 'invalid_type')
         return
     }
+    if (lib.trim() === '' || libVersion.trim() === '') {
+        count('req_lib', 'empty')
+        return
+    }
     if (!isNonEmptyString(properties.$lib)) {
         properties.$lib = lib
         properties.$lib_version = libVersion

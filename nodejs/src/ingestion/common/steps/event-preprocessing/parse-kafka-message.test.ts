@@ -626,7 +626,15 @@ describe('createParseKafkaMessageStep', () => {
                 { $lib: 'posthog-rs', $lib_version: '1.0.0' },
                 'version_filled',
             ],
+            [
+                'equal to the header with a whitespace version',
+                { $lib: 'posthog-rs', $lib_version: ' ' },
+                { $lib: 'posthog-rs', $lib_version: ' ' },
+                'kept',
+            ],
+            ['whitespace', { $lib: ' ' }, { $lib: ' ', $lib_version: undefined }, 'kept'],
             ['an empty string', { $lib: '' }, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'filled'],
+            ['an array', { $lib: ['posthog-rs'] }, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'filled'],
             ['a number', { $lib: 5 }, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'filled'],
             ['a boolean', { $lib: true }, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'filled'],
             ['an object', { $lib: {} }, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'filled'],
@@ -655,6 +663,21 @@ describe('createParseKafkaMessageStep', () => {
             expect(properties).toMatchObject(clientProperties)
             expect(properties.$lib).toBeUndefined()
             expect(await countedOutcomes()).toEqual({ [`${key}:invalid_type:off`]: 1 })
+        })
+
+        it.each([
+            ['req_lib is empty', { req_lib: '', req_lib_version: '1.0.0' }],
+            ['req_lib is whitespace', { req_lib: ' ', req_lib_version: '1.0.0' }],
+            ['req_lib_version is empty', { req_lib: 'posthog-rs', req_lib_version: '' }],
+            ['req_lib_version is whitespace', { req_lib: 'posthog-rs', req_lib_version: '\t' }],
+        ])('treats the header pair as missing when %s', async (_label, options) => {
+            const properties = await parseProperties({ properties: { $lib_version: '0.9.0' } }, { options })
+
+            expect({ $lib: properties.$lib, $lib_version: properties.$lib_version }).toEqual({
+                $lib: undefined,
+                $lib_version: '0.9.0',
+            })
+            expect(await countedOutcomes()).toEqual({ 'req_lib:empty:off': 1 })
         })
 
         it.each([
