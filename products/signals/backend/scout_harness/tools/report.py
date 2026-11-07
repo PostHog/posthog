@@ -158,6 +158,7 @@ from products.signals.backend.scout_report.judge import (
 from products.signals.backend.slack_formatting import strip_chart_references
 from products.signals.backend.source_issues import parse_source_issue_url
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
+from products.signals.backend.task_profiles import REPO_SELECTION_WITHOUT_REPORT
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
@@ -1596,10 +1597,6 @@ async def _resolve_report_repository(
         get_or_create_signals_sandbox_env,
         resolve_user_id_for_team,
     )
-    from products.signals.backend.temporal.agentic.select_repository import (
-        GITHUB_ONLY_DOMAINS,  # noqa: PLC0415 — break worker-boot import cycle
-    )
-    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — break worker-boot import cycle
 
     # A team with no GitHub integration can't resolve an acting user — `resolve_user_id_for_team`
     # raises. Repo selection / autostart is optional, so treat that as "no repo" (the report still
@@ -1615,10 +1612,7 @@ async def _resolve_report_repository(
         return RepoSelectionResult(repository=None, reason="No GitHub integration; report lands without a draft PR.")
 
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-        team_id,
-        SIGNALS_REPO_DISCOVERY_ENV_NAME,
-        tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
-        allowed_domains=GITHUB_ONLY_DOMAINS,
+        team_id, SIGNALS_REPO_DISCOVERY_ENV_NAME, REPO_SELECTION_WITHOUT_REPORT
     )
     return await select_repository_for_team(
         team_id=team_id,

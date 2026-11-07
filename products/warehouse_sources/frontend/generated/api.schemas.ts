@@ -415,6 +415,26 @@ export interface RowFilterColumnApi {
     operators: string[]
 }
 
+/**
+ * The kind of personal or secret data the column's name and type suggest, or null.
+ * @nullable
+ */
+export type ExternalDataSchemaApiAvailableColumnsItemSensitivity =
+    | (typeof ExternalDataSchemaApiAvailableColumnsItemSensitivity)[keyof typeof ExternalDataSchemaApiAvailableColumnsItemSensitivity]
+    | null
+
+export const ExternalDataSchemaApiAvailableColumnsItemSensitivity = {
+    Email: 'email',
+    Phone: 'phone',
+    Name: 'name',
+    Address: 'address',
+    DateOfBirth: 'date_of_birth',
+    IpAddress: 'ip_address',
+    Token: 'token',
+    Secret: 'secret',
+    CardNumber: 'card_number',
+} as const
+
 export interface ExternalDataSourceApiVersionDeprecationApi {
     /** The deprecated vendor API version this source is pinned to. */
     version: string
@@ -444,6 +464,11 @@ export type ExternalDataSchemaApiAvailableColumnsItem = {
     name: string
     data_type?: string
     is_nullable?: boolean
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    sensitivity?: ExternalDataSchemaApiAvailableColumnsItemSensitivity
 }
 
 /**
@@ -609,6 +634,13 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     readonly history_table_name: string | null
+    /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+    drop_history_table?: boolean
+    /**
+     * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+     * @nullable
+     */
+    readonly registered_history_table_name: string | null
     /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
@@ -651,10 +683,35 @@ export type PatchedExternalDataSchemaApiRowFiltersItem = {
     value: unknown
 }
 
+/**
+ * The kind of personal or secret data the column's name and type suggest, or null.
+ * @nullable
+ */
+export type PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity =
+    | (typeof PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity)[keyof typeof PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity]
+    | null
+
+export const PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity = {
+    Email: 'email',
+    Phone: 'phone',
+    Name: 'name',
+    Address: 'address',
+    DateOfBirth: 'date_of_birth',
+    IpAddress: 'ip_address',
+    Token: 'token',
+    Secret: 'secret',
+    CardNumber: 'card_number',
+} as const
+
 export type PatchedExternalDataSchemaApiAvailableColumnsItem = {
     name: string
     data_type?: string
     is_nullable?: boolean
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    sensitivity?: PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity
 }
 
 /**
@@ -820,6 +877,13 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     readonly history_table_name?: string | null
+    /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+    drop_history_table?: boolean
+    /**
+     * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+     * @nullable
+     */
+    readonly registered_history_table_name?: string | null
     /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
@@ -2640,6 +2704,14 @@ export type ExternalDataSchemasCancelCreate200 = {
 }
 
 export type ExternalDataSchemasCancelCreate400 = {
+    detail?: string
+}
+
+export type ExternalDataSchemasHistoryTableDestroy400 = {
+    detail?: string
+}
+
+export type ExternalDataSchemasHistoryTableDestroy503 = {
     detail?: string
 }
 

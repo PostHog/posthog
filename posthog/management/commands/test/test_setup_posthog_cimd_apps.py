@@ -5,10 +5,9 @@ from django.test import TestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.management.commands.setup_posthog_cimd_apps import POSTHOG_CIMD_DOCUMENTS
+from posthog.management.commands.setup_posthog_cimd_apps import HOG_CLIENT_ID, POSTHOG_CIMD_DOCUMENTS
 from posthog.models import OAuthApplication
 
-HOG_CLIENT_ID = "https://posthog.com/.well-known/oauth/hog/client-metadata.json"
 CLIENT_IDS = sorted(str(document["client_id"]) for document in POSTHOG_CIMD_DOCUMENTS)
 
 
@@ -19,7 +18,7 @@ class TestSetupPostHogCIMDApps(TestCase):
     @override_settings(**LOCAL)
     def test_every_posthog_cimd_app_is_created_verified_and_a_rerun_verifies_an_existing_one(self) -> None:
         call_command("setup_posthog_cimd_apps", stdout=StringIO())
-        OAuthApplication.objects.filter(client_id=HOG_CLIENT_ID).update(is_verified=False)
+        OAuthApplication.objects.filter(client_id=HOG_CLIENT_ID).update(is_verified=False, supports_step_up=False)
 
         call_command("setup_posthog_cimd_apps", stdout=StringIO())
 
@@ -28,6 +27,7 @@ class TestSetupPostHogCIMDApps(TestCase):
         self.assertTrue(all(app.is_verified and app.is_cimd_client for app in apps))
         hog = apps.get(client_id=HOG_CLIENT_ID)
         self.assertEqual(hog.authorization_grant_type, OAuthApplication.GRANT_DEVICE_CODE)
+        self.assertEqual([app.client_id for app in apps if app.supports_step_up], [HOG_CLIENT_ID])
 
     @parameterized.expand(
         [
