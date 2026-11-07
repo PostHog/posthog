@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -9,9 +11,13 @@ import { deliveryWebhooksLogic } from './deliveryWebhooksLogic'
 describe('deliveryWebhooksLogic', () => {
     let logic: ReturnType<typeof deliveryWebhooksLogic.build>
     let created: Record<string, any>[]
+    let requestedTeamIds: Set<string>
+    // An environment that is not its project's primary one, so a request by project ID goes to the wrong one.
+    const environment = { ...MOCK_DEFAULT_TEAM, id: 2001 }
 
     beforeEach(() => {
         created = []
+        requestedTeamIds = new Set()
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_function_templates/template-webhook/': {
@@ -20,16 +26,53 @@ describe('deliveryWebhooksLogic', () => {
                     inputs_schema: [{ key: 'url', type: 'string' }],
                     icon_url: '/static/services/webhook.svg',
                 },
+                '/api/projects/:team_id/messaging_templates/': ({ request, params }) => {
+                    requestedTeamIds.add(String(params.team_id))
+                    const offset = new URL(request.url).searchParams.get('offset')
+                    return offset === '0'
+                        ? [
+                              200,
+                              {
+                                  next: 'http://localhost/api/projects/2001/messaging_templates/?limit=100&offset=2',
+                                  results: [
+                                      {
+                                          id: 'template-receipt',
+                                          name: 'Receipt',
+                                          transactional_hog_flow_id: 'flow-receipt',
+                                      },
+                                      {
+                                          id: 'template-newsletter',
+                                          name: 'Newsletter',
+                                          transactional_hog_flow_id: null,
+                                      },
+                                  ],
+                              },
+                          ]
+                        : [
+                              200,
+                              {
+                                  next: null,
+                                  results: [
+                                      {
+                                          id: 'template-reset',
+                                          name: 'Password reset',
+                                          transactional_hog_flow_id: 'flow-reset',
+                                      },
+                                  ],
+                              },
+                          ]
+                },
             },
             post: {
-                '/api/projects/:team_id/hog_functions/': async ({ request }) => {
+                '/api/projects/:team_id/hog_functions/': async ({ request, params }) => {
+                    requestedTeamIds.add(String(params.team_id))
                     const body = (await request.json()) as Record<string, any>
                     created.push(body)
                     return [201, { id: 'new-webhook', ...body }]
                 },
             },
         })
-        initKeaTests()
+        initKeaTests(true, environment)
         logic = deliveryWebhooksLogic()
         logic.mount()
     })
@@ -38,16 +81,25 @@ describe('deliveryWebhooksLogic', () => {
         logic.unmount()
     })
 
-    it('creates a signed webhook that the webhooks list finds, and shows its secret once', async () => {
+    it.each<[string, string[], string[] | undefined]>([
+        ['every transactional email', [], undefined],
+        ['the picked transactional emails', ['Password reset'], ['flow-reset']],
+    ])('creates a signed webhook for %s that the webhooks list finds', async (_, picked, workflowIds) => {
         logic.actions.openAddModal()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.transactionalEmailOptions.map(({ label }) => label)).toEqual(['Receipt', 'Password reset'])
         logic.actions.setWebhookFormValues({
             url: ' https://example.com/hooks ',
             events: ['$workflows_email_delivered', '$workflows_email_bounced'],
+            workflowIds: logic.values.transactionalEmailOptions
+                .filter(({ label }) => picked.includes(label))
+                .map(({ key }) => key),
         })
         logic.actions.submitWebhookForm()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(created).toHaveLength(1)
+        expect([...requestedTeamIds]).toEqual([String(environment.id)])
         const [webhook] = created
         expect(webhook.template_id).toEqual('template-webhook')
         expect(webhook.inputs.url.value).toEqual('https://example.com/hooks')
@@ -58,6 +110,9 @@ describe('deliveryWebhooksLogic', () => {
         // The list asks the API for destinations whose filters contain this group.
         expect(webhook.filters.properties).toEqual(
             expect.arrayContaining(DELIVERY_WEBHOOK_LIST_FILTER_GROUPS[0].properties!)
+        )
+        expect(webhook.filters.properties.find((p: { key: string }) => p.key === '$workflow_id')?.value).toEqual(
+            workflowIds
         )
 
         const secret = logic.values.createdSecret
