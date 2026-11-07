@@ -109,7 +109,7 @@ function unauthorizedClient(host: Host, body: OAuthError | undefined): HogError 
     return new HogError(
         'login_unavailable',
         `${host} won't log hog in: ${escapeControls(body.error_description)}`,
-        'Set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID instead.'
+        'Set HOG_PERSONAL_API_KEY instead, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.'
     )
 }
 
@@ -182,7 +182,7 @@ export async function startDeviceLogin(
         throw new HogError(
             'login_unavailable',
             `${host} didn't start a login: it answered with HTTP ${response.status}.`,
-            'Check the host. A self-hosted PostHog must be able to reach posthog.com to log hog in. Otherwise set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID.'
+            'Check the host. A self-hosted PostHog must be able to reach posthog.com to log hog in. Otherwise set HOG_PERSONAL_API_KEY, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.'
         )
     }
     return {
