@@ -16,6 +16,11 @@ from temporalio.exceptions import ActivityError, RetryState
 
 from posthog.models import Organization, Team
 
+from products.conversations.backend.ai.llms import (
+    LLM_REQUEST_TIMEOUT_SECONDS,
+    create_message as _create_message,
+    strip_json_fence as _strip_json_fence,
+)
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.temporal.ai_reply.activities.clarify import _clarify_sync
 from products.conversations.backend.temporal.ai_reply.activities.classify import _classify
@@ -33,17 +38,12 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     BASE_DRAFT_SCOPES,
     DIAGNOSTIC_SCOPES_PRESET,
     LEGACY_MAX_ATTEMPTS,
-    LLM_REQUEST_TIMEOUT_SECONDS,
     MAX_ATTEMPTS,
     MAX_VALIDATE_EVIDENCE_CHARS,
     PUBLISHABLE_DRAFT_SCOPES,
     TIERED_CLARIFY_PATCH,
 )
 from products.conversations.backend.temporal.ai_reply.gate import FINDINGS_WITHHELD_REASON, format_findings_comment
-from products.conversations.backend.temporal.ai_reply.llms import (
-    create_message as _create_message,
-    strip_json_fence as _strip_json_fence,
-)
 from products.conversations.backend.temporal.ai_reply.schemas import (
     BuildContextOutput,
     ClarifyInput,

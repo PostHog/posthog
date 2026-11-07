@@ -60,6 +60,7 @@ import {
 
 import {
     conversationsTicketsAiFeedbackCreate,
+    conversationsTicketsWriteBriefCreate,
     conversationsTicketsAiHumanOutcomeCreate,
     conversationsTicketsDestroy,
     conversationsTicketsMessagesFullEmailRetrieve,
@@ -70,6 +71,7 @@ import {
 } from 'products/conversations/frontend/generated/api'
 import type {
     PatchedTicketUpdateRequestApi,
+    TicketBriefApi,
     TicketMacroApi,
 } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
@@ -152,6 +154,20 @@ function regionFromUrl(url?: string): Region | undefined {
 // the signed distinct ID of a widget request, or the sender's address. A GitHub ticket holds a GitHub
 // login in distinct_id, which matches no PostHog user.
 const ATTESTED_LOOKUP_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack', 'teams']
+
+// The brief endpoint reports why it wrote nothing as a code for the run's own logs. These are
+// the same outcomes said in words, because the engineer who pressed the button reads the toast.
+const BRIEF_FAILURE_MESSAGES: Record<string, string> = {
+    ai_not_approved: 'Approve AI data processing in organization settings to write a brief.',
+    disabled: 'Briefs are turned off for this team.',
+    truncated: 'The brief ran long and did not finish. Try again.',
+    gate_failed: "Couldn't check whether briefs are on for this team. Try again.",
+    llm_failed: "Couldn't reach the model. Try again in a moment.",
+    not_an_object: "The model didn't return a brief. Try again.",
+    invalid: "The model's brief didn't fit the required format. Try again.",
+    store_failed: "Couldn't save the brief. Try again.",
+    ticket_gone: 'This ticket no longer exists.',
+}
 
 export function getImpersonationTicketContext(
     ticket: Pick<
@@ -336,6 +352,7 @@ export interface supportTicketSceneLogicValues {
     status: TicketStatus | null
     tags: string[]
     ticket: Ticket | null
+    ticketBriefWriting: boolean
     ticketDeleting: boolean
     ticketLoading: boolean
     ticketUpdating: boolean
@@ -555,6 +572,12 @@ export interface supportTicketSceneLogicActions {
     setTicket: (ticket: Ticket | null) => {
         ticket: Ticket | null
     }
+    setTicketBrief: (brief: TicketBriefApi | null) => {
+        brief: TicketBriefApi | null
+    }
+    setTicketBriefWriting: (writing: boolean) => {
+        writing: boolean
+    }
     setTicketDeleting: (deleting: boolean) => {
         deleting: boolean
     }
@@ -584,6 +607,9 @@ export interface supportTicketSceneLogicActions {
         rating: AiReplyFeedbackRating
     }
     updateTicket: () => {
+        value: true
+    }
+    writeTicketBrief: () => {
         value: true
     }
 }
@@ -743,6 +769,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         deleteTicket: true,
         setTicketDeleting: (deleting: boolean) => ({ deleting }),
 
+        writeTicketBrief: true,
+        setTicketBrief: (brief: TicketBriefApi | null) => ({ brief }),
+        setTicketBriefWriting: (writing: boolean) => ({ writing }),
+
         submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
             messageId,
             rating,
@@ -873,6 +903,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as Ticket | null,
             {
                 setTicket: (_, { ticket }) => ticket,
+                setTicketBrief: (state, { brief }) => (state ? { ...state, ticket_brief: brief } : state),
                 incrementUnreadCustomerCount: (state) =>
                     state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
             },
@@ -990,6 +1021,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 applyAiDraft: () => true,
                 setAiDraftApplying: (_, { applying }) => applying,
+            },
+        ],
+        ticketBriefWriting: [
+            false,
+            {
+                writeTicketBrief: () => true,
+                setTicketBriefWriting: (_, { writing }) => writing,
             },
         ],
         composerPrefillAt: [
@@ -1843,6 +1881,32 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 },
                 secondaryButton: { children: 'Cancel' },
             })
+        },
+        writeTicketBrief: async () => {
+            const ticket = values.ticket
+            if (!ticket) {
+                actions.setTicketBriefWriting(false)
+                return
+            }
+            try {
+                const result = await conversationsTicketsWriteBriefCreate(
+                    String(ApiConfig.getCurrentProjectId()),
+                    ticket.id
+                )
+                if (result.written) {
+                    // Only the brief, not the whole ticket: loadTicket cancels an open message
+                    // edit and resets the unsaved status, priority, assignee and tag values, so
+                    // refreshing it here would throw away work the engineer has not saved.
+                    actions.setTicketBrief(result.brief ?? null)
+                    lemonToast.success('Wrote the brief')
+                } else {
+                    lemonToast.error(BRIEF_FAILURE_MESSAGES[result.reason] ?? "Couldn't write the brief. Try again.")
+                }
+            } catch {
+                lemonToast.error("Couldn't write the brief")
+            } finally {
+                actions.setTicketBriefWriting(false)
+            }
         },
         submitAiReplyFeedback: async ({ messageId, rating, feedbackText }) => {
             const ticket = values.ticket
