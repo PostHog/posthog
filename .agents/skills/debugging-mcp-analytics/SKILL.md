@@ -97,8 +97,8 @@ These are the failure modes that produce a plausible-looking answer rather than 
    `services/mcp` consumes the SDK through an alias in its `package.json` and has historically
    lagged the published version, so version-dependent properties (typed error types, `$lib`
    identity, payload redaction) can be absent from PostHog's own data even when documented as
-   current. Don't filter MCP traffic on `$lib`: `posthog-node-mcp` marks a whole relabeled client
-   (0.7.0 on), and the other SDKs keep their base `$lib` on their new majors. Filter on `$mcp_*` events or
+   current. Don't filter MCP traffic on `$lib`: `posthog-node-mcp` (0.7.0 on) and
+   `posthog-python-mcp` mark a whole relabeled client, and an app-set `$lib` beats any MCP label. Filter on `$mcp_*` events or
    `$mcp_source = 'posthog_mcp_analytics'` instead. Note too that `services/mcp` uses the
    **custom-dispatcher** (`PostHogMCP`) path rather than `instrument()`, so behaviour living
    only in the `instrument()` path — stable sessions, `$identify` deduplication, `_meta`-based
