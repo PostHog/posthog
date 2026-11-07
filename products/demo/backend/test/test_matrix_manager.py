@@ -7,13 +7,18 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import ClickhouseDestroyTablesMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers
+
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import OrganizationMembership
+from posthog.tasks.demo_create_data import copy_native_events_for_demo_team
 
 from products.demo.backend.logic.matrix.manager import (
     QUEUE_FULL_MAX_FLUSHES,
@@ -38,7 +43,9 @@ class DummyPerson(SimPerson):
         return DummySessionIntent.FLAIL
 
     def simulate_session(self):
-        self.active_client.capture_pageview("/", {"foo": "bar"})
+        self.active_client.capture_pageview(
+            "/", {"foo": "bar", "optional": None, "nested": {"missing": None, "value": 1}}
+        )
         self.active_client.identify(self.in_product_id)
         self.active_client.group("company", "Acme", {"bar": "foo"})
         self.active_client.capture(
@@ -67,6 +74,7 @@ class DummyMatrix(Matrix):
         return super().set_project_up(team, user)
 
 
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestMatrixManager(ClickhouseDestroyTablesMixin):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -146,20 +154,71 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             >= 3
         )
 
-    def test_run_on_team_using_pre_save(self):
+    @parameterized.expand(["copied", "unavailable", "copy_failed", "enqueue_failed", "ingestion_delayed"])
+    def test_run_on_team_using_pre_save(self, native_result: str) -> None:
         manager = MatrixManager(self.matrix, use_pre_save=True)
 
-        manager.run_on_team(self.team, self.user)
+        def execute_with_native_failure(query: str, *args: object, **kwargs: object) -> object:
+            if "FROM events_json" in query:
+                if native_result == "unavailable":
+                    raise ConnectionError("Native event storage unavailable")
+                if native_result == "ingestion_delayed":
+                    return [(0,)]
+            if native_result == "copy_failed" and query.lstrip().startswith("INSERT INTO events_json"):
+                raise RuntimeError("Native event copy failed")
+            return sync_execute(query, *args, **kwargs)
 
-        # At least one event for each cluster
-        assert sync_execute("SELECT count() FROM events WHERE team_id = 0")[0][0] >= 3
-        assert (
-            sync_execute(
-                "SELECT count() FROM events WHERE team_id = %(team_id)s",
+        with (
+            patch("products.demo.backend.logic.matrix.manager.sync_execute", side_effect=execute_with_native_failure),
+            patch("products.demo.backend.logic.matrix.manager.monotonic", side_effect=[0, 301]),
+            patch.object(
+                copy_native_events_for_demo_team, "apply_async", wraps=copy_native_events_for_demo_team.apply_async
+            ) as enqueue,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if native_result == "enqueue_failed":
+                enqueue.side_effect = ConnectionError("Task queue unavailable")
+            manager.run_on_team(self.team, self.user)
+            assert self.team.name == DummyMatrix.PRODUCT_NAME
+            copied = execute_hogql_query(
+                "SELECT count() FROM events WHERE properties.foo = 'bar'",
+                team=self.team,
+                modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
+            )
+            assert copied.results[0][0] >= 3
+            assert (
+                sync_execute("SELECT count() FROM events_json WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[
+                    0
+                ][0]
+                == 0
+            )
+
+        # The copy retains event payloads and identities, while the new insert gets its own ingestion metadata.
+        for read_table in ("events", "events_json", "groups"):
+            rows = sync_execute(
+                f"""
+                SELECT team_id, toJSONString(tuple(* EXCEPT (
+                    team_id, _timestamp, _offset, _partition, inserted_at, consumer_breadcrumbs, historical_migration
+                )))
+                FROM {read_table} WHERE team_id IN (0, %(team_id)s) ORDER BY 2
+                """,
                 {"team_id": self.team.pk},
-            )[0][0]
-            >= 3
-        )
+            )
+            source = [row for team_id, row in rows if team_id == 0]
+            target = [row for team_id, row in rows if team_id == self.team.pk]
+            assert source
+            if read_table == "events_json" and native_result != "copied":
+                assert target == []
+            else:
+                assert target == source
+
+        if native_result == "copied":
+            copied = execute_hogql_query(
+                "SELECT count() FROM events WHERE properties.foo = 'bar'",
+                team=self.team,
+                modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
+            )
+            assert copied.results[0][0] >= 3
 
 
 class TestWithExposureCopies(SimpleTestCase):
