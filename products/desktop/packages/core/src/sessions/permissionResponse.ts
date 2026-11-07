@@ -110,6 +110,22 @@ export function resolveAllowAlwaysUpgradeMode(
   return undefined;
 }
 
+export function confirmsPersistentApproval(
+  permission: PermissionRequest | undefined,
+  optionId: string,
+): boolean {
+  const meta = permission?.toolCall?._meta as
+    | { persistsApproval?: unknown }
+    | null
+    | undefined;
+  const selected = permission?.options.find((o) => o.optionId === optionId);
+  return (
+    meta?.persistsApproval === true &&
+    selected !== undefined &&
+    isPermissionApproval(selected)
+  );
+}
+
 export function planPermissionResponse(
   permission: PermissionRequest,
   optionId: string,
