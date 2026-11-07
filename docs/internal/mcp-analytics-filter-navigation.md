@@ -10,3 +10,7 @@ Their query runners and API endpoints accept event, person, and session property
 Each report keeps its own date range.
 Changing a shared filter closes open failure details and reloads the report.
 The shared toolbar wraps active property filters onto a second row when space is limited.
+
+Tool report sections retry a query once when the API refuses it with HTTP 429 and the `rate_limited` code.
+The section stays loading during the server's `Retry-After` delay (five seconds if the header is absent or invalid).
+A newer load or navigation cancels the pending retry; a failed retry follows the normal error path.

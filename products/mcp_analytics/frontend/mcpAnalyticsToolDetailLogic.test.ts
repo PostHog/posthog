@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -186,7 +187,9 @@ describe('failure drill-down', () => {
         }).toMatchValues({ selectedFailure: change === 'deselect' ? null : bucket('internal') })
         const expected = change === 'deselect' ? [] : [occurrenceFor('bucketB')]
         if (change === 'select another bucket') {
-            await expectLogic(logic).toMatchValues({ failureOccurrences: expected })
+            await expectLogic(logic)
+                .toDispatchActions(['loadFailureOccurrencesSuccess'])
+                .toMatchValues({ failureOccurrences: expected })
         }
 
         // Bucket A's request resolves late — its stale result must be discarded.
@@ -260,6 +263,105 @@ describe('shared filter wiring', () => {
         operator: PropertyOperator.Exact,
         type: PropertyFilterType.Event,
     }
+
+    describe('concurrency refusals', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        function refusal(retryAfter: string | null = '5', status = 429, code = 'rate_limited'): ApiError {
+            return new ApiError(
+                'Query refused',
+                status,
+                new Headers(retryAfter === null ? {} : { 'Retry-After': retryAfter }),
+                {
+                    code,
+                }
+            )
+        }
+
+        it.each([
+            ['server delay', '7', 7000],
+            ['missing delay', null, 5000],
+            ['invalid delay', 'invalid', 5000],
+        ])('keeps the harness section loading and recovers after the %s', async (_label, header, delay) => {
+            const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+            logic.mount()
+            mockApi.query.mockClear()
+            mockApi.query.mockRejectedValueOnce(refusal(header)).mockResolvedValueOnce({
+                results: [{ harness: 'Example client', total_calls: 12, errors: 1, error_rate_pct: 8, sessions: 3 }],
+            })
+
+            logic.actions.loadByHarnessRows()
+            await jest.advanceTimersByTimeAsync(delay - 1)
+            expect(mockApi.query).toHaveBeenCalledTimes(1)
+            expect(logic.values.byHarnessRowsLoading).toBe(true)
+            expect(logic.values.byHarnessRows).toEqual([])
+
+            await jest.advanceTimersByTimeAsync(1)
+            expect(mockApi.query).toHaveBeenCalledTimes(2)
+            expect(mockApi.query.mock.calls[1]).toEqual(mockApi.query.mock.calls[0])
+            expect(logic.values.byHarnessRowsLoading).toBe(false)
+            expect(logic.values.byHarnessRows).toEqual([['Example client', 12, 1, 8, 3, null]])
+        })
+
+        it.each(['new filters', 'unmount'])('discards a pending retry after %s', async (change) => {
+            const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+            logic.mount()
+            mockApi.query.mockClear()
+            mockApi.query.mockRejectedValueOnce(refusal())
+            logic.actions.loadByHarnessRows()
+            await jest.advanceTimersByTimeAsync(0)
+
+            if (change === 'unmount') {
+                logic.unmount()
+            } else {
+                logic.actions.setFilterTestAccounts(true)
+            }
+            await jest.advanceTimersByTimeAsync(0)
+            mockApi.query.mockClear()
+            await jest.advanceTimersByTimeAsync(5000)
+            expect(mockApi.query).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['an exhausted retry', 429, 'rate_limited', 2],
+            ['an unrelated 429', 429, 'other_limit', 1],
+            ['a server error', 500, 'rate_limited', 1],
+        ])('surfaces %s without retrying indefinitely', async (_label, status, code, calls) => {
+            const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+            logic.mount()
+            mockApi.query.mockClear()
+            const error = refusal('5', status, code)
+            mockApi.query.mockRejectedValue(error)
+            const failure = jest.spyOn(logic.actions, 'loadByHarnessRowsFailure')
+
+            logic.actions.loadByHarnessRows()
+            await jest.advanceTimersByTimeAsync(15000)
+            expect(failure).toHaveBeenCalledWith(error.message, error)
+            expect(mockApi.query).toHaveBeenCalledTimes(calls)
+            expect(logic.values.byHarnessRowsLoading).toBe(false)
+            expect(logic.values.byHarnessRows).toEqual([])
+        })
+
+        it('retries neighbor queries too', async () => {
+            const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+            logic.mount()
+            mockApi.query.mockClear()
+            mockApi.query.mockRejectedValueOnce(refusal()).mockResolvedValueOnce({
+                results: [{ neighbor_tool: 'tools-list', co_occurrences: 4 }],
+            })
+
+            logic.actions.loadNeighborsBeforeRows()
+            await jest.advanceTimersByTimeAsync(5000)
+            expect(logic.values.neighborsBeforeRows).toEqual([['tools-list', 4]])
+            expect(logic.values.neighborsBeforeRowsLoading).toBe(false)
+        })
+    })
 
     it('spreads the shared property filters into every section query and reloads on change', async () => {
         const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
