@@ -1805,12 +1805,17 @@ describe('infiniteListLogic', () => {
         })
 
         it.each([
-            { name: 'places a hidden event stand-in ahead of the remote matches', excludedProperties: undefined },
+            {
+                name: 'places a hidden event stand-in ahead of the remote matches',
+                excludedProperties: undefined,
+                expectStandIn: true,
+            },
             {
                 name: 'offers no stand-in for an event the caller excludes',
                 excludedProperties: { [TaxonomicFilterGroupType.Events]: ['$feature_flag_called'] },
+                expectStandIn: false,
             },
-        ])('$name', async ({ excludedProperties }) => {
+        ])('$name', async ({ excludedProperties, expectStandIn }) => {
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': [
@@ -1837,18 +1842,10 @@ describe('infiniteListLogic', () => {
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
 
-            const standIns = listLogic.values.items.results.filter(isHiddenEventStandIn)
-            if (excludedProperties) {
-                expect(standIns).toEqual([])
-            } else {
-                expect(listLogic.values.items.results[0]).toMatchObject({
-                    _type: 'hidden_event_stand_in',
-                    value: '$feature_flag_called',
-                })
-            }
-            expect(listLogic.values.items.results).toContainEqual(
-                expect.objectContaining({ name: 'feature flag enrolled' })
-            )
+            const results = listLogic.values.items.results
+            expect(results.filter(isHiddenEventStandIn)).toHaveLength(expectStandIn ? 1 : 0)
+            expect(isHiddenEventStandIn(results[0])).toBe(expectStandIn)
+            expect(results).toContainEqual(expect.objectContaining({ name: 'feature flag enrolled' }))
         })
 
         it('returns no shortcut items when enableKeywordShortcuts is false', async () => {

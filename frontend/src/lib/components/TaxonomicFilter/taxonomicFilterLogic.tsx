@@ -1285,9 +1285,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ],
                         hiddenEventStandIns: offerHiddenEventStandIns
                             ? (searchQuery: string) =>
-                                  hiddenEventStandInsMatchingSearch(searchQuery).filter(
-                                      ({ name }) =>
-                                          !excludedProperties?.[TaxonomicFilterGroupType.Events]?.includes(name)
+                                  hiddenEventStandInsMatchingSearch(
+                                      searchQuery,
+                                      excludedProperties?.[TaxonomicFilterGroupType.Events]
                                   )
                             : undefined,
                         ...withKeywordShortcuts<Record<string, any>>(

@@ -65,13 +65,19 @@ export function hiddenEventNames(
  * The prefix has to reach the second word of the name or label. The stand-in leads the list, and a search for
  * "feature" or "$feature_" must keep a real event such as `$feature_view` at row 0.
  */
-export function hiddenEventStandInsMatchingSearch(searchQuery: string): HiddenEventStandIn[] {
+export function hiddenEventStandInsMatchingSearch(
+    searchQuery: string,
+    excludedEventNames?: readonly unknown[]
+): HiddenEventStandIn[] {
     const query = searchQuery.trim().toLowerCase()
     if (!REACHES_SECOND_WORD.test(query)) {
         return []
     }
     return eventsHiddenInQueryBuilders()
-        .filter(({ standInPrefixTerms }) => standInPrefixTerms.some((term) => term.startsWith(query)))
+        .filter(
+            ({ name, standInPrefixTerms }) =>
+                !excludedEventNames?.includes(name) && standInPrefixTerms.some((term) => term.startsWith(query))
+        )
         .map(({ name }) => ({ _type: 'hidden_event_stand_in', name, value: name }))
 }
 
