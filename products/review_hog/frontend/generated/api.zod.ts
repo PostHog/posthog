@@ -117,7 +117,7 @@ export const ReviewHogProjectSettingsPeopleCreateBody = /* @__PURE__ */ zod.obje
 })
 
 /**
- * Include a repository into this project, remove it, set or clear its exception, or turn its draft reviews on or off. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it. Project members can only turn reviews up: include a repository, raise its exception, or turn draft reviews on. Everything else needs a project admin.
+ * Include a repository into this project, remove it, set or clear its exception, or turn its draft reviews or its posthog-review team requests on or off. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it. Project members can only turn reviews up: include a repository, raise its exception, or turn draft reviews on. Everything else needs a project admin.
  * @summary Save a repository's settings
  */
 export const reviewHogRepositoriesCreateBodyInstallationIdMax = 64
@@ -162,6 +162,12 @@ export const ReviewHogRepositoriesCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'True lets draft pull requests in this repository get their automatic review when they open. False waits until they are ready for review. Omit it to keep the current value.'
+        ),
+    review_team_requests: zod
+        .boolean()
+        .optional()
+        .describe(
+            "True lets a request for the posthog-review GitHub team on a pull request in this repository start a review, like an '@posthog review' comment. False ignores those requests. Only project admins can change it. Omit it to keep the current value."
         ),
 })
 

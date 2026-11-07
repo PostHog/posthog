@@ -203,6 +203,7 @@ def _repository_settings(
         selected=row.selected,
         flash_for=AutomaticFlashFor(row.flash_for) if row.flash_for is not None else None,
         review_drafts=row.review_drafts,
+        review_team_requests=row.review_team_requests,
         people=_person_entries(people.get(row.id, [])),
         created_by=_user_ref(row.created_by),
         created_at=row.created_at,
@@ -258,6 +259,7 @@ def _overview_entry(entry: OverviewEntry) -> ReviewRepositoryOverviewEntry:
         repository_id=repository.id if repository is not None else None,
         exception=exception,
         review_drafts=repository is not None and repository.review_drafts,
+        review_team_requests=repository is not None and repository.review_team_requests,
         my_choice=ReviewUserRepositoryChoiceMode(entry.my_choice.mode) if entry.my_choice is not None else None,
         my_choice_id=entry.my_choice.id if entry.my_choice is not None else None,
         my_result=entry.my_result,
@@ -298,9 +300,11 @@ def save_review_repository(
     selected: bool | None,
     flash_for: AutomaticFlashFor | None | Unset = UNSET,
     review_drafts: bool | None = None,
+    review_team_requests: bool | None = None,
     raise_only: bool = False,
 ) -> ReviewRepositoryWriteOutcome:
-    """Include or remove a repository, set or clear its exception, or turn its draft reviews on or off.
+    """Include or remove a repository, set or clear its exception, or turn its draft reviews or its team
+    requests on or off.
 
     Omitted fields keep their value. With `raise_only`, the write may only turn the repository's reviews up.
 
@@ -309,7 +313,12 @@ def save_review_repository(
     """
     ref = RepositoryRef(installation_id=installation_id, github_repo_id=github_repo_id, full_name=full_name)
     result = _project_repositories(team_id, user_id).save_repository(
-        ref, selected=selected, flash_for=flash_for, review_drafts=review_drafts, raise_only=raise_only
+        ref,
+        selected=selected,
+        flash_for=flash_for,
+        review_drafts=review_drafts,
+        review_team_requests=review_team_requests,
+        raise_only=raise_only,
     )
     repository = None
     if result.repository is not None:

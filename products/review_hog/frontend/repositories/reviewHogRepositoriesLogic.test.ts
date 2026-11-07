@@ -21,6 +21,7 @@ function entry(overrides: Partial<ReviewRepositoryOverviewEntryApi>): ReviewRepo
         repository_id: null,
         exception: null,
         review_drafts: false,
+        review_team_requests: false,
         my_choice: null,
         my_choice_id: null,
         my_result: { flash: true, reason: 'project_everyone' },

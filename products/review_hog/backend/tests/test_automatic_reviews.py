@@ -121,12 +121,19 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         )
 
     def _cache_summary(
-        self, *, takes_all: bool = False, names: list[str] | None = None, ids: list[int] | None = None
+        self,
+        *,
+        takes_all: bool = False,
+        names: list[str] | None = None,
+        ids: list[int] | None = None,
+        team_request_names: list[str] | None = None,
+        team_request_ids: list[int] | None = None,
     ) -> None:
-        caches["default"].set(
-            OwnedRepositoryPrefilter.cache_key(_INSTALLATION_ID),
-            {"all": takes_all, "names": names or [], "ids": ids or []},
-        )
+        summary: dict[str, object] = {"all": takes_all, "names": names or [], "ids": ids or []}
+        if team_request_names is not None or team_request_ids is not None:
+            summary["team_request_names"] = team_request_names or []
+            summary["team_request_ids"] = team_request_ids or []
+        caches["default"].set(OwnedRepositoryPrefilter.cache_key(_INSTALLATION_ID), summary)
 
     def _post(self, body: bytes, *, event: str = "pull_request", signature: str | None = None) -> HttpResponse:
         request = self.factory.post(
@@ -239,16 +246,44 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("review_team", _review_request_payload(), True),
-            ("another_team", _review_request_payload(team_slug="team-devex"), False),
-            ("bot_sender", _review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "Bot"}), False),
+            ("review_team", _review_request_payload(), {"team_request_names": ["posthog/posthog"]}, True),
+            ("turned_on_by_id_after_rename", _review_request_payload(), {"team_request_ids": [_REPO_ID]}, True),
+            # An organization's own `posthog-review` team keeps its requests on repositories that never opted in.
+            ("reviewed_but_not_turned_on", _review_request_payload(), {"names": ["posthog/posthog"]}, False),
+            ("all_repositories_but_not_turned_on", _review_request_payload(), {"takes_all": True}, False),
+            (
+                "turned_on_for_another_repository",
+                _review_request_payload(),
+                {"team_request_names": ["posthog/posthog-js"]},
+                False,
+            ),
+            (
+                "another_team",
+                _review_request_payload(team_slug="team-devex"),
+                {"team_request_names": ["posthog/posthog"]},
+                False,
+            ),
+            (
+                "bot_sender",
+                _review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "Bot"}),
+                {"team_request_names": ["posthog/posthog"]},
+                False,
+            ),
         ]
     )
     @patch(_TEAM_REQUEST_QUEUE)
     @patch(_QUEUE)
     def test_a_review_team_request_queues_a_requested_review(
-        self, _name: str, payload: dict[str, object], expected: bool, enqueue: MagicMock, enqueue_request: MagicMock
+        self,
+        _name: str,
+        payload: dict[str, object],
+        summary: dict,
+        expected: bool,
+        enqueue: MagicMock,
+        enqueue_request: MagicMock,
     ) -> None:
+        self._cache_summary(**summary)
+
         assert self._post(json.dumps(payload).encode()).status_code == 202
 
         enqueue.assert_not_called()

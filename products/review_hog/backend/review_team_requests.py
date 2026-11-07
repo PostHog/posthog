@@ -1,22 +1,27 @@
 """Reviews asked for by requesting the `posthog-review` team as a reviewer on a pull request.
 
 GitHub cannot list a GitHub App as a requested reviewer, so a team with no members stands in for
-PostHog Review. `pull_request_events.py` queues the request, and the task runs it here:
+PostHog Review. It is a shortcut to an `@posthog review` comment. `pull_request_events.py` queues the
+request, and the task runs it here:
 
-1. The review runs in the project that owns the repository (`ownership.py`).
+1. The review runs in the project that owns the repository (`ownership.py`), and only when that
+   project turned team requests on for the repository (`ReviewRepository.review_team_requests`).
 2. GitHub says the requester's account, matched by its numeric id, can write to the repository.
 3. `posthog.github.requesters` finds the requester's PostHog account in that project, under the
    same rules as an `@posthog review` comment, and the account needs editor access to PostHog Review.
 4. The review is Standard, or Deep once the pull request has a published Deep review, and runs as
    the requester.
 
-Every final outcome replies to the requester, except a started review, and removes the team's
-review request, so requesting the team again asks for the next review. GitHub shows its re-request
-button only next to reviewers who submitted a review, and a team never does. A failure that will be
-retried leaves the request in place; the last failed attempt replies and removes it.
+Past step 1, every final outcome replies to the requester, except a started review, and removes the
+team's review request, so requesting the team again asks for the next review. GitHub shows its
+re-request button only next to reviewers who submitted a review, and a team never does. A failure
+that will be retried leaves the request in place; the last failed attempt replies and removes it.
 
-The webhook prefilter drops a request on a repository that ReviewHog does not review, so GitHub
-keeps showing the request there. The team needs access only to the repositories ReviewHog reviews.
+The slug matches on every installation, so an organization can have a `posthog-review` team of its
+own. A repository that did not turn team requests on gets no reply, and its request stays: the webhook
+prefilter drops it, and the task drops it again when the setting changed after the prefilter. GitHub
+offers the team only on repositories it can access, and nothing syncs that access with the setting,
+so a repository can offer the team and still ignore the request.
 """
 
 import logging
@@ -50,6 +55,7 @@ _otel = OtelInstrumentFactory("review_hog")
 
 ReviewTeamRequestOutcome = Literal[
     "repository_not_added",
+    "not_turned_on",
     "integration_missing",
     "no_write_access",
     "unlinked",
@@ -112,6 +118,10 @@ class ReviewTeamRequest:
         )
         if owner is None:
             _observe("repository_not_added")
+            return
+        if owner.row is None or not owner.row.review_team_requests:
+            # No reply and no removal, because the request may be for a team of the organization's own.
+            _observe("not_turned_on")
             return
         github = GitHubIntegration.first_for_team_repository(
             owner.team_id, self.repository, source="review_hog", priority=Priority.CRITICAL

@@ -165,6 +165,11 @@ class ReviewRepositorySerializer(serializers.Serializer):
         read_only=True,
         help_text="Whether draft pull requests in this repository get their automatic review when they open.",
     )
+    review_team_requests = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether requesting the posthog-review GitHub team as a reviewer on a pull request in this "
+        "repository starts a review.",
+    )
     people = serializers.SerializerMethodField(
         help_text="The people on the exception's two lists. Only the list that matches flash_for has an effect."
     )
@@ -202,6 +207,12 @@ class ReviewRepositoryWriteSerializer(serializers.Serializer):
         required=False,
         help_text="True lets draft pull requests in this repository get their automatic review when they open. "
         "False waits until they are ready for review. Omit it to keep the current value.",
+    )
+    review_team_requests = serializers.BooleanField(
+        required=False,
+        help_text="True lets a request for the posthog-review GitHub team on a pull request in this repository "
+        "start a review, like an '@posthog review' comment. False ignores those requests. Only project admins "
+        "can change it. Omit it to keep the current value.",
     )
 
     def validate_full_name(self, value: str) -> str:
@@ -446,7 +457,10 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         responses={
             200: OpenApiResponse(response=ReviewRepositoryWriteResponseSerializer, description="The saved settings."),
             400: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="The rules forbid the write."),
-            403: OpenApiResponse(description="A project member asked to turn the repository's reviews down."),
+            403: OpenApiResponse(
+                description="A project member asked to turn the repository's reviews down, or to change its "
+                "posthog-review team requests."
+            ),
             409: OpenApiResponse(
                 response=ReviewHogSettingsErrorSerializer,
                 description="Another project already has settings for the repository.",
@@ -454,7 +468,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         },
         summary="Save a repository's settings",
         description="Include a repository into this project, remove it, set or clear its exception, or turn its "
-        "draft reviews on or off. Only the "
+        "draft reviews or its posthog-review team requests on or off. Only the "
         "provided fields change. Including a repository that another project's 'all repositories' claim covers "
         "takes it from that project; the response names it. Project members can only turn reviews up: include "
         "a repository, raise its exception, or turn draft reviews on. Everything else needs a project admin.",
@@ -476,6 +490,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
                 selected=data.get("selected"),
                 flash_for=flash_for,
                 review_drafts=data.get("review_drafts"),
+                review_team_requests=data.get("review_team_requests"),
                 raise_only=not self.is_effective_team_admin(),
             )
         except AdminOnlyChangeError as error:

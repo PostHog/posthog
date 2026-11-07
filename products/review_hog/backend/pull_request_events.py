@@ -1,7 +1,8 @@
 """GitHub `pull_request` deliveries of the PostHog GitHub App, routed by action.
 
 - `opened` / `synchronize` / `ready_for_review`: an automatic review (`automatic_reviews.py`).
-- `review_requested` for the `posthog-review` team: a requested review (`review_team_requests.py`).
+- `review_requested` for the `posthog-review` team, on a repository that turned these requests on: a
+  requested review (`review_team_requests.py`).
 
 The webhook handler runs inside the request, so this module only parses the payload, reads the
 cached ownership summary, and queues a Celery task. The task checks ownership and the rules again.
@@ -128,7 +129,9 @@ class ReviewTeamRequester:
 
 def _accept_review_team_request(event: PullRequestEvent, payload: Mapping[str, object]) -> None:
     requester = ReviewTeamRequester.from_payload(payload)
-    if requester is None or not OwnedRepositoryPrefilter.may_be_owned(event.ref):
+    # The slug matches on every installation, so a repository that did not turn the requests on keeps
+    # its request untouched, also when an organization has a `posthog-review` team of its own.
+    if requester is None or not OwnedRepositoryPrefilter.may_take_team_requests(event.ref):
         return
     # Keeps Celery off the registry import path.
     from products.review_hog.backend.tasks import process_review_team_request  # noqa: PLC0415
