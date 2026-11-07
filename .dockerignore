@@ -33,6 +33,7 @@
 !frontend/webpack.config.js
 !gunicorn.config.py
 !manage.py
+!LICENSE
 !turbo.json
 !package.json
 !patches

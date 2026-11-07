@@ -13,11 +13,15 @@ on:
     pull_request:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
+            - '.dockerignore'
             - '.github/actions/setup-uv/**'
             - '.github/actions/download-context-mill-skills/**'
             - 'products/tasks/backend/sandbox/images/**'
             - 'packages/agent/agent-shadow/**'
             - 'products/posthog_ai/scripts/**'
+            - 'products/signals/scripts/**'
+            - 'packages/owners-yaml/owners_yaml/**'
+            - 'LICENSE'
             # The notebook image bakes this package and stamps its content hash.
             - 'products/notebooks/backend/sandbox/kernel/**'
             - 'products/notebooks/backend/kernel_package.py'
@@ -80,12 +84,16 @@ jobs:
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
+                        - '.dockerignore'
                         - '.github/actions/setup-uv/**'
                         - '.github/actions/download-context-mill-skills/**'
                         - 'products/tasks/backend/sandbox/images/**'
                         - 'packages/agent/agent-shadow/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
+                        - 'products/signals/scripts/**'
+                        - 'packages/owners-yaml/owners_yaml/**'
+                        - 'LICENSE'
                         - 'products/notebooks/backend/sandbox/kernel/**'
                         - 'products/notebooks/backend/kernel_package.py'
                       skills_source:
@@ -130,11 +138,15 @@ jobs:
                   fi
                   inputs=(
                     .github/workflows/cd-sandbox-base-image.yml
+                    .dockerignore
                     .github/actions/setup-uv
                     .github/actions/download-context-mill-skills
                     products/tasks/backend/sandbox/images
                     packages/agent/agent-shadow
                     products/posthog_ai/scripts
+                    products/signals/scripts
+                    packages/owners-yaml/owners_yaml
+                    LICENSE
                     products/notebooks/backend/sandbox/kernel
                     products/notebooks/backend/kernel_package.py
                   )
