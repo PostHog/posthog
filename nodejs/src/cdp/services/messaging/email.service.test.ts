@@ -618,7 +618,7 @@ describe('EmailService', () => {
                         }),
                     ])
                     expect(result.metrics.map((metric) => metric.metric_name)).toEqual(
-                        isTest ? [] : ['email_sent', 'email_untracked']
+                        isTest ? [] : ['email_sent', 'email_untracked', 'email_sandbox_sent']
                     )
                     expect(capture).toHaveBeenCalledWith(
                         expect.objectContaining({ id: team.id }),
@@ -1064,7 +1064,9 @@ describe('EmailService', () => {
                     })
                     sendEmailSpy.mockRejectedValueOnce(error)
 
-                    expect((await send(false)).error).toContain('Failed to send email via SES')
+                    const failed = await send(false)
+                    expect(failed.error).toContain('Failed to send email via SES')
+                    expect(failed.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
                     const next = await send(false)
 
                     if (returned) {
@@ -2491,6 +2493,7 @@ describe('EmailService', () => {
 
             const normal = await service.executeSendEmail(invocation)
             expect(normal.metrics.map((m) => m.metric_name)).toContain('email_sent')
+            expect(normal.metrics.map((m) => m.metric_name)).not.toContain('email_sandbox_sent')
 
             const testSend = await service.executeSendEmail(invocation, true)
             expect(testSend.metrics).toEqual([])
