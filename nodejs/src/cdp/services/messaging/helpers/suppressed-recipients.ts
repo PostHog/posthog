@@ -50,6 +50,9 @@ const parseAddressList = (value: string | undefined): ParsedAddress[] =>
               })
         : []
 
+export const parseDeliveryMailboxes = (value: string | undefined): string[] =>
+    parseAddressList(value).map(({ email }) => quoteMailbox(email))
+
 // Rebuilt from the parsed parts, so delivery sends to exactly the address the suppression check saw.
 const formatAddress = ({ email, name }: ParsedAddress): string =>
     name ? `"${name}" <${quoteMailbox(email)}>` : quoteMailbox(email)

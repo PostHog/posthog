@@ -10,6 +10,7 @@ const footer =
 const teamManager = {
     getTeam: jest.fn().mockResolvedValue({ organization_id: '00000000-0000-0000-0000-000000000001' }),
 } as unknown as TeamManager
+const blockedEventRedis = { useClient: jest.fn() }
 const sender = new SandboxEmailSender(
     {
         enabled: true,
@@ -17,7 +18,8 @@ const sender = new SandboxEmailSender(
         configurationSetName: 'sandbox-email',
         fromAddress: 'fixed-sandbox@example.com',
     },
-    teamManager
+    teamManager,
+    blockedEventRedis
 )
 const manyAttributes = (count: number, prefix = 'a'): string =>
     Array.from({ length: count }, (_, index) => `${prefix}${index}`).join(' ')
@@ -74,7 +76,8 @@ describe('sandbox email content', () => {
                 configurationSetName: ' sandbox-email ',
                 fromAddress: ' fixed-sandbox@example.com ',
             },
-            teamManager
+            teamManager,
+            blockedEventRedis
         )
         const result = await paddedSender.buildSandboxMessage(
             params('<p>Hello</p>'),
@@ -91,7 +94,9 @@ describe('sandbox email content', () => {
         ['switched on with an empty route setting', { enabled: true, configurationSetName: '  ' }],
         ['switched off', { enabled: false }],
     ])('cannot send when %s', (_case, overrides) => {
-        expect(new SandboxEmailSender({ ...sender.config, ...overrides }, teamManager).canSend).toBe(false)
+        expect(new SandboxEmailSender({ ...sender.config, ...overrides }, teamManager, blockedEventRedis).canSend).toBe(
+            false
+        )
     })
     it('sends from the fixed address, drops the reply-to and adds the footer to the text part', async () => {
         const result = await sender.buildSandboxMessage(

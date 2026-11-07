@@ -5,7 +5,7 @@ import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
 import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
-import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
+import { HogFlow, HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -21,6 +21,7 @@ import { logger } from '~/common/utils/logger'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import type { DecodedAttachment } from '../hogflows/transactional-email'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { OrganizationMembersService } from '../managers/organization-members.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
@@ -32,7 +33,12 @@ import {
 } from './email-attachments.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
+import {
+    EmailSkipReason,
+    EmailStatusReason,
+    EmailStatusService,
+    isTransactionalEmailSend,
+} from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
@@ -42,7 +48,12 @@ import {
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
-import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
+import {
+    parseDeliveryMailboxes,
+    quoteMailbox,
+    removeSuppressedRecipients,
+    unquoteMailbox,
+} from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -51,6 +62,7 @@ import {
     RecipientTokensService,
     preferencesTokenSourceForInvocation,
 } from './recipient-tokens.service'
+import { SandboxEmailBlockReason, SandboxEmailSender } from './sandbox-email-sender'
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -142,6 +154,13 @@ function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQue
         invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
     const startedAt = source === 'transactional_api' ? invocation.queueCreatedAt : invocation.queueDueAt
     return startedAt ? { source, startedAt, teamCapped: invocation.queueMetadata?.teamCapped === true } : undefined
+}
+
+// Broadcasts (batch-triggered flows) and transactional API email also run as hog flows, so a hog flow alone
+// does not make a send a workflow email step.
+function isWorkflowEmailStep(invocation: CyclotronJobInvocationHogFunction): boolean {
+    const hogFlow = (invocation as { hogFlow?: Partial<HogFlow> }).hogFlow
+    return !!hogFlow && hogFlow.trigger?.type !== 'batch' && !isTransactionalEmailSend(invocation)
 }
 
 /**
@@ -432,12 +451,41 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
+function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType): string[] {
+    return [params.to.email.trim(), ...parseDeliveryMailboxes(params.cc), ...parseDeliveryMailboxes(params.bcc)]
+}
+
+type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | 'not_workflow_step'>
+
 type SesRoute = {
     tenantName: string
     configurationSetName: string
     unsubscribeHeaders: MessageHeader[]
     ccAddresses?: string[]
     bccAddresses?: string[]
+}
+
+const SANDBOX_RECIPIENT_BLOCK_COPY: Record<
+    SandboxRecipientBlockReason,
+    { explanation: string; label: string; guidance: string }
+> = {
+    recipient_not_member: {
+        explanation:
+            'Skipping send: the sandbox sender only sends to active organization members with verified email addresses',
+        label: '. Blocked addresses: ',
+        guidance: 'Verify your own domain to send to anyone.',
+    },
+    recipient_unverified: {
+        explanation:
+            'Skipping send: the sandbox sender only sends to organization members with verified email addresses',
+        label: '. Unverified addresses: ',
+        guidance: 'Verify your email address in PostHog, or ask these members to verify theirs.',
+    },
+    check_failed: {
+        explanation: 'Skipping send: could not check organization members',
+        label: ' for these addresses: ',
+        guidance: 'Try again, or verify your own domain to send to anyone.',
+    },
 }
 
 export class EmailService {
@@ -462,7 +510,9 @@ export class EmailService {
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null,
-        private emailAttachmentsService: EmailAttachmentsService | null = null
+        private emailAttachmentsService: EmailAttachmentsService | null = null,
+        private sandboxSender: SandboxEmailSender | null = null,
+        private organizationMembers: OrganizationMembersService | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -502,11 +552,13 @@ export class EmailService {
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
         const integration = await this.integrationManager.get(integrationId)
+        const isSandbox = integration?.config.provider === 'sandbox'
 
         let success: boolean = false
         let rescheduled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
+        let deliveryParams: CyclotronInvocationQueueParametersEmailType | undefined
         let sendingDomain = ''
         let failureReason: EmailStatusReason = 'provider_error'
 
@@ -593,6 +645,27 @@ export class EmailService {
                 )
             }
 
+            if (isSandbox && !this.sandboxSender?.canSend) {
+                this.skipSandboxSend(
+                    result,
+                    isTest,
+                    'Skipping send: the sandbox sender is unavailable right now. Verify your own domain to keep sending.',
+                    'sending_suspended'
+                )
+                await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'switch_off', 0)
+                return result
+            }
+            if (isSandbox && !isTest && !isWorkflowEmailStep(invocation)) {
+                this.skipSandboxSend(
+                    result,
+                    isTest,
+                    'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
+                    'sending_suspended'
+                )
+                await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'not_workflow_step', 0)
+                return result
+            }
+
             const from = this.resolveFromSender(integration, params.from, addLog)
             sendingDomain = from.email.split('@').pop()?.toLowerCase() ?? ''
 
@@ -626,6 +699,17 @@ export class EmailService {
                 result.skipped = true
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
+            }
+
+            const recipients = isSandbox ? sandboxRecipientsOf(params) : []
+            if (isSandbox && !(await this.checkSandboxRecipients(result, recipients, isTest))) {
+                return result
+            }
+            if (isSandbox && (params.from.email || params.from.name || params.replyTo)) {
+                addLog(
+                    'info',
+                    'Ignoring custom sender and Reply-To settings: the sandbox sender uses a fixed identity.'
+                )
             }
 
             // Single choke point for the suppression check — every send path lands here regardless
@@ -680,7 +764,7 @@ export class EmailService {
 
             // Like suppression, the tracking decision lives at this choke point so every send path
             // (workflow action or email destination hog function) resolves it the same way.
-            trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
+            trackingEnabled = !isSandbox && (await this.resolveTrackingEnabled(result.invocation, deliverableParams))
 
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
             // suspended or suppressed send never spends a token. Test sends bypass it. When the
@@ -735,7 +819,8 @@ export class EmailService {
                 1 +
                 extractEmailsFromAddressList(deliverableParams.cc).length +
                 extractEmailsFromAddressList(deliverableParams.bcc).length
-            const capDelay = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
+            // Sandbox sends never spend the team's tier budget: they reach only its own members.
+            const capDelay = isSandbox ? null : await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             if (capDelay) {
                 result.finished = false
                 // Re-attach the email payload before rescheduling, for the same reason as the
@@ -797,6 +882,25 @@ export class EmailService {
                 case 'ses':
                     await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait, files)
                     break
+                case 'sandbox': {
+                    deliveryParams = await this.sandboxSender!.buildSandboxMessage(
+                        sendParams,
+                        from.name,
+                        invocation.teamId
+                    )
+                    const route = this.sandboxSesRoute(deliveryParams)
+                    const deliveryRecipients = [
+                        deliveryParams.to.email.trim(),
+                        ...(route.ccAddresses ?? []),
+                        ...(route.bccAddresses ?? []),
+                    ]
+                    if (!(await this.checkSandboxRecipients(result, deliveryRecipients, isTest))) {
+                        return result
+                    }
+                    await this.sendEmailWithSES(result, deliveryParams, from, false, isTest, queueWait, files, route)
+                    await this.sandboxSender!.captureSent(invocation.teamId, isTest, deliveryRecipients.length)
+                    break
+                }
 
                 case 'unsupported':
                     throw new Error('Email delivery mode not supported')
@@ -807,7 +911,7 @@ export class EmailService {
             // "View email" chip, so suppressing it for skipped captures keeps the chip
             // from 404-ing on click.
             if (!isTest && this.messageAssetsService) {
-                assetRow = this.messageAssetsService.buildRowForEmail(invocation, sendParams)
+                assetRow = this.messageAssetsService.buildRowForEmail(invocation, deliveryParams ?? sendParams)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
@@ -1031,6 +1135,60 @@ export class EmailService {
         return null
     }
 
+    private skipSandboxSend(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        isTest: boolean,
+        reason: string,
+        statusReason: EmailSkipReason
+    ): void {
+        createAddLogFunction(result.logs)('info', reason)
+        result.emailSendResult = { status: 'skipped', reason }
+        this.emailStatusService?.queueSkippedSend(result.invocation, statusReason, isTest)
+        result.skipped = true
+        result.invocation.state.vmState?.stack.push({ success: false })
+    }
+
+    // Runs once before the send is prepared and again right before delivery, because a member can
+    // leave the organization while the send waits on suppression checks and rate limits.
+    private async checkSandboxRecipients(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        recipients: string[],
+        isTest: boolean
+    ): Promise<boolean> {
+        const { teamId } = result.invocation
+        let blockedRecipients: string[]
+        let reason: SandboxRecipientBlockReason
+        try {
+            if (!this.organizationMembers) {
+                throw new Error('Organization member checks are not configured')
+            }
+            const blocked = await this.organizationMembers.getBlockedRecipients(teamId, recipients)
+            blockedRecipients = blocked.map(({ address }) => address)
+            reason = blocked.every(({ unverifiedMember }) => unverifiedMember)
+                ? 'recipient_unverified'
+                : 'recipient_not_member'
+        } catch (error) {
+            blockedRecipients = recipients
+            reason = 'check_failed'
+            logger.warn('Could not check sandbox email recipients', {
+                teamId,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            })
+        }
+        if (!blockedRecipients.length) {
+            return true
+        }
+        const { explanation, label, guidance } = SANDBOX_RECIPIENT_BLOCK_COPY[reason]
+        this.skipSandboxSend(
+            result,
+            isTest,
+            `${explanation}${label}${blockedRecipients.join(', ')}. ${guidance}`,
+            'recipient_unreachable'
+        )
+        await this.sandboxSender?.captureBlocked(teamId, isTest, reason, blockedRecipients.length)
+        return false
+    }
+
     // Per-send tracking decision, combining two independent controls:
     // 1. Message-level: `tracking_enabled` on the email step's config (via `hogFunction.metadata`,
     //    same as `message_category_type`). False is a hard off regardless of consent. Absent means
@@ -1110,6 +1268,19 @@ export class EmailService {
         }
     }
 
+    // The sandbox shares one SES identity, so every send uses its fixed tenant and configuration
+    // set, and no recipient gets an unsubscribe link: only members of the sending organization
+    // receive it. CC and BCC are parsed once so the final member check covers exactly this list.
+    private sandboxSesRoute(params: CyclotronInvocationQueueParametersEmailType): SesRoute {
+        return {
+            tenantName: this.sandboxSender!.config.tenantName,
+            configurationSetName: this.sandboxSender!.config.configurationSetName,
+            unsubscribeHeaders: [],
+            ccAddresses: parseDeliveryMailboxes(params.cc),
+            bccAddresses: parseDeliveryMailboxes(params.bcc),
+        }
+    }
+
     // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
     // destination (suppression and the Metrics tab depend on those events); they differ only in
     // ESP-level open/click tracking.
@@ -1145,6 +1316,10 @@ export class EmailService {
 
         if (!integration.config.email || !integration.config.name) {
             throw new Error('The selected email integration is not configured correctly')
+        }
+
+        if (integration.config.provider === 'sandbox') {
+            return { email: this.sandboxSender?.config.fromAddress ?? '', name: integration.config.name }
         }
 
         // Overrides arrive already rendered by the templating engine, so a template that
