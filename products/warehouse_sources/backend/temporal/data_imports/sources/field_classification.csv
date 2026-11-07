@@ -354,6 +354,7 @@ Deel,api_token,,,,,deel
 DeelFlows,,,,,,deel-flows
 Deepgram,api_key,,,,,deepgram
 Deepsource,api_token account_login vcs_provider,,,,,deepsource
+DemoAcme,api_key,,,,,demo-acme
 Demodesk,api_key,,,,,demodesk
 DenoDeploy,access_token,,,,,deno-deploy
 Depot,api_token,,,repository,,depot
