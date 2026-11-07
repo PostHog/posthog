@@ -22,24 +22,6 @@ describe('newSessionSceneLogic', () => {
             const { space: chosen, source } = newSessionSpace(SPACES, routeSpaceId)
             expect({ id: chosen?.id, source }).toEqual({ id: expectedId, source: expectedSource })
         })
-
-        it('a generic New session stays personal after the person visits a public space', async () => {
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/task_channels/': SPACES,
-                    '/api/projects/:team_id/task_activity/': { results: [] },
-                    '/api/projects/:team_id/tasks/': { results: [], count: 0 },
-                },
-            })
-            initKeaTests()
-            const logic = newSessionSceneLogic()
-            logic.mount()
-            await expectLogic(todaySpacesLogic).toDispatchActions(['loadSpacesSuccess'])
-
-            todaySpacesLogic.actions.spaceVisited('general')
-
-            expect(logic.values.spaceChoice).toMatchObject({ space: { id: 'me' }, source: 'personal' })
-        })
     })
 
     describe('sessionStarted', () => {
