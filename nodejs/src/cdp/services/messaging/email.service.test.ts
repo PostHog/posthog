@@ -29,11 +29,12 @@ import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { EmailAttachmentsService } from './email-attachments.service'
+import { EMAIL_ATTACHMENTS_MAX_AGE_MS, EmailAttachmentsService } from './email-attachments.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
+    EMAIL_ATTACHMENT_LOAD_MAX_RETRY_DELAY_MS,
     EmailService,
     formatMailbox,
     parseAddressList,
@@ -1471,6 +1472,16 @@ describe('EmailService', () => {
                         )
                     },
                 ],
+                [
+                    'the attachment store fails to answer and the job is older than the janitor keeps files',
+                    async () => {
+                        await attachments.store(invocation.id, team.id, files)
+                        invocation.queueCreatedAt = DateTime.utc().minus({ milliseconds: EMAIL_ATTACHMENTS_MAX_AGE_MS })
+                        jest.spyOn(attachments, 'load').mockRejectedValue(
+                            new Error('timeout exceeded when trying to connect')
+                        )
+                    },
+                ],
             ])('fails the send as attachments_missing and sends nothing when %s', async (_name, arrange) => {
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 await arrange()
@@ -1480,6 +1491,71 @@ describe('EmailService', () => {
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.finished).toBe(true)
                 expect(result.error).toMatch(/^attachments_missing: /)
+            })
+
+            it.each([
+                ['reschedules the first try about a second later', 0, 1_000],
+                [
+                    'still reschedules the 501st try, about 15 minutes later',
+                    500,
+                    EMAIL_ATTACHMENT_LOAD_MAX_RETRY_DELAY_MS,
+                ],
+            ])(
+                'spends one pacing token and no team cap token when the attachment store fails to answer, and %s',
+                async (_name, priorTries, baseDelayMs) => {
+                    const claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null })
+                    service['workflowEmailRateLimiter'] = { claimOrReserve } as unknown as RateLimiterService
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 120, period: 'minute' } }
+                    const teamCap = {
+                        claimAllOrNothingPair: jest.fn().mockResolvedValue({ granted: true }),
+                        claimUpTo: jest.fn().mockResolvedValue(1),
+                    }
+                    service['teamEmailRateLimiter'] = teamCap as unknown as RateLimiterService
+                    service['sesConfig'] = {
+                        ...service['sesConfig'],
+                        teamEmailCapMode: 'enforce',
+                        teamEmailTierHourlyCaps: [100],
+                        teamEmailTierDailyCaps: [200],
+                    }
+                    jest.spyOn(service['teamWorkflowsConfigService'], 'getEmailSendingTier').mockResolvedValue(0)
+                    invocation.queueMetadata = { attachmentLoadTries: priorTries }
+                    invocation.queueCreatedAt = DateTime.utc().minus({
+                        milliseconds: EMAIL_ATTACHMENTS_MAX_AGE_MS - 60_000,
+                    })
+                    jest.spyOn(attachments, 'load').mockRejectedValue(
+                        new Error('timeout exceeded when trying to connect')
+                    )
+                    sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect(result).toMatchObject({
+                        finished: false,
+                        invocation: { queueMetadata: { attachmentLoadTries: priorTries + 1 } },
+                    })
+                    expect(result.error).toBeUndefined()
+                    const delayMs = result.invocation.queueScheduledAt!.toMillis() - Date.now()
+                    expect(delayMs).toBeGreaterThan(baseDelayMs - 1_000)
+                    expect(delayMs).toBeLessThanOrEqual(baseDelayMs * 1.1)
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(claimOrReserve).toHaveBeenCalledTimes(1)
+                    expect(teamCap.claimAllOrNothingPair).not.toHaveBeenCalled()
+                    expect(teamCap.claimUpTo).not.toHaveBeenCalled()
+                }
+            )
+
+            it('reads no attachment rows while the workflow pacing limit parks the send', async () => {
+                const claimOrReserve = jest.fn().mockResolvedValue({ granted: 0, retryAfterMs: 5000, reserved: true })
+                service['workflowEmailRateLimiter'] = { claimOrReserve } as unknown as RateLimiterService
+                invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 120, period: 'minute' } }
+                const load = jest.spyOn(attachments, 'load')
+                await attachments.store(invocation.id, team.id, files)
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(false)
+                expect(load).not.toHaveBeenCalled()
+                expect(sendEmailSpy).not.toHaveBeenCalled()
             })
         })
 

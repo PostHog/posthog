@@ -26,9 +26,11 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import {
+    EMAIL_ATTACHMENTS_MAX_AGE_MS,
     EMAIL_ATTACHMENTS_MISSING,
     EmailAttachmentsMissingError,
     EmailAttachmentsService,
+    emailAttachmentOutcomesTotal,
 } from './email-attachments.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -169,8 +171,19 @@ class EmailAttachmentsUnavailableError extends Error {
     }
 }
 
+// A send waits while its files cannot be read, and fails as attachments_missing only once they are past
+// EMAIL_ATTACHMENTS_MAX_AGE_MS, when the janitor deletes them. The age comes from the job's creation time,
+// because cdp-api stores the files as it creates the job, and a read that keeps failing cannot see the deletion.
+export const EMAIL_ATTACHMENT_LOAD_MAX_RETRY_DELAY_MS = 15 * 60 * 1000
+
+function attachmentsPastMaxAge(invocation: CyclotronJobInvocationHogFunction): boolean {
+    const createdAt = invocation.queueCreatedAt
+    return !!createdAt && DateTime.utc().diff(createdAt).toMillis() >= EMAIL_ATTACHMENTS_MAX_AGE_MS
+}
+
 function pickAttachmentLoadRetryDelayMs(tries: number): number {
-    return Math.min(1_000 * tries + Math.floor(Math.random() * 1_000), 60_000)
+    const delayMs = Math.min(1_000 * 2 ** (tries - 1), EMAIL_ATTACHMENT_LOAD_MAX_RETRY_DELAY_MS)
+    return delayMs + Math.floor(Math.random() * delayMs * 0.1)
 }
 
 class UnverifiedEmailDomainError extends Error {
@@ -718,6 +731,10 @@ export class EmailService {
                 }
             }
 
+            // After the pacing claim, so a parked send reads no blobs, and before the team budget, so a failed
+            // load spends no cap tokens. Every try claims pacing, which keeps recovered retries spaced.
+            const files = await this.loadAttachments(invocation.id, invocation.teamId, params.attachments)
+
             // Project-wide pacing from the team's trust tier. Sits next to the per-workflow limit
             // above and behaves the same way: it delays, never drops, and test sends bypass it.
             // Transactional sends bypass the delay too, and are counted instead.
@@ -780,8 +797,6 @@ export class EmailService {
                       }
                     : paramsWithReplyTo
 
-            const files = await this.loadAttachments(invocation.id, invocation.teamId, params.attachments)
-
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
                     await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
@@ -816,7 +831,7 @@ export class EmailService {
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
-            } else if (error instanceof EmailAttachmentsUnavailableError) {
+            } else if (error instanceof EmailAttachmentsUnavailableError && !attachmentsPastMaxAge(invocation)) {
                 const tries = (invocation.queueMetadata?.attachmentLoadTries ?? 0) + 1
                 const retryDelayMs = pickAttachmentLoadRetryDelayMs(tries)
                 rescheduled = true
@@ -824,19 +839,28 @@ export class EmailService {
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = { ...invocation.queueMetadata, attachmentLoadTries: tries }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
-                addLog('warn', `${error.message}; rescheduling email in ${retryDelayMs}ms`)
+                emailAttachmentOutcomesTotal.inc({ outcome: 'unavailable' }, params.attachments?.length ?? 0)
+                addLog('warn', `${error.message}, so it waits and tries again in ${Math.round(retryDelayMs / 1000)}s.`)
                 logger.warn('⚠️', 'Failed to load email attachment rows', {
                     job_id: invocation.id,
                     tries,
                     error: error.cause instanceof Error ? error.cause.message : String(error.cause),
                 })
             } else {
-                if (error instanceof EmailAttachmentsMissingError) {
+                let message: string = error.message
+                if (
+                    error instanceof EmailAttachmentsMissingError ||
+                    error instanceof EmailAttachmentsUnavailableError
+                ) {
                     failureReason = EMAIL_ATTACHMENTS_MISSING
+                    message = new EmailAttachmentsMissingError().message
                 }
-                addLog('error', error.message)
-                result.error = error.message
-                result.emailSendResult = { status: 'failed', reason: error.message }
+                if (error instanceof EmailAttachmentsUnavailableError) {
+                    emailAttachmentOutcomesTotal.inc({ outcome: 'missing' }, params.attachments?.length ?? 0)
+                }
+                addLog('error', message)
+                result.error = message
+                result.emailSendResult = { status: 'failed', reason: message }
                 result.finished = true
                 if (error instanceof UnverifiedEmailDomainError && isRealWorkflowSend(invocation, isTest)) {
                     void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {

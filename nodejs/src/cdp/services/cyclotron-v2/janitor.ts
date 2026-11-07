@@ -7,7 +7,7 @@ import { captureException } from '~/common/utils/posthog'
 
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
-import { emailAttachmentOutcomesTotal } from '../messaging/email-attachments.service'
+import { EMAIL_ATTACHMENTS_MAX_AGE_MS, emailAttachmentOutcomesTotal } from '../messaging/email-attachments.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -75,8 +75,6 @@ const conversionWatchersSweptCounter = new Counter({
     name: 'cdp_conversion_watchers_swept',
     help: 'Expired conversion watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
 })
-
-export const EMAIL_ATTACHMENTS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 const emailAttachmentsTableBytesGauge = new Gauge({
     name: 'cdp_email_attachments_table_bytes',
