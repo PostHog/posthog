@@ -14,6 +14,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { Search } from '../Search/Search'
 import { SearchItem } from '../Search/searchItems'
 import { commandLogic } from './commandLogic'
+import { useTopBarSearchAnchor } from './useTopBarSearchAnchor'
 
 // Only flagged users render it, so the palette chunk skips quill for everyone else.
 const CommandKSearch = lazyWithRetry(() =>
@@ -22,12 +23,16 @@ const CommandKSearch = lazyWithRetry(() =>
 
 const TODAY_PHONE_SHEET =
     'max-md:top-0 max-md:h-dvh max-md:w-screen max-md:max-w-none max-md:max-h-none max-md:supports-[max-height:1dvh]:max-h-none max-md:rounded-none max-md:border-0'
+const TOP_BAR_ANCHORED =
+    'md:top-[var(--command-anchor-top)] md:left-[var(--command-anchor-left)] md:w-[var(--command-anchor-width)] origin-top'
 
 export function Command(): JSX.Element {
     const { isCommandOpen, pendingText } = useValues(commandLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const { closeCommand, commandInputReady } = useActions(commandLogic)
     const newCommandKSearch = useFeatureFlag('NEW_COMMAND_K_SEARCH')
+    // Only the new palette's input row matches the offsets the anchor uses.
+    const topBarAnchor = useTopBarSearchAnchor(isCommandOpen && todayRailEnabled && !!newCommandKSearch)
 
     useEffect(() => {
         if (!newCommandKSearch) {
@@ -62,7 +67,8 @@ export function Command(): JSX.Element {
             <DialogPrimitive
                 open={isCommandOpen}
                 onOpenChange={(open) => !open && closeCommand()}
-                className={cn('w-[640px]', todayRailEnabled && TODAY_PHONE_SHEET)}
+                className={cn('w-[640px]', todayRailEnabled && TODAY_PHONE_SHEET, topBarAnchor && TOP_BAR_ANCHORED)}
+                style={topBarAnchor}
             >
                 <DialogPrimitiveTitle>Command</DialogPrimitiveTitle>
                 {/* Mounted only while open, which scopes the search's caches and requests to one use of the palette. */}
