@@ -435,7 +435,9 @@ class _Analysis:
         self.lambdas_only = self._lambda_only_names() - bound_elsewhere - set(self.functions)
         self.exits += [expr for base, _, expr in self.member_assignments if base not in local]
         self.exits += [expr for name, expr in self.assignments if name not in local]
-        self.assigned_only = self.declarations - bound_elsewhere - {base for base, _, _ in self.member_assignments}
+        self.assigned_only = (
+            set(self.declared_names) - bound_elsewhere - {base for base, _, _ in self.member_assignments}
+        )
         self.exits += self._compared_exits(self.comparisons)
         quiet = {"fetch", *_SAFE_CALLS, *self.functions, *self.lambdas_only, *self.worker_call_names}
         self.exits += [
