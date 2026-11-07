@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { reportOnboardingCompleted } from 'scenes/onboarding/onboardingUsage'
+import { reportOnboardingCompleted, reportOnboardingStepBack } from 'scenes/onboarding/onboardingUsage'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -935,7 +935,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
         goToPreviousStep: () => {
             const prev = values.flow[values.flowIndex - 1]
-            if (prev) {
+            const currentStep = values.currentFlowStep
+            if (prev && currentStep) {
+                reportOnboardingStepBack(currentStep.stepKey, currentStep.productKey)
                 actions.setStepId(prev.id)
             }
         },
@@ -984,10 +986,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 ...(stepResolves && stepId ? { step: stepId } : {}),
                 ...(values.secondaryProductKeys.length ? { with: values.secondaryProductKeys.join(',') } : {}),
             }
-            // Use `replace` so the user doesn't accumulate one history entry per onboarding
-            // step — otherwise pressing browser Back after onboarding requires N presses to
-            // escape, where N is the number of steps the user advanced.
-            return [url, searchParams, undefined, { replace: true }]
+            // Normalizing the current URL must replace it, so Back/Forward keeps its forward entries.
+            return [
+                url,
+                searchParams,
+                undefined,
+                { replace: !stepId || !stepResolves || stepId === existingParams.step },
+            ]
         },
         updateCurrentTeamSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
@@ -1039,7 +1044,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.setWaitForBilling(true)
             }
 
-            if (stepValue !== values.stepId) {
+            // Consume billing callbacks even when payment returns to the step already open.
+            if (stepValue !== values.stepId || success || upgraded) {
                 actions.setStepId(stepValue)
             }
         }
