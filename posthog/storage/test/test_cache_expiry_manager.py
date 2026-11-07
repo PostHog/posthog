@@ -19,6 +19,7 @@ from posthog.storage.cache_expiry_manager import (
     RefreshPacing,
     cleanup_stale_expiry_tracking,
     refresh_expiring_caches,
+    select_expiring_teams,
 )
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.storage.test.test_hypercache_manager import (
@@ -426,18 +427,37 @@ class TestCleanupStaleExpiryTracking(BaseTest):
         assert self.entry_state(deleted_team) == (False, False, False)
         assert mirror.get(key) is None
 
-    def test_a_failed_existence_check_keeps_the_entry_tracked_for_the_next_cleanup(self) -> None:
+    def test_a_failed_untrack_keeps_the_entry_tracked_outside_the_refresh_window(self) -> None:
         self.given_cache(token_based=True)
         deleted_team = self.deleted_team()
         self.write_entry(deleted_team)
 
-        with patch(
-            "posthog.storage.cache_expiry_manager.object_storage.head_object_strict",
-            side_effect=object_storage.ObjectStorageError("down"),
-        ):
+        with patch.object(self.redis, "register_script", side_effect=ConnectionError("down")):
             assert cleanup_stale_expiry_tracking(self.config) == 0
 
         assert self.entry_state(deleted_team) == (False, False, True)
+        score = self.redis.zscore(self.sorted_set_key, deleted_team.api_token)
+        assert score is not None and score > time.time() + 24 * 3600
 
         assert cleanup_stale_expiry_tracking(self.config) == 1
         assert self.entry_state(deleted_team) == (False, False, False)
+
+    def test_an_entry_whose_delete_keeps_failing_does_not_starve_live_refreshes(self) -> None:
+        self.given_cache(token_based=True)
+        deleted_team = self.deleted_team()
+        self.write_entry(self.team)
+        self.write_entry(deleted_team)
+        now = time.time()
+        self.redis.zadd(self.sorted_set_key, {self.team.api_token: now + 3600, deleted_team.api_token: now + 60})
+        failing_key = self.hypercache.get_cache_key(deleted_team)
+        real_delete = self.hypercache.cache_client.delete
+
+        def fail_for_deleted_team(key, *args, **kwargs):
+            if key == failing_key:
+                raise ConnectionError("down")
+            return real_delete(key, *args, **kwargs)
+
+        with patch.object(self.hypercache.cache_client, "delete", side_effect=fail_for_deleted_team):
+            assert cleanup_stale_expiry_tracking(self.config) == 0
+
+        assert select_expiring_teams(self.config, ttl_threshold_hours=24, limit=1).teams == [self.team]

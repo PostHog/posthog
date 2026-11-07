@@ -12,9 +12,6 @@ import random
 from itertools import batched
 from typing import Literal
 
-from django.conf import settings
-
-import redis
 import structlog
 
 from posthog.dataclasses import frozen
@@ -22,7 +19,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
-from posthog.storage import object_storage
 from posthog.storage.hypercache import HyperCache
 from posthog.storage.hypercache_manager import (
     HyperCacheManagementConfig,
@@ -147,8 +143,8 @@ class ExpiryBacklogSample:
     not inflated by refreshes already in flight. It is not immune to members left behind
     for deleted teams, though: such a member is never re-scored, so it holds the set's
     minimum and pins this reading until `cleanup_stale_expiry_tracking` removes it. That
-    cleanup is a daily task where it is scheduled at all. It keeps a member whose cache entry
-    it fails to delete. A delete that keeps failing therefore pins the reading too.
+    cleanup is a daily task where it is scheduled at all. A member whose delete fails moves to
+    a retry score past the refresh window and stops pinning the reading.
 
     Both are None when Redis does not answer, which pushes no series rather than a zero
     that reads as a drained queue.
@@ -456,39 +452,10 @@ def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> Refresh
         return "failed"
 
 
-def _retrack_if_still_stored(
-    hypercache: HyperCache, identifier: str | int, score: float, redis_client: redis.Redis, sorted_set_key: str
-) -> bool:
-    """Re-add the member to the sorted set when any tier holds the entry after the delete.
-
-    The tiers are the primary cache, the secondary cache, and object storage. Every writer stores
-    the entry before it adds the member. A rewrite whose member the delete removed therefore shows
-    up here, even when both writes produced the same score. A failed check re-adds the member and
-    raises, so the next cleanup retries the entry.
-    """
-    cache_key = hypercache.get_cache_key(identifier)
-    secondary = hypercache.secondary_cache_client
-
-    def retrack() -> None:
-        redis_client.zadd(sorted_set_key, {str(identifier): score}, nx=True)
-
-    try:
-        still_stored = (
-            hypercache.cache_client.has_key(cache_key)
-            or (secondary is not None and secondary.has_key(cache_key))
-            # Without object storage the client is a stub whose existence check always raises.
-            or (
-                hypercache.s3_enabled
-                and settings.OBJECT_STORAGE_ENABLED
-                and object_storage.head_object_strict(cache_key) is not None
-            )
-        )
-    except Exception:
-        retrack()
-        raise
-    if still_stored:
-        retrack()
-    return still_stored
+# Every writer scores a member with a whole number of seconds, so a score ending in .5 marks a
+# member that only the cleanup wrote. The delay keeps the member out of the 24-hour window that
+# select_expiring_teams reads, so an entry whose delete keeps failing never takes a refresh slot.
+_DELETE_RETRY_DELAY_SECONDS = 2 * 24 * 3600 + 0.5
 
 
 def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
@@ -499,9 +466,11 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
     that loaded a team before the team was deleted can write the entry again after the delete
     path cleared it. The object-storage copy has no TTL. This cleanup deletes it.
 
-    The member leaves the sorted set only after every delete succeeds and no tier holds the
-    entry again. A failed delete, a rewrite, or a failed existence check keeps the member, and the
-    next cleanup retries it.
+    Before the deletes, the cleanup re-scores the member to a retry score that no writer produces.
+    The member leaves the sorted set only after every delete succeeds and only while it still
+    holds that score. Every writer stores the entry before it adds the member, so a rewrite during
+    the cleanup re-scores the member and keeps it. A failed delete or a failed remove leaves the
+    member at the retry score, outside the refresh window, and the next cleanup retries it.
 
     Args:
         config: HyperCache management config specifying which cache to clean up
@@ -519,37 +488,36 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
     try:
         redis_client = get_client(hypercache.redis_url)
 
-        scored_members = redis_client.zrange(sorted_set_key, 0, -1, withscores=True)
+        members = redis_client.zrange(sorted_set_key, 0, -1)
 
-        if not scored_members:
+        if not members:
             logger.info(f"No {config.log_prefix} expiry entries to check")
             return 0
 
         query_field = _query_field(hypercache)
-        scores_by_identifier = {_decode_identifier(hypercache, member): score for member, score in scored_members}
+        identifiers = [_decode_identifier(hypercache, member) for member in members]
 
         valid_identifiers: set[str | int] = set()
-        for batch in batched(scores_by_identifier, 1000, strict=False):
+        for batch in batched(identifiers, 1000, strict=False):
             valid_identifiers |= existing_team_identifiers(query_field, batch)
-        stale = [
-            (identifier, score)
-            for identifier, score in scores_by_identifier.items()
-            if identifier not in valid_identifiers
-        ]
+        stale = [identifier for identifier in identifiers if identifier not in valid_identifiers]
 
         if not stale:
             logger.info(f"No stale {config.log_prefix} expiry entries found")
             return 0
 
+        retry_score = int(time.time()) + _DELETE_RETRY_DELAY_SECONDS
         removed = 0
-        retracked = 0
-        for identifier, score in stale:
+        kept = 0
+        for identifier in stale:
+            member = str(identifier)
             try:
-                hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=score)
-                if _retrack_if_still_stored(hypercache, identifier, score, redis_client, sorted_set_key):
-                    retracked += 1
-                else:
+                redis_client.zadd(sorted_set_key, {member: retry_score}, xx=True)
+                hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=retry_score)
+                if redis_client.zscore(sorted_set_key, member) is None:
                     removed += 1
+                else:
+                    kept += 1
             except Exception as e:
                 logger.exception(
                     f"Failed to delete stale {config.log_prefix[:-1]}",
@@ -560,9 +528,9 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
         logger.info(
             f"Cleaned up stale {config.log_prefix} expiry entries",
             removed=removed,
-            retracked=retracked,
-            failed=len(stale) - removed - retracked,
-            total_checked=len(scores_by_identifier),
+            kept=kept,
+            failed=len(stale) - removed - kept,
+            total_checked=len(identifiers),
         )
 
         return removed
