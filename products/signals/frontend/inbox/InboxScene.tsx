@@ -21,6 +21,7 @@ import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
+import { InboxFeedbackButton } from './components/shell/InboxFeedbackButton'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { InboxTriageButton } from './components/shell/InboxTriageButton'
 import { InboxValueSummary } from './components/shell/InboxValueSummary'
@@ -264,13 +265,21 @@ export function InboxScene(): JSX.Element {
     // place, and it stays reachable when filters narrow the tab down to nothing. Not while onboarding
     // has the tab locked (or is still deciding): the tab isn't reachable then.
     const tabUnlocked = onboardingMode !== 'takeover' && onboardingMode !== 'pending'
-    const headerActions = !tabUnlocked ? undefined : activeTab === 'scouts' ? (
+    const tabActions = !tabUnlocked ? null : activeTab === 'scouts' ? (
         <ScoutsRosterActions />
     ) : activeTab === 'reports' ? (
         <div className="hidden @2xl/inbox:contents">
             <InboxTriageButton />
         </div>
-    ) : undefined
+    ) : null
+    // Feedback shows on every tab and on the welcome takeover, but not while the verdict is pending.
+    const headerActions =
+        onboardingMode === 'pending' ? undefined : (
+            <>
+                <InboxFeedbackButton />
+                {tabActions}
+            </>
+        )
 
     return (
         <SceneContent className="@container/inbox gap-y-0 border-b-0 flex-1 min-h-0">
