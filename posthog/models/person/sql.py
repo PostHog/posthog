@@ -599,6 +599,15 @@ WHERE actor_id NOT IN (
 )
 """
 
+# A replace inserts every match, existing members included, because the prune that follows removes
+# rows older than this run's _timestamp. Skipping existing members would leave them only at older
+# timestamps, and the prune would delete members the query still matches.
+INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE = """
+INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
+    SELECT DISTINCT actor_id FROM ({query})
+) AS new_actors
+"""
+
 
 COMMENT_DISTINCT_ID_COLUMN_SQL = lambda: (
     "ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
