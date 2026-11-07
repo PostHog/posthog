@@ -15896,6 +15896,22 @@
         },
         "feature_flag": "tasks"
     },
+    "ui-customization-describe": {
+        "description": "Get the layout JSON Schema and default layout for a supported UI customization context before designing alternatives. Read the schema descriptions for additional server validation rules, including limits across sections. This does not read or change the person's saved layout. Use ui-customization-get to read their layout before replacing it with ui-customization-set. Saving always validates the full layout again.",
+        "category": "UI customization",
+        "feature": "ui_customization",
+        "summary": "Describe UI customization",
+        "title": "Describe UI customization",
+        "required_scopes": ["user:read"],
+        "api_operations": ["GET /api/projects/{project_id}/ui_customization/{context}/schema/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "ui-customization"
+    },
     "ui-customization-get": {
         "description": "Get the person's layout for a supported UI customization context. For analytics_sidebar, this is the Analytics pane in the new navigation. It is the person's own layout, or the default when customized is false. Call it before you change the fragment, then send the whole changed layout to ui-customization-set.",
         "category": "UI customization",

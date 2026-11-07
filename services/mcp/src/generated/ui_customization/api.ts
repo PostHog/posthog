@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 4 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -229,7 +229,7 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                                 .optional(),
                                         })
                                         .describe(
-                                            'A link to an Analytics page or a project object. Pages supply their own label and icon.'
+                                            'A link to an Analytics page or a project object. Object links require a label; pages supply their own label and icon.'
                                         ),
                                     zod
                                         .object({
@@ -359,7 +359,10 @@ export const UiCustomizationUpdateBody = () => zod.object({
                     })
                 )
                 .min(1)
-                .max(uiCustomizationUpdateBodyLayoutOneSectionsMax),
+                .max(uiCustomizationUpdateBodyLayoutOneSectionsMax)
+                .describe(
+                    'Use at most 30 items across all sections, including at most 4 metrics. Each built-in list counts as one item. Section IDs must be unique. Each list source can appear only once in the layout.'
+                ),
         })
         .describe("The Analytics context's fragment. A section with no items to show is hidden.")
         .describe(
@@ -372,6 +375,21 @@ export const UiCustomizationUpdateBody = () => zod.object({
  * @summary Reset the person's UI customization
  */
 export const UiCustomizationDestroyParams = () => zod.object({
+    context: zod
+        .enum(['analytics_sidebar'])
+        .describe('The UI surface to customize. Each supported context defines its layout schema and defaults.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Returns the layout validation schema and defaults for a supported context without reading or changing the person's saved layout. Unknown contexts and people without UI customization enabled receive 404.
+ * @summary Describe a UI customization context
+ */
+export const UiCustomizationDescribeParams = () => zod.object({
     context: zod
         .enum(['analytics_sidebar'])
         .describe('The UI surface to customize. Each supported context defines its layout schema and defaults.'),

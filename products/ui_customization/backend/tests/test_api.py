@@ -37,6 +37,45 @@ class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
                 f"/api/projects/{self.team.id}/ui_customization/{context}/", body, format="json"
             )
 
+    def test_description_returns_a_valid_starting_point_without_fragment_storage(self) -> None:
+        with (
+            self.assertNumQueries(0, using="ui_customization_db_writer"),
+            self.assertNumQueries(0, using="ui_customization_db_reader"),
+        ):
+            response = self._call("get", context="analytics_sidebar/schema")
+        assert response.status_code == 200
+        description = response.json()
+        assert description["context"] == "analytics_sidebar"
+        assert "$defs" in description["layout_schema"]
+        saved = self._call("put", {"layout": description["default_layout"]})
+        assert saved.status_code == 200
+        assert saved.json()["layout"] == description["default_layout"]
+
+    @parameterized.expand(
+        [
+            ("read", ["user:read"], True, "analytics_sidebar", False, 200),
+            ("wrong_scope", ["today:read"], True, "analytics_sidebar", False, 403),
+            ("flag_off", ["user:read"], False, "analytics_sidebar", False, 404),
+            ("unknown", ["user:read"], True, "unknown", False, 404),
+            ("wrong_project", ["user:read"], True, "analytics_sidebar", True, 403),
+        ]
+    )
+    def test_description_respects_context_flag_and_token_access(
+        self, _name: str, scopes: list[str], flag: bool, context: str, wrong_project: bool, expected: int
+    ) -> None:
+        allowed_team = Team.objects.create(organization=self.organization) if wrong_project else self.team
+        raw_key = "synthetic_ui_description_key"
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Customization description",
+            secure_value=hash_key_value(raw_key),
+            scopes=scopes,
+            scoped_teams=[allowed_team.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        assert self._call("get", flag=flag, context=f"{context}/schema").status_code == expected
+
     @parameterized.expand([("get",), ("put",), ("delete",)])
     def test_unknown_context_does_not_read_or_change_stored_fragments(self, method: str) -> None:
         fragment = UserInterfaceFragment.objects.create(

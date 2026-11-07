@@ -75,7 +75,7 @@ AnalyticsTarget = Annotated[
 
 
 class AnalyticsFragmentLink(FragmentLink[AnalyticsTarget]):
-    """A link to an Analytics page or a project object. Pages supply their own label and icon."""
+    """A link to an Analytics page or a project object. Object links require a label; pages supply their own label and icon."""
 
     @model_validator(mode="after")
     def _object_links_have_a_label(self) -> Self:
@@ -111,7 +111,15 @@ class AnalyticsFragmentSection(FragmentSection[AnalyticsFragmentItem]):
 class AnalyticsFragmentLayout(FragmentLayout[AnalyticsFragmentSection]):
     """The Analytics context's fragment. A section with no items to show is hidden."""
 
-    sections: list[AnalyticsFragmentSection] = Field(min_length=1, max_length=MAX_ANALYTICS_SECTIONS)
+    sections: list[AnalyticsFragmentSection] = Field(
+        min_length=1,
+        max_length=MAX_ANALYTICS_SECTIONS,
+        description=(
+            f"Use at most {MAX_ANALYTICS_ITEMS} items across all sections, including at most "
+            f"{MAX_ANALYTICS_METRICS} metrics. Each built-in list counts as one item. "
+            "Section IDs must be unique. Each list source can appear only once in the layout."
+        ),
+    )
 
     @model_validator(mode="after")
     def _ids_and_lists_are_unique(self) -> Self:

@@ -14092,7 +14092,7 @@ export namespace Schemas {
     }
 
     /**
-     * A link to an Analytics page or a project object. Pages supply their own label and icon.
+     * A link to an Analytics page or a project object. Object links require a label; pages supply their own label and icon.
      */
     export interface AnalyticsFragmentLink {
       type: 'link';
@@ -14163,6 +14163,7 @@ export namespace Schemas {
     export interface AnalyticsFragmentLayout {
       version?: 1;
       /**
+         * Use at most 30 items across all sections, including at most 4 metrics. Each built-in list counts as one item. Section IDs must be unique. Each list source can appear only once in the layout.
          * @minItems 1
          * @maxItems 10
          */
@@ -30864,6 +30865,32 @@ export namespace Schemas {
       layout: AnalyticsFragmentLayout;
       /** True when the person saved their own layout. False for the default layout. */
       customized: boolean;
+    }
+
+    /**
+     * * `analytics_sidebar` - Analytics sidebar
+     */
+    export type CustomizationContextEnum = typeof CustomizationContextEnum[keyof typeof CustomizationContextEnum];
+
+
+    export const CustomizationContextEnum = {
+      AnalyticsSidebar: 'analytics_sidebar',
+    } as const;
+
+    /**
+     * JSON Schema for the layout, generated from the save validator. Read descriptions for additional rules enforced by the server.
+     */
+    export type CustomizationDescriptionLayoutSchema = { [key: string]: unknown };
+
+    export interface CustomizationDescription {
+      /** The UI customization context.
+       *
+       * * `analytics_sidebar` - Analytics sidebar */
+      context: CustomizationContextEnum;
+      /** JSON Schema for the layout, generated from the save validator. Read descriptions for additional rules enforced by the server. */
+      layout_schema: CustomizationDescriptionLayoutSchema;
+      /** The context's default layout, usable as a starting point. */
+      default_layout: AnalyticsFragmentLayout;
     }
 
     export interface CustomizationRequest {

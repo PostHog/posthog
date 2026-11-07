@@ -204,7 +204,7 @@ export const UiCustomizationUpdateBody = /* @__PURE__ */ zod.object({
                                                 .optional(),
                                         })
                                         .describe(
-                                            'A link to an Analytics page or a project object. Pages supply their own label and icon.'
+                                            'A link to an Analytics page or a project object. Object links require a label; pages supply their own label and icon.'
                                         ),
                                     zod
                                         .object({
@@ -334,7 +334,10 @@ export const UiCustomizationUpdateBody = /* @__PURE__ */ zod.object({
                     })
                 )
                 .min(1)
-                .max(uiCustomizationUpdateBodyLayoutOneSectionsMax),
+                .max(uiCustomizationUpdateBodyLayoutOneSectionsMax)
+                .describe(
+                    'Use at most 30 items across all sections, including at most 4 metrics. Each built-in list counts as one item. Section IDs must be unique. Each list source can appear only once in the layout.'
+                ),
         })
         .describe("The Analytics context's fragment. A section with no items to show is hidden.")
         .describe(

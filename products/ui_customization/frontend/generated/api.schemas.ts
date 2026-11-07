@@ -82,7 +82,7 @@ export interface AnalyticsNotebookTargetApi {
 }
 
 /**
- * A link to an Analytics page or a project object. Pages supply their own label and icon.
+ * A link to an Analytics page or a project object. Object links require a label; pages supply their own label and icon.
  */
 export interface AnalyticsFragmentLinkApi {
     type: 'link'
@@ -182,6 +182,7 @@ export interface AnalyticsFragmentSectionApi {
 export interface AnalyticsFragmentLayoutApi {
     version?: 1
     /**
+     * Use at most 30 items across all sections, including at most 4 metrics. Each built-in list counts as one item. Section IDs must be unique. Each list source can appear only once in the layout.
      * @minItems 1
      * @maxItems 10
      */
@@ -198,4 +199,29 @@ export interface CustomizationApi {
 export interface CustomizationRequestApi {
     /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole fragment, so send every section to keep. */
     layout: AnalyticsFragmentLayoutApi
+}
+
+/**
+ * JSON Schema for the layout, generated from the save validator. Read descriptions for additional rules enforced by the server.
+ */
+export type CustomizationDescriptionApiLayoutSchema = { [key: string]: unknown }
+
+/**
+ * * `analytics_sidebar` - Analytics sidebar
+ */
+export type CustomizationContextEnumApi = (typeof CustomizationContextEnumApi)[keyof typeof CustomizationContextEnumApi]
+
+export const CustomizationContextEnumApi = {
+    AnalyticsSidebar: 'analytics_sidebar',
+} as const
+
+export interface CustomizationDescriptionApi {
+    /** The UI customization context.
+     *
+     * * `analytics_sidebar` - Analytics sidebar */
+    context: CustomizationContextEnumApi
+    /** JSON Schema for the layout, generated from the save validator. Read descriptions for additional rules enforced by the server. */
+    layout_schema: CustomizationDescriptionApiLayoutSchema
+    /** The context's default layout, usable as a starting point. */
+    default_layout: AnalyticsFragmentLayoutApi
 }

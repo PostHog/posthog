@@ -1,11 +1,13 @@
 from typing import Any
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 
 from ..facade import api
 from ..facade.contracts import CustomizationLayout
+from ..facade.enums import CustomizationContext
 
 
 @extend_schema_field(CustomizationLayout)  # type: ignore[arg-type]
@@ -43,3 +45,18 @@ class CustomizationSerializer(serializers.Serializer):
     customized = serializers.BooleanField(
         help_text="True when the person saved their own layout. False for the default layout."
     )
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class LayoutSchemaField(serializers.JSONField):
+    pass
+
+
+class CustomizationDescriptionSerializer(serializers.Serializer):
+    context = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=CustomizationContext.choices, help_text="The UI customization context."
+    )
+    layout_schema = LayoutSchemaField(
+        help_text="JSON Schema for the layout, generated from the save validator. Read descriptions for additional rules enforced by the server."
+    )
+    default_layout = CustomizationLayoutField(help_text="The context's default layout, usable as a starting point.")

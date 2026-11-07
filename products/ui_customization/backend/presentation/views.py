@@ -15,7 +15,7 @@ from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from ..facade import api
 from ..facade.enums import CustomizationContext
-from .serializers import CustomizationRequestSerializer, CustomizationSerializer
+from .serializers import CustomizationDescriptionSerializer, CustomizationRequestSerializer, CustomizationSerializer
 
 
 class CustomizationBurstThrottle(UserRateThrottle):
@@ -46,7 +46,7 @@ CONTEXT_PARAMETER = OpenApiParameter(
 
 class UICustomizationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "user"
-    scope_object_read_actions = ["get_customization"]
+    scope_object_read_actions = ["get_customization", "describe_customization"]
     scope_object_write_actions = CUSTOMIZATION_WRITES
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -69,6 +69,18 @@ class UICustomizationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def get_serializer_context(self) -> dict:
         return {**super().get_serializer_context(), "request": self.request, "view": self}
+
+    @validated_request(
+        parameters=[CONTEXT_PARAMETER],
+        responses={200: OpenApiResponse(response=CustomizationDescriptionSerializer)},
+        operation_id="ui_customization_describe",
+        summary="Describe a UI customization context",
+        description="Returns the layout validation schema and defaults for a supported context without reading or changing the person's saved layout. Unknown contexts and people without UI customization enabled receive 404.",
+    )
+    @action(detail=False, methods=["get"], url_path=r"(?P<context>[^/.]+)/schema")
+    def describe_customization(self, request: Request, context: str, **kwargs) -> Response:
+        self._customization_user()
+        return Response(CustomizationDescriptionSerializer(api.describe_customization(context)).data)
 
     @validated_request(
         parameters=[CONTEXT_PARAMETER],

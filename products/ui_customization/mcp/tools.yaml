@@ -7,6 +7,16 @@ feature: ui_customization
 url_prefix: /home
 ui_apps: {}
 tools:
+    ui-customization-describe:
+        operation: ui_customization_describe
+        enabled: true
+        title: Describe UI customization
+        description: >
+            Get the layout JSON Schema and default layout for a supported UI customization context before designing
+            alternatives. Read the schema descriptions for additional server validation rules, including limits across
+            sections. This does not read or change the person's saved layout. Use ui-customization-get to read their
+            layout before replacing it with ui-customization-set. Saving always validates the full layout again.
+        feature_flag: ui-customization
     ui-customization-get:
         operation: ui_customization_retrieve
         enabled: true

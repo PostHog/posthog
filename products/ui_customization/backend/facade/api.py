@@ -31,3 +31,7 @@ def validate_customization_layout(*, context: str, layout: object) -> contracts.
 
 def validate_customization_context(context: str) -> CustomizationContext:
     return contexts.resolve_context(context).context
+
+
+def describe_customization(context: str) -> contracts.CustomizationDescription:
+    return contexts.describe_context(context)

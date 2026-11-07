@@ -5,6 +5,27 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/ui_customization/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const UiCustomizationDescribeSchema = () => {
+    const UiCustomizationDescribeParams = orvalSchemas.UiCustomizationDescribeParams()
+    return UiCustomizationDescribeParams.omit({ project_id: true })
+}
+
+const uiCustomizationDescribe = (): ToolBase<
+    ReturnType<typeof UiCustomizationDescribeSchema>,
+    Schemas.CustomizationDescription
+> => ({
+    name: 'ui-customization-describe',
+    schema: UiCustomizationDescribeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UiCustomizationDescribeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomizationDescription>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ui_customization/${encodeURIComponent(String(params.context))}/schema/`,
+        })
+        return result
+    },
+})
+
 const UiCustomizationGetSchema = () => {
     const UiCustomizationRetrieveParams = orvalSchemas.UiCustomizationRetrieveParams()
     return UiCustomizationRetrieveParams.omit({ project_id: true })
@@ -66,6 +87,7 @@ const uiCustomizationSet = (): ToolBase<ReturnType<typeof UiCustomizationSetSche
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'ui-customization-describe': uiCustomizationDescribe,
     'ui-customization-get': uiCustomizationGet,
     'ui-customization-reset': uiCustomizationReset,
     'ui-customization-set': uiCustomizationSet,

@@ -10,6 +10,7 @@
             "description": "The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole fragment, so send every section to keep.",
             "properties": {
                 "sections": {
+                    "description": "Use at most 30 items across all sections, including at most 4 metrics. Each built-in list counts as one item. Section IDs must be unique. Each list source can appear only once in the layout.",
                     "items": {
                         "properties": {
                             "icon": {
@@ -56,7 +57,7 @@
                                 "items": {
                                     "anyOf": [
                                         {
-                                            "description": "A link to an Analytics page or a project object. Pages supply their own label and icon.",
+                                            "description": "A link to an Analytics page or a project object. Object links require a label; pages supply their own label and icon.",
                                             "properties": {
                                                 "icon": {
                                                     "anyOf": [

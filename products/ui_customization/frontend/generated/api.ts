@@ -8,7 +8,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { CustomizationApi, CustomizationRequestApi } from './api.schemas'
+import type { CustomizationApi, CustomizationDescriptionApi, CustomizationRequestApi } from './api.schemas'
 
 export const getUiCustomizationRetrieveUrl = (projectId: string, context: 'analytics_sidebar') => {
     return `/api/projects/${projectId}/ui_customization/${context}/`
@@ -67,5 +67,24 @@ export const uiCustomizationDestroy = async (
     return apiMutator<CustomizationApi>(getUiCustomizationDestroyUrl(projectId, context), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getUiCustomizationDescribeUrl = (projectId: string, context: 'analytics_sidebar') => {
+    return `/api/projects/${projectId}/ui_customization/${context}/schema/`
+}
+
+/**
+ * Returns the layout validation schema and defaults for a supported context without reading or changing the person's saved layout. Unknown contexts and people without UI customization enabled receive 404.
+ * @summary Describe a UI customization context
+ */
+export const uiCustomizationDescribe = async (
+    projectId: string,
+    context: 'analytics_sidebar',
+    options?: RequestInit
+): Promise<CustomizationDescriptionApi> => {
+    return apiMutator<CustomizationDescriptionApi>(getUiCustomizationDescribeUrl(projectId, context), {
+        ...options,
+        method: 'GET',
     })
 }
