@@ -78,6 +78,9 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
     } = useActions(logic)
 
     const visibleUrls = urlsKeyed.filter((url) => canEdit || url.type === 'authorized')
+    const openLabel = extensionInstalled ? 'Open in extension' : 'Launch'
+    // pinned: data-attr values, autocapture insights and tests select these buttons
+    const openDataAttr = extensionInstalled ? 'toolbar-open-in-extension' : 'toolbar-open'
     const urlForm = (
         <form
             className="flex w-full flex-col gap-4"
@@ -160,6 +163,22 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
 
                         const target = launchUrl(keyedURL.url)
                         const isWildcard = keyedURL.url.includes('*')
+                        const openButton = (
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                disabled={isWildcard}
+                                {...(isWildcard
+                                    ? {}
+                                    : extensionInstalled
+                                      ? { onClick: () => openInExtension(keyedURL.url) }
+                                      : { render: <LinkPrimitive to={target} target="_blank" /> })}
+                                data-attr={openDataAttr}
+                            >
+                                <IconExternal />
+                                {openLabel}
+                            </Button>
+                        )
 
                         return (
                             <Item key={`${keyedURL.type}-${keyedURL.url}`} size="sm" variant="outline">
@@ -192,36 +211,11 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
                                         <>
                                             {isWildcard ? (
                                                 <Tooltip>
-                                                    <TooltipTrigger
-                                                        render={
-                                                            <Button variant="primary" size="sm" disabled>
-                                                                <IconExternal />
-                                                                Launch
-                                                            </Button>
-                                                        }
-                                                    />
-                                                    <TooltipContent>Wildcard URLs cannot be launched</TooltipContent>
+                                                    <TooltipTrigger render={openButton} />
+                                                    <TooltipContent>Wildcard URLs can't be opened</TooltipContent>
                                                 </Tooltip>
-                                            ) : extensionInstalled ? (
-                                                <Button
-                                                    variant="primary"
-                                                    size="sm"
-                                                    onClick={() => openInExtension(keyedURL.url)}
-                                                    data-attr="toolbar-open-in-extension"
-                                                >
-                                                    <IconExternal />
-                                                    Open in extension
-                                                </Button>
                                             ) : (
-                                                <Button
-                                                    variant="primary"
-                                                    size="sm"
-                                                    render={<LinkPrimitive to={target} target="_blank" />}
-                                                    data-attr="toolbar-open"
-                                                >
-                                                    <IconExternal />
-                                                    Launch
-                                                </Button>
+                                                openButton
                                             )}
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger

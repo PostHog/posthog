@@ -29,8 +29,7 @@ export function ToolbarExtensionCard(): JSX.Element | null {
                 <div className="flex min-w-64 flex-1 flex-col gap-1">
                     <Text weight="semibold">Use the Chrome extension instead</Text>
                     <Text size="sm" variant="muted">
-                        It opens the toolbar in a side panel next to your website, on any authorized URL. You don't need
-                        to launch it from here.
+                        Opens the toolbar in a side panel next to your website, on any authorized URL.
                     </Text>
                 </div>
                 <Button
