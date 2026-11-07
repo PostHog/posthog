@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { MessagesOpening, NodeContent } from '../types'
 import { ErrorCallout } from './ErrorCallout'
 import { firstOpenIndex } from './firstOpenIndex'
 import { IOPanel } from './IOPanel'
 import { MessageSection } from './MessageSection'
+import { NodeContentGate } from './NodeContentGate'
 import { revealFirstOpenMessage } from './revealFirstOpenMessage'
 
 export interface NodeMessagesTabProps {
@@ -64,67 +65,77 @@ export function NodeMessagesTab({
     return (
         <div className="flex flex-col gap-3" ref={containerRef}>
             {error ? <ErrorCallout message={error} /> : null}
-            {content.kind === 'loading' ? (
-                <LemonSkeleton repeat={3} className="h-16" />
-            ) : content.kind === 'error' ? (
-                <ErrorCallout message={content.message} />
-            ) : content.kind === 'messages' ? (
-                <>
-                    <div className="flex justify-end">
-                        <LemonSegmentedButton
-                            size="xsmall"
-                            value={opening}
-                            onChange={selectOpening}
-                            data-attr="trace-view-messages-opening"
-                            options={[
-                                {
-                                    value: 'lastTurn',
-                                    label: 'Last turn',
-                                    tooltip: tooltip('lastTurn', 'Open messages from the last user message on'),
-                                    'data-attr': 'trace-view-messages-opening-last-turn',
-                                },
-                                {
-                                    value: 'everything',
-                                    label: 'Everything',
-                                    tooltip: tooltip('everything', 'Open every message'),
-                                    'data-attr': 'trace-view-messages-opening-everything',
-                                },
-                            ]}
-                        />
-                    </div>
-                    {/* A new key remounts the messages, which drops what was opened or closed by hand. */}
-                    <div key={listKey} className="flex flex-col gap-3">
-                        <MessageSection
-                            title="Input"
-                            messages={content.input}
-                            emptyText="No input captured."
-                            openFrom={firstOpenIndex(content.input, opening)}
-                            highlightQuery={highlightQuery}
-                        />
-                        <MessageSection
-                            title="Output"
-                            messages={content.output}
-                            emptyText="No output captured."
-                            openFrom={0}
-                            highlightQuery={highlightQuery}
-                        />
-                    </div>
-                </>
-            ) : (
-                <IOPanel input={content.input} output={content.output} />
-            )}
-            {onViewInThread && content.kind !== 'loading' ? (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconMessage />}
-                    className="self-start"
-                    onClick={onViewInThread}
-                    data-attr="trace-view-view-in-thread"
-                >
-                    View in thread
-                </LemonButton>
-            ) : null}
+            <NodeContentGate content={content}>
+                {(loaded) => (
+                    <>
+                        {loaded.kind === 'messages' ? (
+                            <>
+                                <div className="flex justify-end">
+                                    <LemonSegmentedButton
+                                        size="xsmall"
+                                        value={opening}
+                                        onChange={selectOpening}
+                                        data-attr="trace-view-messages-opening"
+                                        options={[
+                                            {
+                                                value: 'lastTurn',
+                                                label: 'Last turn',
+                                                tooltip: tooltip(
+                                                    'lastTurn',
+                                                    'Open messages from the last user message on'
+                                                ),
+                                                'data-attr': 'trace-view-messages-opening-last-turn',
+                                            },
+                                            {
+                                                value: 'everything',
+                                                label: 'Everything',
+                                                tooltip: tooltip('everything', 'Open every message'),
+                                                'data-attr': 'trace-view-messages-opening-everything',
+                                            },
+                                        ]}
+                                    />
+                                </div>
+                                {/* A new key remounts the messages, which drops what was opened or closed by hand. */}
+                                <div key={listKey} className="flex flex-col gap-3">
+                                    <MessageSection
+                                        title="Input"
+                                        messages={loaded.input}
+                                        emptyText="No input captured."
+                                        openFrom={firstOpenIndex(loaded.input, opening)}
+                                        highlightQuery={highlightQuery}
+                                    />
+                                    <MessageSection
+                                        title="Output"
+                                        messages={loaded.output}
+                                        emptyText="No output captured."
+                                        openFrom={0}
+                                        highlightQuery={highlightQuery}
+                                    />
+                                </div>
+                            </>
+                        ) : (
+                            <IOPanel
+                                key={stepId}
+                                input={loaded.input}
+                                output={loaded.output}
+                                highlightQuery={highlightQuery}
+                            />
+                        )}
+                        {onViewInThread ? (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconMessage />}
+                                className="self-start"
+                                onClick={onViewInThread}
+                                data-attr="trace-view-view-in-thread"
+                            >
+                                View in thread
+                            </LemonButton>
+                        ) : null}
+                    </>
+                )}
+            </NodeContentGate>
         </div>
     )
 }

@@ -1,6 +1,8 @@
+import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
 import type { AccessKey, AccessKeyStorage } from './access-key'
+import type { BearerToken } from './tokens'
 
 // A command can outlive an OAuth access token, so each request renews it first when it is about to
 // expire, and renews it and sends once more when PostHog answers 401. PostHog checks the token
@@ -21,11 +23,27 @@ export class KeySession {
         return this.key
     }
 
-    async token(): Promise<string> {
+    async token(): Promise<BearerToken> {
         if (this.storage) {
             this.key = await this.key.fresh(this.runtime, this.storage)
         }
         return this.key.token
+    }
+
+    // A step-up in the same project keeps the login id. Another id means another project, so hog stops.
+    async reload(): Promise<void> {
+        const latest = await this.storage?.reread()
+        if (!latest) {
+            throw new HogError('not_authenticated', 'You logged out of hog.', 'Run `hog auth login` to log in again.')
+        }
+        if (latest.loginKey !== this.key.loginKey) {
+            throw new HogError(
+                'login_changed',
+                "You're now logged in to another project, so hog stopped instead of sending the rest of the command there.",
+                'Run the command again to use that project.'
+            )
+        }
+        this.key = latest
     }
 
     async send<T>(attempt: (token: string) => Promise<T>, rejected: (result: T) => boolean): Promise<T> {

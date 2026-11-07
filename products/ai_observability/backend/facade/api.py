@@ -81,6 +81,7 @@ from ..logic.traces.trace_export import (
 )
 from ..logic.traces.trace_queries import (
     TraceNodeRow,
+    load_available_trace_ids,
     load_trace,
     load_trace_feedback_rows,
     load_trace_git_rows,
@@ -122,6 +123,10 @@ def is_usable_timestamp_hint(timestamp_hint: datetime) -> bool:
     except OverflowError:
         return False
     return True
+
+
+def get_available_trace_ids(team: Team, user: User | None, trace_ids: list[str]) -> list[str]:
+    return load_available_trace_ids(team, user, trace_ids)
 
 
 def get_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None) -> contracts.Trace:
@@ -287,9 +292,9 @@ def mentions_evaluation_pass_markers(text: str) -> bool:
 
 def get_trace_evaluation_results(team: Team, user: User | None, trace_id: str) -> contracts.TraceEvaluationResults:
     rows = load_evaluation_results(team, user, trace_id)
-    configs = load_output_configs(team, user, {row.evaluation_id for row in rows if row.evaluation_id})
+    configs = load_output_configs(team, user, {row.evaluation_uuid for row in rows if row.evaluation_uuid})
     results = [
-        EvaluationResult.from_row(row, trace_id=trace_id, output_config=configs.get(row.evaluation_id or "", {}))
+        EvaluationResult.from_row(row, trace_id=trace_id, output_config=configs.get(row.evaluation_uuid or "", {}))
         for row in rows
     ]
     return contracts.TraceEvaluationResults(

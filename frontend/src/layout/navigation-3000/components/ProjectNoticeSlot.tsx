@@ -6,6 +6,7 @@ import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -19,6 +20,14 @@ const loadProjectNotice = (): Promise<{ default: typeof ProjectNoticeComponent }
 void loadProjectNotice().catch(() => {})
 const ProjectNotice = lazyWithRetry(loadProjectNotice)
 
+/** sceneConfig follows the routed scene, so an error scene that replaces it (activeSceneId) needs its own lookup. */
+export function sceneHidesProjectNotice(sceneConfig: SceneConfig | null, activeSceneId: string | null): boolean {
+    return !!(
+        sceneConfig?.hideProjectNotice ||
+        (activeSceneId && sceneConfigurations[activeSceneId]?.hideProjectNotice)
+    )
+}
+
 /** SceneMenuBar replaces the project notice, so hide the notice when the menu bar is on. */
 export function ProjectNoticeSlot({
     sceneConfig,
@@ -30,7 +39,7 @@ export function ProjectNoticeSlot({
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const { activeSceneId } = useValues(sceneLogic)
 
-    if (sceneMenuBarEnabled || sceneConfig?.hideProjectNotice) {
+    if (sceneMenuBarEnabled || sceneHidesProjectNotice(sceneConfig, activeSceneId)) {
         return null
     }
 

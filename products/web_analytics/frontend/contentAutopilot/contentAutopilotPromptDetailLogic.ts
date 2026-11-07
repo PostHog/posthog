@@ -23,6 +23,7 @@ import type {
     PaginatedAEOPromptCheckListApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import {
     PromptConsensusMatrix,
@@ -41,7 +42,7 @@ import {
     promptSourcesQuery,
     promptVisibilityQuery,
 } from './promptReportQueries'
-import { sortEngines } from './utils'
+import { promptEditPatch, sortEngines } from './utils'
 
 export const PROMPT_CHECKS_PAGE_SIZE = 10
 
@@ -66,8 +67,10 @@ export interface contentAutopilotPromptDetailLogicValues {
     latestChecksLoading: boolean
     prompt: AEOPromptApi | null
     promptArchiving: boolean
+    promptEditing: boolean
     promptId: string | null
     promptLoading: boolean
+    promptSaving: boolean
     reportKpis: PromptReportKpis | null
     reportWindow: PromptReportWindow | null
     searchesQuery: DataTableNode | null
@@ -203,6 +206,19 @@ export interface contentAutopilotPromptDetailLogicActions {
     openPromptDetail: (promptId: string) => {
         promptId: string
     }
+    savePromptEdit: (
+        text: string,
+        topic: string
+    ) => {
+        text: string
+        topic: string
+    }
+    savePromptEditFailure: () => {
+        value: true
+    }
+    savePromptEditSuccess: (prompt: AEOPromptApi) => {
+        prompt: AEOPromptApi
+    }
     selectCheck: (check: AEOPromptCheckApi) => {
         check: AEOPromptCheckApi
     }
@@ -223,6 +239,9 @@ export interface contentAutopilotPromptDetailLogicActions {
     }
     setPromptArchivedSuccess: (prompt: AEOPromptApi) => {
         prompt: AEOPromptApi
+    }
+    setPromptEditing: (editing: boolean) => {
+        editing: boolean
     }
     setVisibilityMetric: (metric: PromptVisibilityMetric) => {
         metric: PromptVisibilityMetric
@@ -284,6 +303,10 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         setPromptArchived: (archived: boolean) => ({ archived }),
         setPromptArchivedSuccess: (prompt: AEOPromptApi) => ({ prompt }),
         setPromptArchivedFailure: true,
+        setPromptEditing: (editing: boolean) => ({ editing }),
+        savePromptEdit: (text: string, topic: string) => ({ text, topic }),
+        savePromptEditSuccess: (prompt: AEOPromptApi) => ({ prompt }),
+        savePromptEditFailure: true,
         selectEngine: (engine: string) => ({ engine }),
         selectCheck: (check: AEOPromptCheckApi) => ({ check }),
         setChecksPage: (page: number) => ({ page }),
@@ -371,6 +394,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             setPromptActiveFailure: (state, { promptId, active }) =>
                 state?.id === promptId ? { ...state, active: !active } : state,
             setPromptArchivedSuccess: (state, { prompt }) => (state?.id === prompt.id ? prompt : state),
+            savePromptEditSuccess: (state, { prompt }) => (state?.id === prompt.id ? prompt : state),
         },
         versions: { openPromptDetail: () => null },
         versionsFailed: [
@@ -386,6 +410,24 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                 openPromptDetail: () => false,
                 setArchiveConfirming: (_, { confirming }) => confirming,
                 setPromptArchivedSuccess: () => false,
+            },
+        ],
+        promptEditing: [
+            false,
+            {
+                openPromptDetail: () => false,
+                closePromptDetail: () => false,
+                setPromptEditing: (_, { editing }) => editing,
+                savePromptEditSuccess: () => false,
+            },
+        ],
+        promptSaving: [
+            false,
+            {
+                savePromptEdit: () => true,
+                setPromptEditing: () => false,
+                savePromptEditSuccess: () => false,
+                savePromptEditFailure: () => false,
             },
         ],
         promptArchiving: [
@@ -548,6 +590,42 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             }
         },
         setChecksPage: () => actions.loadAeoPromptChecks(),
+        savePromptEdit: async ({ text, topic }) => {
+            const prompt = values.prompt
+            if (!prompt) {
+                return
+            }
+            const patch = promptEditPatch(prompt, text, topic)
+            if (!patch) {
+                actions.setPromptEditing(false)
+                return
+            }
+            try {
+                const updated = await aeoPromptsPartialUpdate(String(values.currentTeamIdStrict), prompt.id, patch)
+                actions.savePromptEditSuccess(updated)
+                // pinned: analytics event name, renaming it breaks dashboards
+                posthog.capture('web analytics content autopilot prompt edited', {
+                    text_changed: patch.prompt !== undefined,
+                    topic_changed: patch.topic !== undefined,
+                })
+                // The user may have opened another prompt while this save was in flight.
+                if (updated.version_count > 1 && values.promptId === updated.id) {
+                    actions.loadAeoPromptVersions(updated.id)
+                }
+                actions.loadAeoPrompts()
+                actions.loadAeoPromptTopics()
+                if (patch.prompt !== undefined) {
+                    // Opportunities carry the old wording; a refresh rebuilds them for the new text.
+                    contentAutopilotLogic.findMounted()?.actions.refreshOpportunities()
+                }
+            } catch (error) {
+                actions.savePromptEditFailure()
+                // A 400 or 409 says why the change was refused, for example a duplicate prompt text.
+                const detail =
+                    error instanceof ApiError && (error.status === 400 || error.status === 409) ? error.detail : null
+                lemonToast.error(detail || "Couldn't save the prompt. Try again.")
+            }
+        },
         setPromptArchived: async ({ archived }) => {
             if (!values.promptId) {
                 return

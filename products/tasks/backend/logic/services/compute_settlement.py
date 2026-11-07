@@ -36,7 +36,7 @@ from products.tasks.backend.logic.services.sandbox_usage import (
 from products.tasks.backend.metrics import (
     ComputeSettlementOutcome,
     observe_compute_settlement,
-    set_hogland_sandbox_sessions_open_over_day,
+    push_compute_settlement_sweep_gauges,
 )
 from products.tasks.backend.models import SandboxSession, TaskRun
 
@@ -47,6 +47,7 @@ ATTEMPTS_EXHAUSTED_ERROR = "attempts_exhausted"
 ENDED_GRACE = timedelta(minutes=10)
 TTL_GRACE = timedelta(hours=1)
 HOGLAND_OPEN_ALERT_AGE = timedelta(days=1)
+UNSETTLED_ALERT_AGE = timedelta(hours=1)
 DETAIL_MAX_BYTES = 2048
 _USD_QUANTUM = Decimal("0.000001")
 _RETRYABLE_STATUSES = frozenset({408, 429})
@@ -65,6 +66,7 @@ class SettlementOutcome(StrEnum):
     ATTEMPTS_EXHAUSTED = "attempts_exhausted"
     CONTRACT_ERROR = "contract_error"
     CONTRACT_ERROR_REPEAT = "contract_error_repeat"
+    INSUFFICIENT_CREDITS = "insufficient_credits"
 
 
 _CONTRACT_ERROR_OUTCOMES = frozenset({SettlementOutcome.CONTRACT_ERROR, SettlementOutcome.CONTRACT_ERROR_REPEAT})
@@ -166,6 +168,7 @@ def build_settlement_body(session: SandboxSession, run: TaskRun, cost: SandboxCo
             "billable": is_billable_sandbox_session(session),
             "detail": detail,
             "reason": "sandbox compute",
+            "strict": True,
         }
     )
     return body
@@ -189,6 +192,7 @@ _METRIC_LABELS: dict[SettlementOutcome, ComputeSettlementOutcome] = {
     SettlementOutcome.ATTEMPTS_EXHAUSTED: "attempts_exhausted",
     SettlementOutcome.CONTRACT_ERROR: "contract_error",
     SettlementOutcome.CONTRACT_ERROR_REPEAT: "contract_error",
+    SettlementOutcome.INSUFFICIENT_CREDITS: "insufficient_credits",
 }
 
 
@@ -312,6 +316,13 @@ def settle_sandbox_session(session: SandboxSession) -> SettlementOutcome:
         return _record(SettlementOutcome.RETRY)
     if status == 400:
         return _mark_contract_error(session, response)
+    if status == 402 and (response.body or {}).get("code") == "insufficient_credits":
+        error_text = _error_text(response)
+        logger.error(
+            "compute_settlement.insufficient_credits", session_id=str(session.id), status=status, error=error_text
+        )
+        _mark_conflict(session, error_text, ParkReason.HTTP_402)
+        return _record(SettlementOutcome.INSUFFICIENT_CREDITS)
     if status == 409:
         logger.error("compute_settlement.conflict", session_id=str(session.id), status=status)
         _mark_conflict(session, _error_text(response), ParkReason.HTTP_409)
@@ -348,13 +359,32 @@ def _overdue_open_modal(now: datetime, batch_size: int, processed: set[UUID]) ->
     )
 
 
-def _refresh_hogland_open_gauge(now: datetime) -> None:
-    count = (
+def _push_sweep_gauges(now: datetime) -> None:
+    hogland_open_over_day = (
         SandboxSession.objects.unscoped()
         .filter(sandbox_backend="hogland", ended_at__isnull=True, created_at__lt=now - HOGLAND_OPEN_ALERT_AGE)
         .count()
     )
-    set_hogland_sandbox_sessions_open_over_day(count)
+    unsettled_over_hour = (
+        _unsettled(SandboxSession.objects.unscoped())
+        .filter(user_attributed_at__isnull=False, ended_at__lt=now - UNSETTLED_ALERT_AGE)
+        .count()
+        if settings.GATEWAY_COMPUTE_DEBIT_ENABLED
+        else 0
+    )
+    parked_counts = {
+        row["compute_settle_park_reason"]: row["rows"]
+        for row in SandboxSession.objects.unscoped()
+        .filter(compute_settled_at__isnull=True, compute_settle_conflict_at__isnull=False)
+        .order_by()
+        .values("compute_settle_park_reason")
+        .annotate(rows=Count("id"))
+    }
+    push_compute_settlement_sweep_gauges(
+        hogland_open_over_day=hogland_open_over_day,
+        unsettled_over_hour=unsettled_over_hour,
+        parked_by_reason={reason: parked_counts.get(reason, 0) for reason in ParkReason.values},
+    )
 
 
 def _park_repeated_contract_errors(
@@ -386,34 +416,36 @@ def _park_repeated_contract_errors(
 def settle_overdue_sandbox_compute(
     now: datetime, batch_size: int = 50, time_budget: timedelta = timedelta(minutes=15)
 ) -> list[SettlementOutcome]:
-    _refresh_hogland_open_gauge(now)
-    if not settings.GATEWAY_COMPUTE_DEBIT_ENABLED:
-        return []
-    deadline = time.monotonic() + time_budget.total_seconds()
-    results: list[tuple[SandboxSession, SettlementOutcome]] = []
-    processed: set[UUID] = set()
     try:
-        while True:
-            batch = _overdue_ended(now, batch_size, processed)
-            for session in batch:
-                processed.add(session.id)
-                results.append((session, _settle_safely(session)))
-            if len(batch) < batch_size or time.monotonic() >= deadline:
-                break
-        while True:
-            batch = _overdue_open_modal(now, batch_size, processed)
-            for session in batch:
-                processed.add(session.id)
-                close_sandbox_session(session.sandbox_id, reason=SandboxSession.EndedReason.TTL_SWEEP)
-                closed = SandboxSession.objects.unscoped().filter(id=session.id).first()
-                if closed is not None and closed.ended_at is not None:
-                    results.append((closed, _settle_safely(closed)))
-            if len(batch) < batch_size or time.monotonic() >= deadline:
-                break
-        return _park_repeated_contract_errors(results)
-    except ComputeSettlementDeploymentError as error:
-        logger.exception("compute_settlement.sweep_stopped", error=str(error))
-    return [outcome for _, outcome in results]
+        if not settings.GATEWAY_COMPUTE_DEBIT_ENABLED:
+            return []
+        deadline = time.monotonic() + time_budget.total_seconds()
+        results: list[tuple[SandboxSession, SettlementOutcome]] = []
+        processed: set[UUID] = set()
+        try:
+            while True:
+                batch = _overdue_ended(now, batch_size, processed)
+                for session in batch:
+                    processed.add(session.id)
+                    results.append((session, _settle_safely(session)))
+                if len(batch) < batch_size or time.monotonic() >= deadline:
+                    break
+            while True:
+                batch = _overdue_open_modal(now, batch_size, processed)
+                for session in batch:
+                    processed.add(session.id)
+                    close_sandbox_session(session.sandbox_id, reason=SandboxSession.EndedReason.TTL_SWEEP)
+                    closed = SandboxSession.objects.unscoped().filter(id=session.id).first()
+                    if closed is not None and closed.ended_at is not None:
+                        results.append((closed, _settle_safely(closed)))
+                if len(batch) < batch_size or time.monotonic() >= deadline:
+                    break
+            return _park_repeated_contract_errors(results)
+        except ComputeSettlementDeploymentError as error:
+            logger.exception("compute_settlement.sweep_stopped", error=str(error))
+        return [outcome for _, outcome in results]
+    finally:
+        _push_sweep_gauges(now)
 
 
 def _settle_safely(session: SandboxSession) -> SettlementOutcome:

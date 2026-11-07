@@ -20,7 +20,6 @@ class ComputeHighlightsInputs:
     scopes: list[str] | None
     source_names: list[str]
     pins: list[PinnedNumber] = dataclasses.field(default_factory=list)
-    progressive: bool = False
 
 
 @dataclasses.dataclass(frozen=True)

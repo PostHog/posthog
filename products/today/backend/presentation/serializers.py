@@ -463,7 +463,7 @@ class PulseSlotSerializer(DataclassSerializer):
 class HighlightsQuerySerializer(serializers.Serializer):
     refresh = serializers.BooleanField(
         default=False,
-        help_text="Retry failed sources when progressive loading is enabled. An active computation is reused.",
+        help_text="Retry failed sources. An active computation is reused.",
     )
 
 

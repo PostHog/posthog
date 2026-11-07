@@ -18,7 +18,7 @@ from posthog.hogql.database.schema.events import EVENTS_AVOID_ASTERISK_FIELDS, E
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, flag_evaluations_coverage_start
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import GetFieldsTraverser
+from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.dataclasses import frozen
 
@@ -125,7 +125,8 @@ class FlagEvaluationsColumns:
 
 
 class EventsWithFlagCallsTable(LazyTable):
-    """`events` with its flag calls since the coverage start read from `posthog.flag_evaluations` instead.
+    """`events` with its keyed flag calls read from `posthog.flag_evaluations` instead: since the coverage start on mode
+    1, and every call that table retains on mode 2.
 
     Its `fields` is the events table's own dict, so every name binds as it does on `events`.
     """
@@ -141,9 +142,24 @@ class EventsWithFlagCallsTable(LazyTable):
             and_conditions,
             flag_key_typed_as_string,
         )
-        from posthog.hogql.transforms.flag_calls_union import union_branch_filters, union_events_filter  # noqa: PLC0415
+        from posthog.hogql.transforms.flag_calls_union import (  # noqa: PLC0415
+            sample_flag_evaluations_filter,
+            union_branch_filters,
+            union_events_filter,
+            union_scan_sample,
+        )
 
         assert context.database is not None
+        # Lazy table resolution drops the scan's SAMPLE, so each branch applies the ratio itself.
+        sample = union_scan_sample(node, self)
+
+        def sampled_scan(table: ast.Field, alias: str | None = None) -> ast.JoinExpr:
+            return ast.JoinExpr(
+                sample=clone_expr(sample, clear_types=True, clear_locations=True) if sample is not None else None,
+                table=table,
+                alias=alias,
+            )
+
         # `SELECT count()` reads no field, and a subquery needs at least one column.
         accessed = dict(table_to_add.fields_accessed) or {"timestamp": ["timestamp"]}
         events_columns: list[ast.Expr] = [
@@ -155,7 +171,7 @@ class EventsWithFlagCallsTable(LazyTable):
             # once. The second scan asks only for columns, and it reads the same filter from this query's WHERE.
             return ast.SelectQuery(
                 select=events_columns,
-                select_from=ast.JoinExpr(table=ast.Field(chain=list(EVENTS_WITH_FLAG_CALLS_CHAIN)), alias="events"),
+                select_from=sampled_scan(table=ast.Field(chain=list(EVENTS_WITH_FLAG_CALLS_CHAIN)), alias="events"),
                 where=union_events_filter(node, self),
             )
 
@@ -178,7 +194,7 @@ class EventsWithFlagCallsTable(LazyTable):
         def events_branch(*conditions: ast.Expr | None) -> ast.SelectQuery:
             return ast.SelectQuery(
                 select=events_columns,
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                select_from=sampled_scan(table=ast.Field(chain=["events"])),
                 where=and_conditions([*conditions, filters.events]),
             )
 
@@ -188,7 +204,11 @@ class EventsWithFlagCallsTable(LazyTable):
         )
         # On mode 2 every flag call comes from flag_evaluations, as the flag_evaluations swap reads it. That leaves out
         # the calls without a key, which ingestion keeps writing to events.
-        moved = flag_call if only_in_flag_evaluations else flag_call_since_cutoff
+        moved: ast.Expr = flag_call
+        flag_evaluations_since_cutoff: ast.Expr | None = None
+        if not only_in_flag_evaluations:
+            moved = flag_call_since_cutoff
+            flag_evaluations_since_cutoff = parse_expr("flag_evaluations.timestamp >= {cutoff}", {"cutoff": cutoff})
         branches = [events_branch(ast.Not(expr=moved))]
         if not only_in_flag_evaluations and filters.keyless_flag_calls_can_match:
             branches.append(events_branch(flag_call_since_cutoff, ast.Not(expr=parse_expr(_HAS_FLAG_KEY))))
@@ -199,7 +219,13 @@ class EventsWithFlagCallsTable(LazyTable):
                     table=ast.Field(chain=["posthog", "flag_evaluations"]), alias="flag_evaluations"
                 ),
                 where=and_conditions(
-                    [parse_expr("flag_evaluations.timestamp >= {cutoff}", {"cutoff": cutoff}), filters.flag_evaluations]
+                    [
+                        flag_evaluations_since_cutoff,
+                        filters.flag_evaluations,
+                        sample_flag_evaluations_filter(sample, flag_evaluations_field(["distinct_id"]))
+                        if sample is not None
+                        else None,
+                    ]
                 ),
             )
         )

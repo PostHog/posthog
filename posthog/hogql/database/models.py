@@ -296,6 +296,16 @@ class Table(FieldOrTable):
         return asterisk
 
 
+class EventsRetentionTable(Table):
+    """A table of events or of rows derived from events, which the team's events retention applies to.
+
+    The ClickHouse printer floors every scan of a subclass at `events_retention_field > now() - retention`, so
+    derived rows cannot outlive the events they came from.
+    """
+
+    events_retention_field: str
+
+
 _CI_INDEX_CACHE_KEY = "_case_insensitive_index_cache"
 
 
