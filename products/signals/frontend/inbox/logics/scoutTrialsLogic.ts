@@ -131,6 +131,46 @@ function trialsUrl(link: ScoutTrialsLink): [string, Record<string, any>, Record<
     ]
 }
 
+function trialsUrlShows(link: ScoutTrialsLink): boolean {
+    return onTrialsPage() && objectsEqual(link, trialsLinkFromUrl(router.values.searchParams))
+}
+
+function replaceTrialsUrl(link: ScoutTrialsLink): void {
+    if (onTrialsPage() && !trialsUrlShows(link)) {
+        router.actions.replace(...trialsUrl(link))
+    }
+}
+
+function linkConfigId(configs: SignalScoutConfigApi[], link: ScoutTrialsLink, selectedConfigId: string | null): string {
+    return (
+        configs.find((config) => config.skill_name === link.scout)?.id ??
+        configs.find((config) => config.id === selectedConfigId)?.id ??
+        configs[0].id
+    )
+}
+
+function linkRunId(trial: ScoutTrialComparison | undefined, run: string | null): string | null {
+    return run && trial?.groups.some((group) => group.launchIds.includes(run)) ? run : null
+}
+
+async function fetchLinkedTrial(
+    teamId: number,
+    configId: string,
+    trialId: string
+): Promise<{ comparison: ScoutTrialComparisonApi | null; retryable: boolean }> {
+    try {
+        const comparison = await signalsScoutConfigTrialComparisonRetrieve(String(teamId), configId, {
+            comparison_id: trialId,
+        })
+        return { comparison, retryable: false }
+    } catch (error) {
+        // Trials are private to the person who ran them, so another person's link gets a 403 and opens
+        // the list. Other failures keep the link in the URL, so a reload tries it again.
+        const missing = error instanceof ApiError && (error.status === 403 || error.status === 404)
+        return { comparison: null, retryable: !missing }
+    }
+}
+
 // Opening a link selects the scout, trial and run one by one. The URL is written once afterwards,
 // so the intermediate selections do not add history entries or drop the params still to be read.
 function withoutUrlSync(cache: Record<string, any>, dispatch: () => void): void {
@@ -1348,11 +1388,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             if (props.configId || !configs?.length) {
                 return
             }
-            const configId =
-                configs.find((config) => config.skill_name === link.scout)?.id ??
-                (configs.some((config) => config.id === values.selectedConfigId)
-                    ? values.selectedConfigId!
-                    : configs[0].id)
+            const configId = linkConfigId(configs, link, values.selectedConfigId)
             withoutUrlSync(cache, () => {
                 if (values.selectedConfigId !== configId || !values.setup) {
                     actions.selectConfig(configId)
@@ -1361,31 +1397,22 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             const trialId = link.trial
             let retryable = false
             if (trialId && !values.comparisons.some((comparison) => comparison.id === trialId)) {
-                let comparison: ScoutTrialComparisonApi | null = null
-                try {
-                    comparison = await signalsScoutConfigTrialComparisonRetrieve(String(props.teamId), configId, {
-                        comparison_id: trialId,
-                    })
-                } catch (error) {
-                    // Trials are private to the person who ran them, so another person's link gets a 403 and opens
-                    // the list. Other failures keep the link in the URL, so a reload tries it again.
-                    retryable = !(error instanceof ApiError && (error.status === 403 || error.status === 404))
-                }
+                const lookup = await fetchLinkedTrial(props.teamId, configId, trialId)
                 breakpoint()
                 // A URL that changed during the lookup means the person navigated, so the newer URL wins.
-                if (!onTrialsPage() || !objectsEqual(link, trialsLinkFromUrl(router.values.searchParams))) {
+                if (!trialsUrlShows(link)) {
                     return
                 }
-                if (comparison?.archived && !values.showArchived) {
+                retryable = lookup.retryable
+                if (lookup.comparison?.archived && !values.showArchived) {
                     actions.setShowArchived(true)
                 }
-                if (comparison) {
-                    actions.registerServerComparison(comparison)
+                if (lookup.comparison) {
+                    actions.registerServerComparison(lookup.comparison)
                 }
             }
             const trial = values.comparisonsForConfig.find((comparison) => comparison.id === trialId)
-            const runId =
-                link.run && trial?.groups.some((group) => group.launchIds.includes(link.run!)) ? link.run : null
+            const runId = linkRunId(trial, link.run)
             withoutUrlSync(cache, () => {
                 if (trial) {
                     if (values.trialView !== 'detail' || values.selectedComparison?.id !== trial.id) {
@@ -1402,9 +1429,8 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                     actions.selectResult(runId)
                 }
             })
-            const opened = trialsLinkFromState(values)
-            if (!retryable && onTrialsPage() && !objectsEqual(opened, trialsLinkFromUrl(router.values.searchParams))) {
-                router.actions.replace(...trialsUrl(opened))
+            if (!retryable) {
+                replaceTrialsUrl(trialsLinkFromState(values))
             }
         },
         selectConfig: ({ configId }) => {
