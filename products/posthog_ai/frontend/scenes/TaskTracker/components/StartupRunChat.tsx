@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { type MutableRefObject, useRef } from 'react'
 
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
@@ -7,6 +7,7 @@ import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
 import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { runInteractionLogic, type RunInteractionLogicProps } from '../../../logics/runInteractionLogic'
+import { taskTurnNotificationLogic } from '../../../logics/taskTurnNotificationLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { TaskRunComposer } from './TaskRunComposer'
 
@@ -24,6 +25,7 @@ export function StartupRunChat({
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const flushDraftRef = useRef<() => void>(() => {})
     const { activeCreation } = useValues(taskTrackerSceneLogic)
+    useMountedLogic(taskTurnNotificationLogic)
     const logicProps: RunInteractionLogicProps = {
         taskId: activeCreation?.taskId ?? '',
         runId: activeCreation?.runId ?? '',

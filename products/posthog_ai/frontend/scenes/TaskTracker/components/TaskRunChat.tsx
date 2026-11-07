@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { type MutableRefObject, useEffect, useMemo, useRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
@@ -19,6 +19,7 @@ import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { resolveRunStreamKey } from '../../../logics/retainedLogics'
 import { runCancellationLogic } from '../../../logics/runCancellationLogic'
 import type { RunContinuationHandoff } from '../../../logics/runInteractionLogic'
+import { taskTurnNotificationLogic } from '../../../logics/taskTurnNotificationLogic'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { TaskRunComposer } from './TaskRunComposer'
 
@@ -64,6 +65,7 @@ export function TaskRunChat({
     const { setSelectedRunId, loadTaskRuns, continueWithRun } = useActions(taskDetailSceneLogic({ taskId }))
     const { selectedRun, task } = useValues(taskDetailSceneLogic({ taskId }))
     const { user } = useValues(userLogic)
+    useMountedLogic(taskTurnNotificationLogic)
     const flushDraftRef = useRef<() => void>(() => {})
     // Staff can view tasks they don't own (support/debugging); those are read-only — hide the composer so
     // they can't try to drive a run they can't control (the backend rejects the write anyway).

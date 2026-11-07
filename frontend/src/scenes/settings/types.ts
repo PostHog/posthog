@@ -140,6 +140,7 @@ export type SettingId =
     | 'change-password'
     | 'change-requests'
     | 'changelog'
+    | 'task-turn-notifications'
     | 'channel-type'
     | 'connected-apps'
     | 'ai-gateway-dev-mode'
