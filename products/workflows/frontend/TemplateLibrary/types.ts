@@ -2,7 +2,10 @@ import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
 import type { UserBasicType } from '~/types'
 
-import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
+import type {
+    MessageTemplateApi,
+    MessageTemplateApi as MessageTemplateListApi,
+} from 'products/messaging/frontend/generated/api.schemas'
 
 export interface MessageTemplate {
     id: string
@@ -20,3 +23,5 @@ export interface MessageTemplate {
     sensitive?: MessageTemplateApi['sensitive']
     tags?: MessageTemplateApi['tags']
 }
+
+export type MessageTemplateListItem = MessageTemplate | MessageTemplateListApi

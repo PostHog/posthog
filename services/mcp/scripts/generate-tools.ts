@@ -913,6 +913,19 @@ function extractPathParams(urlPattern: string): string[] {
     return matches.map((m) => m.slice(1, -1)).filter((name) => !autoResolved.has(name))
 }
 
+/**
+ * `inject_query` values as `"key": value` object-literal entries. Throws when a caller can still
+ * set one of the keys, because the fixed value would silently replace what the caller sent.
+ */
+function injectedQueryEntries(config: ToolConfig, exposedQueryParamNames: readonly string[]): string[] {
+    return Object.entries(config.inject_query ?? {}).map(([key, value]) => {
+        if (exposedQueryParamNames.includes(key)) {
+            throw new Error(`Injected query parameter "${key}" must be excluded from tool inputs`)
+        }
+        return `${JSON.stringify(key)}: ${JSON.stringify(value)}`
+    })
+}
+
 /** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params.
  *  Interpolated values are URL-encoded; ApiClient rejects paths that URL parsing would normalize.
  *  Params in `localVarParams` use a bare variable name (no prefix) because they are resolved to local variables. */
@@ -1249,9 +1262,13 @@ function generateToolCode(
 
     const injectBody = config.inject_body ?? {}
     const injectBodyEntries = Object.entries(injectBody)
+    const injectQueryEntries = injectedQueryEntries(
+        config,
+        composition.queryParamNames.map((name) => composition.renamedFields[name] ?? name)
+    )
     const hasInjectBody = !isSoftDelete && injectBodyEntries.length > 0
     const hasBody = !isSoftDelete && (composition.bodyFieldNames.length > 0 || hasInjectBody)
-    const hasQuery = composition.queryParamNames.length > 0
+    const hasQuery = composition.queryParamNames.length > 0 || injectQueryEntries.length > 0
 
     if (hasBody) {
         handlerBody += `        const body: Record<string, unknown> = {}\n`
@@ -1291,8 +1308,8 @@ function generateToolCode(
         handlerBody += `            body,\n`
     }
     if (hasQuery) {
-        const queryAssignments = composition.queryParamNames
-            .map((qn) => {
+        const queryAssignments = [
+            ...composition.queryParamNames.map((qn) => {
                 const queryKey = composition.renamedFields[qn] ?? qn
                 // explode: false params are comma-joined here because
                 // ApiClient.request() JSON-stringifies raw arrays (the
@@ -1303,8 +1320,9 @@ function generateToolCode(
                     return `                ${queryKey}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
                 }
                 return `                ${queryKey}: params.${qn},`
-            })
-            .join('\n')
+            }),
+            ...injectQueryEntries.map((entry) => `                ${entry},`),
+        ].join('\n')
         handlerBody += `            query: {\n${queryAssignments}\n            },\n`
     }
     handlerBody += `        })\n`
@@ -1369,7 +1387,7 @@ function generateToolCode(
     // alone doesn't touch params, so don't count it here.
     const paramsUsed =
         composition.bodyFieldNames.length > 0 ||
-        hasQuery ||
+        composition.queryParamNames.length > 0 ||
         composition.pathParamNames.length > 0 ||
         enrichUsesParams ||
         !!selectableExtension ||
@@ -1686,6 +1704,16 @@ function generateCustomSchemaToolCode(
         }
     }
 
+    const injectQuery = injectedQueryEntries(config, [])
+    if (injectQuery.length > 0) {
+        // Only tsc knows the custom schema's keys, so on a query method the type marks each of them
+        // `never`: an injected key that callers can still set fails typecheck instead of overriding them.
+        const guard = useBody ? '' : ': Record<string, unknown> & { [K in keyof typeof parsedParams]?: never }'
+        handlerBody += `        const injectedQuery${guard} = { ${injectQuery.join(', ')} }\n`
+    }
+    const withInjectedQuery = (query: string): string =>
+        injectQuery.length > 0 ? `{ ...${query}, ...injectedQuery }` : query
+
     handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
     handlerBody += `            method: '${resolved.method}',\n`
     handlerBody += `            path: ${pathExpr},\n`
@@ -1693,12 +1721,16 @@ function generateCustomSchemaToolCode(
         if (useBody) {
             handlerBody += `            body,\n`
         } else {
-            handlerBody += `            query,\n`
+            const query = withInjectedQuery('query')
+            handlerBody += query === 'query' ? `            query,\n` : `            query: ${query},\n`
         }
     } else if (useBody) {
         handlerBody += `            body: parsedParams,\n`
     } else {
-        handlerBody += `            query: parsedParams,\n`
+        handlerBody += `            query: ${withInjectedQuery('parsedParams')},\n`
+    }
+    if (useBody && injectQuery.length > 0) {
+        handlerBody += `            query: injectedQuery,\n`
     }
     handlerBody += `        })\n`
 

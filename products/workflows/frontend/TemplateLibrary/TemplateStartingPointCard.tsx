@@ -3,10 +3,10 @@ import { IconLetter } from '@posthog/icons'
 import { EmailPreviewThumbnail } from 'lib/components/EmailPreviewThumbnail/EmailPreviewThumbnail'
 import { cn } from 'lib/utils/css-classes'
 
-import { MessageTemplate } from './types'
+import type { MessageTemplateListItem } from './types'
 
 export interface TemplateStartingPointCardProps {
-    template: MessageTemplate
+    template: MessageTemplateListItem
     picked: boolean
     onClick: () => void
 }

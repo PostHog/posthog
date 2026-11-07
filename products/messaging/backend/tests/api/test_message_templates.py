@@ -5,6 +5,8 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -45,7 +47,19 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
 
     def test_list_message_templates(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
+        self.message_template.content = {
+            "email": {
+                "subject": "Test Subject",
+                "text": "Test Body",
+                "html": "<p>Preview</p>",
+                "design": MINIMAL_DESIGN,
+            }
+        }
+        self.message_template.draft_content = {
+            "email": {"subject": "Draft Subject", "html": "<p>Draft preview</p>", "design": MINIMAL_DESIGN}
+        }
+        self.message_template.save(update_fields=["content", "draft_content"])
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/?include_design=false")
         assert response.status_code == status.HTTP_200_OK
 
         response_data = response.json()
@@ -58,9 +72,58 @@ class TestMessageTemplatesAPI(APIBaseTest):
         # templating is injected by the serializer default for legacy rows that never stored it
         assert template["content"] == {
             "templating": "liquid",
-            "email": {"subject": "Test Subject", "text": "Test Body"},
+            "email": {"subject": "Test Subject", "text": "Test Body", "html": "<p>Preview</p>"},
+        }
+        assert template["draft_content"] == {
+            "templating": "liquid",
+            "email": {"subject": "Draft Subject", "html": "<p>Draft preview</p>"},
         }
         assert template["type"] == "email"
+
+    def test_list_message_templates_includes_design_by_default(self):
+        self.message_template.content = {"email": {"subject": "Test Subject", "design": MINIMAL_DESIGN}}
+        self.message_template.draft_content = {"email": {"subject": "Draft Subject", "design": MINIMAL_DESIGN}}
+        self.message_template.save(update_fields=["content", "draft_content"])
+
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["content"]["email"]["design"] == MINIMAL_DESIGN
+        assert response.json()["results"][0]["draft_content"]["email"]["design"] == MINIMAL_DESIGN
+
+    def test_list_message_templates_pages_stably_with_and_without_design(self):
+        self.message_template.content = {"email": {"subject": "Hello", "design": MINIMAL_DESIGN}}
+        self.message_template.save(update_fields=["content"])
+        templates = [self.message_template]
+        for index in range(2):
+            templates.append(
+                MessageTemplate.objects.create(
+                    team=self.team,
+                    name=f"Page template {index}",
+                    content={"email": {"subject": "Hello", "design": MINIMAL_DESIGN}},
+                    type="email",
+                )
+            )
+        MessageTemplate.objects.filter(id__in=[template.id for template in templates]).update(created_at=timezone.now())
+
+        for include_design in ("true", "false"):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/messaging_templates/?include_design={include_design}&limit=1"
+            )
+            ids = []
+            while True:
+                assert response.status_code == status.HTTP_200_OK
+                page = response.json()
+                assert page["count"] == 3
+                assert len(page["results"]) == 1
+                email = page["results"][0]["content"]["email"]
+                assert ("design" in email) is (include_design == "true")
+                ids.append(page["results"][0]["id"])
+                if not page["next"]:
+                    break
+                assert f"include_design={include_design}" in page["next"]
+                response = self.client.get(page["next"])
+
+            assert ids == sorted([str(template.id) for template in templates], reverse=True)
 
     def test_list_pages_templates_with_equal_created_at_by_descending_id(self):
         ids = [UUID(int=n) for n in (1, 2, 3)]
@@ -141,9 +204,10 @@ class TestMessageTemplatesAPI(APIBaseTest):
         ]
     )
     def test_retrieve_message_template(self, _name: str, stored_sender: Any) -> None:
+        email: dict[str, Any] = {"subject": "Test Subject", "text": "Test Body", "design": MINIMAL_DESIGN}
         if stored_sender is not None:
-            email = {**self.message_template.content["email"], "from": stored_sender}
-            MessageTemplate.objects.filter(id=self.message_template.id).update(content={"email": email})
+            email["from"] = stored_sender
+        MessageTemplate.objects.filter(id=self.message_template.id).update(content={"email": email})
         listed = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
         assert listed.status_code == status.HTTP_200_OK
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
@@ -155,7 +219,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert template["description"] == "Test description"
         assert template["content"] == {
             "templating": "liquid",
-            "email": {"subject": "Test Subject", "text": "Test Body"},
+            "email": {"subject": "Test Subject", "text": "Test Body", "design": MINIMAL_DESIGN},
         }
         assert template["type"] == "email"
 

@@ -30,6 +30,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
@@ -478,22 +479,28 @@ function LiquidSupportedText({
 }
 
 export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
-    const { templates } = useValues(emailTemplaterLogic)
-    const { applyTemplate } = useActions(emailTemplaterLogic)
+    const { templates, pickingTemplateId } = useValues(emailTemplaterLogic)
+    const { pickTemplate, setIsTemplatePickerOpen } = useActions(emailTemplaterLogic)
     const [search, setSearch] = useState('')
     const [tags, setTags] = useState<string[]>([])
     const filteredTemplates = filterMessageTemplates(templates, { search, tags })
 
-    const close = (): void => {
+    const resetFilters = (): void => {
         setSearch('')
         setTags([])
+    }
+
+    // Closing from any surface cancels an in-flight pick, including callers that own their open state.
+    const handleClose = (): void => {
+        setIsTemplatePickerOpen(false)
+        resetFilters()
         onClose()
     }
 
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={close}
+            onClose={handleClose}
             title="Choose a starting point"
             width={880}
             description={
@@ -523,7 +530,7 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
                 <div className="flex flex-wrap gap-3">
                     <LemonCard
                         className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
-                        onClick={close}
+                        onClick={handleClose}
                         data-attr="template-picker-blank"
                     >
                         <IconPlus className="text-2xl" />
@@ -534,10 +541,20 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
                             <MessageTemplateCard
                                 template={template}
                                 index={index}
-                                onClick={() => {
-                                    applyTemplate(template)
-                                    close()
-                                }}
+                                onClick={() =>
+                                    pickingTemplateId !== template.id &&
+                                    pickTemplate(template, () => {
+                                        resetFilters()
+                                        onClose()
+                                    })
+                                }
+                                actions={
+                                    pickingTemplateId === template.id ? (
+                                        <span role="status" aria-label="Loading template">
+                                            <Spinner />
+                                        </span>
+                                    ) : undefined
+                                }
                             />
                         </div>
                     ))}
@@ -586,7 +603,10 @@ function NativeEmailTemplaterForm({
         mode === 'full'
     const preheaderVisible = visibleFields.some((field) => field.key === 'preheader')
     // Preheaders see almost no use, so don't advertise the field unless this team already uses it.
-    const offerPreheader = templates.some((template) => !!template.content?.email?.preheader)
+    const offerPreheader = templates.some((template) => {
+        const email = template.content?.email
+        return !!email && 'preheader' in email && !!email.preheader
+    })
 
     return (
         <>

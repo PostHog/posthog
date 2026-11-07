@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
-from django.db import transaction
+from django.db import models, transaction
 
 import structlog
 import posthoganalytics
@@ -245,9 +245,13 @@ class EmailTemplateSerializer(serializers.Serializer):
         return fields
 
 
+class MessageTemplateContentTemplating(models.TextChoices):
+    LIQUID = "liquid", "liquid"
+
+
 class MessageTemplateContentSerializer(serializers.Serializer):
     templating = serializers.ChoiceField(
-        choices=["liquid"],
+        choices=MessageTemplateContentTemplating.choices,
         default="liquid",
         help_text="Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.",
     )
@@ -390,6 +394,33 @@ class MessageTemplateSerializer(serializers.Serializer):
                     {"content": {"email": {"design": f"Rendering the design to HTML failed: {e}"}}}
                 )
         return data
+
+
+class EmailTemplateListSerializer(EmailTemplateSerializer):
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        fields.pop("design")
+        return fields
+
+
+class MessageTemplateListContentSerializer(MessageTemplateContentSerializer):
+    email = EmailTemplateListSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Email message content for template previews. The editable design is available on the detail endpoint.",
+    )
+
+
+class MessageTemplateListSerializer(MessageTemplateSerializer):
+    content = MessageTemplateListContentSerializer(
+        required=False,
+        help_text="Template content for previews. The editable design is available on the detail endpoint.",
+    )
+    draft_content = MessageTemplateListContentSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Unpublished content for previews. The editable design is available on the detail endpoint.",
+    )
 
 
 class DesignPatchSerializer(serializers.Serializer):
@@ -952,6 +983,17 @@ class TransactionalEmailSendMixin:
 
 
 @extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="include_design",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Set to false to omit editable email designs from list responses. Defaults to true.",
+            ),
+        ]
+    ),
     retrieve=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
     update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
     partial_update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
@@ -983,6 +1025,11 @@ class MessageTemplatesViewSet(
     records_have_object_access_rules = False
 
     serializer_class = MessageTemplateSerializer
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action == "list" and self.request.query_params.get("include_design", "true").lower() == "false":
+            return MessageTemplateListSerializer
+        return MessageTemplateSerializer
 
     def get_throttles(self):
         if self.action == "send":

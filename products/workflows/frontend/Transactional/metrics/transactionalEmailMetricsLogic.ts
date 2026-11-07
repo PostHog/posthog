@@ -65,11 +65,11 @@ export interface transactionalEmailMetricsLogicActions {
         errorObject?: any
     } // messageTemplatesLogic
     loadTemplatesSuccess: (
-        templates: import('../../TemplateLibrary/types').MessageTemplate[],
+        templates: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi[],
         payload?: any
     ) => {
         payload?: any
-        templates: import('../../TemplateLibrary/types').MessageTemplate[]
+        templates: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi[]
     } // messageTemplatesLogic
     loadDomainStats: (_: void) => void
     loadDomainStatsFailure: (

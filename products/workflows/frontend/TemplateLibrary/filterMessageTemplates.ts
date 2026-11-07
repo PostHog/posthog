@@ -1,4 +1,4 @@
-import { MessageTemplate } from './types'
+import { MessageTemplateListItem } from './types'
 
 export interface MessageTemplateFilters {
     search?: string
@@ -7,10 +7,10 @@ export interface MessageTemplateFilters {
     transactionalOnly?: boolean
 }
 
-export function filterMessageTemplates(
-    templates: MessageTemplate[],
+export function filterMessageTemplates<T extends MessageTemplateListItem>(
+    templates: T[],
     { search, tags, createdBy, transactionalOnly }: MessageTemplateFilters
-): MessageTemplate[] {
+): T[] {
     let filtered = templates
     if (search) {
         const lowerSearch = search.toLowerCase()
