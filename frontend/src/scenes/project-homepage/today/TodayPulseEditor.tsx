@@ -18,54 +18,17 @@ import {
     Text,
 } from '@posthog/quill'
 
-import type { PulsePinApi, PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
+import type { PulsePinApi } from 'products/today/frontend/generated/api.schemas'
 
 import { PULSE_TILES, pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
-
-interface EditorGroup {
-    pinned: boolean
-    items: string[]
-}
-
-function withoutKeys(rows: PulsePinApi[], keys: Set<string>): PulsePinApi[] {
-    return rows.filter((row) => !keys.has(row.key))
-}
-
-function searchResults(search: string, listed: PulsePinApi[], insights: PulsePinApi[]): PulsePinApi[] {
-    const query = search.trim().toLowerCase()
-    const matches = listed.filter((row) => row.name.toLowerCase().includes(query))
-    return [...matches, ...withoutKeys(insights, new Set(matches.map((row) => row.key)))]
-}
-
-function suggestionsOnHome(slots: PulseSlotApi[], pinnedKeys: Set<string>, suggestions: PulsePinApi[]): PulsePinApi[] {
-    return slots
-        .filter((slot) => !pinnedKeys.has(slot.key))
-        .map((slot) => ({
-            key: slot.key,
-            name: slot.name,
-            dashboard_id: suggestions.find((row) => row.key === slot.key)?.dashboard_id ?? null,
-        }))
-}
-
-function editorNotes(
-    searching: boolean,
-    resultCount: number,
-    loading: boolean,
-    failed: boolean
-): { searchNote: string | null; emptyNote: string } {
-    if (!searching) {
-        return { searchNote: null, emptyNote: 'No trend insights to pin yet' }
-    }
-    const emptyNote = 'No insights you can pin match your search'
-    if (resultCount > 0 || !(loading || failed)) {
-        return { searchNote: null, emptyNote }
-    }
-    return { searchNote: loading ? 'Searching…' : "Couldn't search your insights. Try again.", emptyNote }
-}
-
-function changedKey(before: Set<string>, after: Set<string>): string | undefined {
-    return [...after].find((key) => !before.has(key)) ?? [...before].find((key) => !after.has(key))
-}
+import {
+    EditorGroup,
+    changedKey,
+    editorNotes,
+    editorRows,
+    suggestionsOnHome,
+    withoutKeys,
+} from './todayPulseEditorRows'
 
 export function TodayPulseEditor(): JSX.Element {
     const {
@@ -73,6 +36,8 @@ export function TodayPulseEditor(): JSX.Element {
         pulseSlots,
         pulseSuggestions,
         pulseRecentInsights,
+        pulseRecentInsightsLoading,
+        pulseRecentInsightsFailed,
         pulseInsightResults,
         pulseInsightResultsLoading,
         pulseInsightSearchFailed,
@@ -84,38 +49,23 @@ export function TodayPulseEditor(): JSX.Element {
     const [search, setSearch] = useState('')
     const [pinnedOnOpen, setPinnedOnOpen] = useState<PulsePinApi[]>([])
     const [othersOnOpen, setOthersOnOpen] = useState<PulsePinApi[]>([])
+    const [pinnedThisTime, setPinnedThisTime] = useState<PulsePinApi[]>([])
 
     const searching = search.trim().length > 0
     const pinnedKeys = new Set(pulsePins.map((pin) => pin.key))
-    const pinnedOnOpenKeys = new Set(pinnedOnOpen.map((pin) => pin.key))
-    const others = [
-        ...othersOnOpen,
-        ...withoutKeys(pulseSuggestions, new Set([...pinnedOnOpenKeys, ...othersOnOpen.map((row) => row.key)])),
-    ]
-    const recent = withoutKeys(pulseRecentInsights, new Set([...pinnedOnOpenKeys, ...others.map((row) => row.key)]))
-    const results = searchResults(
+    const searchFailedOrLoading = pulseInsightResultsLoading || pulseInsightSearchFailed
+    const { groups, rowByKey, shownKeys, rowCount } = editorRows({
         search,
-        [...pinnedOnOpen, ...others],
-        pulseInsightResultsLoading || pulseInsightSearchFailed ? [] : pulseInsightResults
-    )
-    const rowByKey = new Map<string, PulsePinApi>(
-        [...pulsePins, ...pinnedOnOpen, ...others, ...recent, ...results].map((row) => [row.key, row])
-    )
-    const groups: EditorGroup[] = (
-        searching
-            ? [{ pinned: false, items: results.map((row) => row.key) }]
-            : [
-                  { pinned: true, items: pinnedOnOpen.map((row) => row.key) },
-                  { pinned: false, items: [...others, ...recent].map((row) => row.key) },
-              ]
-    ).filter((group) => group.items.length > 0)
-
-    const { searchNote, emptyNote } = editorNotes(
-        searching,
-        results.length,
-        pulseInsightResultsLoading,
-        pulseInsightSearchFailed
-    )
+        pulsePins,
+        pinnedOnOpen,
+        othersOnOpen,
+        pinnedThisTime,
+        recentInsights: pulseRecentInsights,
+        searchInsights: searchFailedOrLoading ? [] : pulseInsightResults,
+    })
+    const { statusNote, emptyNote } = searching
+        ? editorNotes(true, rowCount, pulseInsightResultsLoading, pulseInsightSearchFailed)
+        : editorNotes(false, rowCount, pulseRecentInsightsLoading, pulseRecentInsightsFailed)
 
     return (
         <Combobox
@@ -137,17 +87,26 @@ export function TodayPulseEditor(): JSX.Element {
                 setOpen(next)
                 if (next) {
                     pulseEditorOpened()
+                    const onHome = suggestionsOnHome(pulseSlots, pinnedKeys, pulseSuggestions)
                     setPinnedOnOpen(pulsePins)
-                    setOthersOnOpen(suggestionsOnHome(pulseSlots, pinnedKeys, pulseSuggestions))
+                    setOthersOnOpen([
+                        ...onHome,
+                        ...withoutKeys(pulseSuggestions, new Set([...pinnedKeys, ...onHome.map((row) => row.key)])),
+                    ])
+                    setPinnedThisTime([])
                 } else {
                     setSearch('')
                 }
             }}
             onValueChange={(next: string[]) => {
                 const row = rowByKey.get(changedKey(pinnedKeys, new Set(next)) ?? '')
-                if (row) {
-                    togglePulsePin(row, 'editor')
+                if (!row) {
+                    return
                 }
+                if (!shownKeys.has(row.key)) {
+                    setPinnedThisTime((rows) => [...rows, row])
+                }
+                togglePulsePin(row, 'editor')
             }}
         >
             <ComboboxTrigger
@@ -206,9 +165,9 @@ export function TodayPulseEditor(): JSX.Element {
                         </ComboboxGroup>
                     )}
                 </ComboboxList>
-                {searchNote ? (
+                {statusNote ? (
                     <Text size="xs" variant="muted" render={<p />} className="m-0 px-2.5 py-1.5">
-                        {searchNote}
+                        {statusNote}
                     </Text>
                 ) : (
                     <ComboboxEmpty>{emptyNote}</ComboboxEmpty>

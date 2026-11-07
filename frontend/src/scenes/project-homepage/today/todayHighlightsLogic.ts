@@ -259,6 +259,7 @@ export interface todayHighlightsLogicValues {
     pulsePlacement: PulsePlacement
     pulsePlaces: PulsePlace[]
     pulseRecentInsights: PulsePinApi[]
+    pulseRecentInsightsFailed: boolean
     pulseRecentInsightsLoading: boolean
     pulseSlots: PulseSlotApi[]
     pulseSuggestions: PulsePinApi[]
@@ -581,6 +582,10 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         pulseInsightSearchFailed: [
             false,
             { loadPulseInsightResults: () => false, loadPulseInsightResultsFailure: () => true },
+        ],
+        pulseRecentInsightsFailed: [
+            false,
+            { loadPulseRecentInsights: () => false, loadPulseRecentInsightsFailure: () => true },
         ],
         pulsePlaces: [
             [] as PulsePlace[],
