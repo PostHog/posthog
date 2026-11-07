@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 
 import { IconSearch } from '@posthog/icons'
 import {
+    Button,
     Combobox,
     ComboboxCollection,
     ComboboxContent,
@@ -126,14 +127,15 @@ export function TodayPulseEditor(): JSX.Element {
             <ComboboxTrigger
                 ref={triggerRef}
                 render={
-                    <button
-                        type="button"
-                        className="TodayHome__headingLink"
+                    <Button
+                        variant="link-muted"
+                        size="sm"
+                        className="-mx-2 -my-1 text-[13px]"
                         aria-label="Edit numbers"
                         data-attr="today-pulse-edit"
                     >
                         Edit
-                    </button>
+                    </Button>
                 }
             />
             <ComboboxContent

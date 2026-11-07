@@ -137,19 +137,6 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-faint);
 }
 
-.TodayHome__headingLink {
-    display: inline-flex;
-    gap: 5px;
-    align-items: center;
-    font-size: 13px;
-    color: var(--today-muted);
-
-    &:hover {
-        color: var(--today-ink);
-        text-decoration: underline;
-    }
-}
-
 .TodayHome__headingChevron {
     transition: transform 200ms var(--today-ease);
 
