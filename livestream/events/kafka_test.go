@@ -342,6 +342,58 @@ func TestParse_CaptureOptions(t *testing.T) {
 			expected: map[string]interface{}{"$lib": "custom", "$lib_version": ""},
 		},
 		{
+			name:     "a whitespace $lib is kept",
+			data:     `{"event":"$pageview","properties":{"$lib":" "}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": " "},
+		},
+		{
+			name:     "a whitespace $lib_version for the same $lib is kept",
+			data:     `{"event":"$pageview","properties":{"$lib":"posthog-go","$lib_version":" "}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": "posthog-go", "$lib_version": " "},
+		},
+		{
+			name:     "req_lib fills an array $lib",
+			data:     `{"event":"$pageview","properties":{"$lib":["posthog-go"]}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": "posthog-go", "$lib_version": "2.0.0"},
+		},
+		{
+			name:     "an empty req_lib is skipped",
+			data:     `{"event":"$pageview","properties":{"$lib_version":"0.9.0"}}`,
+			options:  `{"req_lib":"","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib_version": "0.9.0"},
+		},
+		{
+			name:     "a whitespace req_lib is skipped",
+			data:     `{"event":"$pageview","properties":{"$lib_version":"0.9.0"}}`,
+			options:  `{"req_lib":" ","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib_version": "0.9.0"},
+		},
+		{
+			name:     "an empty req_lib_version is skipped",
+			data:     `{"event":"$pageview","properties":{"$lib_version":"0.9.0"}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":""}`,
+			expected: map[string]interface{}{"$lib_version": "0.9.0"},
+		},
+		{
+			name:     "a whitespace req_lib_version is skipped",
+			data:     `{"event":"$pageview","properties":{"$lib_version":"0.9.0"}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"\t"}`,
+			expected: map[string]interface{}{"$lib_version": "0.9.0"},
+		},
+		{
+			name: "capture spliced bytes with duplicate keys read as the server values",
+			data: `{"event":"$pageview","properties":{"$lib":"client-lib","$session_id":"client-session",` +
+				`"$session_id":"server-session","$process_person_profile":false,"$lib":"posthog-go","$lib_version":"2.0.0"}}`,
+			options: `{"session_id":"server-session","process_person_profile":false,"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{
+				"$session_id": "server-session", "$process_person_profile": false,
+				"$lib": "posthog-go", "$lib_version": "2.0.0",
+			},
+		},
+		{
 			name:     "req_lib_version without req_lib is skipped",
 			data:     `{"event":"$pageview","properties":{"a":1}}`,
 			options:  `{"req_lib_version":"2.0.0"}`,

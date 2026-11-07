@@ -356,7 +356,7 @@ func applyCaptureOptions(options CaptureOptions, properties map[string]interface
 
 	lib, libOk := options["req_lib"].(string)
 	libVersion, libVersionOk := options["req_lib_version"].(string)
-	if !libOk || !libVersionOk {
+	if !libOk || !libVersionOk || strings.TrimSpace(lib) == "" || strings.TrimSpace(libVersion) == "" {
 		return
 	}
 	current, _ := properties["$lib"].(string)
