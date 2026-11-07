@@ -170,9 +170,19 @@ def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any |
     attrs["provider"] = provider.key
     raw_conditions = attrs["conditions"] if "conditions" in attrs else getattr(instance, "conditions", {})
     attrs["conditions"] = normalize_workload_conditions(raw_conditions, provider)
+    labels_by_claim = condition_claim_labels(provider)
+    missing = [labels_by_claim[name] for name in provider.required_condition_claims if name not in attrs["conditions"]]
+    if missing:
+        raise serializers.ValidationError(
+            {
+                "conditions": f"{provider.name} policies must set {', '.join(missing)}, so no other account's workload matches."
+            }
+        )
     validate_condition_companions(attrs["conditions"], provider)
-    if provider.condition_claims and not attrs["conditions"]:
-        labels = ", ".join(condition_claim_labels(provider).values())
+    account_claims = {*provider.required_condition_claims, *provider.account_condition_claims}
+    run_claims = [claim for claim in provider.condition_claims if claim.name not in account_claims]
+    if run_claims and not any(claim.name in attrs["conditions"] for claim in run_claims):
+        labels = ", ".join(claim.label for claim in run_claims)
         raise serializers.ValidationError(
             {
                 "conditions": f"Set at least one condition ({labels}) so the policy doesn't match every token for this workload."
@@ -384,14 +394,30 @@ class WorkloadProviderSerializer(serializers.Serializer):
     condition_claims = WorkloadClaimSerializer(
         many=True, help_text="The claims a policy can require an exact value for, in display order."
     )
+    required_condition_claims = serializers.ListField(
+        child=serializers.CharField(), help_text="Condition claims every policy for this provider must set."
+    )
+    account_condition_claims = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Condition claims that name the account and match every run, so they never limit which runs get a token.",
+    )
     condition_presets = ConditionPresetSerializer(
         many=True, help_text="Common choices of conditions to offer before the raw claims, in display order."
     )
     condition_companions = ConditionCompanionsSerializer(
         many=True, help_text="Rules for condition claims that a policy may set only together with another claim."
     )
+    required_presets = serializers.ListField(
+        child=serializers.CharField(), help_text="Keys of the presets that set a condition claim every policy must set."
+    )
+    default_presets = serializers.ListField(
+        child=serializers.CharField(), help_text="Keys of the presets a new policy starts with, in display order."
+    )
     can_resolve_subject = serializers.SerializerMethodField(
         help_text="Whether PostHog can look up the subject from its name with resolve_subject."
+    )
+    subject_lookup_conditions = serializers.SerializerMethodField(
+        help_text="Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works."
     )
     setup_snippet = serializers.SerializerMethodField(
         help_text="The CI config a job needs to get a token for PostHog, empty when the provider has none."
@@ -399,6 +425,10 @@ class WorkloadProviderSerializer(serializers.Serializer):
 
     def get_can_resolve_subject(self, provider: WorkloadProvider) -> bool:
         return provider.resolve_subject is not None
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_subject_lookup_conditions(self, provider: WorkloadProvider) -> dict[str, str]:
+        return dict(provider.subject_lookup_conditions)
 
     def get_setup_snippet(self, provider: WorkloadProvider) -> str:
         # The job asks its provider for a token whose audience is this host.
@@ -654,6 +684,12 @@ class ResolveWorkloadSubjectQuerySerializer(serializers.Serializer):
         max_length=255,
         help_text="The name people know the workload by, from the provider's subject name claim, for example owner/repo.",
     )
+    condition = serializers.ListField(
+        child=serializers.CharField(max_length=500),
+        required=False,
+        default=list,
+        help_text="The policy's conditions as claim=value, repeated. PostHog refuses a lookup they rule out, like a repository on a forge the lookup doesn't ask.",
+    )
 
     def validate_issuer(self, value: str) -> str:
         return validate_supported_issuer(value)
@@ -815,6 +851,14 @@ class WorkloadTrustPolicyRequestViewSet(
         provider = supported_provider_for(request.validated_query_data["issuer"])
         if provider.resolve_subject is None:
             raise NotFound(f"PostHog can't look up {provider.subject_claim.label} for {provider.name}.")
+        # Generated clients join a list into one comma-separated value, so each value may hold several entries.
+        entries = [part for value in request.validated_query_data["condition"] for part in value.split(",")]
+        given = dict(entry.split("=", 1) for entry in entries if "=" in entry)
+        unmet = [(claim, value) for claim, value in provider.subject_lookup_conditions if given.get(claim) != value]
+        if unmet:
+            claim, value = unmet[0]
+            label = condition_claim_labels(provider).get(claim, claim)
+            raise NotFound(f"PostHog can look up {provider.subject_claim.label} only when {label} is {value}.")
         try:
             resolved = provider.resolve_subject(self.team_id, request.validated_query_data["subject_name"])
         except WorkloadSubjectNotFound as e:

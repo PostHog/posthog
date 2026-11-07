@@ -2,7 +2,9 @@ import type { WorkloadProviderApi } from '~/generated/core/api.schemas'
 
 import {
     CUSTOM_CONDITION,
+    conditionsError,
     conditionsFromRows,
+    defaultConditionRows,
     rowsFromConditions,
     type WorkloadConditionRow,
 } from './workloadConditionPresets'
@@ -48,6 +50,11 @@ const PROVIDER = {
     ],
     condition_companions: [],
     can_resolve_subject: true,
+    required_condition_claims: [],
+    account_condition_claims: [],
+    required_presets: [],
+    default_presets: ['branch_push'],
+    subject_lookup_conditions: {},
     setup_snippet: 'HOG_HOST: {host}',
 } as WorkloadProviderApi
 
@@ -106,5 +113,46 @@ describe('workload condition presets', () => {
         ],
     ])('shows stored %s', (_name, conditions, rows) => {
         expect(rowsFromConditions(conditions, PROVIDER)).toEqual(rows)
+    })
+
+    it('starts a new policy with the default presets, in the order PostHog gives them', () => {
+        const provider = { ...PROVIDER, default_presets: ['environment', 'branch_push'] } as WorkloadProviderApi
+
+        expect(defaultConditionRows(provider)).toEqual([
+            { preset: 'environment', value: 'production' },
+            { preset: 'branch_push', value: 'main' },
+        ])
+    })
+
+    it.each<[string, Record<string, string>, string[], string | undefined]>([
+        ['no conditions', {}, [], 'Set these conditions: Environment'],
+        ['only the required claim', { environment: 'production' }, [], 'Choose which runs can get a token'],
+        [
+            'the required claim and a run condition',
+            { environment: 'production', ref: 'refs/heads/main' },
+            [],
+            undefined,
+        ],
+        [
+            'only account claims',
+            { environment: 'production', ref: 'refs/heads/main' },
+            ['ref'],
+            'Choose which runs can get a token',
+        ],
+        [
+            'a claim without its companion',
+            { environment: 'production', event_name: 'push' },
+            [],
+            'Event needs Branch or tag too. Why.',
+        ],
+    ])('checks a policy with %s', (_name, conditions, accountClaims, expected) => {
+        const provider = {
+            ...PROVIDER,
+            required_condition_claims: ['environment'],
+            account_condition_claims: accountClaims,
+            condition_companions: [{ claims: ['event_name'], companions: ['ref'], reason: 'Why.' }],
+        } as WorkloadProviderApi
+
+        expect(conditionsError(conditions, provider)).toEqual(expected)
     })
 })

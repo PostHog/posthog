@@ -324,7 +324,7 @@ export default defineCommand({
         const { conditions } = collected
         const subject = options.subjectId
             ? { subject: options.subjectId, subject_name: subjectName }
-            : await resolveSubject(api, projectId, settings, subjectName)
+            : await resolveSubject(api, projectId, settings, subjectName, conditions)
         const name = `${subject.subject_name} on ${provider.name}`
 
         const result = await runApproval(

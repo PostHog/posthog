@@ -58,13 +58,35 @@ const PROVIDERS = {
     ],
 }
 
+// Like Depot CI: every policy pins an organization.
+const ORG_PROVIDERS = {
+    supported: [
+        {
+            ...PROVIDERS.supported[0],
+            condition_presets: [
+                {
+                    key: 'organization',
+                    label: 'Your organization',
+                    help_text: 'Every policy pins your organization.',
+                    conditions: { org_id: '{value}', forge: 'github' },
+                    takes_value: true,
+                    placeholder: 'org123',
+                    default_value: '',
+                },
+                ...PROVIDERS.supported[0]!.condition_presets,
+            ],
+            required_presets: ['organization'],
+        },
+    ],
+}
+
 // The request API: providers, a lookup, a new request, then `pendingPolls` answers of "still pending" before `final`.
-function policyApi(options: { canApprove?: boolean; pendingPolls?: number; final?: string } = {}) {
+function policyApi(options: { canApprove?: boolean; pendingPolls?: number; final?: string; providers?: unknown } = {}) {
     let polls = 0
     const created = { ...CREATED, can_approve: options.canApprove ?? false }
     return (url: string): { status: number; body: unknown } => {
         if (url === `${REQUESTS}providers/`) {
-            return { status: 200, body: PROVIDERS }
+            return { status: 200, body: options.providers ?? PROVIDERS }
         }
         if (url.startsWith(`${REQUESTS}resolve_subject/`)) {
             return { status: 200, body: { subject: '123', subject_name: 'Acme/Web', found_via: 'Fake CI' } }
@@ -309,6 +331,39 @@ describe('hog ci setup', () => {
             (run.requests.find((request) => request.url === REQUESTS)?.body as { conditions?: unknown } | undefined)
                 ?.conditions
         ).toEqual({ event_name: 'push', ref: "refs/heads/v$&1$'" })
+    })
+
+    test.each([
+        [
+            'asks an agent for the organization every policy needs',
+            ['--preset', 'branch_push=main'],
+            {
+                status: 'input_required',
+                values: [expect.objectContaining({ option: '--preset organization=<value>' })],
+            },
+            undefined,
+        ],
+        [
+            'pins the organization next to the run preset and looks the subject up with the conditions',
+            ['--preset', 'branch_push=main', '--preset', 'organization=org123'],
+            { status: 'pending' },
+            { org_id: 'org123', forge: 'github', event_name: 'push', ref: 'refs/heads/main' },
+        ],
+    ])('a provider with required claims %s', async (_name, args, result, conditions) => {
+        const run = await setup([...args, '--scope', 'query:read'], {
+            respond: policyApi({ providers: ORG_PROVIDERS }),
+        })
+
+        expect(run.json()).toMatchObject(result)
+        expect(
+            (run.requests.find((request) => request.url === REQUESTS)?.body as { conditions?: unknown } | undefined)
+                ?.conditions
+        ).toEqual(conditions)
+        if (conditions) {
+            expect(run.requests.find((request) => request.url.includes('resolve_subject'))?.url).toContain(
+                'condition=forge%3Dgithub'
+            )
+        }
     })
 
     test('a token in the origin remote never reaches PostHog', async () => {

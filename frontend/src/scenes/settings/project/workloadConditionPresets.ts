@@ -40,8 +40,10 @@ export function conditionsFromRows(
     const conditions: Record<string, string> = {}
     for (const [claim, value] of rows.flatMap((row) => rowConditions(row, provider))) {
         if (claim in conditions && conditions[claim] !== value) {
-            const label = provider?.condition_claims.find((candidate) => candidate.name === claim)?.label ?? claim
-            return { conditions, conflict: `Two conditions ask for different values of ${label}.` }
+            return {
+                conditions,
+                conflict: `Two conditions ask for different values of ${claimLabel(provider, claim)}.`,
+            }
         }
         conditions[claim] = value
     }
@@ -90,6 +92,53 @@ export function rowForPreset(preset: WorkloadProviderApi['condition_presets'][nu
 }
 
 export function defaultConditionRows(provider: WorkloadProviderApi | null): WorkloadConditionRow[] {
-    const preset = provider?.condition_presets[0]
-    return preset ? [rowForPreset(preset)] : []
+    const presets = provider?.condition_presets ?? []
+    return (provider?.default_presets ?? [])
+        .flatMap((key) => presets.filter((preset) => preset.key === key))
+        .map(rowForPreset)
+}
+
+function claimLabel(provider: WorkloadProviderApi | null, claim: string): string {
+    return provider?.condition_claims.find((candidate) => candidate.name === claim)?.label ?? claim
+}
+
+function companionError(conditions: Record<string, string>, provider: WorkloadProviderApi | null): string | undefined {
+    for (const rule of provider?.condition_companions ?? []) {
+        const alone = rule.claims.find((claim) => conditions[claim])
+        if (alone && !rule.companions.some((companion) => conditions[companion])) {
+            const needed = rule.companions.map((claim) => claimLabel(provider, claim)).join(' or ')
+            return `${claimLabel(provider, alone)} needs ${needed} too. ${rule.reason}`
+        }
+    }
+    return undefined
+}
+
+export function conditionsError(
+    conditions: Record<string, string>,
+    provider: WorkloadProviderApi | null
+): string | undefined {
+    const required = provider?.required_condition_claims ?? []
+    const missing = required.filter((claim) => !conditions[claim]).map((claim) => claimLabel(provider, claim))
+    // Required and account claims match every run of the account, so a policy needs another condition too.
+    const accountClaims = new Set([...required, ...(provider?.account_condition_claims ?? [])])
+    const runClaims = (provider?.condition_claims ?? []).filter((claim) => !accountClaims.has(claim.name))
+    const noRuns = runClaims.length > 0 && !runClaims.some((claim) => conditions[claim.name])
+    return (
+        (missing.length ? `Set these conditions: ${missing.join(', ')}` : undefined) ??
+        companionError(conditions, provider) ??
+        (noRuns ? 'Choose which runs can get a token' : undefined)
+    )
+}
+
+/** Why the subject lookup can't serve these conditions, or undefined when it can. */
+export function subjectLookupBlocked(
+    conditions: Record<string, string>,
+    provider: WorkloadProviderApi | null
+): string | undefined {
+    const unmet = Object.entries(provider?.subject_lookup_conditions ?? {}).find(
+        ([claim, value]) => conditions[claim] !== value
+    )
+    return unmet
+        ? `PostHog can look up the ID only when ${claimLabel(provider, unmet[0])} is ${unmet[1]}. Enter it by hand.`
+        : undefined
 }

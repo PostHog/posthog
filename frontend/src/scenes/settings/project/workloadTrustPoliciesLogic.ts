@@ -31,6 +31,7 @@ import { APIScopeAction } from '~/types'
 import {
     conditionsFromRows,
     defaultConditionRows,
+    conditionsError,
     rowsFromConditions,
     type WorkloadConditionRow,
 } from './workloadConditionPresets'
@@ -372,6 +373,9 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                         return await workloadTrustPolicyRequestsResolveSubjectRetrieve(String(values.currentTeamId), {
                             issuer: values.editingPolicy.issuer,
                             subject_name: cache.lookedUpName,
+                            condition: Object.entries(values.editingPolicy.conditions).map(
+                                ([claim, value]) => `${claim}=${value}`
+                            ),
                         })
                     } catch (error) {
                         throw new Error(
@@ -410,11 +414,8 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                 name: !name ? 'Give the policy a name' : undefined,
                 subject_name: !subject_name ? `${values.claimLabels.subjectName} is required` : undefined,
                 subject: !subject ? `${values.claimLabels.subject} is required` : undefined,
-                conditions:
-                    conditionsFromRows(values.conditionRows, values.editingProvider).conflict ??
-                    (values.editingProvider?.condition_claims.length && Object.keys(conditions).length === 0
-                        ? ('Choose which runs can get a token' as any)
-                        : undefined),
+                conditions: (conditionsFromRows(values.conditionRows, values.editingProvider).conflict ??
+                    conditionsError(conditions, values.editingProvider)) as any,
                 scopes: !scopes.length ? ('Choose at least one scope' as any) : undefined,
             }),
             submit: async (payload, breakpoint) => {

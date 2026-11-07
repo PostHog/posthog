@@ -66,6 +66,8 @@ ISSUED_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token"
 
 WORKLOAD_ACCESS_TOKEN_MAX_LIFETIME_SECONDS = 600
 WORKLOAD_TOKEN_CLOCK_SKEW_SECONDS = 30
+# The registry pins every JWKS URL, so a provider's key set may be larger than one a client registers.
+REGISTRY_JWKS_MAX_KEYS = 32
 WORKLOAD_IDENTITY_DOCS_URL = "https://posthog.com/docs/api/workload-identity"
 
 _RESOURCE_PATH = re.compile(r"^/api/projects/(\d+)/?$")
@@ -271,7 +273,7 @@ def _required_claim(token_claims: dict[str, Any], claim: WorkloadClaim) -> str:
 
 def _signing_key(provider: WorkloadProvider, subject_token: str) -> PyJWK:
     try:
-        key = select_signing_key(provider.jwks_url, subject_token)
+        key = select_signing_key(provider.jwks_url, subject_token, max_keys=REGISTRY_JWKS_MAX_KEYS)
     except JWKSUnavailableError:
         raise WorkloadExchangeError(
             WorkloadExchangeErrorCode.PROVIDER_UNAVAILABLE,

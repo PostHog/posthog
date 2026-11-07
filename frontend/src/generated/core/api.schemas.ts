@@ -5780,12 +5780,14 @@ export interface UploadedMediaUploadStartedApi {
 /**
  * * `github_actions` - GitHub Actions
  * * `gitlab` - GitLab
+ * * `depot_ci` - Depot CI
  */
 export type WorkloadProviderKeyEnumApi = (typeof WorkloadProviderKeyEnumApi)[keyof typeof WorkloadProviderKeyEnumApi]
 
 export const WorkloadProviderKeyEnumApi = {
     GithubActions: 'github_actions',
     Gitlab: 'gitlab',
+    DepotCi: 'depot_ci',
 } as const
 
 /**
@@ -5822,7 +5824,8 @@ export interface WorkloadTrustPolicyApi {
     /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
      *
      * * `github_actions` - GitHub Actions
-     * * `gitlab` - GitLab */
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
     readonly provider: WorkloadProviderKeyEnumApi
     /**
      * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
@@ -5879,7 +5882,8 @@ export interface PatchedWorkloadTrustPolicyApi {
     /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
      *
      * * `github_actions` - GitHub Actions
-     * * `gitlab` - GitLab */
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
     readonly provider?: WorkloadProviderKeyEnumApi
     /**
      * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
@@ -5954,11 +5958,17 @@ export interface ConditionCompanionsApi {
     reason: string
 }
 
+/**
+ * Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works.
+ */
+export type WorkloadProviderApiSubjectLookupConditions = { [key: string]: string }
+
 export interface WorkloadProviderApi {
     /** Stable identifier of the provider.
      *
      * * `github_actions` - GitHub Actions
-     * * `gitlab` - GitLab */
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
     key: WorkloadProviderKeyEnumApi
     /** Display name of the provider. */
     name: string
@@ -5972,12 +5982,22 @@ export interface WorkloadProviderApi {
     subject_name_claim: WorkloadClaimApi
     /** The claims a policy can require an exact value for, in display order. */
     condition_claims: WorkloadClaimApi[]
+    /** Condition claims every policy for this provider must set. */
+    required_condition_claims: string[]
+    /** Condition claims that name the account and match every run, so they never limit which runs get a token. */
+    account_condition_claims: string[]
     /** Common choices of conditions to offer before the raw claims, in display order. */
     condition_presets: ConditionPresetApi[]
     /** Rules for condition claims that a policy may set only together with another claim. */
     condition_companions: ConditionCompanionsApi[]
+    /** Keys of the presets that set a condition claim every policy must set. */
+    required_presets: string[]
+    /** Keys of the presets a new policy starts with, in display order. */
+    default_presets: string[]
     /** Whether PostHog can look up the subject from its name with resolve_subject. */
     readonly can_resolve_subject: boolean
+    /** Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works. */
+    readonly subject_lookup_conditions: WorkloadProviderApiSubjectLookupConditions
     /** The CI config a job needs to get a token for PostHog, empty when the provider has none. */
     readonly setup_snippet: string
 }
@@ -6037,7 +6057,8 @@ export interface WorkloadTrustPolicyRequestApi {
     /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
      *
      * * `github_actions` - GitHub Actions
-     * * `gitlab` - GitLab */
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
     readonly provider: WorkloadProviderKeyEnumApi
     /**
      * The display name of the workload provider, or null.
@@ -7682,6 +7703,11 @@ export type WorkloadTrustPolicyRequestsListParams = {
 }
 
 export type WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams = {
+    /**
+     * The policy's conditions as claim=value, repeated. PostHog refuses a lookup they rule out, like a repository on a forge the lookup doesn't ask.
+     * @items.maxLength 500
+     */
+    condition?: string[]
     /**
      * The OIDC issuer of the workload provider, from the list of supported providers.
      * @minLength 1

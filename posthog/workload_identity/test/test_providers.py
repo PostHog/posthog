@@ -6,7 +6,14 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.workload_identity.providers import GITHUB_ACTIONS, GITLAB, ConditionPreset, WorkloadClaim, WorkloadProvider
+from posthog.workload_identity.providers import (
+    DEPOT_CI,
+    GITHUB_ACTIONS,
+    GITLAB,
+    ConditionPreset,
+    WorkloadClaim,
+    WorkloadProvider,
+)
 from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_PROVIDER
 from posthog.workload_identity.trust_policy import validate_condition_companions
 
@@ -21,6 +28,7 @@ class TestWorkloadProviderEntry(SimpleTestCase):
                 "duplicate_condition_claim",
                 {"condition_claims": (WorkloadClaim(name="ref", label="Ref"), WorkloadClaim(name="ref", label="Ref"))},
             ),
+            ("required_claim_policies_cannot_set", {"required_condition_claims": ("sha",)}),
             ("subject_as_condition_claim", {"condition_claims": (WorkloadClaim(name="repository_id", label="ID"),)}),
             (
                 "preset_on_a_claim_policies_cannot_set",
@@ -46,6 +54,18 @@ class TestWorkloadProviderEntry(SimpleTestCase):
         with self.assertRaises(ValueError):
             dataclasses.replace(FAKE_WORKLOAD_PROVIDER, **overrides)
 
+    @parameterized.expand(
+        [
+            ("no_required_claims", GITHUB_ACTIONS, (), ("branch_push",)),
+            ("required_claims", DEPOT_CI, ("organization",), ("organization", "branch_push")),
+        ]
+    )
+    def test_marks_the_presets_a_new_policy_needs_and_starts_with(
+        self, _name: str, provider: WorkloadProvider, required: tuple[str, ...], default: tuple[str, ...]
+    ) -> None:
+        assert provider.required_presets == required
+        assert provider.default_presets == default
+
 
 class TestRegistryConditionCompanions(SimpleTestCase):
     @parameterized.expand(
@@ -67,6 +87,13 @@ class TestRegistryConditionCompanions(SimpleTestCase):
             ("gitlab_ref_alone", GITLAB, {"ref": "main", "ref_protected": "true"}, False),
             ("gitlab_protected_branch", GITLAB, {"ref": "main", "ref_type": "branch", "ref_protected": "true"}, True),
             ("gitlab_environment_alone", GITLAB, {"environment": "production", "environment_protected": "true"}, False),
+            ("depot_ref_alone", DEPOT_CI, {"org_id": "o", "forge": "github", "ref": "refs/heads/main"}, False),
+            (
+                "depot_branch_push",
+                DEPOT_CI,
+                {"org_id": "o", "forge": "github", "ref": "refs/heads/main", "event_name": "push"},
+                True,
+            ),
         ]
     )
     def test_a_provider_refuses_claims_that_trust_fork_runs_on_their_own(

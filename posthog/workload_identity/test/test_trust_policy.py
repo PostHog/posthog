@@ -24,7 +24,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
 from posthog.tasks.email import send_workload_trust_policy_changed
 from posthog.tasks.test.utils_email_tests import mock_email_messages
-from posthog.workload_identity.providers import ConditionCompanions
+from posthog.workload_identity.providers import ConditionCompanions, WorkloadClaim
 from posthog.workload_identity.subjects import (
     ResolvedWorkloadSubject,
     WorkloadSubjectLookupUnavailable,
@@ -225,6 +225,29 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == field
         assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            ("missing_required_claim", {"ref": "refs/heads/main"}, status.HTTP_400_BAD_REQUEST),
+            ("required_claim_set", {"ref": "refs/heads/main", "environment": "production"}, status.HTTP_201_CREATED),
+            ("only_account_claims", {"environment": "production", "owner_id": "42"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_provider_can_require_condition_claims(
+        self, _name: str, conditions: dict[str, str], expected_status: int
+    ) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        provider = dataclasses.replace(
+            FAKE_WORKLOAD_PROVIDER,
+            condition_claims=(*FAKE_WORKLOAD_PROVIDER.condition_claims, WorkloadClaim(name="owner_id", label="Owner")),
+            required_condition_claims=("environment",),
+            account_condition_claims=("owner_id",),
+        )
+
+        with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
+            response = self.client.post(self.url, _payload(conditions=conditions), format="json")
+
+        assert response.status_code == expected_status, response.json()
 
     def test_impersonated_sessions_can_read_but_not_change_policies(self) -> None:
         self._set_level(OrganizationMembership.Level.OWNER)
@@ -636,14 +659,29 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("found", "found", status.HTTP_200_OK),
-            ("not_found", "not_found", status.HTTP_404_NOT_FOUND),
-            ("provider_unavailable", "unavailable", status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("provider_without_lookup", None, status.HTTP_404_NOT_FOUND),
+            ("found", "found", status.HTTP_200_OK, (), True),
+            ("not_found", "not_found", status.HTTP_404_NOT_FOUND, (), True),
+            ("provider_unavailable", "unavailable", status.HTTP_503_SERVICE_UNAVAILABLE, (), True),
+            ("provider_without_lookup", None, status.HTTP_404_NOT_FOUND, (), False),
+            ("lookup_conditions_met", "found", status.HTTP_200_OK, ("environment=production",), True),
+            (
+                "lookup_conditions_joined",
+                "found",
+                status.HTTP_200_OK,
+                ("ref=refs/heads/main,environment=production",),
+                True,
+            ),
+            ("lookup_conditions_unmet", "found", status.HTTP_404_NOT_FOUND, ("environment=staging",), False),
+            ("lookup_conditions_missing", "found", status.HTTP_404_NOT_FOUND, None, False),
         ]
     )
     def test_member_looks_up_a_workload_subject_by_name(
-        self, _name: str, outcome: str | None, expected_status: int
+        self,
+        _name: str,
+        outcome: str | None,
+        expected_status: int,
+        conditions: tuple[str, ...] | None,
+        looked_up: bool,
     ) -> None:
         calls: list[tuple[int, str]] = []
 
@@ -656,17 +694,22 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
             return ResolvedWorkloadSubject(subject="1234", subject_name="Acme/Web", found_via="Fake CI")
 
         resolver: Callable[[int, str], ResolvedWorkloadSubject] | None = resolve if outcome else None
-        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, resolve_subject=resolver)
+        provider = dataclasses.replace(
+            FAKE_WORKLOAD_PROVIDER,
+            resolve_subject=resolver,
+            subject_lookup_conditions=(("environment", "production"),) if conditions != () else (),
+        )
         use_token(self, "oauth_token", "workload_trust_policy_request:write")
 
         with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
             response = self.client.get(
-                f"{self.url}resolve_subject/", {"issuer": FAKE_WORKLOAD_ISSUER, "subject_name": "acme/web"}
+                f"{self.url}resolve_subject/",
+                {"issuer": FAKE_WORKLOAD_ISSUER, "subject_name": "acme/web", "condition": list(conditions or ())},
             )
 
         assert response.status_code == expected_status, response.json()
-        assert calls == ([(self.team.id, "acme/web")] if outcome else [])
-        if outcome == "found":
+        assert calls == ([(self.team.id, "acme/web")] if looked_up else [])
+        if expected_status == status.HTTP_200_OK:
             assert response.json() == {"subject": "1234", "subject_name": "Acme/Web", "found_via": "Fake CI"}
 
     def test_requests_are_rate_limited_per_user_and_project(self) -> None:

@@ -255,6 +255,36 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert second.json()["error_code"] == "workload_rate_limited"
         assert second["Retry-After"] == str(second.json()["retry_after"])
 
+    def test_exchange_budget_is_separate_for_each_policy(self) -> None:
+        self.policy.delete()
+        for environment in ("production", "staging"):
+            self._create_policy(conditions={"ref": "refs/heads/main", "environment": environment})
+
+        with patch("posthog.workload_identity.token_exchange.WORKLOAD_EXCHANGE_BUDGET", Budget(burst=1, per_hour=60)):
+            production = self._exchange(_oidc_token(environment="production"))
+            staging = self._exchange(_oidc_token(environment="staging"))
+            production_again = self._exchange(_oidc_token(environment="production"))
+
+        assert production.status_code == status.HTTP_200_OK, production.json()
+        assert staging.status_code == status.HTTP_200_OK, staging.json()
+        assert production_again.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    @parameterized.expand([("more_than_a_client_may_register", 13, True), ("past_the_registry_cap", 32, False)])
+    def test_exchange_takes_a_registry_provider_key_set_up_to_the_registry_cap(
+        self, _name: str, extra_keys: int, accepted: bool
+    ) -> None:
+        other = json.loads(jwk_from_pem(_OTHER_KEY_PEM).export_public())
+        keys = _jwks()["keys"] + [
+            {**other, "kid": f"rotated-{i}", "alg": "RS256", "use": "sig"} for i in range(extra_keys)
+        ]
+
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=({"keys": keys}, None)
+        ):
+            response = self._exchange()
+
+        assert (response.status_code == status.HTTP_200_OK) is accepted, response.json()
+
     @parameterized.expand(
         [("same_project", "1234", True), ("another_project", "999", False), ("claim_missing", None, False)]
     )

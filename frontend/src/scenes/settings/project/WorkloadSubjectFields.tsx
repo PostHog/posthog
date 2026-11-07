@@ -5,6 +5,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { subjectLookupBlocked } from './workloadConditionPresets'
 import { workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
 
 export function WorkloadSubjectFields(): JSX.Element {
@@ -13,6 +14,7 @@ export function WorkloadSubjectFields(): JSX.Element {
     const { lookUpSubject } = useActions(workloadTrustPoliciesLogic)
 
     const canLookUp = !!editingProvider?.can_resolve_subject
+    const lookupBlocked = subjectLookupBlocked(editingPolicy.conditions, editingProvider)
     const found = subjectLookup && subjectLookup.subject === editingPolicy.subject ? subjectLookup : null
 
     return (
@@ -27,7 +29,9 @@ export function WorkloadSubjectFields(): JSX.Element {
                         <LemonInput
                             value={value}
                             onChange={onChange}
-                            onPressEnter={canLookUp && !subjectLookupLoading ? lookUpSubject : undefined}
+                            onPressEnter={
+                                canLookUp && !lookupBlocked && !subjectLookupLoading ? lookUpSubject : undefined
+                            }
                             placeholder={editingProvider?.subject_name_claim.placeholder || undefined}
                             className="flex-1"
                             data-attr="workload-trust-policy-subject-name"
@@ -39,9 +43,10 @@ export function WorkloadSubjectFields(): JSX.Element {
                                 onClick={lookUpSubject}
                                 loading={subjectLookupLoading}
                                 disabledReason={
-                                    !editingPolicy.subject_name.trim()
+                                    lookupBlocked ??
+                                    (!editingPolicy.subject_name.trim()
                                         ? `Enter the ${claimLabels.subjectName.toLowerCase()} first`
-                                        : undefined
+                                        : undefined)
                                 }
                                 data-attr="workload-trust-policy-look-up-subject"
                             >

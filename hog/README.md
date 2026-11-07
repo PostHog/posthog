@@ -201,11 +201,11 @@ hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/
 ### CI without a stored key
 
 A CI job can trade the OIDC token its provider issues for a PostHog token, so no key is stored in the CI provider.
-hog supports GitHub Actions and GitLab.com.
+hog supports GitHub Actions, GitLab.com and Depot CI.
 An organization admin trusts the repository once, and each run of the job then gets a token that lives a few minutes.
 
 1. In the repository, logged in with `hog auth login`, run `hog ci setup --scope error_tracking:write`, listing every scope the job needs, separated by commas, like `--scope error_tracking:write,query:read`. hog asks which runs may get a token, such as pushes to a branch or deploys to an environment, with the presets and explanations PostHog offers for the provider. Pass them as options instead, like `--preset branch_push=main`. An agent gets the list of presets it still needs, with the same explanations.
-2. hog finds the CI provider and the repository from the origin remote, and asks PostHog to trust it in your project. PostHog looks up the repository's ID, so a deleted and re-created repository with the same name doesn't match.
+2. hog finds the CI provider and the repository from the origin remote, and asks PostHog to trust it in your project. When the repository has config for more than one provider, such as `.github/workflows` next to `.depot/workflows`, pass `--provider depot_ci` or `--provider github_actions`. PostHog looks up the repository's ID, so a deleted and re-created repository with the same name doesn't match.
 3. An organization admin approves the request in the browser. When you are one, hog opens the page and waits. Otherwise it names the admins and prints the link to send them. `hog ci setup --wait` checks on the request later.
 4. Add the `host` and `projectId` hog prints to `posthog.json`, and the snippet it prints to the job, which gives the job an OIDC token. Setting `HOG_HOST` and `HOG_PROJECT_ID` in the job works too, and a self-hosted PostHog needs `HOG_HOST`.
 

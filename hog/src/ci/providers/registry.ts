@@ -2,6 +2,7 @@ import type { Env, Runtime } from '@/core/runtime'
 import type { Host } from '@/posthog/host'
 import type { ProviderIdToken } from '@/posthog/tokens'
 
+import { DEPOT_CI } from './depot/depot-ci'
 import { GITHUB_ACTIONS } from './github-actions/github-actions'
 import { GITLAB } from './gitlab/gitlab'
 
@@ -21,7 +22,9 @@ export interface WorkloadProvider {
     nameFromRemote(remote: string): string | undefined
 }
 
-export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [GITHUB_ACTIONS, GITLAB]
+// Detection takes the first match, so a provider that runs other providers' jobs, like Depot CI running
+// GitHub Actions workflows, comes before them.
+export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [DEPOT_CI, GITHUB_ACTIONS, GITLAB]
 
 export function detectWorkloadProvider(
     env: Env,

@@ -80479,6 +80479,7 @@ export namespace Schemas {
     /**
      * * `github_actions` - GitHub Actions
      * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI
      */
     export type WorkloadProviderKeyEnum = typeof WorkloadProviderKeyEnum[keyof typeof WorkloadProviderKeyEnum];
 
@@ -80486,6 +80487,7 @@ export namespace Schemas {
     export const WorkloadProviderKeyEnum = {
       GithubActions: 'github_actions',
       Gitlab: 'gitlab',
+      DepotCi: 'depot_ci',
     } as const;
 
     /**
@@ -80522,7 +80524,8 @@ export namespace Schemas {
       /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
        *
        * * `github_actions` - GitHub Actions
-       * * `gitlab` - GitLab */
+       * * `gitlab` - GitLab
+       * * `depot_ci` - Depot CI */
       readonly provider: WorkloadProviderKeyEnum;
       /**
          * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
@@ -80594,7 +80597,8 @@ export namespace Schemas {
       /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
        *
        * * `github_actions` - GitHub Actions
-       * * `gitlab` - GitLab */
+       * * `gitlab` - GitLab
+       * * `depot_ci` - Depot CI */
       readonly provider: WorkloadProviderKeyEnum;
       /**
          * The display name of the workload provider, or null.
@@ -91256,7 +91260,8 @@ export namespace Schemas {
       /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
        *
        * * `github_actions` - GitHub Actions
-       * * `gitlab` - GitLab */
+       * * `gitlab` - GitLab
+       * * `depot_ci` - Depot CI */
       readonly provider?: WorkloadProviderKeyEnum;
       /**
          * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
@@ -119158,11 +119163,17 @@ export namespace Schemas {
       host_in_posthog_json: boolean;
     }
 
+    /**
+     * Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works.
+     */
+    export type WorkloadProviderSubjectLookupConditions = {[key: string]: string};
+
     export interface WorkloadProvider {
       /** Stable identifier of the provider.
        *
        * * `github_actions` - GitHub Actions
-       * * `gitlab` - GitLab */
+       * * `gitlab` - GitLab
+       * * `depot_ci` - Depot CI */
       key: WorkloadProviderKeyEnum;
       /** Display name of the provider. */
       name: string;
@@ -119176,12 +119187,22 @@ export namespace Schemas {
       subject_name_claim: WorkloadClaim;
       /** The claims a policy can require an exact value for, in display order. */
       condition_claims: WorkloadClaim[];
+      /** Condition claims every policy for this provider must set. */
+      required_condition_claims: string[];
+      /** Condition claims that name the account and match every run, so they never limit which runs get a token. */
+      account_condition_claims: string[];
       /** Common choices of conditions to offer before the raw claims, in display order. */
       condition_presets: ConditionPreset[];
       /** Rules for condition claims that a policy may set only together with another claim. */
       condition_companions: ConditionCompanions[];
+      /** Keys of the presets that set a condition claim every policy must set. */
+      required_presets: string[];
+      /** Keys of the presets a new policy starts with, in display order. */
+      default_presets: string[];
       /** Whether PostHog can look up the subject from its name with resolve_subject. */
       readonly can_resolve_subject: boolean;
+      /** Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works. */
+      readonly subject_lookup_conditions: WorkloadProviderSubjectLookupConditions;
       /** The CI config a job needs to get a token for PostHog, empty when the provider has none. */
       readonly setup_snippet: string;
     }
@@ -139303,6 +139324,11 @@ export namespace Schemas {
     };
 
     export type WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams = {
+    /**
+     * The policy's conditions as claim=value, repeated. PostHog refuses a lookup they rule out, like a repository on a forge the lookup doesn't ask.
+     * @items.maxLength 500
+     */
+    condition?: string[];
     /**
      * The OIDC issuer of the workload provider, from the list of supported providers.
      * @minLength 1

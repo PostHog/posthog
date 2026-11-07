@@ -24,7 +24,7 @@ const ProviderSettings = z.object({
     issuer: z.string(),
     docs_url: z.string(),
     condition_presets: z.array(Preset),
-    required_condition_claims: z.array(z.string()).default([]),
+    required_presets: z.array(z.string()).default([]),
     setup_snippet: z.string(),
 })
 
@@ -59,8 +59,5 @@ export function presetConditions(preset: Preset, value: string): Record<string, 
 }
 
 export function requiredPresets(settings: ProviderSettings): Preset[] {
-    const required = new Set(settings.required_condition_claims)
-    return settings.condition_presets.filter((preset) =>
-        Object.keys(preset.conditions).some((claim) => required.has(claim))
-    )
+    return settings.condition_presets.filter((preset) => settings.required_presets.includes(preset.key))
 }
