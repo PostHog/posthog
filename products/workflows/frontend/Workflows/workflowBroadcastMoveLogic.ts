@@ -3,18 +3,56 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
+
+import { IntegrationType } from '~/types'
 
 import { hogFlowsConvertToBroadcast } from 'products/workflows/frontend/generated/api'
 
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { HogFlow } from './hogflows/types'
 
-/** Mirrors is_convertible_to_broadcast on the server, which still checks on the move. */
-export function canMoveToBroadcasts(workflow: HogFlow | null): boolean {
+function emailSenderIds(workflow: HogFlow): string[] {
+    const email = workflow.actions.find((action) => action.type === 'function_email')
+    const from = (email?.config as { inputs?: { email?: { value?: { from?: unknown } } } } | undefined)?.inputs?.email
+        ?.value?.from as { integrationId?: unknown; integrationIds?: unknown } | undefined
+    const rotation = Array.isArray(from?.integrationIds) ? from.integrationIds : []
+    const ids = rotation.length > 0 ? rotation : [from?.integrationId]
+    return ids.filter((id) => id !== null && id !== undefined).map(String)
+}
+
+export function listedSandboxSenderIds(integrations: IntegrationType[]): number[] {
+    return integrations.filter(isSandboxEmailSender).map((integration) => integration.id)
+}
+
+export function sendsFromSandboxSender(workflow: HogFlow, sandboxSenderIds: number[]): boolean {
+    const ids = new Set(sandboxSenderIds.map(String))
+    return emailSenderIds(workflow).some((id) => ids.has(id))
+}
+
+/** Whether a new workflow can be offered to be created as a broadcast when it is first saved. */
+export function canOfferBroadcastConversion(workflow: HogFlow, integrations: IntegrationType[] | null): boolean {
     return (
-        !!workflow &&
+        // The broadcast editor always saves this exit condition, so any other one would be lost.
+        workflow.exit_condition === 'exit_only_at_end' &&
+        isBroadcastShaped(workflow.actions) &&
+        canEditInWizard(workflow.actions, workflow.edges) &&
+        // Broadcasts can't send through the sandbox sender, so the wizard would refuse to launch it.
+        // Until the senders load, a sandbox sender can't be told apart from any other.
+        integrations !== null &&
+        !sendsFromSandboxSender(workflow, listedSandboxSenderIds(integrations))
+    )
+}
+
+/** Mirrors is_convertible_to_broadcast on the server, which still checks on the move. */
+export function canMoveToBroadcasts(workflow: HogFlow | null, integrations: IntegrationType[] | null): boolean {
+    if (!workflow || !integrations) {
+        return false
+    }
+    return (
+        !sendsFromSandboxSender(workflow, listedSandboxSenderIds(integrations)) &&
         !workflow.origin_product &&
         workflow.status !== 'archived' &&
         workflow.exit_condition === 'exit_only_at_end' &&
