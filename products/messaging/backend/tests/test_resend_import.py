@@ -7,9 +7,12 @@ from urllib.parse import urlparse
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.integrations import IntegrationManager
 
 from products.messaging.backend.facade.provider_imports import get_provider_import_run
 from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
@@ -19,13 +22,15 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
 )
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
+from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
 from products.messaging.backend.services.suppression import remove_suppression
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "resend_account.json").read_text())
-ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs"]
+ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs", "templates", "domains"]
 API_KEY = "re_full_access_key"
 
 
@@ -262,8 +267,13 @@ class TestResendImport(BaseTest):
         deleted_category = MessageCategory.objects.get(team_id=self.team.id, name__startswith="Beta invitations")
         deleted_category.deleted = True
         deleted_category.save()
+        edited = MessageTemplate.objects.get(team_id=self.team.id, key="welcome-email")
+        edited.content["email"]["subject"] = "Edited here"
+        edited.save()
+        MessageTemplate.objects.filter(team_id=self.team.id, key="receipt").update(deleted=True)
+        templates_before = MessageTemplate.objects.filter(team_id=self.team.id).count()
 
-        self._run()
+        run = self._run()
 
         assert not MessageSuppression.objects.for_team(self.team.id).get(identifier="gone@example.com").suppressed
         assert (
@@ -276,11 +286,86 @@ class TestResendImport(BaseTest):
         assert renamed.name == "News"
         deleted_category.refresh_from_db()
         assert deleted_category.deleted
+        edited.refresh_from_db()
+        assert edited.content["email"]["subject"] == "Edited here"
+        assert MessageTemplate.objects.filter(team_id=self.team.id).count() == templates_before
+        assert run.progress["templates"]["counts"]["already_present"] == len(FIXTURES["templates"])
+
+    def test_templates_carry_sender_key_and_review_notes(self) -> None:
+        sender = IntegrationManager.email.credentials.create(
+            self.team.id,
+            external_id="hello@example.com",
+            config={"email": "hello@example.com", "domain": "example.com", "verified": True, "name": "Acme"},
+            sensitive_config={},
+            created_by_id=self.user.id,
+        )
+        run = self._run(["templates"])
+
+        welcome = MessageTemplate.objects.get(team_id=self.team.id, key="welcome-email")
+        email = welcome.content["email"]
+        assert email["from"] == {"integrationId": sender.id, "email": "hello@example.com", "name": "Acme"}
+        assert email["replyTo"] == "support@example.com"
+        assert welcome.transactional_hog_flow_id is None
+        items = {item["label"]: item for item in run.progress["templates"]["items"]}
+        assert items["Welcome email"]["url"] == f"/workflows/library/templates/{welcome.id}"
+        assert any("{{#if IS_PRO}}" in note and "{{else}}" in note for note in items["Conditional footer"]["notes"])
+        imported_key = MessageTemplate.objects.filter(team_id=self.team.id, name__startswith="Přivítání").get().key
+        assert imported_key is not None and imported_key.startswith("resend-")
 
     def test_run_state_exposes_summary_for_the_ui(self) -> None:
-        run = self._run(["suppressions"])
+        run = self._run(["suppressions", "domains"])
 
         state = get_provider_import_run(self.team.id, run.id)
         assert state is not None
-        (suppressions,) = state.steps
+        suppressions, domains = state.steps
         assert [count.key for count in suppressions.counts] == ["bounced", "complained", "manual", "invalid"]
+        assert [item.label for item in domains.items] == [domain["name"] for domain in FIXTURES["domains"]]
+        org_domain = next(item for item in domains.items if item.label == "mail.example.org")
+        assert any("feedback" in note for note in org_domain.notes)
+
+
+class TestResendTemplateConversion(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("{{{NAME}}}", True, "{{ variables.NAME | raw }}"),
+            ("{{NAME}}", True, "{{ variables.NAME }}"),
+            ("{{{NAME}}}", False, "{{ variables.NAME }}"),
+            ("{{{NAME|there}}}", True, '{{ variables.NAME | default: "there" | raw }}'),
+            ("{{{NAME|it's}}}", False, '{{ variables.NAME | default: "it\'s" }}'),
+            ("{{{RESEND_UNSUBSCRIBE_URL}}}", True, "{{ unsubscribe_url }}"),
+            ("{{{contact.first_name|friend}}}", False, '{{ variables.first_name | default: "friend" }}'),
+            ("{{#if X}}", True, "{% raw %}{{#if X}}{% endraw %}"),
+            ("{{else}}", True, "{% raw %}{{else}}{% endraw %}"),
+            ("{% assign a = 1 %}", True, "{% raw %}{% assign a = 1 %}{% endraw %}"),
+            ("{% endraw %}", True, '{{ "{%" }} endraw %}'),
+            ("{{ a endraw }}", True, '{{ "{{" }} a endraw }}'),
+            ("{{{ a endraw }}}", True, '{{ "{{" }}{ a endraw }}}'),
+            ("Hi {{NAME", True, 'Hi {{ "{{" }}NAME'),
+            ("{% if", True, '{{ "{%" }} if'),
+            ("Hi {{FIRST, {{{NAME|there}}}", False, 'Hi {{ "{{" }}FIRST, {{ variables.NAME | default: "there" }}'),
+            ("{{{NAME|a\\b}}}", False, "{{ variables.NAME }}"),
+            ("{{{NAME|Tom &amp; Ann}}}", False, "{{ variables.NAME }}"),
+            ("{{{NAME|Tom & Ann}}}", False, '{{ variables.NAME | default: "Tom & Ann" }}'),
+            ("plain 🦔 text", True, "plain 🦔 text"),
+        ]
+    )
+    def test_converts_tags(self, source: str, is_html: bool, expected: str) -> None:
+        assert convert_text(source, {}, is_html=is_html).text == expected
+
+    def test_unclosed_braces_scan_in_linear_time(self) -> None:
+        assert convert_text("{{" * 200_000, {}, is_html=True).text.startswith('{{ "{{" }}')
+
+    def test_notes_name_what_to_review(self) -> None:
+        converted = convert_template(
+            {
+                "status": "draft",
+                "subject": "Hi {{{FIRST_NAME}}}",
+                "html": "{{{ORDER}}} {{#each X}}",
+                "variables": [{"key": "ORDER", "fallback_value": None}],
+            }
+        )
+        joined = " ".join((*converted.notes, *converted.send_notes))
+        assert "{{#each X}}" in joined
+        assert "FIRST_NAME" in joined
+        assert "ORDER" in joined
+        assert "isn't published" in joined
