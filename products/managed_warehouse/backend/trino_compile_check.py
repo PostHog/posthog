@@ -89,7 +89,7 @@ def check_trino_compile(
     )
     with connection_context as connection:
         if connection is not None:
-            _limit_planning_time(connection, explain_timeout_seconds)
+            _limit_explain_time(connection, explain_timeout_seconds)
         rows = tuple(_check(team, saved_query, connection) for saved_query in saved_queries)
     return TrinoCompileCheckReport(rows=rows)
 
@@ -107,14 +107,16 @@ def _load_saved_queries(
     return list(queryset[:limit] if limit is not None else queryset)
 
 
-def _limit_planning_time(connection: Connection, timeout_seconds: int) -> None:
-    # EXPLAIN only plans, so the planning limit bounds each check. The client keeps the session property.
-    cursor = connection.cursor()
-    try:
-        cursor.execute(f"SET SESSION query_max_planning_time = '{int(timeout_seconds)}s'")
-        cursor.fetchall()
-    finally:
-        cursor.close()
+def _limit_explain_time(connection: Connection, timeout_seconds: int) -> None:
+    # The planning limit misses queue time and analysis, so the run-time limit bounds the whole EXPLAIN.
+    # Trino then fails the query with EXCEEDED_TIME_LIMIT. The client keeps the session properties.
+    for setting in ("query_max_planning_time", "query_max_run_time"):
+        cursor = connection.cursor()
+        try:
+            cursor.execute(f"SET SESSION {setting} = '{int(timeout_seconds)}s'")
+            cursor.fetchall()
+        finally:
+            cursor.close()
 
 
 def _check(team: Team, saved_query: DataWarehouseSavedQuery, connection: Connection | None) -> TrinoCompileCheckRow:
