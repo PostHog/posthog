@@ -114,6 +114,22 @@ class TestSourceConfigCache(SimpleTestCase):
 
 
 class TestCatalogCacheConnection(SimpleTestCase):
+    def test_catalog_values_use_json_serialization(self) -> None:
+        catalog = {**WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG, "LOCATION": "redis://localhost:6379/15"}
+        with override_settings(
+            CACHES={
+                "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+                "warehouse_source_catalog": catalog,
+            }
+        ):
+            catalog_cache = caches["warehouse_source_catalog"]
+            assert isinstance(catalog_cache, RedisCache)
+            serialized = json.dumps({"Demo": {"name": "Demo"}})
+            encoded = catalog_cache.client.encode(serialized)
+            assert isinstance(encoded, bytes)
+            assert json.loads(encoded) == serialized
+            assert catalog_cache.client.decode(encoded) == serialized
+
     @parameterized.expand([("default", "warehouse_source_catalog"), ("warehouse_source_catalog", "default")])
     def test_catalog_timeout_does_not_change_default_pool(self, first: str, second: str) -> None:
         url = "redis://localhost:6379/15?socket_connect_timeout=5&socket_timeout=5"

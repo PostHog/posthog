@@ -751,6 +751,7 @@ WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG = {
     "OPTIONS": {
         **CACHES["default"]["OPTIONS"],
         "CONNECTION_FACTORY": "products.warehouse_sources.backend.cache.WarehouseSourceCatalogConnectionFactory",
+        "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
         "SOCKET_CONNECT_TIMEOUT": 0.2,
         "SOCKET_TIMEOUT": 0.2,
     },
