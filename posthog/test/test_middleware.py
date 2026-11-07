@@ -128,6 +128,18 @@ def _mcp_client_ip_headers(
 
 
 class TestIPRestrictionsMiddleware(APIBaseTest):
+    @parameterized.expand([("/",), ("/project/{team_id}/feature_flags",)])
+    def test_renders_a_recovery_page_for_blocked_browser_navigation(self, path: str) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        path = path.format(team_id=self.team.id)
+        response = self.client.get(path, REMOTE_ADDR="198.51.100.7", HTTP_ACCEPT="text/html")
+
+        self.assertContains(response, "Your IP address is blocked", status_code=403)
+        self.assertContains(response, "198.51.100.7", status_code=403)
+        self.assertContains(response, f'href="{path}"', status_code=403)
+        self.assertContains(response, 'action="/logout"', status_code=403)
+        self.assertIn("no-store", response.headers["Cache-Control"])
+
     @parameterized.expand(
         [
             ("/api/organizations/@current/",),
@@ -138,7 +150,9 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
     def test_blocks_an_ip_outside_the_allowlist(self, path: str) -> None:
         OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
 
-        response = self.client.get(path.format(team_id=self.team.id), REMOTE_ADDR="198.51.100.7")
+        response = self.client.get(
+            path.format(team_id=self.team.id), REMOTE_ADDR="198.51.100.7", HTTP_ACCEPT="text/html,application/json"
+        )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         data = response.json()
