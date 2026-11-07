@@ -41,6 +41,20 @@ describe('SURVEY_SDK_REQUIREMENTS', () => {
     })
 
     it.each([
+        ['an object', { 0: { name: 'checkout completed' } }],
+        ['a single event', { name: 'checkout completed' }],
+        ['a number', 1],
+        ['a string', 'checkout completed'],
+    ])('reads a trigger condition stored as %s as an empty condition', (_name, values) => {
+        const survey = {
+            questions: [],
+            conditions: { events: { values }, cancelEvents: { values }, actions: { values } },
+        } as unknown as Survey
+
+        expect(getSurveyWarnings(survey, { 'posthog-js': '1.400.0' })).toEqual([])
+    })
+
+    it.each([
         ['an intro that renders', { displayIntroScreen: true, introScreenHeader: 'Welcome' }, true],
         ['an intro with no header or description', { displayIntroScreen: true }, false],
     ])('flags the Intro screen requirement for %s', (_name, appearance, expected) => {
