@@ -42,7 +42,7 @@ export const PAGE_SIZE = 20
 // EU-region orgs have no rows in this region's posthog_user tables; eu_org_members is a
 // materialized DWH pre-join of the EU postgres sync (prod-only, refreshed daily).
 const EU_MEMBERS_VIEW = 'eu_org_members'
-const EU_MEMBERS_LIMIT = 3000
+export const EU_MEMBERS_LIMIT = 3000
 
 const isExpectedMissingViewError = (error: unknown): boolean => {
     const message = error instanceof Error ? error.message : String(error ?? '')
@@ -106,7 +106,7 @@ const paginateMembers = (
     }
 }
 
-const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMember[] | null> => {
+export const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMember[] | null> => {
     try {
         const response = (await api.query({
             kind: NodeKind.HogQLQuery,

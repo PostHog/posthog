@@ -1,22 +1,31 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
-import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { userLogic } from 'scenes/userLogic'
+
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { accountUsersTableLogic } from './accountUsersTableLogic'
+import { IMPERSONATE_COLUMN, accountUsersTableLogic } from './accountUsersTableLogic'
 
 describe('accountUsersTableLogic', () => {
     beforeEach(() => {
         initKeaTests()
     })
 
-    it('queries the current account and saves the table without an account', async () => {
+    it.each([
+        ['adds the staff column to a person select', ['properties.email'], ['properties.email', IMPERSONATE_COLUMN]],
+        ['keeps an aggregate select grouped', ['count()'], ['count()']],
+    ])('%s, queries the current account and saves and exports without it', async (_, select, expectedSelect) => {
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: true })
         const onConfigChange = jest.fn()
         const savedOnAnotherAccount: DataTableNode = {
             kind: NodeKind.DataTableNode,
             source: {
                 kind: NodeKind.ActorsQuery,
-                select: ['properties.email'],
+                select,
                 source: { kind: NodeKind.AccountUsersQuery, accountId: 'other-account' },
             },
         }
@@ -27,17 +36,18 @@ describe('accountUsersTableLogic', () => {
         })
         logic.mount()
 
-        expect((logic.values.query.source as ActorsQuery).source).toEqual({
-            kind: NodeKind.AccountUsersQuery,
-            accountId: 'current-account',
+        expect(logic.values.query.source).toMatchObject({
+            select: expectedSelect,
+            source: { kind: NodeKind.AccountUsersQuery, accountId: 'current-account' },
         })
+        expect(logic.values.exportQuery.source).toMatchObject({ select })
 
         await expectLogic(logic, () => logic.actions.setQuery(logic.values.query)).toFinishAllListeners()
 
         expect(onConfigChange).toHaveBeenCalledWith({
             query: {
                 kind: NodeKind.DataTableNode,
-                source: { kind: NodeKind.ActorsQuery, select: ['properties.email'] },
+                source: { kind: NodeKind.ActorsQuery, select },
             },
         })
     })
