@@ -161,9 +161,6 @@ from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
 
-# The retired summarization sweep created one schedule per team under this prefix.
-LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX = "session-summarization-team-"
-
 
 async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
@@ -674,30 +671,6 @@ async def create_replay_count_metrics_schedule(client: Client) -> None:
         )
 
 
-async def cleanup_legacy_session_summarization_schedules(client: Client):
-    """Delete legacy schedules. Any in-flight runs die on their own execution_timeout."""
-    legacy_schedule_ids = [
-        "video-segment-clustering-coordinator-schedule",
-        "session-summarization-sweep-schedule",
-        "session-summarization-sweep-reconciler-schedule",
-        # Swept Gemini files uploaded by the session-summary workflow; nothing uploads them now.
-        "session-summary-cleanup-sweep-schedule",
-    ]
-    for schedule_id in legacy_schedule_ids:
-        if await a_schedule_exists(client, schedule_id):
-            await a_delete_schedule(client, schedule_id)
-
-    # The sweep also created one schedule per team, and the reconciler that used to reap them is gone.
-    # Left alone they fire every few minutes forever against a workflow type no worker registers.
-    try:
-        async for schedule in await client.list_schedules():
-            if schedule.id.startswith(LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX):
-                await a_delete_schedule(client, schedule.id)
-    except Exception:
-        # Reaping is best effort: a listing failure must not stop the rest of schedule setup.
-        logger.exception("temporal.cleanup_legacy_summarization_team_schedules_failed")
-
-
 async def cleanup_cohort_calculation_schedules(client: Client):
     """Delete the realtime cohort calculation and precalculated-data reconcile schedules.
 
@@ -984,7 +957,6 @@ schedules = [
     create_count_trigger_schedule,
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
-    cleanup_legacy_session_summarization_schedules,
     create_surfacing_score_export_sweep_schedule,
     create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
