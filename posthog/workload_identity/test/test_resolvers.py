@@ -7,7 +7,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.models.github_integration_base import GitHubIntegrationError
-from posthog.workload_identity.resolvers import resolve_github_repository
+from posthog.redis import get_client
+from posthog.token_bucket import BucketDecision
+from posthog.workload_identity.resolvers import GITHUB_PUBLIC_LOOKUP_BUCKET, resolve_github_repository
 from posthog.workload_identity.subjects import (
     ResolvedWorkloadSubject,
     WorkloadSubjectLookupUnavailable,
@@ -23,6 +25,9 @@ PUBLIC_REPO = {"id": 1234, "full_name": "Acme/Web", "private": False}
 
 
 class TestResolveGitHubRepository(SimpleTestCase):
+    def setUp(self) -> None:
+        get_client().delete(GITHUB_PUBLIC_LOOKUP_BUCKET)
+
     @parameterized.expand(
         [
             (
@@ -91,23 +96,18 @@ class TestResolveGitHubRepository(SimpleTestCase):
 
         assert public.called is not (isinstance(integration, MagicMock) and integration.status_code == 200)
 
-    def test_a_repository_the_integration_already_listed_needs_no_github_call(self) -> None:
-        github = MagicMock()
-        github.list_all_cached_repositories.return_value = [{"id": 1234, "name": "Web", "full_name": "Acme/Web"}]
+    def test_public_lookups_stop_once_the_shared_budget_is_used_up(self) -> None:
         with (
+            patch("posthog.workload_identity.resolvers.IntegrationManager.github.oauth.list", return_value=[]),
             patch(
-                "posthog.workload_identity.resolvers.IntegrationManager.github.oauth.list", return_value=[MagicMock()]
+                "posthog.workload_identity.resolvers.consume",
+                return_value=BucketDecision(allowed=False, remaining=0, limit=10, retry_after=60, reset=60),
             ),
-            patch("posthog.workload_identity.resolvers.GitHubIntegration", return_value=github),
             patch("posthog.workload_identity.resolvers.github_request") as public,
         ):
-            resolved = resolve_github_repository(1, "acme/web")
+            with self.assertRaises(WorkloadSubjectLookupUnavailable):
+                resolve_github_repository(1, "acme/web")
 
-        assert resolved == ResolvedWorkloadSubject(
-            subject="1234", subject_name="Acme/Web", found_via="your GitHub integration"
-        )
-        github.list_all_cached_repositories.assert_called_once_with(allow_refresh=False)
-        assert not github.api_request.called
         assert not public.called
 
     def test_the_lookup_stops_asking_github_once_its_deadline_passes(self) -> None:

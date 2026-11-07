@@ -21,6 +21,7 @@ from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError, _is_safe_github_repo_path
 from posthog.models.integration.github import GitHubIntegration
+from posthog.token_bucket import BucketDecision, Budget, consume
 from posthog.workload_identity.subjects import (
     ResolvedWorkloadSubject,
     WorkloadSubjectLookupUnavailable,
@@ -32,6 +33,11 @@ logger = structlog.get_logger(__name__)
 GITHUB_EGRESS_SOURCE = "workload_identity"
 GITHUB_REPOSITORY_ENDPOINT = "/repos/{owner}/{repo}"
 GITHUB_UNAVAILABLE = "GitHub didn't answer. Try again in a minute, or enter the repository ID by hand."
+GITHUB_PUBLIC_LOOKUPS_BUSY = (
+    "PostHog looked up many public GitHub repositories just now. Try again in a few minutes, or enter the "
+    "repository ID by hand."
+)
+GITHUB_PUBLIC_LOOKUP_BUCKET = "workload_identity:github_public_lookup"
 # The whole lookup runs inside one API request, so it gets one deadline however many integrations it asks.
 GITHUB_LOOKUP_DEADLINE_SECONDS = 15
 GITHUB_REQUEST_TIMEOUT_SECONDS = 10
@@ -54,18 +60,6 @@ def _seconds_left(deadline: float) -> int:
     return min(GITHUB_REQUEST_TIMEOUT_SECONDS, int(deadline - time.monotonic()))
 
 
-def _cached_repository(integrations: list[GitHubIntegration], repository: str) -> ResolvedWorkloadSubject | None:
-    """A repository the integrations already listed. A repository ID never changes, so a stale list is safe."""
-    wanted = repository.lower()
-    for github in integrations:
-        for cached in github.list_all_cached_repositories(allow_refresh=False):
-            if cached["full_name"].lower() == wanted:
-                return ResolvedWorkloadSubject(
-                    subject=str(cached["id"]), subject_name=cached["full_name"], found_via="your GitHub integration"
-                )
-    return None
-
-
 def _through_integration(team_id: int, repository: str, deadline: float) -> tuple[ResolvedWorkloadSubject | None, bool]:
     """Ask GitHub through the team's GitHub integrations, which also see the private repositories they were
     installed on. Also says whether an installation couldn't answer, because then a miss proves nothing."""
@@ -73,9 +67,6 @@ def _through_integration(team_id: int, repository: str, deadline: float) -> tupl
         GitHubIntegration(integration, source=GITHUB_EGRESS_SOURCE, priority=Priority.NORMAL)
         for integration in IntegrationManager.github.oauth.list(team_id)
     ]
-    cached = _cached_repository(integrations, repository)
-    if cached is not None:
-        return cached, False
     unavailable = False
     for github in integrations:
         timeout = _seconds_left(deadline)
@@ -105,6 +96,12 @@ def _public(repository: str, deadline: float) -> ResolvedWorkloadSubject:
     timeout = _seconds_left(deadline)
     if timeout <= 0:
         raise WorkloadSubjectLookupUnavailable(GITHUB_UNAVAILABLE)
+    # Every team shares PostHog's token, or the server's IP when there is none, so the egress
+    # transport can't budget these calls per installation. One member mustn't use up the quota.
+    budget = Budget(burst=10, per_hour=1000 if settings.GITHUB_TOKEN else 50)
+    decision = consume(GITHUB_PUBLIC_LOOKUP_BUCKET, budget)
+    if isinstance(decision, BucketDecision) and not decision.allowed:
+        raise WorkloadSubjectLookupUnavailable(GITHUB_PUBLIC_LOOKUPS_BUSY)
     try:
         response = github_request(
             "GET",
