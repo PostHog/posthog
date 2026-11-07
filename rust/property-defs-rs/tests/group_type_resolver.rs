@@ -287,6 +287,12 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<DeleteCohortMembersBulkResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        _: Request<DeleteCohortMembersByPersonIdsRequest>,
+    ) -> Result<Response<DeleteCohortMembersByPersonIdsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
     async fn insert_cohort_members(
         &self,
         _: Request<InsertCohortMembersRequest>,
