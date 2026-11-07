@@ -436,7 +436,8 @@ def arrayStringConcat(args: list[Any], team: Optional["Team"], stdout: Optional[
     sep = args[1] if len(args) > 1 else ""
     if not isinstance(arr, list):
         return ""
-    return sep.join([str(s) for s in arr])
+    # null becomes an empty string and booleans are lowercase, as with Array.join in the TypeScript VM
+    return sep.join(["" if s is None else toString([s], team, stdout, timeout) for s in arr])
 
 
 def has(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
