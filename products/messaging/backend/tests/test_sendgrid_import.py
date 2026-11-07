@@ -27,7 +27,7 @@ from products.messaging.backend.provider_imports.base import ImportCredentialsIn
 from products.messaging.backend.provider_imports.sendgrid import SendGridImportProvider, missing_scopes
 from products.messaging.backend.provider_imports.sendgrid_templates import convert_version, plain_text_from_html
 from products.messaging.backend.services.sendgrid_client import SendGridClient
-from products.messaging.backend.services.suppression import remove_suppression
+from products.messaging.backend.services.suppression import remove_suppressions
 from products.messaging.backend.tests.fake_sendgrid import (
     EMPTY_ACCOUNT_KEY,
     EU_KEY,
@@ -370,7 +370,7 @@ class TestSendGridImport(BaseTest):
 
     def test_importing_again_keeps_every_change_made_in_posthog(self) -> None:
         self._run()
-        remove_suppression(self.team.id, "gone@example.com")
+        remove_suppressions(self.team.id, ["gone@example.com"], confirm_complaints=False)
         MessageRecipientPreference.objects.filter(team_id=self.team.id, identifier="unsubscribed@example.com").update(
             preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_IN"}
         )
