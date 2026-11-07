@@ -734,6 +734,7 @@ const SAVED_INSIGHTS = [
 ]
 
 let storyPins: { key: string; name: string }[] = []
+let storyHidden: { key: string; name: string }[] = []
 let storyComputingCalls = 0
 let storyLastReady: HighlightsApi | null = null
 
@@ -783,7 +784,9 @@ function storyHighlights(): HighlightsApi {
             ? { ...storyLastReady, status: 'computing' }
             : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
     }
-    const offered = [...HIGHLIGHTS.pulse, CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC]
+    const offered = [...HIGHLIGHTS.pulse, CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC].filter(
+        (metric) => !storyHidden.some((hidden) => hidden.key === metric.key)
+    )
     const chosen = storyPins.flatMap((pin) => offered.filter((metric) => metric.key === pin.key))
     const suggested = offered.filter((metric) => !storyPins.some((pin) => pin.key === metric.key))
     const pins = storyPins.map((pin) => ({
@@ -794,9 +797,10 @@ function storyHighlights(): HighlightsApi {
     return storyLastReady
 }
 
-function keepNumbers(pins: { key: string; name: string }[]) {
+function keepNumbers(pins: { key: string; name: string }[], hidden: { key: string; name: string }[] = []) {
     return function KeepNumbers(Story: () => JSX.Element): JSX.Element {
         storyPins = pins
+        storyHidden = hidden
         storyComputingCalls = 0
         storyLastReady = null
         return <Story />
@@ -847,7 +851,7 @@ const meta: Meta = {
                 '/api/users/@me/integrations/': { results: [] },
                 '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/highlights/': () => [200, storyHighlights()],
-                '/api/projects/:team_id/today/pulse_pins/': () => [200, { pins: storyPins }],
+                '/api/projects/:team_id/today/pulse_pins/': () => [200, { pins: storyPins, hidden: storyHidden }],
                 '/api/projects/:team_id/insights/': ({ request }) => {
                     const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase()
                     const results = SAVED_INSIGHTS.filter((insight) => insight.name.toLowerCase().includes(search))
@@ -956,7 +960,23 @@ const meta: Meta = {
                     const body = (await request.json()) as { pins: { key: string; name: string }[] }
                     storyPins = body.pins
                     storyComputingCalls = 1
-                    return [200, { pins: storyPins }]
+                    return [200, { pins: storyPins, hidden: storyHidden }]
+                },
+                '/api/projects/:team_id/today/pulse_pins/hidden/': async ({ request }) => {
+                    const { keys } = (await request.json()) as { keys: string[] }
+                    const named = [
+                        ...storyHidden,
+                        ...HIGHLIGHTS.pulse,
+                        CHECKOUT_METRIC,
+                        RETENTION_METRIC,
+                        REVENUE_METRIC,
+                    ]
+                    storyHidden = keys.map((key) => ({
+                        key,
+                        name: named.find((number) => number.key === key)?.name ?? key,
+                    }))
+                    storyComputingCalls = 1
+                    return [200, { hidden: storyHidden }]
                 },
             },
         }),
@@ -1017,6 +1037,21 @@ export const HomeWithKeptNumbers: Story = {
             { key: 'activity_event', name: 'Active users' },
         ]),
     ],
+}
+
+export const HomeWithHiddenNumbers: Story = {
+    decorators: [
+        keepNumbers(
+            [],
+            [
+                { key: 'insight:ret01', name: 'Week 1 retention' },
+                { key: 'insight:arr01', name: 'Monthly recurring revenue' },
+            ]
+        ),
+    ],
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Edit numbers'))
+    },
 }
 
 export const HomeWithSampleReports: Story = {

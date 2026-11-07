@@ -17,6 +17,7 @@ import {
 import type { PulsePinApi } from 'products/today/frontend/generated/api.schemas'
 
 import { PULSE_TILES, pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
+import { TodayPulseHiddenNumbers } from './TodayPulseHiddenNumbers'
 
 function PulsePinRow({
     metric,
@@ -156,6 +157,7 @@ export function TodayPulseEditor(): JSX.Element {
                               : 'No insights you can pin match your search'}
                     </Text>
                 ) : null}
+                <TodayPulseHiddenNumbers searching={searching} />
                 {pulsePins.length >= PULSE_TILES ? (
                     <Text size="xs" render={<p />} className="m-0 px-2 py-1.5 text-muted-foreground">
                         {PULSE_TILES} pinned. Unpin one to pin another.
