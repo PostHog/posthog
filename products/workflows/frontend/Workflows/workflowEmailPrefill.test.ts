@@ -1,5 +1,6 @@
 import { draftMessage } from '../MessageAudience/messageDrafts'
-import { prefilledWorkflow, withEmailSender } from './workflowEmailPrefill'
+import type { HogFlowAction } from './hogflows/types'
+import { allowsSandboxSender, prefilledWorkflow, withEmailSender } from './workflowEmailPrefill'
 import { NEW_WORKFLOW } from './workflowLogic'
 import type { WorkflowTriggerConfig } from './workflowTriggerPrefill'
 
@@ -40,5 +41,26 @@ describe('workflowEmailPrefill', () => {
         expect(filled.filled).toBe(true)
         expect((filled.workflow.actions[1].config as any).inputs.email.value.from).toEqual({ integrationId: 5 })
         expect(refilled).toEqual({ workflow: filled.workflow, filled: false })
+    })
+
+    it.each<{ step: string; actionType: HogFlowAction['type']; originProduct: string | null; expected: boolean }>([
+        { step: 'a workflow email step', actionType: 'function_email', originProduct: null, expected: true },
+        {
+            step: 'a broadcast email step',
+            actionType: 'function_email',
+            originProduct: 'broadcasts',
+            expected: false,
+        },
+        {
+            step: 'a transactional email key step',
+            actionType: 'function_email',
+            originProduct: 'transactional_email_keys',
+            expected: false,
+        },
+        { step: 'a loops email step', actionType: 'function_email', originProduct: 'loops', expected: false },
+        { step: 'a generic function step', actionType: 'function', originProduct: null, expected: false },
+        { step: 'a trigger', actionType: 'trigger', originProduct: null, expected: false },
+    ])('allows the sandbox sender for $step: $expected', ({ actionType, originProduct, expected }) => {
+        expect(allowsSandboxSender(actionType, originProduct)).toBe(expected)
     })
 })
