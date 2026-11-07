@@ -2186,6 +2186,15 @@ export const ScannerEditorGoalOverview: StoryObj = {
     decorators: [seedGoalOverviewDraft],
 }
 
+// The refine box under the draft, with the suggestions for this draft.
+export const ScannerEditorGoalOverviewRefine: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_DRAFT_REFINE]: true },
+    },
+    decorators: [seedGoalOverviewDraft],
+}
+
 // The recordings-first experiment arm reviews the eligible recordings before the prompt.
 export const ScannerEditorGoalOverviewRecordingsFirst: StoryObj = {
     parameters: {
