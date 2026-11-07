@@ -219,6 +219,7 @@ export const AcceptedSendSchema = z
         bcc: CopyRecipientsSchema,
         attachments: AttachmentsSchema,
         tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
+        sensitive: z.boolean().optional(),
     })
     .strict()
     .readonly()

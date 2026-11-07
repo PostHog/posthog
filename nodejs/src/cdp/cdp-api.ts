@@ -1315,6 +1315,9 @@ export class CdpApi {
                 const sendToQueue = send ? queuedSend(send, files) : undefined
                 if (sendToQueue) {
                     invocation.state.send = sendToQueue
+                    if (sendToQueue.sensitive) {
+                        invocation.state.sensitive = true
+                    }
                 }
                 // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
                 // worker counts it instead.
