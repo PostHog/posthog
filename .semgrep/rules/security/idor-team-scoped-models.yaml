@@ -1436,6 +1436,7 @@ rules:
                               |Role
                               |RoleExternalReference
                               |RoleMembership
+                              |SandboxSenderOrganizationBlock
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -1520,6 +1521,7 @@ rules:
                         |Role
                         |RoleExternalReference
                         |RoleMembership
+                        |SandboxSenderOrganizationBlock
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., organization_id=$O, ...)
