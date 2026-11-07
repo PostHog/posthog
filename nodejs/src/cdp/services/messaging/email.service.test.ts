@@ -403,8 +403,9 @@ describe('EmailService', () => {
                     ),
                     new OrganizationMembersService(membersPostgres)
                 )
-                sendEmailSpy = jest.spyOn(sandboxService.sesV2Client!, 'send') as jest.SpyInstance
-                sendEmailSpy.mockResolvedValue({ MessageId: 'sandbox-message-id' })
+                sendEmailSpy = jest.fn().mockResolvedValue({ MessageId: 'sandbox-message-id' })
+                jest.spyOn(sandboxService.sesV2Client!, 'send').mockImplementation(sendEmailSpy as any)
+                jest.spyOn(sandboxService.sandboxSesV2Client!, 'send').mockImplementation(sendEmailSpy as any)
                 return sandboxService
             }
             const expectSkipped = (result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>): void => {
@@ -1277,22 +1278,13 @@ describe('EmailService', () => {
                     }
                 )
 
-                it('keeps the daily caps when SES throttles a send the SDK retried', async () => {
-                    service = createSandboxService(true, {
-                        senderSettings: { dailyTeamCap: 1, dailyRecipientCap: 1 },
-                    })
-                    sendEmailSpy.mockRejectedValueOnce(
-                        Object.assign(new ThrottlingException('Rate exceeded'), { $metadata: { attempts: 3 } })
-                    )
+                it('sends through an SES client that makes one attempt per send', async () => {
+                    service = createSandboxService(true)
 
-                    const throttled = await send(false)
-                    expect(throttled.finished).toBe(false)
-                    expectCapSkip(
-                        await service.executeSendEmail(throttled.invocation, false),
-                        false,
-                        TEAM_CAP_REACHED,
-                        'project_cap_reached'
-                    )
+                    expectSent(await send(false))
+                    expect(service.sandboxSesV2Client!.send).toHaveBeenCalledTimes(1)
+                    expect(service.sesV2Client!.send).not.toHaveBeenCalled()
+                    expect(await service.sandboxSesV2Client!.config.maxAttempts()).toBe(1)
                 })
 
                 it.each([
@@ -1302,11 +1294,6 @@ describe('EmailService', () => {
                         true,
                     ],
                     ['keeps the claim when SES may have accepted the send', new Error('socket hang up'), false],
-                    [
-                        'keeps the claim when SES rejects a send the SDK retried',
-                        new MessageRejected({ $metadata: { attempts: 2 }, message: 'Rejected' }),
-                        false,
-                    ],
                 ])('%s', async (_case, error, returned) => {
                     service = createSandboxService(true, {
                         senderSettings: { dailyTeamCap: 1, dailyRecipientCap: 1 },

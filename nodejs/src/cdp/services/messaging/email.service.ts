@@ -179,33 +179,18 @@ function isWorkflowEmailStep(invocation: CyclotronJobInvocationHogFunction): boo
 export class SESThrottleError extends Error {
     public readonly errorCode: SesThrottleErrorName
     public readonly retryAfterMs: number
-    public readonly retriedBySdk: boolean
 
-    constructor(errorCode: SesThrottleErrorName, retryAfterMs: number, message: string, retriedBySdk = false) {
+    constructor(errorCode: SesThrottleErrorName, retryAfterMs: number, message: string) {
         super(message)
         this.name = 'SESThrottleError'
         this.errorCode = errorCode
         this.retryAfterMs = retryAfterMs
-        this.retriedBySdk = retriedBySdk
     }
 }
 
 // SES answered with a client fault, so it did not accept the message. Other failures, such as a timeout or a
 // missing message ID, leave open whether the email went out.
-class SesRejectedError extends Error {
-    constructor(
-        message: string,
-        public readonly retriedBySdk: boolean
-    ) {
-        super(message)
-    }
-}
-
-// The SDK retries a send after a timeout or a transient error, so the final answer of a retried send says
-// nothing about whether an earlier attempt delivered the email.
-function sesRetriedSend(error: unknown): boolean {
-    return ((error as { $metadata?: { attempts?: number } } | null)?.$metadata?.attempts ?? 1) > 1
-}
+class SesRejectedError extends Error {}
 
 class EmailAttachmentsUnavailableError extends Error {
     constructor(cause: unknown) {
@@ -543,6 +528,7 @@ const SANDBOX_BLOCKS: Record<
 
 export class EmailService {
     sesV2Client: SESv2Client | null
+    sandboxSesV2Client: SESv2Client | null
 
     private recipientTokensService: RecipientTokensService
     private untrackedConfigSetWarningLogged = false
@@ -571,6 +557,17 @@ export class EmailService {
             ? new SESv2Client({
                   region: this.sesConfig.sesRegion,
                   endpoint: this.sesConfig.sesEndpoint || undefined,
+              })
+            : null
+        // A sandbox send gives its daily cap claim back when SES throttles or rejects it. After an SDK retry,
+        // that answer can follow an earlier attempt that timed out after SES accepted the email, so it would
+        // not prove that nothing went out. With one attempt, every throttle or rejection proves it, and the
+        // throttle reschedule in executeSendEmail does the retrying.
+        this.sandboxSesV2Client = this.sesConfig.sesRegion
+            ? new SESv2Client({
+                  region: this.sesConfig.sesRegion,
+                  endpoint: this.sesConfig.sesEndpoint || undefined,
+                  maxAttempts: 1,
               })
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
@@ -1334,9 +1331,19 @@ export class EmailService {
         capGrant: SandboxDailyCapGrant
     ): Promise<void> {
         try {
-            await this.sendEmailWithSES(result, params, from, false, isTest, queueWait, files, route)
+            await this.sendEmailWithSES(
+                result,
+                params,
+                from,
+                false,
+                isTest,
+                queueWait,
+                files,
+                route,
+                this.sandboxSesV2Client
+            )
         } catch (error) {
-            if ((error instanceof SESThrottleError || error instanceof SesRejectedError) && !error.retriedBySdk) {
+            if (error instanceof SESThrottleError || error instanceof SesRejectedError) {
                 await sender.returnDailyCaps(capGrant)
             }
             throw error
@@ -1621,9 +1628,10 @@ export class EmailService {
         isTest = false,
         queueWait?: EmailQueueWait,
         files: DecodedAttachment[] = [],
-        customRoute?: SesRoute
+        customRoute?: SesRoute,
+        sesClient: SESv2Client | null = this.sesV2Client
     ): Promise<void> {
-        if (!this.sesV2Client) {
+        if (!sesClient) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
         const route = customRoute ?? this.teamSesRoute(result.invocation, trackingEnabled, params)
@@ -1749,7 +1757,7 @@ export class EmailService {
 
         const sendStartedAt = performance.now()
         try {
-            const response = await this.sesV2Client.send(new SendEmailCommand(sendEmailParams))
+            const response = await sesClient.send(new SendEmailCommand(sendEmailParams))
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
@@ -1760,11 +1768,11 @@ export class EmailService {
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
             if (isSesThrottleError(error)) {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })
-                throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message, sesRetriedSend(error))
+                throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
             }
             const message = `Failed to send email via SES: ${error instanceof Error ? error.message : String(error)}`
             throw error instanceof SESv2ServiceException && error.$fault === 'client'
-                ? new SesRejectedError(message, sesRetriedSend(error))
+                ? new SesRejectedError(message)
                 : new Error(message)
         }
     }
