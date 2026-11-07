@@ -12,11 +12,12 @@ is issued: the workload exchanges again when it needs a new token.
 from __future__ import annotations
 
 import re
+import math
 import time
 import uuid
 from dataclasses import field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -41,6 +42,7 @@ from posthog.models.workload_trust_policy import (
     workload_trust_policy_request_url,
     workload_trust_policy_version,
 )
+from posthog.rate_limit import IPThrottle
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 from posthog.workload_identity.providers import (
     WorkloadClaim,
@@ -51,6 +53,10 @@ from posthog.workload_identity.providers import (
     normalize_issuer,
     workload_site_url,
 )
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
+    from rest_framework.views import APIView
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +75,22 @@ _RESOURCE_PATH = re.compile(r"^/api/projects/(\d+)/?$")
 # Per policy, so the jobs of one policy can't crowd out the jobs of another. A CI run exchanges once per
 # hog process and again every few minutes, so a large matrix stays well inside it.
 WORKLOAD_EXCHANGE_BUDGET = Budget(burst=300, per_hour=3600)
+
+
+# Charged per caller IP before the token is verified, so tokens no policy trusts can't make PostHog verify
+# signatures and look up policies without limit. CI runners often share egress IPs, so each limit is twice
+# what one policy's budget allows.
+class WorkloadExchangeBurstThrottle(IPThrottle):
+    scope = "workload_exchange_burst"
+    rate = "600/minute"
+
+
+class WorkloadExchangeSustainedThrottle(IPThrottle):
+    scope = "workload_exchange_sustained"
+    rate = "7200/hour"
+
+
+WORKLOAD_EXCHANGE_THROTTLE_CLASSES = (WorkloadExchangeBurstThrottle, WorkloadExchangeSustainedThrottle)
 
 
 class WorkloadExchangeErrorCode(StrEnum):
@@ -332,6 +354,20 @@ def _charge_exchange(policy: WorkloadTrustPolicy) -> None:
                 oauth_error="temporarily_unavailable",
                 http_status=status.HTTP_429_TOO_MANY_REQUESTS,
                 retry_after=decision.retry_after,
+            )
+
+
+def check_exchange_attempts(request: Request, view: APIView) -> None:
+    for throttle_class in WORKLOAD_EXCHANGE_THROTTLE_CLASSES:
+        throttle = throttle_class()
+        if not throttle.allow_request(request, view):
+            retry_after = max(1, math.ceil(throttle.wait() or 0))
+            raise WorkloadExchangeError(
+                WorkloadExchangeErrorCode.RATE_LIMITED,
+                f"Too many token exchanges came from this address. Try again in {retry_after} seconds.",
+                oauth_error="temporarily_unavailable",
+                http_status=status.HTTP_429_TOO_MANY_REQUESTS,
+                retry_after=retry_after,
             )
 
 

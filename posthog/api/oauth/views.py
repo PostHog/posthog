@@ -40,6 +40,7 @@ from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -2284,6 +2285,8 @@ class OAuthTokenView(TokenView):
         no client authentication: the OIDC token, checked against a trust policy, is the only credential."""
         grant_type = workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE
         try:
+            # The IP throttles read only `request.META`, which a Django request has too.
+            workload_token_exchange.check_exchange_attempts(cast(Request, request), self)
             issued = workload_token_exchange.exchange_workload_token(
                 subject_token=request.POST.get("subject_token") or "",
                 subject_token_type=request.POST.get("subject_token_type") or "",
