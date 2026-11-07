@@ -61,10 +61,11 @@ class TestAnalyticsSidebarLayout(SimpleTestCase):
 
     @parameterized.expand([("",), ("a" * 13,), ("../insights",), ("a?query",), ("a#hash",)])
     def test_unsafe_or_unbounded_insight_ids_are_rejected_in_links_and_metrics(self, short_id: str) -> None:
-        for item in [
+        items: list[dict[str, Any]] = [
             {"type": "metric", "insight": short_id, "label": "Signups"},
             {"type": "link", "to": {"kind": "insight", "short_id": short_id}, "label": "Signups"},
-        ]:
+        ]
+        for item in items:
             with self.assertRaises(serializers.ValidationError):
                 AnalyticsSidebarLayoutField().to_internal_value(_item(item))
 
