@@ -35,6 +35,19 @@ export type ParityProduceFault = {
     error: ParityError
 }
 
+/** A `posthog_hogfunction` row as `HogFunctionManagerService` returns it, with `encrypted_inputs` already decrypted. */
+export type ParityHogFunction = {
+    id: string
+    team_id: number
+    name: string
+    type: string
+    execution_order: number | null
+    created_at: string
+    bytecode: unknown
+    inputs: Record<string, unknown> | null
+    encrypted_inputs: Record<string, unknown> | null
+}
+
 export type ParityScenario = {
     name: string
     description: string
@@ -60,6 +73,8 @@ export type ParityScenario = {
     pattern_keys_faults: Record<string, ParityError & { times: number }>
     omit_deps: ('patternMessageKeysCache' | 'tracingConfigCache' | 'metricsEmitter' | 'samplingRulesCache')[]
     produce_faults: ParityProduceFault[]
+    /** When present, the consumer gets a `LogsTransformerService` over these functions. */
+    hog_functions?: ParityHogFunction[]
     batches: ParityMessage[][]
 }
 

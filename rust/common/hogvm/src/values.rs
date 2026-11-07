@@ -349,7 +349,9 @@ impl HogLiteral {
     // the length of the callable's name, but is close enough for most purposes.
     pub fn size(&self) -> usize {
         match self {
-            HogLiteral::String(s) => s.len(),
+            // A shared string is one allocation that every copy points at, so a copy costs a pointer.
+            HogLiteral::String(HogStr::Shared(_)) => std::mem::size_of::<Arc<str>>(),
+            HogLiteral::String(HogStr::Owned(s)) => s.len(),
             HogLiteral::Number(_) => std::mem::size_of::<f64>(),
             HogLiteral::Boolean(_) => std::mem::size_of::<bool>(),
             HogLiteral::Array(a) | HogLiteral::Tuple(a) => a.iter().map(|v| v.size()).sum(),
@@ -952,13 +954,23 @@ impl Num {
             }
 
             match op {
-                NumOp::Add => Ok((a.saturating_add(b)).into()),
-                NumOp::Sub => Ok((a.saturating_sub(b)).into()),
-                NumOp::Mul => Ok((a.saturating_mul(b)).into()),
+                // The reference VM's numbers are doubles, so a result past i64 continues as a float.
+                NumOp::Add => Ok(a
+                    .checked_add(b)
+                    .map_or(((a as f64) + (b as f64)).into(), Into::into)),
+                NumOp::Sub => Ok(a
+                    .checked_sub(b)
+                    .map_or(((a as f64) - (b as f64)).into(), Into::into)),
+                NumOp::Mul => Ok(a
+                    .checked_mul(b)
+                    .map_or(((a as f64) * (b as f64)).into(), Into::into)),
                 // `/` is float division in the reference VMs (JS `/`, Python true division), even
                 // for two integers: 3 / 2 is 1.5, not 1. Use `intDiv` for integer division.
                 NumOp::Div => Ok(((a as f64) / (b as f64)).into()),
-                NumOp::Mod => Ok((a % b).into()),
+                // `i64::MIN % -1` overflows. JavaScript gives -0 there, which the float path returns.
+                NumOp::Mod => Ok(a
+                    .checked_rem(b)
+                    .map_or(((a as f64) % (b as f64)).into(), Into::into)),
                 NumOp::Gt => Ok((a > b).into()),
                 NumOp::Lt => Ok((a < b).into()),
                 NumOp::Gte => Ok((a >= b).into()),
