@@ -24,6 +24,7 @@ import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { InboxTriageButton } from './components/shell/InboxTriageButton'
 import { InboxValueSummary } from './components/shell/InboxValueSummary'
+import { QuillInboxTabBar } from './components/shell/QuillInboxTabBar'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { SettingsTab } from './components/tabs/SettingsTab'
@@ -89,6 +90,7 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
 function InboxListView(): JSX.Element {
     const { activeTab } = useValues(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
+    const todayStyle = useInboxTodayStyle()
     // Self-driving isn't set up and the inbox is empty: the welcome page replaces the whole list
     // view, tab bar included, so the onboarding is the whole story – just run the one command.
     const onboarding = onboardingMode === 'takeover'
@@ -116,7 +118,7 @@ function InboxListView(): JSX.Element {
             {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
             {!onboarding && !pending && (
                 <div className="flex items-center gap-2 border-b border-primary pl-5 pr-6 shrink-0">
-                    <InboxTabBar />
+                    {todayStyle ? <QuillInboxTabBar /> : <InboxTabBar />}
                     {/* Pairs with the header Triage button, which hides below the same @2xl/inbox width. */}
                     {activeTab === 'reports' && (
                         <div className="ml-auto shrink-0 @2xl/inbox:hidden">

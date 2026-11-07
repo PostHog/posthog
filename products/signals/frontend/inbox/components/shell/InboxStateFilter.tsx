@@ -3,16 +3,9 @@ import { useState } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonTag } from '@posthog/lemon-ui'
 
-import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
-import {
-    INBOX_REPORT_SECTION_DESCRIPTION,
-    INBOX_REPORT_SECTION_KEYS,
-    INBOX_REPORT_SECTION_LABEL,
-    INBOX_REPORT_SECTION_TAG,
-    INBOX_STAFF_ONLY_REPORT_SECTION_KEYS,
-} from '../../types'
+import { INBOX_REPORT_SECTION_DESCRIPTION, INBOX_REPORT_SECTION_LABEL, INBOX_REPORT_SECTION_TAG } from '../../types'
+import { useInboxStateFilterOptions } from './useInboxStateFilterOptions'
 
 /**
  * Multi-select report-state filter for the flat Reports list: one checkbox per state (Needs decision,
@@ -21,30 +14,10 @@ import {
  * trigger reads "All statuses" then.
  */
 export function InboxStateFilter(): JSX.Element {
-    const { isStaff } = useValues(inboxSceneLogic)
-    const { stateFilter, visibleStateFilter } = useValues(inboxFiltersLogic)
-    const { hasProjectReports: hasProjectClosedReports } = useValues(reportListLogic(sectionListLogicProps('closed')))
-    const { hasProjectReports: hasProjectMonitoringReports } = useValues(
-        reportListLogic(sectionListLogicProps('outcome-monitoring'))
-    )
+    const { stateFilter } = useValues(inboxFiltersLogic)
     const { toggleState } = useActions(inboxFiltersLogic)
+    const { options, label } = useInboxStateFilterOptions()
     const [visible, setVisible] = useState(false)
-
-    const options = INBOX_REPORT_SECTION_KEYS.filter(
-        (key) =>
-            (isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)) &&
-            (key !== 'outcome-monitoring' || hasProjectMonitoringReports || stateFilter.includes(key)) &&
-            (key !== 'closed' || hasProjectClosedReports || stateFilter.includes(key))
-    )
-    // Label from the visible selection: a shared link can carry the staff-only state, and the
-    // trigger must not read "Not actionable" (or an inflated count) for a state whose checkbox the
-    // dropdown hides and that does not narrow the list.
-    const label =
-        visibleStateFilter.length === 0
-            ? 'All statuses'
-            : visibleStateFilter.length === 1
-              ? INBOX_REPORT_SECTION_LABEL[visibleStateFilter[0]]
-              : `${visibleStateFilter.length} statuses`
 
     return (
         <LemonDropdown

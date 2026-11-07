@@ -1,23 +1,19 @@
-import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, Spinner } from '@posthog/lemon-ui'
 
-import { inboxSourceFilterLabel } from '../../filterOptions'
-import { InboxSourceSelection, inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
-import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { InboxSourceSelection } from '../../logics/inboxFiltersLogic'
+import { InboxSourceChoice, matchesInboxSourceSearch } from '../../utils/inboxSourceFilter'
 import {
-    InboxSourceChoice,
-    buildInboxSourceChoices,
-    matchesInboxSourceSearch,
-    singleInboxSourceSelection,
-} from '../../utils/inboxSourceFilter'
-
-function sameSelection(a: InboxSourceSelection | null, b: InboxSourceSelection): boolean {
-    return !!a && a.kind === b.kind && a.value === b.value
-}
+    INBOX_ALL_SOURCES_LABEL,
+    INBOX_SOURCE_GROUP_TITLE,
+    INBOX_SOURCE_SEARCH_PLACEHOLDER,
+    INBOX_SOURCE_UNAVAILABLE_REASON,
+    inboxSourceEmptyText,
+    sameInboxSourceSelection,
+    useInboxSourceFilter,
+} from './useInboxSourceFilter'
 
 function ChoiceSection({
     title,
@@ -46,9 +42,9 @@ function ChoiceSection({
                     key={`${choice.kind}:${choice.value}`}
                     size="small"
                     fullWidth
-                    active={sameSelection(selection, choice)}
+                    active={sameInboxSourceSelection(selection, choice)}
                     onClick={() => onSelect(choice)}
-                    tooltip={choice.unavailable ? 'This is no longer configured on this project' : undefined}
+                    tooltip={choice.unavailable ? INBOX_SOURCE_UNAVAILABLE_REASON : undefined}
                     data-attr={`inbox-filter-source-${choice.kind}`}
                 >
                     <span className="truncate">
@@ -80,37 +76,16 @@ function ChoiceSection({
  * come from the source and scout configs, not from the loaded reports, so every page is reachable.
  */
 export function InboxSourceFilter(): JSX.Element {
-    const { sourceProductFilter, scoutFilter } = useValues(inboxFiltersLogic)
-    const { setSourceFilter } = useActions(inboxFiltersLogic)
-    const { sourceConfigs, sourceConfigsLoading } = useValues(signalSourcesLogic)
-    const { loadSourceConfigs } = useActions(signalSourcesLogic)
-    const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
-    const { loadScoutConfigs } = useActions(scoutFleetLogic)
+    const { sources, scouts, selection, hasSelection, label, ensureSourceConfigs, setSourceFilter } =
+        useInboxSourceFilter()
     const [visible, setVisible] = useState(false)
     const [search, setSearch] = useState('')
-
-    const { sources, scouts } = buildInboxSourceChoices({
-        sourceConfigs,
-        scoutConfigs,
-        sourceProductFilter,
-        scoutFilter,
-    })
-    const selection = singleInboxSourceSelection(sourceProductFilter, scoutFilter)
-    const hasSelection = sourceProductFilter.length > 0 || scoutFilter.length > 0
-    const selectedChoice = selection
-        ? [...sources, ...scouts].find((choice) => sameSelection(selection, choice))
-        : undefined
-    const label = !selectedChoice
-        ? inboxSourceFilterLabel(sourceProductFilter, scoutFilter)
-        : selectedChoice.kind === 'scout'
-          ? `Scout · ${selectedChoice.label}`
-          : selectedChoice.label
 
     const onVisibilityChange = (nextVisible: boolean): void => {
         setVisible(nextVisible)
         setSearch('')
-        if (nextVisible && sourceConfigs === null && !sourceConfigsLoading) {
-            loadSourceConfigs()
+        if (nextVisible) {
+            ensureSourceConfigs()
         }
     }
     const pick = (next: InboxSourceSelection | null): void => {
@@ -131,12 +106,12 @@ export function InboxSourceFilter(): JSX.Element {
                     <LemonInput
                         type="search"
                         size="small"
-                        placeholder="Search sources and scouts"
+                        placeholder={INBOX_SOURCE_SEARCH_PLACEHOLDER}
                         autoFocus
                         value={search}
                         onChange={setSearch}
                         fullWidth
-                        aria-label="Search sources and scouts"
+                        aria-label={INBOX_SOURCE_SEARCH_PLACEHOLDER}
                     />
                     <div className="mt-1 max-h-80 overflow-y-auto">
                         <LemonButton
@@ -146,26 +121,26 @@ export function InboxSourceFilter(): JSX.Element {
                             onClick={() => pick(null)}
                             data-attr="inbox-filter-source-all"
                         >
-                            All sources
+                            {INBOX_ALL_SOURCES_LABEL}
                         </LemonButton>
                         <ChoiceSection
-                            title="Sources"
-                            choices={sources.filter((choice) => matchesInboxSourceSearch(choice, search))}
-                            loading={sourceConfigs === null && sourceConfigsLoading}
-                            failed={sourceConfigs === null && !sourceConfigsLoading}
-                            emptyText={search ? 'No matching sources' : 'No sources configured'}
+                            title={INBOX_SOURCE_GROUP_TITLE.source_product}
+                            choices={sources.choices.filter((choice) => matchesInboxSourceSearch(choice, search))}
+                            loading={sources.loading}
+                            failed={sources.failed}
+                            emptyText={inboxSourceEmptyText('source_product', !!search)}
                             selection={selection}
-                            onRetry={loadSourceConfigs}
+                            onRetry={sources.retry}
                             onSelect={pick}
                         />
                         <ChoiceSection
-                            title="Scouts"
-                            choices={scouts.filter((choice) => matchesInboxSourceSearch(choice, search))}
-                            loading={scoutConfigs === null && scoutConfigsLoading}
-                            failed={scoutConfigs === null && !scoutConfigsLoading}
-                            emptyText={search ? 'No matching scouts' : 'No scouts configured'}
+                            title={INBOX_SOURCE_GROUP_TITLE.scout}
+                            choices={scouts.choices.filter((choice) => matchesInboxSourceSearch(choice, search))}
+                            loading={scouts.loading}
+                            failed={scouts.failed}
+                            emptyText={inboxSourceEmptyText('scout', !!search)}
                             selection={selection}
-                            onRetry={loadScoutConfigs}
+                            onRetry={scouts.retry}
                             onSelect={pick}
                         />
                     </div>
