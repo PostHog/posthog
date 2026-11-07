@@ -138,10 +138,9 @@ def events_read_table(use_new_events_schema: bool) -> str:
     return DISTRIBUTED_EVENTS_JSON_TABLE if use_new_events_schema else "events"
 
 
-# The native table stores a dotted key `a.b` under the path `a%2Eb` (EVENTS_JSON_INSERT_SETTINGS), and ClickHouse
-# prints the dot again only for a query that sets the first setting. The second keeps a `/` inside an object or
-# array value unescaped, as the legacy text column returns it. The ClickHouse printer sets both on every HogQL
-# query that reads the native table, so raw SQL that embeds or re-runs a printed query must send them itself.
+# JSON columns without reversible_keys need the first setting to decode dotted keys on reads; reversible_keys
+# columns decode dots and percent signs by their type. The second keeps `/` unescaped as in the legacy text
+# column. The HogQL printer sets both for native reads, so raw SQL that reuses a printed query must send them too.
 EVENTS_JSON_READ_SETTINGS: dict[str, int] = {
     "json_type_escape_dots_in_keys": 1,
     "output_format_json_escape_forward_slashes": 0,

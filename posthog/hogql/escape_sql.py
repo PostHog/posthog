@@ -345,6 +345,15 @@ def backquote_clickhouse_identifier(identifier: str) -> str:
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
+def is_reserved_json_subcolumn(path: str) -> bool:
+    # ClickHouse reparses these names as subcolumn operators even when SQL quotes the identifier.
+    return (
+        path.startswith(("?`", "^`", "@`", ":`"))
+        or ".:`" in path
+        or path == "__special_subcolumn_name_for_distinct_paths_calculation"
+    )
+
+
 def escape_clickhouse_json_path(key: str) -> str:
     """Quote one segment of a JSON subcolumn path, spelling a `%` as the `\\x25` escape.
 

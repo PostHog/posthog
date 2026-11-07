@@ -483,8 +483,8 @@ SETTINGS
 """
 
 
-# `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`,
-# which is why the native query's SETTINGS carry it.
+# JSON columns without reversible_keys need json_type_escape_dots_in_keys to decode dotted keys on reads,
+# so the native query keeps that setting. Reversible columns decode dots and percent signs by their type.
 _PROPERTIES_DOCUMENT = event_document_sql(
     "properties",
     "properties_null_keys",

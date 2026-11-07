@@ -17,7 +17,8 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebStatsDimensionalPreAggregatedTable,
 )
 
-from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
+from posthog.clickhouse import events_json
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY, encode_json_key
 from posthog.constants import GROUP_TYPES_LIMIT
 
 logger = structlog.get_logger(__name__)
@@ -196,19 +197,21 @@ def restricted_property_keys_for_table_type(
         )
     }
     native_event_json = context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable))
+    # A column without reversible_keys stores a dotted key and its `%2E` spelling as one path and prints either, so
+    # both spellings are restricted. A reversible column keeps them apart and prints the literal key.
+    alias_encoded_keys = native_event_json and not events_json.EVENTS_JSON_REVERSIBLE_KEYS
     if prop_def_type == PropertyDefinition.Type.EVENT:
         # Identify events carry person properties inside `$set` / `$set_once`.
         for restriction in context.restricted_properties:
             if restriction.property_type == PropertyDefinition.Type.PERSON:
                 for container in PERSON_PROPERTY_CONTAINERS:
                     restricted_keys.add(f"{container}.{restriction.name}")
-                    if native_event_json and "." in restriction.name:
-                        # Native JSON escapes dots in the property name, but not in the container.
-                        restricted_keys.add(f"{container}.{restriction.name.replace('.', '%2E')}")
+                    if alias_encoded_keys:
+                        # The container separator must stay a dot while the property name is encoded.
+                        restricted_keys.add(f"{container}.{encode_json_key(restriction.name)}")
     if restricted_keys and native_event_json:
-        # The native JSON columns store the flat key `a.b` under the path `a%2Eb`, and the printer reads a
-        # requested `a%2Eb` from that same path. Restrict both spellings, or the encoded one reads the value.
-        restricted_keys |= {key.replace(".", "%2E") for key in restricted_keys if "." in key}
+        if alias_encoded_keys:
+            restricted_keys |= {encode_json_key(key) for key in restricted_keys}
         # Quarantine contains raw property values inside a string, beyond JSONDropKeys' reach.
         restricted_keys.add(UNPARSEABLE_PROPERTIES_KEY)
     return restricted_keys

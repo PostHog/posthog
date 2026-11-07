@@ -47,6 +47,9 @@ type pathRule struct {
 
 var eventPropertyRules = makeEventPropertyRules()
 
+// Flip with EVENTS_JSON_REVERSIBLE_KEYS in posthog/clickhouse/events_json.py and the column types at cutover.
+var eventsJSONReversibleKeys = false
+
 const (
 	// Match fastjson's parser ceiling so every stored document remains readable by the blob-cleanup UDF.
 	maxJSONDepth = 300
@@ -1605,7 +1608,7 @@ func (p *processor) resetNullKeys() {
 	p.nullKeysOver = false
 }
 
-// %2E is the json_type_escape_dots_in_keys spelling, which tells the flat key `a.b` from the path `a` > `b`.
+// Encoding keys before joining keeps a flat dotted key distinct from a nested path.
 func (p *processor) recordNullKey(key string) {
 	if p.nullKeysOver {
 		return
@@ -1620,7 +1623,7 @@ func (p *processor) recordNullKey(key string) {
 		p.nullKeysOver = true
 		return
 	}
-	if len(p.path) == 0 && strings.IndexByte(key, '.') < 0 {
+	if len(p.path) == 0 && size == len(key) {
 		p.nullKeys = append(p.nullKeys, key)
 		return
 	}
@@ -1634,20 +1637,40 @@ func (p *processor) recordNullKey(key string) {
 }
 
 func encodedNullKeySegmentLen(segment string) int {
-	return len(segment) + 2*strings.Count(segment, ".")
+	size := len(segment) + 2*strings.Count(segment, ".")
+	if eventsJSONReversibleKeys {
+		size += 2 * strings.Count(segment, "%")
+	}
+	return size
 }
 
 func writeNullKeySegment(buf *bytes.Buffer, segment string) {
+	escaped := "."
+	if eventsJSONReversibleKeys {
+		escaped = ".%"
+	}
 	for {
-		dot := strings.IndexByte(segment, '.')
-		if dot < 0 {
+		index := strings.IndexAny(segment, escaped)
+		if index < 0 {
 			buf.WriteString(segment)
 			return
 		}
-		buf.WriteString(segment[:dot])
-		buf.WriteString("%2E")
-		segment = segment[dot+1:]
+		buf.WriteString(segment[:index])
+		if segment[index] == '%' {
+			buf.WriteString("%25")
+		} else {
+			buf.WriteString("%2E")
+		}
+		segment = segment[index+1:]
 	}
+}
+
+func decodeNullKeySegment(segment string) string {
+	segment = strings.ReplaceAll(segment, "%2E", ".")
+	if eventsJSONReversibleKeys {
+		segment = strings.ReplaceAll(segment, "%25", "%")
+	}
+	return segment
 }
 
 // A duplicate key can leave a non-null value under a recorded path after cleaning.
@@ -1678,13 +1701,13 @@ func (p *processor) finishNullKeys(root *value, out []string) []string {
 	return out
 }
 
-// Each segment is one object key, with its dots written as %2E, or one array index.
+// Decode after splitting so a dot inside one key cannot become a path separator.
 func pathExists(v *value, path string) bool {
 	for v != nil {
 		segment, rest, more := strings.Cut(path, ".")
 		switch v.kind {
 		case kindObject:
-			segment = strings.ReplaceAll(segment, "%2E", ".")
+			segment = decodeNullKeySegment(segment)
 			var next *value
 			for _, entry := range v.entries {
 				if entry.key == segment {

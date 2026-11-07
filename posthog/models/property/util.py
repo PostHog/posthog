@@ -8,10 +8,11 @@ from typing import Any, Literal, Optional, Union, cast
 
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.escape_sql import escape_clickhouse_json_path
+from posthog.hogql.escape_sql import escape_clickhouse_json_path, is_reserved_json_subcolumn
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.clickhouse.events_json import encode_json_key
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.models.event import Selector
@@ -103,11 +104,14 @@ def _json_events_property_expr(property_name: PropertyName, column_ref: str) -> 
 
 
 def _json_events_subcolumn_expr(property_name: PropertyName, column_ref: str, *, sub_object: bool = False) -> str:
-    # A dot inside one key is stored as `%2E` (EVENTS_JSON_INSERT_SETTINGS), so it must not read as a path
-    # separator. The path prints inline with its `%` as a `\x25` escape, which passes unchanged through the
-    # parameter substitution and str.format that callers run this SQL through.
-    separator = ".^" if sub_object else "."
-    return f"{column_ref}{separator}{escape_clickhouse_json_path(property_name.replace('.', '%2E'))}"
+    # Encode the key so a dot cannot become a path separator. SQL escapes `%` as `\x25` to survive
+    # the parameter substitution and str.format that callers run this SQL through.
+    key = encode_json_key(property_name)
+    if not key:
+        path = "^``" if sub_object else ""
+        return f"getSubcolumn({column_ref}, '{path}')"
+    separator = ".^" if sub_object else ".@" if is_reserved_json_subcolumn(key) else "."
+    return f"{column_ref}{separator}{escape_clickhouse_json_path(key)}"
 
 
 def box_value(value: Any, remove_spaces=False) -> list[Any]:

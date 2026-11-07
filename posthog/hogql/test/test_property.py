@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
 from unittest.mock import patch
@@ -63,6 +64,27 @@ from ee.clickhouse.materialized_columns.columns import materialize
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])
+
+
+@pytest.mark.parametrize(
+    "key,scalar_sql,object_sql",
+    [
+        ("a%2E.b", r"properties.`a\x25252E\x252Eb`", r"properties.^`a\x25252E\x252Eb`"),
+        ("?`b`", "properties.@`?``b```", "properties.^`?``b```"),
+        ("^`b`", "properties.@`^``b```", "properties.^`^``b```"),
+        ("@`b`", "properties.@`@``b```", "properties.^`@``b```"),
+        (":`Int64`", "properties.@`:``Int64```", "properties.^`:``Int64```"),
+        ("", "getSubcolumn(properties, '')", "getSubcolumn(properties, '^``')"),
+    ],
+)
+def test_property_string_expr_encodes_reversible_keys(
+    monkeypatch: pytest.MonkeyPatch, key: str, scalar_sql: str, object_sql: str
+) -> None:
+    monkeypatch.setattr("posthog.clickhouse.events_json.EVENTS_JSON_REVERSIBLE_KEYS", True)
+    expr, _ = get_property_string_expr("events", key, "%(key)s", "properties", use_new_events_schema=True)
+    assert scalar_sql in expr
+    assert object_sql in expr
+    assert expr % {} == expr
 
 
 class _FieldChainCollector(TraversingVisitor):

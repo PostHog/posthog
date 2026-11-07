@@ -51,6 +51,7 @@ from posthog.hogql.constants import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -61,7 +62,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import json_dynamic_read_sql
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE, encode_json_key
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.instance_setting import override_instance_config
@@ -91,6 +92,78 @@ def _find_query_plan_node(node: dict, condition: Callable[[dict], bool]) -> dict
         if result is not None:
             return result
     return None
+
+
+@pytest.mark.parametrize(
+    "keys,path_sql,sub_object_sql",
+    [
+        (["a%2E.b", "tail%"], r"`a\x25252E\x252Eb`.`tail\x2525`", r"^`a\x25252E\x252Eb`.`tail\x2525`"),
+        (["?`b`"], "@`?``b```", "^`?``b```"),
+        (["^`b`"], "@`^``b```", "^`^``b```"),
+        (["@`b`"], "@`@``b```", "^`@``b```"),
+        ([":`Int64`"], "@`:``Int64```", "^`:``Int64```"),
+        (["a", ":`Int64`"], "@`a.:``Int64```", "^a.`:``Int64```"),
+        (["a", "?`b`"], "a.`?``b```", "^a.`?``b```"),
+        (["?`a%.b`"], r"@`?``a\x2525\x252Eb```", r"^`?``a\x2525\x252Eb```"),
+        (
+            ["__special_subcolumn_name_for_distinct_paths_calculation"],
+            "@__special_subcolumn_name_for_distinct_paths_calculation",
+            "^__special_subcolumn_name_for_distinct_paths_calculation",
+        ),
+    ],
+)
+@pytest.mark.parametrize("access_type", ["path", "sub_object"])
+def test_native_json_subcolumn_encodes_reversible_keys(
+    monkeypatch: pytest.MonkeyPatch,
+    access_type: Literal["path", "sub_object"],
+    keys: list[str],
+    path_sql: str,
+    sub_object_sql: str,
+) -> None:
+    monkeypatch.setattr("posthog.clickhouse.events_json.EVENTS_JSON_REVERSIBLE_KEYS", True)
+    context = HogQLContext(team_id=1, use_new_events_schema=True)
+    node = ast.JsonSubcolumnAccess(
+        expr=ast.Field(
+            chain=["properties"],
+            type=ast.FieldType(table_type=ast.TableType(table=EventsTable()), name="properties"),
+        ),
+        keys=keys,
+        access_type=access_type,
+    )
+    sql = print_prepared_ast(node, context=context, dialect="clickhouse")
+    expected_path = path_sql if access_type == "path" else sub_object_sql
+    assert sql == f"events.properties.{expected_path}"
+    assert sql % {} == sql
+
+
+@pytest.mark.parametrize("reversible_keys", [False, True])
+@pytest.mark.parametrize(
+    "keys,expected_sql",
+    [
+        (["?`a%.b`"], "arrayElement(events.properties.objects[1], %(hogql_val_0)s)"),
+        (
+            ["a", ":`Int64`"],
+            "arrayElement(arrayElement(events.properties.objects[1], %(hogql_val_0)s), %(hogql_val_1)s)",
+        ),
+    ],
+)
+def test_native_json_reserved_path_after_array_index(
+    monkeypatch: pytest.MonkeyPatch, reversible_keys: bool, keys: list[str], expected_sql: str
+) -> None:
+    monkeypatch.setattr("posthog.clickhouse.events_json.EVENTS_JSON_REVERSIBLE_KEYS", reversible_keys)
+    context = HogQLContext(team_id=1, use_new_events_schema=True)
+    field = ast.Field(
+        chain=["properties"],
+        type=ast.FieldType(table_type=ast.TableType(table=EventsTable()), name="properties"),
+    )
+    node = ast.JsonSubcolumnAccess(
+        expr=ast.ArrayAccess(
+            array=ast.JsonSubcolumnAccess(expr=field, keys=["objects"]), property=ast.Constant(value=1)
+        ),
+        keys=keys,
+    )
+    assert print_prepared_ast(node, context=context, dialect="clickhouse") == expected_sql
+    assert list(context.values.values()) == keys
 
 
 class TestPrinter(BaseTest):
@@ -140,7 +213,7 @@ class TestPrinter(BaseTest):
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
         # A dotted key is one path name with its dots escaped, not a nested path.
-        return self._json_dynamic_subcolumn_path_expr(root, [property_name.replace(".", "%2E")])
+        return self._json_dynamic_subcolumn_path_expr(root, [encode_json_key(property_name)])
 
     def _json_dynamic_subcolumn_path_expr(self, root: str, property_path: list[str]) -> str:
         return json_dynamic_read_sql(root, property_path)

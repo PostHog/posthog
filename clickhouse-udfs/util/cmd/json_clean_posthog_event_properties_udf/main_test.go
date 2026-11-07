@@ -728,7 +728,54 @@ func TestProcessEnvelopeLineSplitsEveryOutput(t *testing.T) {
 	}
 }
 
+func TestNullKeyEncoding(t *testing.T) {
+	original := eventsJSONReversibleKeys
+	t.Cleanup(func() { eventsJSONReversibleKeys = original })
+	tests := []struct {
+		key, legacy, reversible, legacyDecoded string
+	}{
+		{"", "", "", ""},
+		{"plain", "plain", "plain", "plain"},
+		{"a.b", "a%2Eb", "a%2Eb", "a.b"},
+		{"a%2Eb", "a%2Eb", "a%252Eb", "a.b"},
+		{"discount%", "discount%", "discount%25", "discount%"},
+		{"%25", "%25", "%2525", "%25"},
+		{"..", "%2E%2E", "%2E%2E", ".."},
+		{"%.%2E.%25", "%%2E%2E%2E%25", "%25%2E%252E%2E%2525", "%...%25"},
+		{"é%2e", "é%2e", "é%252e", "é%2e"},
+	}
+	for _, reversible := range []bool{false, true} {
+		eventsJSONReversibleKeys = reversible
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("reversible=%t/%s", reversible, tt.key), func(t *testing.T) {
+				want, decoded := tt.legacy, tt.legacyDecoded
+				if reversible {
+					want, decoded = tt.reversible, tt.key
+				}
+				var buf bytes.Buffer
+				writeNullKeySegment(&buf, tt.key)
+				if buf.String() != want || encodedNullKeySegmentLen(tt.key) != len(want) {
+					t.Fatalf("encoded %q (length %d), want %q", buf.String(), encodedNullKeySegmentLen(tt.key), want)
+				}
+				if got := decodeNullKeySegment(want); got != decoded {
+					t.Fatalf("decoded %q, want %q", got, decoded)
+				}
+				proc := processor{}
+				proc.recordNullKey(tt.key)
+				proc.path = []string{tt.key, "0"}
+				proc.recordNullKey(tt.key)
+				expected := []string{want, want + ".0." + want}
+				if fmt.Sprint(proc.nullKeys) != fmt.Sprint(expected) {
+					t.Fatalf("null keys = %q, want %q", proc.nullKeys, expected)
+				}
+			})
+		}
+	}
+}
+
 func TestProcessEnvelopeLineNullKeysIgnoreSurvivingValues(t *testing.T) {
+	original := eventsJSONReversibleKeys
+	t.Cleanup(func() { eventsJSONReversibleKeys = original })
 	proc := processor{kind: eventEnvelope}
 	var amplified strings.Builder
 	amplified.WriteString(`{"keep":1,"` + strings.Repeat("k", 1024) + `":{`)
@@ -747,18 +794,22 @@ func TestProcessEnvelopeLineNullKeysIgnoreSurvivingValues(t *testing.T) {
 		{"duplicate keeps later value", `{"a":1,"a":null}`, nil},
 		{"dotted key keeps nested null", `{"Account.client_id":"abc","Account":{"client_id":null}}`, []string{"Account.client_id"}},
 		{"duplicate dotted key keeps value", `{"a.b":null,"a.b":1}`, nil},
+		{"duplicate percent key keeps value", `{"a%25.b":null,"a%25.b":1}`, nil},
 		{"paths over the byte budget record none", amplified.String(), nil},
 		{"repeated null once", `{"x":null,"x":null}`, []string{"x"}},
 		{"dropped list never recorded", `{"$ai_input":null,"$feature_flag_payload":null,"kept":null}`, []string{"kept"}},
 		{"null flags map", `{"$feature_flags":null}`, []string{"$feature_flags"}},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := processEnvelope(t, &proc, tt.properties, `{}`)
-			if fmt.Sprint(got.PropertiesNullKeys) != fmt.Sprint(tt.want) {
-				t.Fatalf("null keys = %v, want %v", got.PropertiesNullKeys, tt.want)
-			}
-		})
+	for _, reversible := range []bool{false, true} {
+		eventsJSONReversibleKeys = reversible
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("reversible=%t/%s", reversible, tt.name), func(t *testing.T) {
+				got := processEnvelope(t, &proc, tt.properties, `{}`)
+				if fmt.Sprint(got.PropertiesNullKeys) != fmt.Sprint(tt.want) {
+					t.Fatalf("null keys = %v, want %v", got.PropertiesNullKeys, tt.want)
+				}
+			})
+		}
 	}
 }
 

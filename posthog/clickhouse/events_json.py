@@ -63,16 +63,31 @@ def is_temporary_event_property(key: str) -> bool:
 EVENTS_PROPERTIES_JSON_MAX_DYNAMIC_PATHS = 1024
 PERSON_PROPERTIES_JSON_MAX_DYNAMIC_PATHS = 256
 TEMPORARY_PROPERTIES_JSON_TYPE = "JSON(max_dynamic_paths = 32)"
+# Flip with the column types to JSON(reversible_keys=1) at cutover, and with eventsJSONReversibleKeys in the Go cleaner.
+EVENTS_JSON_REVERSIBLE_KEYS = False
 # Without the first two, ClickHouse infers Date/DateTime from date-like strings on some inserts and String on
-# others. The last two keep a dotted key such as `a.b` one flat key, stored under the path name `a%2Eb`, the way the
-# legacy table and HogQL property filters treat it; ClickHouse would otherwise nest it as `{"a":{"b":...}}`. A document
-# that carries both spellings keeps the first value instead of failing the whole cast, and a key sent literally as
-# `a%2Eb` cannot be told apart from `a.b`. Readers get the `.` back only when they set
-# `json_type_escape_dots_in_keys` too (see HogQLQuerySettings).
+# others. The last two keep dotted keys flat in JSON columns without reversible_keys, and keep the first value
+# when paths collide. JSON(reversible_keys=1) ignores the dot setting and escapes `%` before `.`, so literal
+# percent sequences cannot collide with dotted keys. Readers of columns without it need the dot setting too.
 EVENTS_JSON_INSERT_SETTINGS = (
     "input_format_try_infer_dates = 0, input_format_try_infer_datetimes = 0, "
     "json_type_escape_dots_in_keys = 1, type_json_skip_duplicated_paths = 1"
 )
+
+
+def encode_json_key(key: str) -> str:
+    if EVENTS_JSON_REVERSIBLE_KEYS:
+        key = key.replace("%", "%25")
+    return key.replace(".", "%2E")
+
+
+def decode_json_key_sql(segment_sql: str) -> str:
+    # SQL spells `%` as `\x25` so the query survives %-style parameter substitution.
+    decoded = f"replaceAll({segment_sql}, '\\x252E', '.')"
+    if EVENTS_JSON_REVERSIBLE_KEYS:
+        decoded = f"replaceAll({decoded}, '\\x2525', '\\x25')"
+    return decoded
+
 
 EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$browser": "LowCardinality(String)",
