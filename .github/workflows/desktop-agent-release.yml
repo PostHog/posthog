@@ -59,12 +59,15 @@ jobs:
                   echo "Version: $TAG_VERSION"
                   echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
 
+            # The desktop app installs these from npm, so they publish together at one version.
             - name: Set version in package.json
               env:
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
-                  jq --arg v "$APP_VERSION" '.version = $v' packages/agent/package.json > tmp.json && mv tmp.json packages/agent/package.json
-                  echo "Set packages/agent/package.json version to $APP_VERSION"
+                  for pkg in agent agent-contracts enricher git harness; do
+                    jq --arg v "$APP_VERSION" '.version = $v' "packages/$pkg/package.json" > tmp.json && mv tmp.json "packages/$pkg/package.json"
+                    echo "Set packages/$pkg/package.json version to $APP_VERSION"
+                  done
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
@@ -92,9 +95,13 @@ jobs:
                   if-no-files-found: error
                   retention-days: 1
 
-            - name: Publish the package to npm registry
-              working-directory: packages/agent/packages/agent
-              run: pnpm publish --access public --no-git-checks
+            # A recursive publish skips a version that is already on npm, so a re-run completes a partial release.
+            - name: Publish the packages to npm registry
+              run: >-
+                  pnpm --recursive
+                  --filter @posthog/agent-contracts --filter @posthog/enricher --filter @posthog/git
+                  --filter @posthog/harness --filter @posthog/agent
+                  publish --access public --no-git-checks
               env:
                   NPM_CONFIG_PROVENANCE: true
 

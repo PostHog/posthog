@@ -28,5 +28,14 @@
     "@posthog/agent-contracts": "workspace:*",
     "git-url-parse": "^16.1.0",
     "simple-git": "^3.36.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PostHog/posthog.git",
+    "directory": "packages/agent/packages/git"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
