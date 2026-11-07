@@ -74,6 +74,7 @@ _INTERPRETED_NAMES = (
     frozenset({"inputs", "fetch"}) | _VALUE_CALLS | _PURE_CALLS | _DIGEST_CALLS | _ELEMENT_CALLBACK_CALLS
 )
 _SAFE_CALLS = _VALUE_CALLS | _PURE_CALLS | _DIGEST_CALLS
+_SCALAR_CALLS = (_PURE_CALLS - {"arrayPushBack"}) | _DIGEST_CALLS | {"concat"}
 _FRESH_CONTAINERS = (ast.Dict, ast.Array, ast.Tuple)
 # A regex the worker cannot compile fails with the pattern in the error.
 _REGEX_OPS = frozenset(
@@ -271,6 +272,8 @@ class _Analysis:
         self.functions: dict[str, list[str]] = {}
         self.returns: list[tuple[str, ast.Expr]] = []
         self.calls: list[ast.Call] = []
+        self.comparisons: list[ast.CompareOperation] = []
+        self.non_scalar_names: set[str] = set()
         self.field_heads: set[str] = set()
         self.lambda_feeds: dict[int, list[ast.Expr]] = {}
         # Lambdas a declaration binds to a name, and the parameters of each with that name.
@@ -305,6 +308,8 @@ class _Analysis:
         self.lambdas_only = self._lambda_only_names() - bound_elsewhere - set(self.functions)
         self.exits += [expr for base, _, expr in self.member_assignments if base not in local]
         self.exits += [expr for name, expr in self.assignments if name not in local]
+        self.non_scalar_names = bound_elsewhere | {base for base, _, _ in self.member_assignments}
+        self.exits += self._compared_exits(self.comparisons)
         quiet = {"fetch", *_SAFE_CALLS, *self.functions, *self.lambdas_only}
         self.exits += [
             arg for call in self.calls if call.name not in quiet and not _calls_back_inline(call) for arg in call.args
@@ -385,7 +390,62 @@ class _Analysis:
         self.exits += [
             arg for node in nodes if isinstance(node, ast.Call) and node.name not in _SAFE_CALLS for arg in node.args
         ]
+        self.exits += self._compared_exits(node for node in nodes if isinstance(node, ast.CompareOperation))
         return self._value(expr), self._taint(expr)
+
+    def _compared_exits(self, comparisons: Iterable[ast.CompareOperation]) -> list[ast.Expr]:
+        """The worker reads an object shaped like a date as a date when it compares it, and its date
+        library quotes an invalid field in the error. A regex it cannot compile is quoted the same way."""
+        return [
+            side
+            for node in comparisons
+            for side in (node.left, node.right)
+            if node.op in _REGEX_OPS or not self._scalar(side, frozenset())
+        ]
+
+    def _scalar(self, node: ast.Expr, seen: frozenset[str]) -> bool:
+        """Whether `node` can only be a string, number, boolean or null. `seen` holds the names and
+        inputs being resolved, which a cycle cannot make anything else."""
+        if isinstance(node, ast.Constant | ast.CompareOperation | ast.And | ast.Or | ast.Not):
+            return True
+        if isinstance(node, ast.Call) and node.name in ("coalesce", "ifNull"):
+            return all(self._scalar(arg, seen) for arg in node.args)
+        if isinstance(node, ast.Call) and node.name == "if":
+            return len(node.args) == 3 and all(self._scalar(arg, seen) for arg in node.args[1:])
+        if isinstance(node, ast.Call):
+            return node.name in _SCALAR_CALLS and node.name not in self.functions
+        key = _input_key(node)
+        if key is not None:
+            return (not isinstance(node, ast.Field) or len(node.chain) == 2) and self._scalar_input(key, seen)
+        if not isinstance(node, ast.Field) or len(node.chain) != 1:
+            return False
+        name = str(node.chain[0])
+        if name in seen:
+            return True
+        if name in self.non_scalar_names or name not in self.declarations | {n for n, _ in self.assignments}:
+            return False
+        return all(self._scalar(expr, seen | {name}) for assigned, expr in self.assignments if assigned == name)
+
+    def _scalar_input(self, key: str, seen: frozenset[str]) -> bool:
+        marker = f"inputs.{key}"
+        if marker in seen:
+            return True
+        if key not in self.definitions:
+            # Only entering the secret again changes its value.
+            return key in self.secret_keys
+        for item in self.definitions[key]:
+            value = item["value"]
+            if isinstance(value, dict | list):
+                return False
+            if not isinstance(value, str) or item.get("templating") == "liquid":
+                continue
+            try:
+                expr = parse_string_template(value)
+            except BaseHogQLError:
+                return False
+            if not self._scalar(expr, seen | {marker}):
+                return False
+        return True
 
     def _collect(self, node: ast.AST, function: str | None) -> None:
         """`function` is the enclosing `fun`, or empty inside a lambda and None at the top level."""
@@ -425,8 +485,8 @@ class _Analysis:
             self.fed_names += [(name, None) for name, _, _ in node.catches if name]
         elif isinstance(node, ast.ThrowStatement):
             self.exits.append(node.expr)
-        elif isinstance(node, ast.CompareOperation) and node.op in _REGEX_OPS:
-            self.exits += [node.left, node.right]
+        elif isinstance(node, ast.CompareOperation):
+            self.comparisons.append(node)
         elif isinstance(node, ast.ExprCall):
             self.exits += node.args
         elif isinstance(node, ast.Call):

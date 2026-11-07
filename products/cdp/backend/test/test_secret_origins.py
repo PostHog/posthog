@@ -523,6 +523,28 @@ class TestSecretHosts(SimpleTestCase):
                 {"token": UNBOUND},
             ),
             (
+                "secret_compared_inside_a_date_input",
+                "if (inputs.when < 5) { print('soon') }\nfetch('https://api.example.com', {'body': inputs.token})",
+                _inputs(when={"__hogDate__": True, "year": "{inputs.token}", "month": 1, "day": 1}, token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_compared_inside_a_date_built_in_code",
+                "let d := {'__hogDate__': true, 'year': inputs.token, 'month': 1, 'day': 1}\nlet same := d == 'x'",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_compared_with_a_request_header",
+                "if (inputs.token != request.headers['authorization']) { return null }\n"
+                "fetch('https://api.example.com', {'body': lower(inputs.token)})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://api.example.com")},
+            ),
+            (
                 "fetch_in_an_inline_element_callback",
                 "arrayMap((x) -> fetch('https://hooks.example.com', {'body': x}), [inputs.token])",
                 _inputs(token="t"),
