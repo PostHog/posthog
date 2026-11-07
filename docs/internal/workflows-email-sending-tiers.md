@@ -130,7 +130,8 @@ The worker reads each cap as a number like its other numeric settings, so it kee
 The `workflows sandbox email blocked` event names the outcome: `project_cap_reached`, `recipient_cap_reached`, or `cap_check_failed`.
 The worker checks members after the claim and gives the claim back when that check skips the send.
 An SES throttle response also gives the claim back before the delivery retry, and so does an SES rejection, which means SES did not accept the message.
-A failure that leaves open whether SES accepted the message, such as a timeout, keeps the claim.
+Sandbox sends make one SES attempt, so each throttle or rejection describes the only attempt.
+A failure that leaves open whether SES accepted the message, such as a timeout, an SES 5xx, or a reset connection, keeps the claim and fails the send without a retry.
 Returns are deduplicated, and Valkey ignores a return that arrives more than five minutes after it was issued.
 Test sends run inline in the CDP API, so a sandbox-enabled CDP API opens the SES Valkey pool (`SES_RATE_LIMITER_VALKEY_*`) for the allowances.
 Without it, every sandbox test send skips.
