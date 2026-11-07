@@ -26,6 +26,11 @@ export function canStepUp(credentials: Credentials | undefined): boolean {
     return credentials?.source === 'store' && credentials.key.status().kind === 'oauth'
 }
 
+// A CI job's token gets its scopes from the trusted workload policy, which only an admin can change.
+export function workloadScopesHint(scopes: readonly string[]): string {
+    return `The trusted workload policy doesn't grant ${scopes.join(', ')}. Ask an organization admin to add them to the policy in PostHog, under the project's settings.`
+}
+
 export function addToKeyHint(scopes: readonly string[]): string {
     return `Add ${scopes.join(', ')} to the personal API key in PostHog under Settings, Personal API keys.`
 }
