@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
   ROOT_LOGGER,
   type RootLogger,
@@ -7,7 +6,6 @@ import {
 import { createGitClient } from "@posthog/git/client";
 import { isGitRepository } from "@posthog/git/queries";
 import { deleteCheckpoint } from "@posthog/git/sagas/checkpoint";
-import { forceRemove } from "@posthog/git/utils";
 import { WorktreeManager } from "@posthog/git/worktree";
 import {
   type IWorkspaceSettings,
@@ -330,8 +328,6 @@ export class ArchiveService {
                 logger: this.log,
               });
               await manager.deleteWorktree(worktreePath);
-              const parentDir = path.dirname(worktreePath);
-              await forceRemove(parentDir);
             } catch (error) {
               this.log.warn(
                 `Failed to remove worktree at ${worktreePath}; archiving anyway (on-disk worktree may need manual cleanup)`,
@@ -485,8 +481,6 @@ export class ArchiveService {
                 restoredWorktreeName,
               );
               await manager.deleteWorktree(worktreePath);
-              const parentDir = path.dirname(worktreePath);
-              await forceRemove(parentDir);
             }
           },
         );
