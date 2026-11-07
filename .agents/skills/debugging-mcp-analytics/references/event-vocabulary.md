@@ -168,8 +168,8 @@ its own client.
 posthog-python 7.x also relabels the whole client, as `posthog-python-mcp`. posthog-python 8,
 posthog-go v2 and posthog-rs 1.0 label only their MCP events, as `posthog-python-mcp`,
 `posthog-go-mcp` and `posthog-rs-mcp`. In posthog-python 8 that includes the `$exception` the MCP
-pipeline sends for a failed call. In every SDK a `$lib` the app sets on an
-event wins, and capture v1 fills `$lib` from the `PostHog-Sdk-Info` request header only when an
+pipeline sends for a failed call. In each of these SDKs the app can still change `$lib` in `before_send`,
+and capture v1 fills `$lib` from the `PostHog-Sdk-Info` request header only when an
 event has none. So a label can cover app events, and MCP events can arrive under the base `$lib`:
 find MCP traffic by its `$mcp_*` event names or by `$mcp_source = 'posthog_mcp_analytics'`, not
 by `$lib`.
