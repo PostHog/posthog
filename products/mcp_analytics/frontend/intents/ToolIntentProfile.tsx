@@ -51,24 +51,21 @@ function TrendArrow({ trendPp }: { trendPp: number | null }): JSX.Element | null
 
 function TopicRow({ topic, toolName }: { topic: MCPIntentTopicItem; toolName: string }): JSX.Element {
     return (
-        <li className="flex items-center gap-2 text-sm">
-            <div className="min-w-0 flex-1">
-                <LinkPrimitive
-                    to={urls.mcpAnalyticsIntentMap({ tool: toolName, topic: topic.topic_id })}
-                    className="block truncate"
-                >
-                    {topic.label}
-                </LinkPrimitive>
-                <div className="flex items-center gap-2 text-xs text-secondary">
-                    <span>{topic.share_pct.toFixed(1)}%</span>
-                    <TrendArrow trendPp={topic.trend_pp} />
-                </div>
+        <li className="flex flex-col gap-1 text-sm">
+            <LinkPrimitive
+                to={urls.mcpAnalyticsIntentMap({ tool: toolName, topic: topic.topic_id })}
+                className="line-clamp-2 break-words"
+            >
+                {topic.label}
+            </LinkPrimitive>
+            <div className="flex items-center gap-2 text-xs text-secondary">
+                <span className="shrink-0">{topic.share_pct.toFixed(1)}%</span>
+                <TrendArrow trendPp={topic.trend_pp} />
+                {topic.sparkline?.length ? (
+                    // The sparkline sizes itself by bucket count; w-full keeps it inside the card.
+                    <Sparkline data={topic.sparkline} type="bar" className="h-5 w-full min-w-0 flex-1" name="calls" />
+                ) : null}
             </div>
-            {topic.sparkline?.length ? (
-                <div className="w-24 shrink-0">
-                    <Sparkline data={topic.sparkline} type="bar" className="h-6" name="calls" />
-                </div>
-            ) : null}
         </li>
     )
 }
@@ -93,8 +90,9 @@ function DriftGroup({
                     <LinkPrimitive
                         key={ref.topic_id}
                         to={urls.mcpAnalyticsIntentMap({ tool: toolName, topic: ref.topic_id })}
+                        className="max-w-full"
                     >
-                        <LemonTag>
+                        <LemonTag className="h-auto max-w-full whitespace-normal">
                             {ref.label} · {ref.share_pct.toFixed(0)}%
                             {ref.previous_share_pct !== null ? ` (was ${ref.previous_share_pct.toFixed(0)}%)` : ''}
                         </LemonTag>
