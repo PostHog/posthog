@@ -796,6 +796,10 @@ export interface _MetricErrorSpikesResponseApi {
 export interface _HasMetricsResponseApi {
     /** Whether the team has ingested any metrics. */
     hasMetrics: boolean
+    /** Whether the team sent spans or logs in the last day, so series could be derived from them. */
+    hasDerivedSources: boolean
+    /** Whether series derived from the team's spans and logs are available to chart. */
+    hasDerivedMetrics: boolean
 }
 
 export interface _MetricPickerNameApi {
