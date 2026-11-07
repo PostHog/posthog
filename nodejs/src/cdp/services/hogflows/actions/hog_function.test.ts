@@ -31,7 +31,7 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../me
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { EmailService } from '../../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
-import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import { PREFERENCES_UNAVAILABLE, RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
@@ -583,6 +583,129 @@ describe('HogFunctionHandler', () => {
             }
         }
     )
+
+    it('should hold a marketing send while the preferences are unavailable, then fail without sending', async () => {
+        const start = 1_800_000_000_000
+        const originalNow = Settings.now
+        jest.spyOn(Math, 'random').mockReturnValue(0)
+        const shouldSkipAction = mockRecipientPreferencesService.shouldSkipAction as jest.Mock
+        try {
+            Settings.now = () => start
+            shouldSkipAction.mockResolvedValueOnce(PREFERENCES_UNAVAILABLE)
+            const held = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const heldResult = await hogFunctionHandler.execute({ invocation, action, result: held })
+
+            expect(heldResult).toEqual({ scheduledAt: DateTime.fromMillis(start + 5 * 60 * 1000) })
+            expect(held.invocation.state.currentAction?.preferencesHoldDeadlineAt).toBe(
+                DateTime.fromMillis(start + hour).toISO()
+            )
+            expect(held.logs[0].message).toContain('Holding send until')
+
+            Settings.now = () => start + hour
+            shouldSkipAction.mockResolvedValueOnce(PREFERENCES_UNAVAILABLE)
+            const woken = createInvocationResult<CyclotronJobInvocationHogFlow>(held.invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const wokenResult = await hogFunctionHandler.execute({
+                invocation: held.invocation,
+                action,
+                result: woken,
+            })
+
+            expect(String(wokenResult.error)).toContain('Message not sent')
+            expect(woken.metrics).toEqual([])
+            expect(mockFetch).not.toHaveBeenCalled()
+        } finally {
+            Settings.now = originalNow
+        }
+    })
+
+    it('should send when the preferences recover during the hold', async () => {
+        const shouldSkipAction = mockRecipientPreferencesService.shouldSkipAction as jest.Mock
+        shouldSkipAction.mockResolvedValueOnce(PREFERENCES_UNAVAILABLE)
+        const held = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        await hogFunctionHandler.execute({ invocation, action, result: held })
+        expect(mockFetch).not.toHaveBeenCalled()
+
+        shouldSkipAction.mockResolvedValueOnce(null)
+        const woken = createInvocationResult<CyclotronJobInvocationHogFlow>(held.invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        await hogFunctionHandler.execute({ invocation: held.invocation, action, result: woken })
+
+        expect(mockFetch).toHaveBeenCalled()
+    })
+
+    it('should fail a test run without holding it or offering a rerun while the preferences are unavailable', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(PREFERENCES_UNAVAILABLE)
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({
+            invocation,
+            action: { ...action, on_error: 'abort' },
+            result: invocationResult,
+            hogExecutorOptions: { isTest: true },
+        })
+
+        expect(String(handlerResult.error)).toContain('Message not sent')
+        expect(String(handlerResult.error)).not.toContain('rerun')
+        expect(handlerResult.scheduledAt).toBeUndefined()
+    })
+
+    it.each([
+        ['abort', true],
+        ['continue', false],
+    ] as const)(
+        'should offer a rerun after giving up only where one sends: on_error %s',
+        async (onError, offersRerun) => {
+            ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(
+                PREFERENCES_UNAVAILABLE
+            )
+            invocation.state.currentAction!.preferencesHoldDeadlineAt = DateTime.now().minus({ minutes: 1 }).toISO()!
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const handlerResult = await hogFunctionHandler.execute({
+                invocation,
+                action: { ...action, on_error: onError },
+                result: invocationResult,
+            })
+
+            expect(String(handlerResult.error).includes('rerun')).toBe(offersRerun)
+        }
+    )
+
+    it('should not hold a send that resumes on the email queue while the preferences are unavailable', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(PREFERENCES_UNAVAILABLE)
+        invocation.state.currentAction!.hogFunctionState = {
+            globals: { ...createExampleHogFlowInvocation(invocation.hogFlow).state.event, inputs: {} } as any,
+            timings: [],
+            attempts: 0,
+        } as any
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'email',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(invocationResult.invocation.state.currentAction?.preferencesHoldDeadlineAt).toBeUndefined()
+    })
 
     it('should skip at once when the next slot frees after the hold would end', async () => {
         ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
