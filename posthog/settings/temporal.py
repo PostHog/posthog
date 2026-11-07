@@ -481,6 +481,15 @@ if ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform metrics check starts"
     )
+# The platform's traces batches allowed to run at once, across every team. A batch runs its
+# `trace_spans` queries one after another, so this bounds the concurrent traces alert queries.
+ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES: int = get_from_env(
+    "ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES", 5, type_cast=int
+)
+if ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform traces check starts"
+    )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
 if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
