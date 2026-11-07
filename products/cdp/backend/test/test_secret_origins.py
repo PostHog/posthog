@@ -530,6 +530,13 @@ class TestSecretHosts(SimpleTestCase):
                 {"token": UNBOUND},
             ),
             (
+                "secret_inside_a_date_input_compared_by_range",
+                "if (inputs.when between 1 and 2) { print('soon') }\nfetch('https://api.example.com', {'body': inputs.token})",
+                _inputs(when={"__hogDate__": True, "year": "{inputs.token}", "month": 1, "day": 1}, token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
                 "secret_compared_inside_a_date_built_in_code",
                 "let d := {'__hogDate__': true, 'year': inputs.token, 'month': 1, 'day': 1}\nlet same := d == 'x'",
                 _inputs(token="t"),
@@ -616,6 +623,14 @@ class TestSecretHosts(SimpleTestCase):
                 SENDS_TOKEN_TO_URL,
                 {},
                 lambda: patch("products.cdp.backend.secret_origins._MAX_EVALUATIONS", 1),
+            ),
+            (
+                "budget",
+                "let a0 := 'x'\n"
+                + "".join(f"let a{n} := coalesce(a{n - 1}, a{n - 1})\n" for n in range(1, 31))
+                + f"let same := a30 == 1\n{SENDS_TOKEN_TO_URL}",
+                {},
+                nullcontext,
             ),
             ("unparseable", "fetch(inputs.url, {", {}, nullcontext),
             (

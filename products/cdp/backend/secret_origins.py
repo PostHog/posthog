@@ -76,6 +76,7 @@ _INTERPRETED_NAMES = (
 _SAFE_CALLS = _VALUE_CALLS | _PURE_CALLS | _DIGEST_CALLS
 _SCALAR_CALLS = (_PURE_CALLS - {"arrayPushBack"}) | _DIGEST_CALLS | {"concat"}
 _FRESH_CONTAINERS = (ast.Dict, ast.Array, ast.Tuple)
+_COMPARISONS = (ast.CompareOperation, ast.BetweenExpr)
 # A regex the worker cannot compile fails with the pattern in the error.
 _REGEX_OPS = frozenset(
     {
@@ -272,8 +273,9 @@ class _Analysis:
         self.functions: dict[str, list[str]] = {}
         self.returns: list[tuple[str, ast.Expr]] = []
         self.calls: list[ast.Call] = []
-        self.comparisons: list[ast.CompareOperation] = []
-        self.non_scalar_names: set[str] = set()
+        self.comparisons: list[ast.CompareOperation | ast.BetweenExpr] = []
+        # Declared names whose every value comes from their own assignments.
+        self.assigned_only: set[str] = set()
         self.field_heads: set[str] = set()
         self.lambda_feeds: dict[int, list[ast.Expr]] = {}
         # Lambdas a declaration binds to a name, and the parameters of each with that name.
@@ -308,7 +310,7 @@ class _Analysis:
         self.lambdas_only = self._lambda_only_names() - bound_elsewhere - set(self.functions)
         self.exits += [expr for base, _, expr in self.member_assignments if base not in local]
         self.exits += [expr for name, expr in self.assignments if name not in local]
-        self.non_scalar_names = bound_elsewhere | {base for base, _, _ in self.member_assignments}
+        self.assigned_only = self.declarations - bound_elsewhere - {base for base, _, _ in self.member_assignments}
         self.exits += self._compared_exits(self.comparisons)
         quiet = {"fetch", *_SAFE_CALLS, *self.functions, *self.lambdas_only}
         self.exits += [
@@ -390,22 +392,26 @@ class _Analysis:
         self.exits += [
             arg for node in nodes if isinstance(node, ast.Call) and node.name not in _SAFE_CALLS for arg in node.args
         ]
-        self.exits += self._compared_exits(node for node in nodes if isinstance(node, ast.CompareOperation))
+        self.exits += self._compared_exits(node for node in nodes if isinstance(node, _COMPARISONS))
         return self._value(expr), self._taint(expr)
 
-    def _compared_exits(self, comparisons: Iterable[ast.CompareOperation]) -> list[ast.Expr]:
+    def _compared_exits(self, comparisons: Iterable[ast.CompareOperation | ast.BetweenExpr]) -> list[ast.Expr]:
         """The worker reads an object shaped like a date as a date when it compares it, and its date
         library quotes an invalid field in the error. A regex it cannot compile is quoted the same way."""
-        return [
-            side
-            for node in comparisons
-            for side in (node.left, node.right)
-            if node.op in _REGEX_OPS or not self._scalar(side, frozenset())
-        ]
+        exits: list[ast.Expr] = []
+        for node in comparisons:
+            if isinstance(node, ast.BetweenExpr):
+                exits += [side for side in (node.expr, node.low, node.high) if not self._scalar(side, frozenset())]
+            elif node.op in _REGEX_OPS:
+                exits += [node.left, node.right]
+            else:
+                exits += [side for side in (node.left, node.right) if not self._scalar(side, frozenset())]
+        return exits
 
     def _scalar(self, node: ast.Expr, seen: frozenset[str]) -> bool:
         """Whether `node` can only be a string, number, boolean or null. `seen` holds the names and
         inputs being resolved, which a cycle cannot make anything else."""
+        self._spend_evaluation()
         if isinstance(node, ast.Constant | ast.CompareOperation | ast.And | ast.Or | ast.Not):
             return True
         if isinstance(node, ast.Call) and node.name in ("coalesce", "ifNull"):
@@ -422,7 +428,7 @@ class _Analysis:
         name = str(node.chain[0])
         if name in seen:
             return True
-        if name in self.non_scalar_names or name not in self.declarations | {n for n, _ in self.assignments}:
+        if name not in self.assigned_only:
             return False
         return all(self._scalar(expr, seen | {name}) for assigned, expr in self.assignments if assigned == name)
 
@@ -485,7 +491,7 @@ class _Analysis:
             self.fed_names += [(name, None) for name, _, _ in node.catches if name]
         elif isinstance(node, ast.ThrowStatement):
             self.exits.append(node.expr)
-        elif isinstance(node, ast.CompareOperation):
+        elif isinstance(node, _COMPARISONS):
             self.comparisons.append(node)
         elif isinstance(node, ast.ExprCall):
             self.exits += node.args
