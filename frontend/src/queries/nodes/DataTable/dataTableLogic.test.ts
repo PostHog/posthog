@@ -122,6 +122,15 @@ describe('dataTableLogic', () => {
         dataTableLogic({
             dataKey: testUniqueKey,
             vizKey: testUniqueKey,
+            query: getDataTableQuery({ select: ['timestamp', 'count()'] }),
+        })
+
+        await expectLogic(logic).delay(0).toMatchValues({ orderBy: null })
+
+        // change props
+        dataTableLogic({
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: {
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -159,7 +168,11 @@ describe('dataTableLogic', () => {
         })
     })
 
-    it('adds category rows for default live events table', async () => {
+    it.each([
+        { case: 'default sort', sort: {} },
+        { case: 'unset sort saved by the column configurator', sort: { orderBy: undefined } },
+        { case: 'Sort descending on the time column', sort: { orderBy: ['timestamp\n DESC'] } },
+    ])('adds category rows for the events table with $case', async ({ sort }) => {
         const commonResult = {
             uuid: '01853a90-ba94-0000-8776-e8df5617c3ec',
             event: 'update user properties',
@@ -212,6 +225,7 @@ describe('dataTableLogic', () => {
                 source: {
                     kind: NodeKind.EventsQuery,
                     select: ['*', 'event', 'timestamp'],
+                    ...sort,
                 },
             },
         })
