@@ -1,5 +1,6 @@
 import json
 import base64
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -119,7 +120,7 @@ class TestMailgunImport(BaseTest):
         assert rows["both@example.com"].hard_bounced_at is not None
         assert rows["angry@example.com"].hard_bounced_at is None
         assert rows["josé@example.com"].last_bounce_diagnostic == "551 Boîte inconnue 📭"
-        assert rows["gone.person@example.com"].suppressed_at.year == 2025
+        assert rows["gone.person@example.com"].suppressed_at == datetime(2025, 12, 11, 1, 49, 40, tzinfo=UTC)
         assert run.progress["bounces"]["counts"] == {"bounced": 5, "already_present": 1, "invalid": 1}
         assert run.progress["complaints"]["counts"] == {"complained": 1, "already_present": 1, "invalid": 0}
 
