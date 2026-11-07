@@ -514,11 +514,11 @@ export interface AEOPromptSetOverviewApi {
 export interface AEORankedBrandApi {
     /** Registrable domain of the brand, for example 'example.com'. */
     domain: string
-    /** The word an answer must contain to count as naming the brand. */
+    /** The word an answer must contain to count as naming the brand. For the project's own brand, a comma-separated list where any name counts. */
     name: string
     /** Whether this is the project's own brand. The others are competitors. */
     is_target: boolean
-    /** Answered checks in the current window that named the brand. */
+    /** Answered checks in the current window that named the brand or cited its domain: the numerator of 'visibility'. */
     answers_mentioning: number
     /**
      * Share (0-1) of answered checks in the current window that named the brand or cited its domain. Null without answers.
@@ -545,7 +545,7 @@ export interface AEORankedBrandDayApi {
     /** Answered checks that day. */
     answers: number
     /**
-     * Share (0-1) of that day's answers that named the brand.
+     * Share (0-1) of that day's answers that named the brand or cited its domain.
      * @nullable
      */
     visibility: number | null
@@ -578,7 +578,7 @@ export interface AEORankedPageApi {
 }
 
 export interface AEOPromptSetRankingsApi {
-    /** The project's brand and up to 10 competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out review sites, forums and social networks. */
+    /** The project's brand and up to 10 competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks. A competitor counts as named when its domain's name appears as a word, so a common-word name can over-count. */
     brands: AEORankedBrandApi[]
     /** Visibility per brand and day in the current window, ordered by day then domain. */
     daily: AEORankedBrandDayApi[]
