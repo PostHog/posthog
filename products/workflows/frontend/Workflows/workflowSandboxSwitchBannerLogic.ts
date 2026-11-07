@@ -3,6 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
@@ -17,6 +18,10 @@ import { type WorkflowDraftAction, WorkflowLogicProps, workflowLogic, workflowLo
 
 const usesSender = (step: EmailAction, senderId: number): boolean =>
     selectedSenderIds(step.config.inputs?.email?.value?.from).includes(senderId)
+
+// pinned: localStorage key, renaming shows dismissed banners again
+export const sandboxSwitchDismissKey = (workflowId: string | undefined): string =>
+    `workflow-sandbox-switch-${workflowId}`
 
 const draftActionReason: Record<WorkflowDraftAction, string> = {
     publish: 'Publishing is in progress',
@@ -41,6 +46,7 @@ const withSender = (step: EmailAction, integrationId: number): EmailAction => {
 export interface workflowSandboxSwitchBannerLogicValues {
     ownEmailIntegrations: IntegrationType[] // integrationsLogic
     sandboxEmailSender: IntegrationType | null // integrationsLogic
+    isDismissed: boolean // lemonBannerLogic
     autoSaveBlockedByValidation: boolean // workflowLogic
     autoSaveEnabled: boolean // workflowLogic
     draftActionPending: WorkflowDraftAction | null // workflowLogic
@@ -79,7 +85,11 @@ export interface workflowSandboxSwitchBannerLogicMeta {
         ) => string | null
         verifiedOwnSenders: (ownEmailIntegrations: IntegrationType[]) => IntegrationType[]
         sandboxEmailSteps: (workflow: HogFlow, sandboxEmailSender: IntegrationType | null) => EmailAction[]
-        bannerVisible: (sandboxEmailSteps: EmailAction[], verifiedOwnSenders: IntegrationType[]) => boolean
+        bannerVisible: (
+            sandboxEmailSteps: EmailAction[],
+            verifiedOwnSenders: IntegrationType[],
+            isDismissed: boolean
+        ) => boolean
     }
 }
 
@@ -96,6 +106,8 @@ export const workflowSandboxSwitchBannerLogic = kea<workflowSandboxSwitchBannerL
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowSandboxSwitchBannerLogic', key]),
     connect((props: WorkflowLogicProps) => ({
         values: [
+            lemonBannerLogic({ dismissKey: sandboxSwitchDismissKey(props.id) }),
+            ['isDismissed'],
             workflowLogic(props),
             [
                 'workflow',
@@ -144,9 +156,9 @@ export const workflowSandboxSwitchBannerLogic = kea<workflowSandboxSwitchBannerL
                     : [],
         ],
         bannerVisible: [
-            (s) => [s.sandboxEmailSteps, s.verifiedOwnSenders],
-            (sandboxEmailSteps: EmailAction[], verifiedOwnSenders: IntegrationType[]): boolean =>
-                sandboxEmailSteps.length > 0 && verifiedOwnSenders.length > 0,
+            (s) => [s.sandboxEmailSteps, s.verifiedOwnSenders, s.isDismissed],
+            (sandboxEmailSteps: EmailAction[], verifiedOwnSenders: IntegrationType[], isDismissed: boolean): boolean =>
+                !isDismissed && sandboxEmailSteps.length > 0 && verifiedOwnSenders.length > 0,
         ],
     }),
     listeners(({ actions, values }) => ({
