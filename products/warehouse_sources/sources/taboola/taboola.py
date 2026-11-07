@@ -11,6 +11,7 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    capture_exception,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -26,6 +27,16 @@ from products.warehouse_sources.sources.taboola.settings import (
 REQUEST_TIMEOUT_SECONDS = 120
 # Rate limits are plan/endpoint dependent and poorly documented; back off on 429.
 MAX_RETRY_ATTEMPTS = 5
+
+REJECTED_CREDENTIALS_MESSAGE = (
+    "Taboola rejected your client ID and client secret. Check that you copied both correctly, then try again."
+)
+UNREACHABLE_MESSAGE = (
+    "Couldn't reach Taboola to validate your credentials. This is usually temporary, so try again in a few minutes."
+)
+UNEXPECTED_VALIDATION_MESSAGE = (
+    "Couldn't validate your Taboola credentials. Try again, and if it keeps happening, contact support."
+)
 
 
 class TaboolaRetryableError(Exception):
@@ -83,13 +94,21 @@ def _to_date(value: Any) -> Optional[date]:
     return None
 
 
-def validate_credentials(client_id: str, client_secret: str) -> bool:
-    """Confirm the credentials are valid by minting a token."""
+def validate_credentials(client_id: str, client_secret: str) -> tuple[bool, str | None]:
+    """Confirm the credentials are valid by minting a token, with a customer-facing message on failure."""
     try:
         _mint_token(_get_session(client_secret), client_id, client_secret)
-        return True
-    except Exception:
-        return False
+        return True, None
+    except requests.HTTPError as e:
+        # `_mint_token` turns 429 and 5xx into TaboolaRetryableError, so any HTTPError here is a 4xx rejection.
+        if e.response is not None and e.response.status_code < 500:
+            return False, REJECTED_CREDENTIALS_MESSAGE
+        return False, UNREACHABLE_MESSAGE
+    except (TaboolaRetryableError, requests.ConnectionError, requests.Timeout):
+        return False, UNREACHABLE_MESSAGE
+    except Exception as e:
+        capture_exception(e)
+        return False, UNEXPECTED_VALIDATION_MESSAGE
 
 
 def get_rows(

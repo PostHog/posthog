@@ -126,10 +126,7 @@ Backstage API credentials (client ID and secret) are issued by your Taboola acco
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_taboola_credentials(config.client_id, config.client_secret):
-            return True, None
-
-        return False, "Invalid Taboola credentials"
+        return validate_taboola_credentials(config.client_id, config.client_secret)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TaboolaResumeConfig]:
         return ResumableSourceManager[TaboolaResumeConfig](inputs, TaboolaResumeConfig)

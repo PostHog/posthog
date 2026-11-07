@@ -15,19 +15,15 @@ class TestTaboolaSource:
         assert self.source.connection_host_fields == ["account_id"]
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid",
+        "mock_return",
         [
-            (True, True),
-            (False, False),
+            (True, None),
+            (False, "Some message"),
         ],
     )
     @mock.patch("products.warehouse_sources.sources.taboola.source.validate_taboola_credentials")
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid):
+    def test_validate_credentials_passes_result_through(self, mock_validate, mock_return):
         mock_validate.return_value = mock_return
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected_valid
-        if not expected_valid:
-            assert error_message == "Invalid Taboola credentials"
+        assert self.source.validate_credentials(self.config, self.team_id) == mock_return
         mock_validate.assert_called_once_with("cid", "sec")

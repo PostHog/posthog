@@ -3,6 +3,9 @@ from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qs
 
 import pytest
+from unittest import mock
+
+import requests
 
 from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
@@ -15,7 +18,14 @@ from products.warehouse_sources.sources.sdk.testing import (
 from products.warehouse_sources.sources.taboola._config import TaboolaSourceConfig
 from products.warehouse_sources.sources.taboola.settings import ENDPOINTS, REPORT_LOOKBACK_DAYS, TABOOLA_ENDPOINTS
 from products.warehouse_sources.sources.taboola.source import TaboolaSource
-from products.warehouse_sources.sources.taboola.taboola import TaboolaResumeConfig, _to_date, validate_credentials
+from products.warehouse_sources.sources.taboola.taboola import (
+    REJECTED_CREDENTIALS_MESSAGE,
+    UNEXPECTED_VALIDATION_MESSAGE,
+    UNREACHABLE_MESSAGE,
+    TaboolaResumeConfig,
+    _to_date,
+    validate_credentials,
+)
 
 _TOKEN_PATH = "/backstage/oauth/token"
 
@@ -75,13 +85,63 @@ class TestToDate:
 class TestValidateCredentials:
     def test_valid_credentials_mint_a_token(self):
         with scripted_network(always(_token_response())) as network:
-            assert validate_credentials("cid", "sec") is True
+            assert validate_credentials("cid", "sec") == (True, None)
 
         assert parse_qs((network.requests_log[0].body or b"").decode()) == {
             "client_id": ["cid"],
             "client_secret": ["sec"],
             "grant_type": ["client_credentials"],
         }
+
+    @pytest.mark.parametrize(
+        "response, expected_message, expect_capture",
+        [
+            pytest.param(ScriptedResponse(status=400, json={}), REJECTED_CREDENTIALS_MESSAGE, False, id="400"),
+            pytest.param(ScriptedResponse(status=401, json={}), REJECTED_CREDENTIALS_MESSAGE, False, id="401"),
+            pytest.param(ScriptedResponse(status=403, json={}), REJECTED_CREDENTIALS_MESSAGE, False, id="403"),
+            pytest.param(ScriptedResponse(status=429, json={}), UNREACHABLE_MESSAGE, False, id="429"),
+            pytest.param(ScriptedResponse(status=500, json={}), UNREACHABLE_MESSAGE, False, id="500"),
+            pytest.param(ScriptedResponse(status=503, json={}), UNREACHABLE_MESSAGE, False, id="503"),
+            pytest.param(
+                ScriptedResponse(json={"token_type": "bearer"}), UNEXPECTED_VALIDATION_MESSAGE, True, id="no-token"
+            ),
+        ],
+    )
+    def test_failure_messages_by_response(self, response, expected_message, expect_capture):
+        with (
+            scripted_network(always(response)),
+            mock.patch("products.warehouse_sources.sources.taboola.taboola.capture_exception") as capture,
+        ):
+            assert validate_credentials("cid", "sec") == (False, expected_message)
+
+        assert capture.called is expect_capture
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pytest.param(requests.ConnectionError("boom"), id="connection-error"),
+            pytest.param(requests.ReadTimeout("slow"), id="read-timeout"),
+            pytest.param(requests.ConnectTimeout("slow"), id="connect-timeout"),
+        ],
+    )
+    def test_transport_errors_are_reported_as_unreachable(self, error):
+        with (
+            mock.patch("products.warehouse_sources.sources.taboola.taboola._mint_token", side_effect=error),
+            mock.patch("products.warehouse_sources.sources.taboola.taboola.capture_exception") as capture,
+        ):
+            assert validate_credentials("cid", "sec") == (False, UNREACHABLE_MESSAGE)
+
+        capture.assert_not_called()
+
+    def test_unexpected_error_is_captured(self):
+        error = ValueError("unexpected")
+        with (
+            mock.patch("products.warehouse_sources.sources.taboola.taboola._mint_token", side_effect=error),
+            mock.patch("products.warehouse_sources.sources.taboola.taboola.capture_exception") as capture,
+        ):
+            assert validate_credentials("cid", "sec") == (False, UNEXPECTED_VALIDATION_MESSAGE)
+
+        capture.assert_called_once_with(error)
 
 
 class TestEntityEndpoints:
