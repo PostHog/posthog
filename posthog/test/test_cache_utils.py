@@ -1,17 +1,22 @@
-from datetime import timedelta
-from time import sleep
+import threading
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
+import time_machine
 from unittest.mock import Mock
 
 from django.test import SimpleTestCase
 
 from posthog.cache_utils import cache_for
+from posthog.test.waiting import wait_until
 
 mocked_dependency = Mock()
 mocked_dependency.return_value = 1
 
 order_of_events = Mock(side_effect=lambda x: print(x))  # noqa T201
+
+refresh_started = threading.Event()
+refresh_released = threading.Event()
 
 
 @cache_for(timedelta(seconds=1))
@@ -20,11 +25,12 @@ def fn(number: Optional[int] = None) -> int:
 
 
 @cache_for(timedelta(milliseconds=200), background_refresh=True)
-def fn_background(number: float) -> int:
+def fn_background() -> int:
     order_of_events("Background task started")
+    refresh_started.set()
     value = mocked_dependency()
     mocked_dependency.return_value += 1
-    sleep(number)
+    refresh_released.wait(timeout=5)
 
     order_of_events("Background task finished")
     return value
@@ -53,35 +59,41 @@ class TestCacheUtils(SimpleTestCase):
         assert mocked_dependency.call_count == 2
 
     def test_background_cache_refresh(self) -> None:
-        # First call is not cached and as such takes some time
         assert mocked_dependency.call_count == 0
+        refresh_released.set()
 
-        order_of_events("Inital call 1")
-        assert 1 == fn_background(1, use_cache=True)
-        assert mocked_dependency.call_count == 1
+        with time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False) as traveller:
+            order_of_events("Inital call 1")
+            assert 1 == fn_background(use_cache=True)
+            assert mocked_dependency.call_count == 1
 
-        order_of_events("Inital call 2")
-        assert 1 == fn_background(1, use_cache=True)
-        assert mocked_dependency.call_count == 1
+            order_of_events("Inital call 2")
+            assert 1 == fn_background(use_cache=True)
+            assert mocked_dependency.call_count == 1
 
-        order_of_events("Inital call 3")
-        assert 1 == fn_background(1, use_cache=True)
-        assert mocked_dependency.call_count == 1
+            order_of_events("Inital call 3")
+            assert 1 == fn_background(use_cache=True)
+            assert mocked_dependency.call_count == 1
 
-        # Let the cache timer expire so we trigger a background refresh
-        sleep(0.3)
-        assert mocked_dependency.call_count == 1  # but we know the cache is being refreshed
-        order_of_events("Expired call 1")
-        assert 1 == fn_background(1, use_cache=True)  # old return value
+            refresh_started.clear()
+            refresh_released.clear()
+            traveller.shift(timedelta(milliseconds=300))
+            assert mocked_dependency.call_count == 1
+            order_of_events("Expired call 1")
+            assert 1 == fn_background(use_cache=True)
+            assert refresh_started.wait(timeout=5)
 
-        # Let the cache timer expire again...
-        sleep(0.5)
-        order_of_events("Expired call 2")
-        assert 1 == fn_background(1, use_cache=True)  # we still get the old return value
+            traveller.shift(timedelta(milliseconds=500))
+            order_of_events("Expired call 2")
+            assert 1 == fn_background(use_cache=True)
 
-        sleep(0.6)  # Let the refresh complete
-        order_of_events("Post refresh call 1")
-        assert 2 == fn_background(1, use_cache=True)  # We get the new return value
+            refresh_released.set()
+            wait_until(
+                lambda: fn_background(use_cache=True) == 2,
+                message="the background refresh never stored the new value",
+            )
+            order_of_events("Post refresh call 1")
+            assert 2 == fn_background(use_cache=True)
 
         assert [x[0][0] for x in order_of_events.call_args_list] == [
             "Inital call 1",

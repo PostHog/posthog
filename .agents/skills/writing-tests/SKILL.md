@@ -172,8 +172,13 @@ Escalating to the next rung is the last resort, not the default.
     Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
     pending on the next line. Test setup may shorten internal delays without changing
     production behavior.
-- **No `time.sleep` / arbitrary waits.** A sleep is a flake waiting to happen, and it
-  slows every run. Replace it with the matching control above or `time_machine.travel`.
+- **No `time.sleep` in test code.** `[lint: TID251]` CI runs the rule with `--ignore-noqa`, so a `noqa` does nothing; a slow fake gets a path in `per-file-ignores`.
+  Replace the sleep with the control that matches the wait:
+  - `time.time()` or `datetime.now()`: `time_machine.travel(..., tick=False)`, then `traveller.shift(...)`.
+  - `time.monotonic()`: time-machine does not patch it, so give the code a `clock` parameter.
+  - Another thread or process: `threading.Event`, a future, `thread.join()`, or `posthog.test.waiting.wait_until`.
+  - Something that must not happen: `assert not event.wait(timeout=...)`.
+  - Order between two writes: set each timestamp yourself.
 - **An absolute date in a test is a time bomb until you pin the clock.**
   A fixture date keeps its meaning only while the real clock stays where you left it.
   If anything under test measures that date against `now` — an age, a window, a "recent" flag, an expiry — the assertion holds today and fails some weeks later, on every open branch at once.

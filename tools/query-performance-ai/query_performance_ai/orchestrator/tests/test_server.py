@@ -128,22 +128,39 @@ def test_run_returns_502_on_backend_error(server_fixture) -> None:
     assert "syntax" in body["error"]
 
 
+class _ObservedLock:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.contended = threading.Event()
+
+    def __enter__(self) -> None:
+        if self._lock.locked():
+            self.contended.set()
+        self._lock.acquire()
+
+    def __exit__(self, *exc_info: object) -> None:
+        self._lock.release()
+
+
 def test_query_lock_serializes_concurrent_runs(server_fixture) -> None:
     """Multiple sandboxes posting /v1/run at the same time must NOT run
     backend.run() concurrently — the lock is the whole reason this server
     isn't just a thin wrapper."""
-    _server, backend, token, port = server_fixture
+    server, backend, token, port = server_fixture
+    query_lock = _ObservedLock()
+    server._query_lock = query_lock
     enter = threading.Event()
+    overlapped = threading.Event()
     release = threading.Event()
     in_flight = 0
-    max_in_flight = 0
     counter_lock = threading.Lock()
 
     def slow_run(sql: str, *, timeout_s: int) -> ExecutionResult:
-        nonlocal in_flight, max_in_flight
+        nonlocal in_flight
         with counter_lock:
             in_flight += 1
-            max_in_flight = max(max_in_flight, in_flight)
+            if in_flight > 1:
+                overlapped.set()
         enter.set()
         release.wait(timeout=2)
         with counter_lock:
@@ -161,11 +178,8 @@ def test_query_lock_serializes_concurrent_runs(server_fixture) -> None:
     t1.start()
     enter.wait(timeout=2)  # first call is in flight
     t2.start()
-    # Briefly let the second request reach the lock; assert in_flight stays at 1.
-    import time as _time
-
-    _time.sleep(0.1)
-    assert max_in_flight == 1, "the coordinator's lock didn't serialize /v1/run"
+    assert query_lock.contended.wait(timeout=5), "the second /v1/run never waited on the coordinator lock"
+    assert not overlapped.is_set(), "the coordinator's lock didn't serialize /v1/run"
     release.set()
     t1.join(timeout=5)
     t2.join(timeout=5)

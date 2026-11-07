@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import Request
@@ -19,6 +19,7 @@ from llm_gateway.auth.service import (
     extract_token,
     upstream_auth_header,
 )
+from tests.conftest import FakeClock
 
 
 @pytest.fixture(autouse=True)
@@ -38,13 +39,13 @@ def mock_pool() -> MagicMock:
 
 
 @pytest.fixture
-def auth_service() -> AuthService:
+def auth_service(clock: FakeClock) -> AuthService:
     return AuthService(
         authenticators=[
             PersonalApiKeyAuthenticator(),
             OAuthAccessTokenAuthenticator(),
         ],
-        cache=AuthCache(max_size=100, ttl=60),
+        cache=AuthCache(max_size=100, ttl=60, clock=clock),
     )
 
 
@@ -386,7 +387,9 @@ class TestAuthService:
         assert conn.fetchrow.await_count == 3
 
     @pytest.mark.asyncio
-    async def test_oauth_project_scope_denial_is_cached(self, auth_service: AuthService, mock_pool: MagicMock) -> None:
+    async def test_oauth_project_scope_denial_is_cached(
+        self, auth_service: AuthService, mock_pool: MagicMock, clock: FakeClock
+    ) -> None:
         request = MagicMock(spec=Request)
         request.headers = {
             "authorization": "Bearer pha_valid_token",
@@ -418,16 +421,14 @@ class TestAuthService:
             ]
         )
 
-        clock = {"now": 1000.0}
-        with patch("llm_gateway.auth.cache.time.monotonic", side_effect=lambda: clock["now"]):
-            with pytest.raises(UnauthorizedProjectScopeError):
-                await auth_service.authenticate_request(request, mock_pool)
-            with pytest.raises(UnauthorizedProjectScopeError):
-                await auth_service.authenticate_request(request, mock_pool)
-            assert conn.fetchrow.await_count == 2
+        with pytest.raises(UnauthorizedProjectScopeError):
+            await auth_service.authenticate_request(request, mock_pool)
+        with pytest.raises(UnauthorizedProjectScopeError):
+            await auth_service.authenticate_request(request, mock_pool)
+        assert conn.fetchrow.await_count == 2
 
-            clock["now"] += PROJECT_SCOPE_DENIAL_TTL_SECONDS + 1
-            granted = await auth_service.authenticate_request(request, mock_pool)
+        clock.advance(PROJECT_SCOPE_DENIAL_TTL_SECONDS + 1)
+        granted = await auth_service.authenticate_request(request, mock_pool)
 
         assert granted is not None
         assert granted.team_id == 999

@@ -1,10 +1,13 @@
-import time
 import asyncio
 import threading
 import contextvars
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import (
+    async_iterate as async_iterate_module,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import (
     async_iterate,
     run_in_source_executor,
@@ -64,20 +67,39 @@ async def test_async_iterate_context_mutation_persists_across_iterations():
     assert _probe.get() == "outer"
 
 
+class _JobTrackingExecutor(ThreadPoolExecutor):
+    def __init__(self) -> None:
+        super().__init__(max_workers=2)
+        self._started_jobs = 0
+        self.second_job_started = threading.Event()
+
+    def submit(self, fn, /, *args, **kwargs):
+        def job():
+            self._started_jobs += 1
+            if self._started_jobs == 2:
+                self.second_job_started.set()
+            return fn(*args, **kwargs)
+
+        return super().submit(job)
+
+
 @pytest.mark.asyncio
-async def test_async_iterate_close_runs_when_cancelled_mid_iteration():
+async def test_async_iterate_close_runs_when_cancelled_mid_iteration(monkeypatch: pytest.MonkeyPatch):
     # Regression: reusing the iteration ctx for the finally-block _close
     # caused RuntimeError on cancellation (ctx still entered by the
     # in-flight _next), which skipped iterator.close() and leaked DB /
     # network resources. Using a fresh cleanup_ctx prevents that.
     closed_flag = threading.Event()
+    next_entered = threading.Event()
+    next_released = threading.Event()
 
     class SlowIterator:
         def __iter__(self):
             return self
 
         def __next__(self):
-            time.sleep(0.5)  # blocks long enough for cancellation to fire
+            next_entered.set()
+            next_released.wait(timeout=3.0)
             return 1
 
         def close(self):
@@ -87,11 +109,17 @@ async def test_async_iterate_close_runs_when_cancelled_mid_iteration():
         async for _ in async_iterate(SlowIterator()):
             pass
 
+    executor = _JobTrackingExecutor()
+    monkeypatch.setattr(async_iterate_module, "_SOURCE_ITERATOR_EXECUTOR", executor)
+
     task = asyncio.create_task(consume())
-    await asyncio.sleep(0.05)  # let the first _next actually enter ctx.run
+    assert await asyncio.to_thread(next_entered.wait, 3.0), "the first next() never started"
     task.cancel()
+    assert await asyncio.to_thread(executor.second_job_started.wait, 3.0), "the cleanup never started"
+    next_released.set()
     with pytest.raises(asyncio.CancelledError):
         await task
+    executor.shutdown()
 
     # close() must have run despite cancellation mid-iteration.
     assert closed_flag.wait(timeout=3.0), "iterator.close() was not called"

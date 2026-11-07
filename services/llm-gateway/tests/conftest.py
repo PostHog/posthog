@@ -29,6 +29,22 @@ def _reset_request_context() -> Generator[None]:
     request_context_var.reset(token)
 
 
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture
+def clock() -> FakeClock:
+    return FakeClock()
+
+
 def _make_fake_quota_resolver() -> AsyncMock:
     resolver = AsyncMock()
     resolver.get_resource_status = AsyncMock(return_value=QuotaResourceStatus(limited=False))
