@@ -37,9 +37,10 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.cdp.backend.facade.models import HogFunction
-from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.product_analytics.backend.facade.models import Insight
 
@@ -140,6 +141,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             "insight": mock.ANY,
             "insight_display_name": mock.ANY,
             "llm_detector_available": None,
+            "pagerduty_available": False,
             "insight_short_id": mock.ANY,
             "last_notified_at": None,
             "name": "alert name",
@@ -2539,6 +2541,13 @@ class TestAlertAPIKeyAccess(TrendsInsightAPITest):
                 status.HTTP_403_FORBIDDEN,
                 "alert:write",
             ),
+            (
+                ["alert:write"],
+                "post",
+                "/{alert_id}/destinations/pagerduty/",
+                status.HTTP_403_FORBIDDEN,
+                "hog_function:write",
+            ),
         ]
     )
     def test_alert_api_key_access(self, scopes, http_method, endpoint_suffix, expected_status, error_scope):
@@ -2978,6 +2987,61 @@ class TestAlertDestinations(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert self._active_destination_count() == MAX_DESTINATIONS_PER_ALERT
+
+    @parameterized.expand(
+        [
+            ("platform_owned", PlatformAlertOwner.PLATFORM, status.HTTP_201_CREATED),
+            ("insight_stack_owned", PlatformAlertOwner.SOURCE, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_only_a_platform_owned_alert_takes_a_pagerduty_destination(
+        self, _name: str, owner: PlatformAlertOwner, expected_status: int
+    ) -> None:
+        sync_template_to_db(template_pagerduty)
+        AlertConfiguration.objects.filter(id=self.alert.id).update(owner=owner)
+
+        alert = self.client.get(f"/api/projects/{self.team.id}/alerts/{self.alert.id}/").json()
+        response = self.client.post(
+            f"{self.url}pagerduty/", {"pagerduty_routing_key": "a" * 32, "pagerduty_severity": "error"}, format="json"
+        )
+
+        assert alert["pagerduty_available"] is (expected_status == status.HTTP_201_CREATED)
+        assert response.status_code == expected_status, response.json()
+        functions = HogFunction.objects.filter(team=self.team, template_id="template-pagerduty", deleted=False)
+        if expected_status != status.HTTP_201_CREATED:
+            assert not functions.exists()
+            return
+        assert sorted(
+            ((function.filters or {})["events"][0]["id"], (function.inputs or {})["event_action"]["value"])
+            for function in functions
+        ) == [("$insight_alert_incident_closed", "resolve"), ("$insight_alert_incident_opened", "trigger")]
+
+    @parameterized.expand(
+        [
+            ("cutover_begun", True, AlertCalculationInterval.DAILY, False, True),
+            ("cutover_not_begun", False, AlertCalculationInterval.DAILY, False, False),
+            ("real_time", True, AlertCalculationInterval.REAL_TIME, False, True),
+            ("investigation_agent", True, AlertCalculationInterval.DAILY, True, True),
+        ]
+    )
+    def test_a_new_alert_can_take_pagerduty_when_the_platform_would_own_it(
+        self,
+        _name: str,
+        cutover_begun: bool,
+        interval: AlertCalculationInterval,
+        investigation_agent_enabled: bool,
+        expected: bool,
+    ) -> None:
+        if cutover_begun:
+            AlertConfiguration.objects.filter(id=self.alert.id).update(owner=PlatformAlertOwner.PLATFORM)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/alerts/pagerduty_availability/",
+            {"calculation_interval": interval.value, "investigation_agent_enabled": investigation_agent_enabled},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"available": expected}
 
 
 def _is_actions_block(block: Any) -> bool:

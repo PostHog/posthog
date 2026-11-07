@@ -764,6 +764,9 @@ export const TAILWIND_BREAKPOINTS = {
 export const INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID = 'insight-alert-firing'
 export const INSIGHT_ALERT_DESTINATION_LOGIC_KEY = 'insightAlertDestination'
 export const INSIGHT_ALERT_FIRING_EVENT_ID = '$insight_alert_firing'
+// Only the alerts platform sends these, so an insight alert's PagerDuty destination pages only while the platform owns the alert.
+export const INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID = '$insight_alert_incident_opened'
+export const INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID = '$insight_alert_incident_closed'
 
 export const LOGS_ALERT_FIRING_SUB_TEMPLATE_ID = 'logs-alert-firing'
 export const LOGS_ALERT_FIRING_EVENT_ID = '$logs_alert_firing'
