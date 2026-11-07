@@ -37,6 +37,7 @@ import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
 import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
 import { CodeManagedSource } from './CodeManagedSource'
 import { CodeManagedTag } from './CodeManagedTag'
+import { EditWithAgentButton } from './EditWithAgentButton'
 import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateMenu } from './MessageTemplateMenu'
@@ -44,6 +45,7 @@ import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './mes
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { QuillEditWithAgentButton } from './QuillEditWithAgentButton'
 import { QuillMessageTemplateActions } from './QuillMessageTemplateActions'
 import { ReadOnlyTemplatePreview } from './ReadOnlyTemplatePreview'
 import { DUPLICATE_REFUSED_EDITS_REASON, RefusedEditsBanner } from './RefusedEditsBanner'
@@ -99,12 +101,14 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isDiscardingDraft,
         isSavingSensitive,
         isCodeManaged,
+        canEditWithAgent,
         isDuplicating,
         refusedEdits,
         templateSource,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const editWithAgentAvailable = useFeatureFlag('WORKFLOWS_EMAIL_FROM_CODE') && canEditWithAgent
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
@@ -287,6 +291,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     actions={
                         todayRailNav ? (
                             <QuillMessageTemplateActions
+                                editWithAgent={
+                                    editWithAgentAvailable ? <QuillEditWithAgentButton {...props} /> : undefined
+                                }
                                 isNew={props.id === 'new'}
                                 sendTestDisabledReason={
                                     !template.content.email?.subject ? 'Add a subject first' : undefined
@@ -357,7 +364,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                         Discard changes
                                     </LemonButton>
                                 )}
-                                {!isCodeManaged && (
+                                {isCodeManaged ? (
+                                    editWithAgentAvailable && <EditWithAgentButton {...props} />
+                                ) : (
                                     <LemonButton
                                         type="primary"
                                         htmlType="submit"
@@ -461,8 +470,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                   }
                         }
                     >
-                        This template is managed by code, so it can't be changed here. To change it, edit the file and
-                        upload it again. To edit it here, duplicate it or stop managing it in code.
+                        {editWithAgentAvailable
+                            ? "This template is managed by code, so it can't be changed here. To change it, edit its file, or let your coding agent do it."
+                            : "This template is managed by code, so it can't be changed here. To change it, edit the file and upload it again. To edit it here, duplicate it or stop managing it in code."}
                     </LemonBanner>
                 )}
 

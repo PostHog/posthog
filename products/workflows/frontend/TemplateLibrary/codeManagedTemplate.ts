@@ -35,11 +35,25 @@ export function templateSource(template: MessageTemplate | null | undefined): Te
     }
 }
 
+export function isChangeDescribed(sentence: string, starter: string): boolean {
+    const described = sentence.trim()
+    return described !== '' && described !== starter.trim()
+}
+
 function shortRef(ref: string): string {
     return GitMetadataParser.isCommitSha(ref) ? ref.slice(0, 7) : ref
 }
 
-const SERVER_OWNED_FIELDS = ['key', 'managed_by', 'source_repository', 'source_path', 'source_ref'] as const
+const SERVER_OWNED_FIELDS = [
+    'key',
+    'managed_by',
+    'source_repository',
+    'source_path',
+    'source_ref',
+    'change_prompt_starter',
+    'change_prompt_context',
+    'change_prompt_variables',
+] as const
 
 export function withoutServerOwnedFields(template: MessageTemplate): Partial<MessageTemplate> {
     const editable: Partial<MessageTemplate> = { ...template }

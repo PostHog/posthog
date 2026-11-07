@@ -77,6 +77,9 @@ tools:
                 - content
                 - created_by
                 - draft_content
+                - change_prompt_starter
+                - change_prompt_context
+                - change_prompt_variables
     workflows-make-email-template-transactional:
         operation: messaging_templates_make_transactional_create
         enabled: true

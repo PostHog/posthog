@@ -25,6 +25,7 @@ export function QuillMessageTemplateActions({
     onDuplicate,
     onRelease,
     onDelete,
+    editWithAgent,
 }: {
     isNew: boolean
     sendTestDisabledReason?: string
@@ -41,6 +42,7 @@ export function QuillMessageTemplateActions({
     onDuplicate: () => void
     onRelease?: () => void
     onDelete: () => void
+    editWithAgent?: JSX.Element
 }): JSX.Element {
     return (
         <>
@@ -58,16 +60,18 @@ export function QuillMessageTemplateActions({
                     Discard changes
                 </Button>
             )}
-            <Button
-                variant="primary"
-                type="submit"
-                form="template"
-                onClick={onSave}
-                loading={saving}
-                disabledReason={saveDisabledReason}
-            >
-                {isNew ? 'Create' : 'Save'}
-            </Button>
+            {editWithAgent ?? (
+                <Button
+                    variant="primary"
+                    type="submit"
+                    form="template"
+                    onClick={onSave}
+                    loading={saving}
+                    disabledReason={saveDisabledReason}
+                >
+                    {isNew ? 'Create' : 'Save'}
+                </Button>
+            )}
             <DropdownMenu>
                 <DropdownMenuTrigger render={<Button size="icon" aria-label="More" tooltip="More" variant="default" />}>
                     <IconEllipsis />

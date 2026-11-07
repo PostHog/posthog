@@ -12,6 +12,7 @@ import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { objectsEqual } from 'lib/utils/objects'
 import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/aiFirstMode'
@@ -37,11 +38,17 @@ import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-function
 import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../../../frontend/src/types'
 import type { IntegrationType } from '../../../../frontend/src/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
-import { TemplateSource, isCodeManagedTemplate, templateSource, withoutServerOwnedFields } from './codeManagedTemplate'
+import {
+    TemplateSource,
+    isChangeDescribed,
+    isCodeManagedTemplate,
+    templateSource,
+    withoutServerOwnedFields,
+} from './codeManagedTemplate'
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { omitNullDesign } from './omitNullDesign'
-import { templateCopy } from './templateCopy'
+import { captureTemplateDuplicated, templateCopy } from './templateCopy'
 import { TemplateSection, templateLibraryUrl, templateSectionFor, templateUrlInSection } from './templateSection'
 import { MessageTemplate } from './types'
 
@@ -64,6 +71,12 @@ function splitDraft(template: MessageTemplate): {
     return { form: draft ? { ...form, content: draft } : form, draft, published: template.content }
 }
 
+export interface AgentPromptEventProperties {
+    template_id: string
+    has_path: boolean
+    has_repository: boolean
+}
+
 export interface MessageTemplateLogicProps {
     id: string
     messageId?: string | null
@@ -74,6 +87,14 @@ export interface messageTemplateLogicValues {
     integrations: IntegrationType[] | null // integrationsLogic
     aiComposerAvailable: boolean // newTemplateAgentLogic
     currentTeamIdStrict: number | string // teamLogic
+    agentPrompt: string
+    agentPromptEventProperties: AgentPromptEventProperties
+    agentPromptOpen: boolean
+    canEditWithAgent: boolean
+    changePromptStarter: string
+    changeSentence: string
+    changeSentenceDraft: string | null
+    copyAgentPromptDisabledReason: string | undefined
     deferredExternalEdit: ResourceEditedEvent | null
     draftOutOfDate: boolean
     draftsEnabled: boolean
@@ -105,6 +126,9 @@ export interface messageTemplateLogicValues {
     templateChanged: boolean
     templateErrors: DeepPartialMap<
         {
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -136,6 +160,9 @@ export interface messageTemplateLogicValues {
     templateTouches: Record<string, boolean>
     templateValidationErrors: DeepPartialMap<
         {
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -176,7 +203,13 @@ export interface messageTemplateLogicActions {
     confirmDiscardDraft: () => {
         value: true
     }
+    copyAgentPrompt: () => {
+        value: true
+    }
     deleteTemplate: () => {
+        value: true
+    }
+    discardChangeSentence: () => {
         value: true
     }
     discardDraft: () => {
@@ -252,6 +285,9 @@ export interface messageTemplateLogicActions {
         value: true
     }
     resetTemplate: (values?: {
+        change_prompt_context?: string | null | undefined
+        change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -273,6 +309,9 @@ export interface messageTemplateLogicActions {
         updated_at: string | null
     }) => {
         values?: {
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -328,6 +367,12 @@ export interface messageTemplateLogicActions {
         template: MessageTemplate
         payload?: any
     }
+    setAgentPromptOpen: (open: boolean) => {
+        open: boolean
+    }
+    setChangeSentence: (sentence: string) => {
+        sentence: string
+    }
     setDeferredExternalEdit: (event: ResourceEditedEvent | null) => {
         event: ResourceEditedEvent | null
     }
@@ -380,6 +425,9 @@ export interface messageTemplateLogicActions {
     }
     setTemplateValues: (
         values: DeepPartial<{
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -402,6 +450,9 @@ export interface messageTemplateLogicActions {
         }>
     ) => {
         values: DeepPartial<{
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -437,6 +488,9 @@ export interface messageTemplateLogicActions {
         errors: Record<string, any>
     }
     submitTemplateRequest: (template: {
+        change_prompt_context?: string | null | undefined
+        change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -458,6 +512,9 @@ export interface messageTemplateLogicActions {
         updated_at: string | null
     }) => {
         template: {
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -480,6 +537,9 @@ export interface messageTemplateLogicActions {
         }
     }
     submitTemplateSuccess: (template: {
+        change_prompt_context?: string | null | undefined
+        change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -501,6 +561,9 @@ export interface messageTemplateLogicActions {
         updated_at: string | null
     }) => {
         template: {
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -569,6 +632,12 @@ export interface messageTemplateLogicMeta {
         ) => boolean
         isCodeManaged: (originalTemplate: MessageTemplate) => boolean
         templateSource: (originalTemplate: MessageTemplate) => TemplateSource | null
+        canEditWithAgent: (isCodeManaged: boolean, originalTemplate: MessageTemplate) => boolean
+        changePromptStarter: (originalTemplate: MessageTemplate) => string
+        changeSentence: (changeSentenceDraft: string | null, changePromptStarter: string) => string
+        agentPrompt: (changeSentence: string, originalTemplate: MessageTemplate) => string
+        copyAgentPromptDisabledReason: (changeSentence: string, changePromptStarter: string) => string | undefined
+        agentPromptEventProperties: (originalTemplate: MessageTemplate) => AgentPromptEventProperties
     }
 }
 
@@ -636,6 +705,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         discardDraft: true,
         confirmDiscardDraft: true,
         discardDraftDone: true,
+        setAgentPromptOpen: (open: boolean) => ({ open }),
+        setChangeSentence: (sentence: string) => ({ sentence }),
+        discardChangeSentence: true,
+        copyAgentPrompt: true,
     }),
     selectors({
         logicProps: [
@@ -755,6 +828,19 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 setTemplatePickerOpen: (_, { open }) => open,
             },
         ],
+        agentPromptOpen: [
+            false,
+            {
+                setAgentPromptOpen: (_, { open }) => open,
+            },
+        ],
+        changeSentenceDraft: [
+            null as string | null,
+            {
+                setChangeSentence: (_, { sentence }) => sentence,
+                discardChangeSentence: () => null,
+            },
+        ],
         // Another channel (the PostHog AI agent, the API, another tab) saved this template while the form
         // holds unsaved edits. The banner lets the person choose which version wins.
         externallyEdited: [
@@ -851,6 +937,38 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             (s) => [s.originalTemplate],
             (originalTemplate: MessageTemplate): TemplateSource | null => templateSource(originalTemplate),
         ],
+        canEditWithAgent: [
+            (s) => [s.isCodeManaged, s.originalTemplate],
+            (isCodeManaged: boolean, originalTemplate: MessageTemplate): boolean =>
+                isCodeManaged && !!originalTemplate.change_prompt_starter && !!originalTemplate.change_prompt_context,
+        ],
+        changePromptStarter: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): string => originalTemplate.change_prompt_starter ?? '',
+        ],
+        changeSentence: [
+            (s) => [s.changeSentenceDraft, s.changePromptStarter],
+            (changeSentenceDraft: string | null, changePromptStarter: string): string =>
+                changeSentenceDraft ?? changePromptStarter,
+        ],
+        agentPrompt: [
+            (s) => [s.changeSentence, s.originalTemplate],
+            (changeSentence: string, originalTemplate: MessageTemplate): string =>
+                `${changeSentence}\n\n${originalTemplate.change_prompt_context ?? ''}`,
+        ],
+        copyAgentPromptDisabledReason: [
+            (s) => [s.changeSentence, s.changePromptStarter],
+            (changeSentence: string, changePromptStarter: string): string | undefined =>
+                isChangeDescribed(changeSentence, changePromptStarter) ? undefined : 'Describe the change first',
+        ],
+        agentPromptEventProperties: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): AgentPromptEventProperties => ({
+                template_id: originalTemplate.id,
+                has_path: !!originalTemplate.source_path,
+                has_repository: !!originalTemplate.source_repository,
+            }),
+        ],
     }),
     loaders(({ props, actions }) => ({
         template: {
@@ -897,7 +1015,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         },
     })),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, selectors }) => ({
         resourceEdited: ({ event }) => {
             if (event.resource_type === 'MessageTemplate' && event.resource_id === props.id) {
                 actions.templateEditedElsewhere(event)
@@ -1053,7 +1171,30 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.discardDraftDone()
             actions.replayDeferredExternalEdit()
         },
+        setAgentPromptOpen: ({ open }) => {
+            if (open) {
+                posthog.capture('message template agent prompt opened', values.agentPromptEventProperties)
+            }
+        },
+        copyAgentPrompt: async () => {
+            if (values.copyAgentPromptDisabledReason) {
+                return
+            }
+            const copied = await copyToClipboard(values.agentPrompt, 'prompt', { silent: true })
+            if (!copied) {
+                return
+            }
+            posthog.capture('message template agent prompt copied', {
+                ...values.agentPromptEventProperties,
+                variable_count: values.originalTemplate.change_prompt_variables?.length ?? 0,
+            })
+            lemonToast.success(
+                'Prompt copied. Paste it into your coding agent. PostHog keeps sending the current version until your app sends or uploads the changed file.'
+            )
+            actions.setAgentPromptOpen(false)
+        },
         releaseTemplateSuccess: ({ template }) => {
+            posthog.capture('message template released from code', { template_id: template.id })
             const { form, draft, published } = splitDraft(template)
             actions.setDraftState(draft, published)
             actions.resetTemplate(form)
@@ -1138,7 +1279,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.setExternallyEdited(true)
             }
         },
-        loadTemplateSuccess: ({ template }) => {
+        loadTemplateSuccess: ({ template }, _, __, previousState) => {
+            if (selectors.changePromptStarter(previousState) !== values.changePromptStarter) {
+                actions.discardChangeSentence()
+            }
             if (values.isSyncingExternalEdit) {
                 // The server copy replaces the form. A Reload from the banner discards the local edits on purpose.
                 actions.resetTemplate(template)
@@ -1229,6 +1373,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             breakpoint()
             actions.duplicateTemplateDone()
             if (copy) {
+                captureTemplateDuplicated(values.originalTemplate)
                 router.actions.push(templateUrlInSection(copy.id, values.section))
             }
         },
@@ -1239,6 +1384,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.duplicateTemplateDone()
             if (copy) {
                 actions.setRefusedEdits(null)
+                captureTemplateDuplicated(values.originalTemplate)
                 router.actions.push(templateUrlInSection(copy.id, values.section))
             }
         },
