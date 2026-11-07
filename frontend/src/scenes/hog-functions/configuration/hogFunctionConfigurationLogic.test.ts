@@ -652,29 +652,44 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
-    describe('loading a missing function', () => {
+    describe('loading a missing function or template', () => {
         beforeEach(() => {
             initKeaTests()
         })
 
-        it('resolves to null on a 404 so the not-found state renders without filing an exception', async () => {
-            // A cross-project deep link 404s here; the loader must swallow it rather than reject,
-            // which would surface as an unhandled rejection in error tracking.
-            mockApi.get.mockRejectedValue(new ApiError('Not found', 404))
-            logic = hogFunctionConfigurationLogic({ id: 'missing-id' })
+        it.each([
+            { case: 'function', props: { id: 'missing-id' }, mockFn: 'get', loader: 'loadHogFunction' },
+            {
+                case: 'template',
+                props: { templateId: 'template-missing' },
+                mockFn: 'getTemplate',
+                loader: 'loadTemplate',
+            },
+        ] as const)(
+            'resolves a missing $case to null on a 404 so the not-found state renders without filing an exception',
+            async ({ props, mockFn, loader }) => {
+                // A cross-project deep link or a bad template id 404s here; the loader must swallow it rather
+                // than reject, which would surface as an unhandled rejection in error tracking.
+                mockApi[mockFn].mockRejectedValue(new ApiError('Not found', 404))
+                logic = hogFunctionConfigurationLogic(props)
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions([loader, `${loader}Success`])
+                expect(logic.values.hogFunction).toBeNull()
+                expect(logic.values.template).toBeNull()
+                expect(logic.values.loaded).toBe(false)
+            }
+        )
+
+        it.each([
+            { case: 'function', props: { id: 'boom-id' }, mockFn: 'get', loader: 'loadHogFunction' },
+            { case: 'template', props: { templateId: 'template-boom' }, mockFn: 'getTemplate', loader: 'loadTemplate' },
+        ] as const)('still rejects a $case load on non-404 errors', async ({ props, mockFn, loader }) => {
+            mockApi[mockFn].mockRejectedValue(new ApiError('Boom', 500))
+            logic = hogFunctionConfigurationLogic(props)
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions(['loadHogFunction', 'loadHogFunctionSuccess'])
-            expect(logic.values.hogFunction).toBeNull()
-            expect(logic.values.loaded).toBe(false)
-        })
-
-        it('still rejects on non-404 errors', async () => {
-            mockApi.get.mockRejectedValue(new ApiError('Boom', 500))
-            logic = hogFunctionConfigurationLogic({ id: 'boom-id' })
-            logic.mount()
-
-            await expectLogic(logic).toDispatchActions(['loadHogFunction', 'loadHogFunctionFailure'])
+            await expectLogic(logic).toDispatchActions([loader, `${loader}Failure`])
         })
     })
 
