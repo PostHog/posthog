@@ -108,13 +108,22 @@ class TestInsightPlatformCutover(APIBaseTest):
             ("past_the_horizon", InvestigationStatus.RUNNING, None, timedelta(hours=2), None),
             ("firing_not_yet_notified", None, None, timedelta(minutes=5), CutoverSkip.NOTIFICATION_PENDING),
             (
-                "firing_not_yet_sent_to_a_destination",
+                "firing_not_yet_sent_to_a_custom_destination",
                 None,
                 None,
                 timedelta(minutes=5),
                 CutoverSkip.NOTIFICATION_PENDING,
                 None,
-                "destination",
+                "custom_destination",
+            ),
+            (
+                "firing_not_yet_sent_to_a_team_wide_destination",
+                None,
+                None,
+                timedelta(minutes=5),
+                CutoverSkip.NOTIFICATION_PENDING,
+                None,
+                "team_wide_destination",
             ),
             ("firing_with_nobody_to_tell", None, None, timedelta(minutes=5), None, None, None),
             ("firing_notified", None, NOW, timedelta(minutes=5), None),
@@ -142,15 +151,18 @@ class TestInsightPlatformCutover(APIBaseTest):
         alert = self._alert(investigation_agent_enabled=True, detector_config={"type": "zscore"})
         if target == "subscriber":
             alert.subscribed_users.add(self.user)
-        elif target == "destination":
+        elif target is not None:
+            filters = destination_filter(str(alert.id), "$insight_alert_firing")
+            if target == "team_wide_destination":
+                filters["properties"] = []
             HogFunction.objects.create(
                 team=self.team,
-                name="Alert → Slack",
+                name="Alert → webhook",
                 type="internal_destination",
                 hog="return 1",
                 enabled=True,
-                template_id="template-slack",
-                filters=destination_filter(str(alert.id), "$insight_alert_firing"),
+                template_id="template-custom",
+                filters=filters,
             )
         check = AlertCheck.objects.create(
             alert_configuration=alert,
