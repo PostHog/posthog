@@ -1212,3 +1212,24 @@ class PushTokenImportRecord:
     error: str
     created_at: datetime
     finished_at: datetime | None
+
+
+@frozen
+class SesEventsDlqMessage:
+    message_id: str
+    event_type: str
+    # Read from the unverified tracking code, so it only says where to look, never who to trust.
+    team_id: int | None
+    masked_recipient: str | None
+    dead_lettered_at: datetime | None
+    replayable: bool
+
+
+@frozen
+class SesEventsDlqState:
+    queue_name: str
+    waiting: int | None
+    in_flight: int | None
+    oldest_sampled_at: datetime | None
+    sample: tuple[SesEventsDlqMessage, ...]
+    error: str | None

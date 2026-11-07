@@ -89,10 +89,13 @@ def find_queue(name: str) -> DlqQueue | None:
     return next((queue for queue in configured_queues() if queue.name == name), None)
 
 
-def sqs_client(queue: DlqQueue) -> "SQSClient":
-    return boto3.client(
-        "sqs", region_name=queue.region, config=Config(connect_timeout=5, read_timeout=20, retries={"max_attempts": 3})
-    )
+REPLAY_SQS_CONFIG = Config(connect_timeout=5, read_timeout=20, retries={"max_attempts": 3})
+# The admin page inspects every queue inside one web request, so a hung SQS call has to fail fast.
+INSPECT_SQS_CONFIG = Config(connect_timeout=2, read_timeout=3, retries={"total_max_attempts": 1})
+
+
+def sqs_client(queue: DlqQueue, config: Config = REPLAY_SQS_CONFIG) -> "SQSClient":
+    return boto3.client("sqs", region_name=queue.region, config=config)
 
 
 @frozen
