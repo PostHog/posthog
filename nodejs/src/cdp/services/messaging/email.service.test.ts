@@ -2496,5 +2496,89 @@ describe('EmailService', () => {
                 distinct_id: 'distinct_id',
             })
         })
+
+        const useMessageAssets = ({ failing }: { failing: boolean }): void => {
+            const messageAssets = new MessageAssetsService({
+                produce: jest.fn().mockResolvedValue(undefined),
+            } as unknown as IngestionOutputs<'message_assets'>)
+            if (failing) {
+                jest.spyOn(messageAssets, 'buildRowForEmail').mockImplementation(() => {
+                    throw new Error('Asset row fault')
+                })
+            }
+            service['messageAssetsService'] = messageAssets
+        }
+
+        it.each([
+            {
+                stage: 'saving the email copy',
+                step: 'saved_copy',
+                warning: 'Email sent, but its saved copy could not be created.',
+                breakBookkeeping: () => useMessageAssets({ failing: true }),
+            },
+            {
+                stage: 'reading the engagement setting',
+                step: 'engagement_setting',
+                warning: 'Could not read the engagement setting, so no engagement event was recorded for this email.',
+                breakBookkeeping: () => {
+                    jest.spyOn(
+                        (service as any).teamWorkflowsConfigService,
+                        'shouldCaptureEngagementEvents'
+                    ).mockRejectedValue(new Error('Engagement config fault'))
+                },
+            },
+        ])('keeps an accepted email sent when $stage fails', async ({ step, warning, breakBookkeeping }) => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            breakBookkeeping()
+            const failuresBefore = await metricValue('cdp_email_bookkeeping_failures_total', { step })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(await metricValue('cdp_email_bookkeeping_failures_total', { step })).toBe(failuresBefore + 1)
+            expect(result.error).toBeUndefined()
+            expect(result.metrics.map((metric) => metric.metric_name)).toContain('email_sent')
+            expect(result.metrics.map((metric) => metric.metric_name)).not.toContain('email_failed')
+            expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
+            expect(result.logs).toContainEqual(expect.objectContaining({ level: 'warn', message: warning }))
+            expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            { link: 'adds', outcome: 'succeeds' },
+            { link: 'leaves out', outcome: 'fails' },
+        ])('$link the View email link when saving the copy $outcome', async ({ outcome }) => {
+            const saved = outcome === 'succeeds'
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.state.actionId = 'email_1'
+            useMessageAssets({ failing: !saved })
+
+            const result = await service.executeSendEmail(invocation)
+
+            const sentLine = result.logs.find((log) => log.message.startsWith('Email sent to '))
+            expect(sentLine).toBeDefined()
+            expect(sentLine?.message.includes(`[Email:${invocation.id}:email_1]`)).toBe(saved)
+            expect(result.messageAssets).toHaveLength(saved ? 1 : 0)
+        })
+
+        it('records a failed send as failed when the engagement setting read also fails', async () => {
+            sendEmailSpy.mockRejectedValue(new Error('SES rejected the email'))
+            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockRejectedValue(
+                new Error('Engagement config fault')
+            )
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toContain('SES rejected the email')
+            expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
+            expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
+            expect(result.capturedPostHogEvents).toEqual([])
+            expect(result.logs).toContainEqual(
+                expect.objectContaining({
+                    level: 'warn',
+                    message:
+                        'Could not read the engagement setting, so no engagement event was recorded for this email.',
+                })
+            )
+        })
     })
 })

@@ -52,6 +52,30 @@ import {
     preferencesTokenSourceForInvocation,
 } from './recipient-tokens.service'
 
+const emailBookkeepingFailuresTotal = new Counter({
+    name: 'cdp_email_bookkeeping_failures_total',
+    help: 'Email sends whose bookkeeping failed after the send attempt, by step. The send keeps its outcome.',
+    labelNames: ['step'],
+})
+
+type BookkeepingStep = 'saved_copy' | 'engagement_setting'
+
+function recordBookkeepingFailure(
+    invocation: CyclotronJobInvocationHogFunction,
+    step: BookkeepingStep,
+    message: string,
+    error: unknown
+): void {
+    emailBookkeepingFailuresTotal.labels({ step }).inc()
+    logger.error(message, {
+        teamId: invocation.teamId,
+        functionId: invocation.functionId,
+        actionId: invocation.state.actionId,
+        invocationId: invocation.id,
+        error: error instanceof Error ? error.message : String(error),
+    })
+}
+
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
     help: 'SES API responses classified as throttle/rate-limit. Sustained nonzero rate means the local bucket is set too high vs. the SES quota.',
@@ -798,8 +822,8 @@ export class EmailService {
             // will actually be captured; `renderWorkflowLogMessage` renders it as the
             // "View email" chip, so suppressing it for skipped captures keeps the chip
             // from 404-ing on click.
-            if (!isTest && this.messageAssetsService) {
-                assetRow = this.messageAssetsService.buildRowForEmail(invocation, sendParams)
+            if (!isTest) {
+                assetRow = this.buildSavedCopy(invocation, sendParams, addLog)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
@@ -904,11 +928,7 @@ export class EmailService {
         }
 
         const distinctId = resolveEmailTrackingDistinctId(invocation)
-        if (
-            distinctId &&
-            !isTest &&
-            (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))
-        ) {
+        if (distinctId && !isTest && (await this.readEngagementCaptureOrWarn(invocation, addLog))) {
             result.capturedPostHogEvents.push({
                 team_id: invocation.teamId,
                 timestamp: new Date().toISOString(),
@@ -930,6 +950,38 @@ export class EmailService {
         }
 
         return result
+    }
+
+    private buildSavedCopy(
+        invocation: CyclotronJobInvocationHogFunction,
+        sendParams: CyclotronInvocationQueueParametersEmailType,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): MessageAssetRow | null {
+        try {
+            return this.messageAssetsService?.buildRowForEmail(invocation, sendParams) ?? null
+        } catch (error) {
+            recordBookkeepingFailure(invocation, 'saved_copy', 'Failed to build the saved copy of a sent email', error)
+            addLog('warn', 'Email sent, but its saved copy could not be created.')
+            return null
+        }
+    }
+
+    private async readEngagementCaptureOrWarn(
+        invocation: CyclotronJobInvocationHogFunction,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): Promise<boolean> {
+        try {
+            return await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId)
+        } catch (error) {
+            recordBookkeepingFailure(
+                invocation,
+                'engagement_setting',
+                'Failed to read the email engagement capture setting',
+                error
+            )
+            addLog('warn', 'Could not read the engagement setting, so no engagement event was recorded for this email.')
+            return false
+        }
     }
 
     /**
