@@ -33,3 +33,14 @@ def test_mcp_properties_mirrors_every_mcp_event_property() -> None:
     expected = {key for key in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"] if key.startswith("$mcp_")}
     assert expected, "expected $mcp_* keys in event_properties"
     assert set(CORE_FILTER_DEFINITIONS_BY_GROUP["mcp_properties"]) == expected
+
+
+def test_event_properties_define_pageview_properties_set_by_posthog_js() -> None:
+    event_props = CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]
+    assert event_props["title"]["label"] == "Page title"
+    assert event_props["navigation_type"]["label"] == "Navigation type"
+
+
+def test_page_title_is_not_mirrored_as_a_person_property() -> None:
+    # A person's `title` is usually a job title, so the page title definition must not label it.
+    assert "title" not in CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"]
