@@ -274,21 +274,28 @@ def _alone_on_line(index: int, before: str | None, after: str | None, count: int
     return starts_line and ends_line
 
 
+@frozen
+class _ParsedNodes:
+    nodes: tuple[object, ...]
+    position: int
+    stop: _Tag | None
+
+
 def _parse_nodes(tags: list[_Tag]) -> tuple[object, ...]:
-    nodes, position, closer = _parse_until(tags, 0, 0)
-    if closer is not None or position != len(tags):
+    parsed = _parse_until(tags, 0, 0)
+    if parsed.stop is not None or parsed.position != len(tags):
         raise _Malformed("a closing tag without its opening tag")
-    return nodes
+    return parsed.nodes
 
 
-def _parse_until(tags: list[_Tag], position: int, depth: int) -> tuple[tuple[object, ...], int, _Tag | None]:
+def _parse_until(tags: list[_Tag], position: int, depth: int) -> _ParsedNodes:
     if depth > _MAX_DEPTH:
         raise _Malformed("blocks nested too deeply")
     nodes: list[object] = []
     while position < len(tags):
         tag = tags[position]
         if tag.kind == "close" or tag.kind == "else":
-            return tuple(nodes), position, tag
+            return _ParsedNodes(nodes=tuple(nodes), position=position, stop=tag)
         position += 1
         if tag.kind == "text":
             nodes.append(_Text(text=tag.source))
@@ -299,16 +306,23 @@ def _parse_until(tags: list[_Tag], position: int, depth: int) -> tuple[tuple[obj
         elif tag.kind == "open":
             block, position = _parse_block(tags, position, tag, depth)
             nodes.append(block)
-    return tuple(nodes), position, None
+    return _ParsedNodes(nodes=tuple(nodes), position=position, stop=None)
 
 
 def _parse_block(
     tags: list[_Tag], position: int, opening: _Tag, depth: int, close_name: str | None = None
 ) -> tuple[_Block, int]:
-    name, params, hash_args, block_params = _parse_expression(opening.body)
+    expression = _parse_expression(opening.body)
+    name, params, hash_args, block_params = (
+        expression.name,
+        expression.params,
+        expression.hash_args,
+        expression.block_params,
+    )
     # `{{#if a}}{{else equals b c}}{{/if}}` closes with the name of the block that opened the chain.
     closes_with = close_name or name
-    body, position, stop = _parse_until(tags, position, depth + 1)
+    parsed = _parse_until(tags, position, depth + 1)
+    body, position, stop = parsed.nodes, parsed.position, parsed.stop
     inverse: tuple[object, ...] = ()
     if stop is not None and stop.kind == "else":
         position += 1
@@ -318,7 +332,8 @@ def _parse_block(
             )
             inverse = (replace(chained, chained=True),)
             return _block(opening, name, params, hash_args, block_params, body, inverse, chained.source_close), position
-        inverse, position, stop = _parse_until(tags, position, depth + 1)
+        parsed = _parse_until(tags, position, depth + 1)
+        inverse, position, stop = parsed.nodes, parsed.position, parsed.stop
         if stop is not None and stop.kind == "else":
             raise _Malformed("a block with two else tags")
     if stop is None or stop.kind != "close" or stop.body != closes_with:
@@ -360,6 +375,14 @@ class _Literal:
 
 
 @frozen
+class _Condition:
+    """Liquid to run first, then the expression to test."""
+
+    prelude: str
+    condition: str
+
+
+@frozen
 class _Path:
     source: str
 
@@ -370,31 +393,46 @@ class _Call:
     params: tuple[object, ...]
 
 
-def _parse_expression(body: str) -> tuple[str, tuple[object, ...], dict[str, object], tuple[str, ...]]:
+@frozen
+class _Expression:
     """A helper's name, its parameters, its `key=value` arguments, and the names after `as |...|`."""
+
+    name: str
+    params: tuple[object, ...]
+    hash_args: dict[str, object]
+    block_params: tuple[str, ...]
+
+
+@frozen
+class _Token:
+    kind: str
+    value: str
+
+
+def _parse_expression(body: str) -> _Expression:
     block_params: tuple[str, ...] = ()
     match = re.search(r"\bas\s*\|([^|]*)\|\s*$", body)
     if match:
         block_params = tuple(match.group(1).split())
         body = body[: match.start()]
     tokens = list(_expression_tokens(body))
-    if not tokens or tokens[0][0] != "path":
+    if not tokens or tokens[0].kind != "path":
         raise _Unconvertible(body)
     params: list[object] = []
     hash_args: dict[str, object] = {}
     position = 1
     while position < len(tokens):
-        if position + 1 < len(tokens) and tokens[position + 1][0] == "equals":
-            key = tokens[position][1]
+        if position + 1 < len(tokens) and tokens[position + 1].kind == "equals":
+            key = tokens[position].value
             value, position = _parse_param(tokens, position + 2)
             hash_args[key] = value
             continue
         value, position = _parse_param(tokens, position)
         params.append(value)
-    return tokens[0][1], tuple(params), hash_args, block_params
+    return _Expression(name=tokens[0].value, params=tuple(params), hash_args=hash_args, block_params=block_params)
 
 
-def _expression_tokens(body: str) -> Iterator[tuple[str, str]]:
+def _expression_tokens(body: str) -> Iterator[_Token]:
     position = 0
     body = body.rstrip()
     while position < len(body):
@@ -402,26 +440,26 @@ def _expression_tokens(body: str) -> Iterator[tuple[str, str]]:
         if not match or match.end() == position:
             raise _Unconvertible(body)
         kind = match.lastgroup or ""
-        yield kind, match.group(kind)
+        yield _Token(kind=kind, value=match.group(kind))
         position = match.end()
 
 
-def _parse_param(tokens: list[tuple[str, str]], position: int) -> tuple[object, int]:
+def _parse_param(tokens: list[_Token], position: int) -> tuple[object, int]:
     if position >= len(tokens):
         raise _Unconvertible("missing value")
-    kind, value = tokens[position]
+    kind, value = tokens[position].kind, tokens[position].value
     if kind == "string":
         text = re.sub(r"\\(.)", r"\1", value[1:-1])
         return _Literal(liquid=_required_string(text), text=text), position + 1
     if kind == "number":
         return _Literal(liquid=value, text=value), position + 1
     if kind == "open":
-        if position + 1 >= len(tokens) or tokens[position + 1][0] != "path":
+        if position + 1 >= len(tokens) or tokens[position + 1].kind != "path":
             raise _Unconvertible("empty group")
-        name = tokens[position + 1][1]
+        name = tokens[position + 1].value
         position += 2
         params: list[object] = []
-        while position < len(tokens) and tokens[position][0] != "close":
+        while position < len(tokens) and tokens[position].kind != "close":
             param, position = _parse_param(tokens, position)
             params.append(param)
         if position >= len(tokens):
@@ -502,7 +540,8 @@ class _Converter:
         try:
             if body.startswith((">", "*")):
                 raise _Unconvertible(body)
-            name, params, hash_args, _ = _parse_expression(body)
+            expression = _parse_expression(body)
+            name, params, hash_args = expression.name, expression.params, expression.hash_args
             if name == "insert":
                 return self._insert(params, raw, frames)
             if name == "formatDate":
@@ -622,7 +661,8 @@ class _Converter:
                 return self._each(block, frames)
             if block.name == "with":
                 return self._with(block, frames)
-            prelude, condition = self.condition(block, frames)
+            test = self.condition(block, frames)
+            prelude, condition = test.prelude, test.condition
         except _Unconvertible:
             return (
                 self.literal(block.source_open) + self.nodes(block.body, frames) + self._inverse_literal(block, frames)
@@ -641,15 +681,15 @@ class _Converter:
         first = block.inverse[0]
         if len(block.inverse) == 1 and isinstance(first, _Block) and first.chained and first.name == "if":
             try:
-                prelude, condition = self.condition(first, frames)
+                test = self.condition(first, frames)
             except _Unconvertible:
-                prelude, condition = "", ""
-            if condition and not prelude:
+                test = _Condition(prelude="", condition="")
+            if test.condition and not test.prelude:
                 body = self.nodes(first.body, frames)
-                return f"{{% elsif {condition} %}}{body}{self._else(first, frames)}"
+                return f"{{% elsif {test.condition} %}}{body}{self._else(first, frames)}"
         return f"{{% else %}}{self.nodes(block.inverse, frames)}"
 
-    def condition(self, block: _Block, frames: tuple[_Frame, ...]) -> tuple[str, str]:
+    def condition(self, block: _Block, frames: tuple[_Frame, ...]) -> _Condition:
         params = block.params
         if block.name not in _BLOCKS:
             return self._truthy(_Path(source=block.name), frames)
@@ -665,20 +705,23 @@ class _Converter:
             raise _Unconvertible(block.name)
         parts = [self._truthy(param, frames) for param in params]
         if block.name == "and":
-            return "".join(prelude for prelude, _ in parts), " and ".join(condition for _, condition in parts)
+            return _Condition(
+                prelude="".join(part.prelude for part in parts),
+                condition=" and ".join(part.condition for part in parts),
+            )
         # Liquid has no brackets and reads `a and b or c` from the right, so each side of an `or` goes in a flag first.
         prelude = ""
         flags = []
-        for part_prelude, condition in parts:
+        for part in parts:
             flag = self.temp()
             flags.append(flag)
             prelude += (
-                f"{part_prelude}{{% if {condition} %}}{{% assign {flag} = true %}}"
+                f"{part.prelude}{{% if {part.condition} %}}{{% assign {flag} = true %}}"
                 f"{{% else %}}{{% assign {flag} = false %}}{{% endif %}}"
             )
-        return prelude, " or ".join(flags)
+        return _Condition(prelude=prelude, condition=" or ".join(flags))
 
-    def _truthy(self, param: object, frames: tuple[_Frame, ...], keeps_zero: bool = False) -> tuple[str, str]:
+    def _truthy(self, param: object, frames: tuple[_Frame, ...], keeps_zero: bool = False) -> _Condition:
         if isinstance(param, _Call) and param.name in _COMPARISONS:
             call = _Block(
                 source_open="",
@@ -693,21 +736,25 @@ class _Converter:
             return self._comparison(call, frames)
         if isinstance(param, _Call) and param.name == "length":
             value = self.temp()
-            return f"{{% assign {value} = {self._value(param, frames)} | plus: 0 %}}", f"{value} != 0"
+            return _Condition(
+                prelude=f"{{% assign {value} = {self._value(param, frames)} | plus: 0 %}}", condition=f"{value} != 0"
+            )
         value = self._value(param, frames)
         if isinstance(param, _Literal) or value in ("forloop.first", "forloop.last"):
-            return "", value
+            return _Condition(prelude="", condition=value)
         zero = "" if keeps_zero else f" and {value} != 0"
-        return "", f"{value}{zero} and {value}.size != 0"
+        return _Condition(prelude="", condition=f"{value}{zero} and {value}.size != 0")
 
-    def _comparison(self, block: _Block, frames: tuple[_Frame, ...]) -> tuple[str, str]:
+    def _comparison(self, block: _Block, frames: tuple[_Frame, ...]) -> _Condition:
         if len(block.params) != 2:
             raise _Unconvertible(block.name)
         left, right = block.params
         if block.name in ("equals", "notEquals"):
             operator = "==" if block.name == "equals" else "!="
             if _is_nil(left) or _is_nil(right):
-                return "", f"{self._value(left, frames)} {operator} {self._value(right, frames)}"
+                return _Condition(
+                    prelude="", condition=f"{self._value(left, frames)} {operator} {self._value(right, frames)}"
+                )
             self.compared_as_text.append(block.source_open or f"({block.name})")
             convert = ' | append: ""'
         else:
@@ -718,7 +765,7 @@ class _Converter:
             f"{{% assign {first} = {self._value(left, frames)}{convert} %}}"
             f"{{% assign {second} = {self._value(right, frames)}{convert} %}}"
         )
-        return prelude, f"{first} {operator} {second}"
+        return _Condition(prelude=prelude, condition=f"{first} {operator} {second}")
 
     def _each(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
         if len(block.params) != 1 or len(block.block_params) > 2:
@@ -743,7 +790,8 @@ class _Converter:
     def _with(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
         if len(block.params) != 1:
             raise _Unconvertible("with")
-        prelude, condition = self._truthy(block.params[0], frames)
+        test = self._truthy(block.params[0], frames)
+        prelude, condition = test.prelude, test.condition
         value = self._value(block.params[0], frames)
         names = {block.block_params[0]: value} if block.block_params else {}
         body = self.nodes(block.body, (*frames, _Frame(prefix=value, names=names)))
@@ -857,7 +905,13 @@ _OTHER_SUBSTITUTION_MARKS = re.compile(r"(?<![\w%#<;])([%#])[A-Za-z_]\w*\1(?![\w
 _NOT_CONTENT_OPENING = re.compile(r"<(style|script|head|title)\b|<!--", re.IGNORECASE)
 
 
-def _not_content_spans(html: str) -> Iterator[tuple[int, int]]:
+@frozen
+class _Span:
+    start: int
+    end: int
+
+
+def _not_content_spans(html: str) -> Iterator[_Span]:
     """Where the style, script and comment blocks are. Each closing tag is looked for once, so an unclosed opening
     repeated many times can't make this quadratic."""
     lowered = html.lower()
@@ -875,16 +929,16 @@ def _not_content_spans(html: str) -> Iterator[tuple[int, int]]:
             closed.add(closer)
             position = match.end()
             continue
-        yield match.start(), end
+        yield _Span(start=match.start(), end=end)
         position = end
 
 
 def _map_content(html: str, convert: Callable[[str], str]) -> str:
     parts = []
     position = 0
-    for start, end in _not_content_spans(html):
-        parts += [convert(html[position:start]), html[start:end]]
-        position = end
+    for span in _not_content_spans(html):
+        parts += [convert(html[position : span.start]), html[span.start : span.end]]
+        position = span.end
     parts.append(convert(html[position:]))
     return "".join(parts)
 
@@ -941,7 +995,7 @@ def plain_text_from_html(html: str) -> str:
     spans = list(_not_content_spans(text))
     text = "".join(
         text[start:end]
-        for start, end in zip([0, *(end for _, end in spans)], [*(start for start, _ in spans), len(text)])
+        for start, end in zip([0, *(span.end for span in spans)], [*(span.start for span in spans), len(text)])
     )
     text = _HTML_LINK.sub(
         lambda match: (
