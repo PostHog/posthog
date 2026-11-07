@@ -21,6 +21,7 @@ import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { MessagingSetup } from '../MessagingSetup'
 import { MessagingTabActions } from '../MessagingTabActions'
 import { MESSAGING_TAB_CONTENT, isMessagingSetupTab } from '../messagingTabs'
+import { SmtpComingSoonButton } from './comingSoon/SmtpComingSoonButton'
 import { TransactionalEmailLog } from './log/TransactionalEmailLog'
 import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
@@ -128,6 +129,7 @@ export function TransactionalScene(): JSX.Element {
                     },
                 ]}
                 sceneInset
+                rightSlot={<SmtpComingSoonButton />}
             />
         </SceneContent>
     )
