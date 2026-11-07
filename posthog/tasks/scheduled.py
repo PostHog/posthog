@@ -282,7 +282,7 @@ def add_periodic_task_with_expiry(
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
-        sender, crontab(minute="43"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
+        sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
     )
     add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
     add_periodic_task_with_expiry(
