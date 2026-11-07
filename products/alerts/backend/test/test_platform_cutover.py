@@ -107,25 +107,6 @@ class TestInsightPlatformCutover(APIBaseTest):
             ("notification_sent", InvestigationStatus.DONE, NOW, timedelta(minutes=10), None),
             ("past_the_horizon", InvestigationStatus.RUNNING, None, timedelta(hours=2), None),
             ("firing_not_yet_notified", None, None, timedelta(minutes=5), CutoverSkip.NOTIFICATION_PENDING),
-            (
-                "firing_not_yet_sent_to_a_custom_destination",
-                None,
-                None,
-                timedelta(minutes=5),
-                CutoverSkip.NOTIFICATION_PENDING,
-                None,
-                "custom_destination",
-            ),
-            (
-                "firing_not_yet_sent_to_a_team_wide_destination",
-                None,
-                None,
-                timedelta(minutes=5),
-                CutoverSkip.NOTIFICATION_PENDING,
-                None,
-                "team_wide_destination",
-            ),
-            ("firing_with_nobody_to_tell", None, None, timedelta(minutes=5), None, None, None),
             ("firing_notified", None, NOW, timedelta(minutes=5), None),
             ("firing_past_its_workflow", None, None, timedelta(minutes=30), None),
             (
@@ -146,12 +127,37 @@ class TestInsightPlatformCutover(APIBaseTest):
         age: timedelta,
         reason: CutoverSkip | None,
         triggered_metadata: dict | None = None,
-        target: str | None = "subscriber",
     ) -> None:
         alert = self._alert(investigation_agent_enabled=True, detector_config={"type": "zscore"})
+        alert.subscribed_users.add(self.user)
+        check = AlertCheck.objects.create(
+            alert_configuration=alert,
+            state=AlertState.FIRING,
+            investigation_status=status,
+            notification_sent_at=sent_at,
+            triggered_metadata=triggered_metadata,
+        )
+        AlertCheck.objects.filter(id=check.id).update(created_at=NOW - age)
+
+        (result,) = cut_over_team(self.team.id, now=NOW)
+
+        assert result.skipped == reason
+
+    @parameterized.expand(
+        [
+            ("subscriber", CutoverSkip.NOTIFICATION_PENDING),
+            ("custom_destination", CutoverSkip.NOTIFICATION_PENDING),
+            ("team_wide_destination", CutoverSkip.NOTIFICATION_PENDING),
+            ("nobody", None),
+        ]
+    )
+    def test_a_firing_alert_waits_only_while_someone_can_be_notified(
+        self, target: str, reason: CutoverSkip | None
+    ) -> None:
+        alert = self._alert()
         if target == "subscriber":
             alert.subscribed_users.add(self.user)
-        elif target is not None:
+        elif target != "nobody":
             filters = destination_filter(str(alert.id), "$insight_alert_firing")
             if target == "team_wide_destination":
                 filters["properties"] = []
@@ -164,14 +170,8 @@ class TestInsightPlatformCutover(APIBaseTest):
                 template_id="template-custom",
                 filters=filters,
             )
-        check = AlertCheck.objects.create(
-            alert_configuration=alert,
-            state=AlertState.FIRING,
-            investigation_status=status,
-            notification_sent_at=sent_at,
-            triggered_metadata=triggered_metadata,
-        )
-        AlertCheck.objects.filter(id=check.id).update(created_at=NOW - age)
+        check = AlertCheck.objects.create(alert_configuration=alert, state=AlertState.FIRING)
+        AlertCheck.objects.filter(id=check.id).update(created_at=NOW - timedelta(minutes=5))
 
         (result,) = cut_over_team(self.team.id, now=NOW)
 

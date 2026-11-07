@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any, Final
 from uuid import UUID
 
+from django.db.models import QuerySet
+
 from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_EVENT_IDS,
     DestinationBucket,
@@ -212,7 +214,10 @@ def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
 
 
 def alert_has_enabled_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> bool:
-    """Whether an enabled function takes the alert's events, bound to it on any template or unbound."""
+    """Whether an enabled function takes the alert's events, bound to it on any template or unbound.
+
+    Wider than `count_active_alert_destinations`, which counts only known templates bound to the alert.
+    """
     bound = (
         owned_alert_destinations_qs(
             team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
@@ -220,7 +225,10 @@ def alert_has_enabled_destinations(*, team_id: int, alert_id: str, allowed_event
         .filter(enabled=True, **_RECEIVES_ALERT_EVENTS)
         .exists()
     )
-    return bound or bool(unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids))
+    if bound:
+        return True
+    candidates = _alert_event_functions(team_id=team_id, allowed_event_ids=allowed_event_ids, include_disabled=False)
+    return any(not _bound_to_one_alert(filters) for filters in candidates.values_list("filters", flat=True).iterator())
 
 
 def unbound_alert_destinations(
@@ -232,19 +240,25 @@ def unbound_alert_destinations(
     alert, so it would stop sending at cutover. A function bound to a deleted alert receives
     nothing, so it is not unbound.
     """
-    enabled = {} if include_disabled else {"enabled": True}
     candidates = (
-        HogFunction.objects.filter(
-            _allowed_event_filter(allowed_event_ids),
-            team_id=team_id,
-            deleted=False,
-            **enabled,
-            **_RECEIVES_ALERT_EVENTS,
-        )
+        _alert_event_functions(team_id=team_id, allowed_event_ids=allowed_event_ids, include_disabled=include_disabled)
         .order_by("created_at", "id")
         .values_list("id", "filters")
     )
     return tuple(function_id for function_id, filters in candidates if not _bound_to_one_alert(filters))
+
+
+def _alert_event_functions(
+    *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool
+) -> QuerySet[HogFunction]:
+    enabled = {} if include_disabled else {"enabled": True}
+    return HogFunction.objects.filter(
+        _allowed_event_filter(allowed_event_ids),
+        team_id=team_id,
+        deleted=False,
+        **enabled,
+        **_RECEIVES_ALERT_EVENTS,
+    )
 
 
 def _filter_event_ids(filters: Any) -> frozenset[str]:
