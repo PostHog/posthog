@@ -1,3 +1,4 @@
+AmazonKinesis not-checkable:schemas
 AmazonS3 not-checkable:schemas
 AppStoreConnect not-checkable:no-request
 AppleSearchAds not-checkable:no-request
