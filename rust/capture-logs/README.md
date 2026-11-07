@@ -24,6 +24,8 @@ The service is configured using environment variables:
 | MANAGEMENT_BIND_PORT | 8080 | Port for the health check and metrics server |
 | MAX_REQUEST_BODY_SIZE_BYTES | 2097152 | Rejects larger request bodies, before and after gzip decompression |
 | FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES | 8388608 | Body cap for the Amazon Data Firehose route only |
+| MAX_EXPANDED_REQUEST_BYTES | 134217728 | Rejects an OTLP logs, traces or metrics request with 413 when the rows it builds would exceed this estimated size. Each row copies its resource and scope, so this bounds what the body cap does not |
+| FIREHOSE_MAX_EXPANDED_REQUEST_BYTES | 268435456 | The same bound for the Amazon Data Firehose route, where each row copies the record template and the common attributes |
 | DROP_EVENTS_BY_TOKEN | (none) | Comma-separated tokens to drop |
 | MAX_BACKFILL_DAYS | 0 | How far back a request may ask to keep its own timestamps. `0` refuses every `backfill_days` request |
 | VERCEL_DRAIN_ENABLED_TOKENS | (none) | Comma-separated tokens that may use the Vercel drain route, or `*` for all. Other tokens get 404 |
@@ -180,7 +182,8 @@ A customer creates a Firehose stream with this URL as its HTTP endpoint and the 
   Batches are produced concurrently.
   Delivery is at-least-once: a Kafka failure returns 500, Firehose redelivers the whole request with the same request id, and the batches already produced are duplicated.
 - Size limits: the request body is capped by `FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES` (default 8 MiB, above the 2 MiB used by the other routes because Firehose buffers whole MiB and base64 adds a third), and the decoded records of one request are capped at eight times that.
-  Either limit answers 413, which Firehose treats as permanent, so the failed batch lands in the customer's S3 backup bucket.
+  The rows built from those records are capped by `FIREHOSE_MAX_EXPANDED_REQUEST_BYTES`, counting the template and common attributes once for every row, and an `X-Amz-Firehose-Common-Attributes` header over 64 KiB is ignored.
+  Each limit answers 413, which Firehose treats as permanent, so the failed batch lands in the customer's S3 backup bucket.
 - Every response carries the contract body: `{"requestId", "timestamp"}` on 200, plus `"errorMessage"` on 400 (unparseable body, no decodable record), 401 (missing or invalid access key), 413 and 500 (Kafka).
   Rejections raised by the body-size and decompression layers are re-shaped into the same body.
 - Recommended stream settings: buffer 1 MB / 60 s, GZIP content encoding, retry 300 s, S3 backup for failed data only.

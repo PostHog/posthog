@@ -1,4 +1,7 @@
 use crate::authorizer::{Authorizer, Signal};
+use crate::expansion::{
+    check_logs_request, check_metrics_request, check_traces_request, ExpansionExceeded,
+};
 use crate::log_record::{default_max_past, KafkaLogRow};
 use crate::metric_record::{flatten_metric, KafkaMetricRow};
 use crate::trace_record::KafkaTraceRow;
@@ -308,6 +311,8 @@ pub struct Service {
     pub(crate) max_request_body_size_bytes: usize,
     pub(crate) firehose_max_request_body_size_bytes: usize,
     pub(crate) max_backfill_days: u32,
+    pub(crate) max_expanded_request_bytes: u64,
+    pub(crate) firehose_max_expanded_request_bytes: u64,
 }
 
 #[derive(Deserialize)]
@@ -328,6 +333,8 @@ impl Service {
         max_request_body_size_bytes: usize,
         firehose_max_request_body_size_bytes: usize,
         max_backfill_days: u32,
+        max_expanded_request_bytes: u64,
+        firehose_max_expanded_request_bytes: u64,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
@@ -335,6 +342,8 @@ impl Service {
             max_request_body_size_bytes,
             firehose_max_request_body_size_bytes,
             max_backfill_days,
+            max_expanded_request_bytes,
+            firehose_max_expanded_request_bytes,
         })
     }
 }
@@ -385,6 +394,22 @@ pub(crate) fn resolve_backfill_window(
     }
 
     Ok(TimeDelta::days(days as i64))
+}
+
+pub(crate) fn expansion_rejection(
+    signal: &'static str,
+    exceeded: ExpansionExceeded,
+) -> (StatusCode, Json<serde_json::Value>) {
+    counter!("capture_logs_expanded_request_rejected_total", "signal" => signal).increment(1);
+    (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        Json(json!({
+            "error": format!(
+                "Request expands to more than {} bytes of rows. Send fewer records per request.",
+                exceeded.limit
+            )
+        })),
+    )
 }
 
 pub(crate) fn decode_body_if_gzip_magic(
@@ -489,6 +514,9 @@ pub async fn export_logs_http(
             }
         },
     };
+
+    check_logs_request(&export_request, service.max_expanded_request_bytes)
+        .map_err(|e| expansion_rejection("logs", e))?;
 
     let mut rows: Vec<KafkaLogRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
@@ -645,6 +673,9 @@ pub async fn export_traces_http(
         },
     };
 
+    check_traces_request(&export_request, service.max_expanded_request_bytes)
+        .map_err(|e| expansion_rejection("traces", e))?;
+
     let mut rows: Vec<KafkaTraceRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
     for resource_spans in export_request.resource_spans {
@@ -782,6 +813,9 @@ pub async fn export_metrics_http(
             }
         },
     };
+
+    check_metrics_request(&export_request, service.max_expanded_request_bytes)
+        .map_err(|e| expansion_rejection("metrics", e))?;
 
     let mut rows: Vec<KafkaMetricRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
