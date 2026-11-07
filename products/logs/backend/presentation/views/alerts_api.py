@@ -110,7 +110,7 @@ from products.logs.backend.facade.api import (
     next_allowed_check_at,
     platform_check_rows,
 )
-from products.logs.backend.facade.platform_ownership import delete_alert, on_created, on_updated
+from products.logs.backend.facade.platform_ownership import creates_native_alert, delete_alert, on_created, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.native_alerts import (
     create_native,
@@ -120,7 +120,6 @@ from products.logs.backend.native_alerts import (
     native_alerts,
     update_native,
 )
-from products.logs.backend.platform_cutover import creates_native_alert
 
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
