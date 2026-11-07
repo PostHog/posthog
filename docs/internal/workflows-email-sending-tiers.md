@@ -139,3 +139,5 @@ Each delivered send emits a `workflows sandbox email sent` event.
 Live workflow sends record `email_sent`, so workflow reports count them.
 A live sandbox send that SES accepts also records `email_sandbox_sent`, so a reader can tell sandbox sends apart; the sending tier and the sending allowance do not read it yet and count sandbox sends as `email_sent`.
 Test sends record neither.
+The CDP API's SES webhook captures `workflows sandbox email delivered` for a delivery on `SES_SANDBOX_CONFIGURATION_SET`, test sends included.
+Without that setting on the CDP API, the event never fires.

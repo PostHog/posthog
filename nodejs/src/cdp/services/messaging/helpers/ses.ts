@@ -260,6 +260,8 @@ export const SES_SENSITIVE_TAG = 'ph_sensitive'
 // and dashes in a tag, so the value is 'true' as for SES_SENSITIVE_TAG.
 export const SES_EMAIL_STATUS_TAG = 'ph_email_status'
 
+export type SesSandboxDelivery = { teamId: string; isTest: boolean; recipientCount: number }
+
 export type SesEmailStatusUpdate = {
     teamId: string
     invocationId: string
@@ -505,7 +507,8 @@ export class SesWebhookHandler {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         // Empty set means no restriction (dev/test); prod is expected to configure the workflow SES
         // topic ARN.
-        allowedTopicArns: string[] = []
+        allowedTopicArns: string[] = [],
+        private sandboxConfigurationSetName = ''
     ) {
         this.allowedTopicArns = new Set(allowedTopicArns.map((arn) => arn.trim()).filter(Boolean))
     }
@@ -733,6 +736,7 @@ export class SesWebhookHandler {
             timestamp?: string
             clearsGlobalHardBounces?: boolean
         }[]
+        sandboxDeliveries?: SesSandboxDelivery[]
         // Status changes of transactional emails, for the email_status table.
         emailStatusUpdates?: SesEmailStatusUpdate[]
     }> {
@@ -840,6 +844,7 @@ export class SesWebhookHandler {
             timestamp?: string
             clearsGlobalHardBounces?: boolean
         }[] = []
+        const sandboxDeliveries: SesSandboxDelivery[] = []
         // A signature only proves AWS sent the event, from any account's topic. The global hard-bounce list
         // affects every team, so it only takes events from a configured topic.
         const fromTrustedTopic = 'envelope' in parsed && this.allowedTopicArns.size > 0
@@ -1007,6 +1012,20 @@ export class SesWebhookHandler {
             // carrier is only used for engagement metrics/log entries above.
             const codeIsTrusted = parsedCode?.format === 'signed'
 
+            if (
+                rec.eventType === 'Delivery' &&
+                codeIsTrusted &&
+                teamId &&
+                this.sandboxConfigurationSetName &&
+                rec.mail.tags?.['ses:configuration-set']?.[0] === this.sandboxConfigurationSetName
+            ) {
+                sandboxDeliveries.push({
+                    teamId,
+                    isTest: isTest ?? false,
+                    recipientCount: (rec.delivery.recipients ?? rec.mail.destination ?? []).length,
+                })
+            }
+
             // Suppression writes (below) skip test sends — editor "Run test" traffic must not be
             // able to perturb production suppression state by targeting a bad recipient.
             const suppressionAllowed = teamId && codeIsTrusted && !isTest
@@ -1093,6 +1112,7 @@ export class SesWebhookHandler {
             hardBounceRecipients,
             complainedRecipients,
             deliveredRecipients,
+            sandboxDeliveries,
             emailStatusUpdates,
         }
     }
