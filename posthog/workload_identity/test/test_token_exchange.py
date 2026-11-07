@@ -103,7 +103,14 @@ class TestWorkloadTokenExchange(APIBaseTest):
         }
         return WorkloadTrustPolicy.objects.for_team(target.id).create(team=target, **fields)
 
-    def _exchange(self, subject_token: str | None = None, meta: dict[str, str] | None = None, **overrides: str) -> Any:
+    def _exchange(
+        self,
+        subject_token: str | None = None,
+        *,
+        remote_addr: str = "127.0.0.1",
+        forwarded_for: str | None = None,
+        **overrides: str,
+    ) -> Any:
         self.client.logout()
         data = {
             "grant_type": TOKEN_EXCHANGE_GRANT_TYPE,
@@ -112,7 +119,8 @@ class TestWorkloadTokenExchange(APIBaseTest):
             "resource": f"{_SITE_URL}/api/projects/{self.team.id}",
             **overrides,
         }
-        return self.client.post("/oauth/token/", data, **(meta or {}))
+        headers = {"X-Forwarded-For": forwarded_for} if forwarded_for else None
+        return self.client.post("/oauth/token/", data, REMOTE_ADDR=remote_addr, headers=headers)
 
     def _access_token(self) -> str:
         response = self._exchange()
@@ -274,8 +282,8 @@ class TestWorkloadTokenExchange(APIBaseTest):
             override_settings(USE_X_FORWARDED_HOST=True, TRUSTED_PROXIES="10.0.0.1", TRUST_ALL_PROXIES=False),
             patch.object(WorkloadExchangeBurstThrottle, "rate", "1/minute"),
         ):
-            first = self._exchange(meta={"REMOTE_ADDR": peer, "HTTP_X_FORWARDED_FOR": "198.51.100.1"})
-            second = self._exchange(meta={"REMOTE_ADDR": peer, "HTTP_X_FORWARDED_FOR": "198.51.100.2"})
+            first = self._exchange(remote_addr=peer, forwarded_for="198.51.100.1")
+            second = self._exchange(remote_addr=peer, forwarded_for="198.51.100.2")
 
         assert first.status_code == status.HTTP_200_OK, first.json()
         assert second.status_code == second_status, second.json()
