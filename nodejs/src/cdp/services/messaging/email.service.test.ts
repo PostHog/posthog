@@ -2445,21 +2445,28 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject'],
-            ['a sensitive template', { sensitive: true }, undefined],
+            ['an ordinary template', {}, 'Test Subject', false],
+            ['a sensitive template', { sensitive: true }, undefined, false],
+            ['a transactional email', {}, 'Test Subject', true],
         ])(
             'should capture a $workflows_email_sent PostHog event on success, for %s',
-            async (_name, extraMetadata, subject) => {
+            async (_name, extraMetadata, subject, transactional) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
                     'shouldCaptureEngagementEvents'
                 ).mockResolvedValue(true)
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
+                if (transactional) {
+                    invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                }
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 expect(result.capturedPostHogEvents).toHaveLength(1)
+                expect(result.capturedPostHogEvents[0].properties.$email_message_id).toEqual(
+                    transactional ? invocation.id : undefined
+                )
                 expect(result.capturedPostHogEvents[0]).toMatchObject({
                     team_id: team.id,
                     distinct_id: 'distinct_id',
@@ -2483,10 +2490,11 @@ describe('EmailService', () => {
             expect(result.capturedPostHogEvents).toHaveLength(0)
         })
 
-        it('should capture a $workflows_email_failed PostHog event on failure', async () => {
+        it('should capture a $workflows_email_failed PostHog event with the message id when a transactional send fails', async () => {
             jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
                 true
             )
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
             sendEmailSpy.mockRejectedValue(new Error('SES error'))
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeDefined()
@@ -2494,6 +2502,7 @@ describe('EmailService', () => {
             expect(result.capturedPostHogEvents[0]).toMatchObject({
                 event: '$workflows_email_failed',
                 distinct_id: 'distinct_id',
+                properties: { $email_message_id: invocation.id },
             })
         })
     })

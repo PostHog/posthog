@@ -1111,7 +1111,7 @@ describe('SesWebhookHandler', () => {
             expect(result.logEntries?.[0].message).toBe('Permanent bounce to to@example.com, unknown')
         })
 
-        it('accepts DeliveryDelay without producing a metric or log (so SNS does not retry)', async () => {
+        it('records a DeliveryDelay as a delayed delivery at the time SES reported the delay', async () => {
             const body = [
                 {
                     eventType: 'DeliveryDelay',
@@ -1125,7 +1125,9 @@ describe('SesWebhookHandler', () => {
             ]
             const result = await handler.handleWebhook({ body, headers: {} })
             expect(result.status).toBe(200)
-            expect(result.metrics).toEqual([])
+            expect(result.metrics).toEqual([
+                expect.objectContaining({ metricName: 'email_delivery_delayed', timestamp: '2025-10-03T12:06:00Z' }),
+            ])
             expect(result.logEntries).toEqual([])
         })
     })
@@ -1217,6 +1219,17 @@ describe('SesWebhookHandler', () => {
             const result = await handler.handleWebhook({ body, headers: {} })
 
             expect(result.emailStatusUpdates).toEqual(expected)
+        })
+
+        it.each([
+            ['a transactional email', {}, 'inv456'],
+            ['an email from a workflow step', { tags: baseMail.tags }, undefined],
+        ])('puts the message id on the event of %s', async (_desc, mailOverrides, expected) => {
+            const body = [{ mail: { ...transactionalMail, ...mailOverrides }, ...delivery(['to@example.com']) }]
+
+            const result = await handler.handleWebhook({ body, headers: {} })
+
+            expect(result.metrics?.[0].properties?.$email_message_id).toEqual(expected)
         })
     })
 
