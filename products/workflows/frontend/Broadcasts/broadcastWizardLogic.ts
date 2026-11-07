@@ -1625,11 +1625,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 } else {
                     if (!email.from?.integrationId) {
                         errors.content.push('Choose an email sender')
-                    } else if (integrations && getMissingSenderIds(email.from, integrations).length > 0) {
+                    } else {
                         // Shown on the content step, where the sender is picked, rather than first at launch.
-                        errors.content.push(DELETED_SENDER_ERROR)
-                    } else if (integrations && getSandboxSenderIds(email.from, integrations).length > 0) {
-                        errors.content.push(SANDBOX_SENDER_BROADCAST_ERROR)
+                        const senderError = getSenderSelectionError(email.from, integrations)
+                        if (senderError) {
+                            errors.content.push(senderError)
+                        }
                     }
                     if (!email.subject) {
                         errors.content.push('Add a subject line')
@@ -2894,11 +2895,9 @@ export function getSenderLaunchError(
     if (!integrations) {
         return integrationsLoading ? 'Checking the email sender. Try again in a moment.' : SENDERS_LOAD_FAILED_ERROR
     }
-    if (getMissingSenderIds(from, integrations).length > 0) {
-        return DELETED_SENDER_ERROR
-    }
-    if (getSandboxSenderIds(from, integrations).length > 0) {
-        return SANDBOX_SENDER_BROADCAST_ERROR
+    const senderError = getSenderSelectionError(from, integrations)
+    if (senderError) {
+        return senderError
     }
     const allVerified = senderIds.every(
         (id) =>
@@ -2906,6 +2905,23 @@ export function getSenderLaunchError(
                 ?.verified === true
     )
     return allVerified ? null : UNVERIFIED_SENDER_MESSAGE
+}
+
+/** Why the chosen sender can't be kept: it was deleted, or it is the sandbox sender. */
+export function getSenderSelectionError(
+    from: BroadcastEmailValue['from'] | undefined,
+    integrations: IntegrationType[] | null
+): string | null {
+    if (!integrations) {
+        return null
+    }
+    if (getMissingSenderIds(from, integrations).length > 0) {
+        return DELETED_SENDER_ERROR
+    }
+    if (getSandboxSenderIds(from, integrations).length > 0) {
+        return SANDBOX_SENDER_BROADCAST_ERROR
+    }
+    return null
 }
 
 export function getPickerSenderIds(
