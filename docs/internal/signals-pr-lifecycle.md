@@ -358,6 +358,7 @@ Review in PostHog opens the report page.
 When an implementation pull request has one assignee, the worker requests that person's review, even when another person or team request exists.
 This makes the owner's work visible in both GitHub assignment and review-request lists.
 Without a single owner, it requests the highest-ranked eligible report reviewer only when no person or team request exists.
+It skips a reviewer with no commit to the repository in the last 60 days, because commit history can name someone who has left the code. A reviewer a person pinned on the report is not skipped.
 Each attempt requests at most one person. It never removes existing requests.
 The worker skips the author, pending recipients, completed reviewers, and people whose review request was removed.
 Incomplete review or removal history prevents a new request.

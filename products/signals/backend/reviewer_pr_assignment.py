@@ -11,11 +11,16 @@ separate from report and PR assignment. GitHub failures must not break report wr
 Standing reviewer exclusions for the pull request's repository apply to every automatic candidate,
 including reviewer lists saved before the exclusion existed. The person who chose the work is
 still assigned, because a claim is a person's own decision.
+
+A pull request without a single owner gets a review request from the highest-ranked suggested
+reviewer who still commits to the repository. A reviewer a person pinned on the report is asked
+without that check.
 """
 
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
@@ -79,6 +84,11 @@ PR_DRI_FEATURE_FLAG = "signals-pr-dri-assignee"
 # list from turning one pull request into ten reads.
 MAX_DRI_CHECKS = 4
 MAX_REPORT_ASSIGNEE_CHECKS = 10
+# A review request notifies a person, so it needs more recent activity than the year that reviewer
+# selection allows in `author_activity`. A reviewer with no commit to the repository in this window
+# has probably left the code, even when their PostHog and GitHub accounts are still active.
+REVIEW_ACTIVITY_WINDOW_DAYS = 60
+MAX_REVIEW_ACTIVITY_CHECKS = 4
 
 # Assign only while the pull request can still be reviewed. UNKNOWN is included because a PR whose
 # state could not be read is far more often open than closed, and the task re-reads the real state
@@ -406,6 +416,43 @@ def _add_assignees(
     return AssigneeWrite(assignees=assigned)
 
 
+def _pinned_reviewer_logins(*, team_id: int, report_id: str) -> set[str]:
+    """GitHub logins of the reviewers a person pinned on the report."""
+    pinned = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id).corrections.pinned
+    login_by_uuid = get_org_member_github_logins_by_user_uuid(
+        team_id, [entry.user_uuid for entry in pinned if entry.user_uuid]
+    )
+    return {
+        login.lower()
+        for entry in pinned
+        if (login := login_by_uuid.get(entry.user_uuid) if entry.user_uuid else entry.github_login)
+    }
+
+
+def _first_active_reviewer(
+    github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, logins: list[str]
+) -> list[str]:
+    """The highest-ranked reviewer who still commits to the repository, as a list of at most one.
+
+    A report keeps its reviewers for months, and commit history does not show who left the company
+    or moved on. So a reviewer selected from an older change can still be an active member with
+    repository access. A reviewer a person pinned on the report is asked without the check. A
+    reviewer with no attributed commit was not selected from commit history, so the check does not
+    apply to them. A failed probe stops the request, because a guess notifies the wrong person.
+    """
+    pinned = _pinned_reviewer_logins(team_id=team_id, report_id=report_id)
+    cutoff = timezone.now() - timedelta(days=REVIEW_ACTIVITY_WINDOW_DAYS)
+    for login in logins[:MAX_REVIEW_ACTIVITY_CHECKS]:
+        if login.lower() in pinned:
+            return [login]
+        last = github.get_author_last_commit(parsed.repository, login)
+        if last is None:
+            return []
+        if last.last_commit_at is None or last.last_commit_at >= cutoff:
+            return [login]
+    return []
+
+
 def _request_reviews(
     github: GitHubIntegration,
     *,
@@ -456,7 +503,18 @@ def _request_reviews(
     if removed is None:
         log.warning("signals.reviewer_pr_assignment.removed_reviews_fetch_failed")
         return []
-    wanted = [login for login in wanted if login.lower() not in removed][:1]
+    wanted = [login for login in wanted if login.lower() not in removed]
+    if owner is None and wanted:
+        try:
+            wanted = _first_active_reviewer(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=wanted)
+        except GitHubRateLimitError:
+            return []
+        except Exception:
+            log.exception("signals.reviewer_pr_assignment.reviewer_activity_check_failed")
+            return []
+        if not wanted:
+            log.info("signals.reviewer_pr_assignment.no_active_reviewer")
+    wanted = wanted[:1]
     if not wanted:
         return []
 
