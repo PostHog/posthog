@@ -42,7 +42,7 @@ _COLLAPSED_AGGREGATES = """
     argMax(error_message, version) AS latest_error_message,
     argMax(distinct_id, version) AS latest_distinct_id,
     argMax(person_id, version) AS latest_person_id,
-    min(scheduled_at) AS latest_scheduled_at,
+    argMax(first_scheduled_at, version) AS latest_scheduled_at,
     argMax(started_at, version) AS latest_started_at,
     argMax(finished_at, version) AS latest_finished_at,
     argMax(duration_ms, version) AS latest_duration_ms,
@@ -145,18 +145,20 @@ class HogInvocationResultsFiltersSerializer(serializers.Serializer):
         max_length=200,
         help_text=(
             "Only return invocations whose latest error_message contains this substring (case-insensitive). "
-            "Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target."
+            "Matches the rerun endpoint's filter of the same name."
         ),
     )
     after = serializers.CharField(
         required=False,
         default="-7d",
-        help_text="Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. "
-        "Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.",
+        help_text="Start of the time range, matched on the time the invocation was first scheduled, so a run "
+        "that finishes on a later day stays in the range it started in. Relative ('-7d', '-24h') or ISO 8601. "
+        "Defaults to -7d, so widen it explicitly for older runs.",
     )
     before = serializers.CharField(
         required=False,
-        help_text="End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.",
+        help_text="End of the time range, matched on the time the invocation was first scheduled. "
+        "Same format as 'after'. Defaults to now.",
     )
 
 
@@ -233,13 +235,16 @@ def _build_invocation_results_filters(
         where.append("distinct_id = %(distinct_id)s")
         kwargs["distinct_id"] = distinct_id
     # `after`/`before` come in as team-timezone-aware datetimes; convert to UTC before formatting so
-    # the naive string matches the UTC `scheduled_at` column (toDateTime64 reads it as UTC). Skipping
+    # the naive string matches the UTC `first_scheduled_at` column (toDateTime64 reads it as UTC). Skipping
     # this shifts the window by the team's offset — wrong for short windows on non-UTC teams.
+
+    # Every row of a run shares `first_scheduled_at`, while its `scheduled_at` days can differ and never
+    # merge. There is no `scheduled_at` bound, because a rescheduled row can land before the run's start.
     if after:
-        where.append("scheduled_at >= toDateTime64(%(after)s, 6)")
+        where.append("first_scheduled_at >= toDateTime64(%(after)s, 6)")
         kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     if before:
-        where.append("scheduled_at <= toDateTime64(%(before)s, 6)")
+        where.append("first_scheduled_at <= toDateTime64(%(before)s, 6)")
         kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
 
     outer_where = ["latest_is_deleted = 0"]
