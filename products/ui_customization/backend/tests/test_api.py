@@ -3,15 +3,19 @@ from typing import TYPE_CHECKING
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import OperationalError, connections, router
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 
 from products.ui_customization.backend.facade import api as customization_facade
+from products.ui_customization.backend.facade.tasks import delete_orphaned_fragments
 from products.ui_customization.backend.logic.analytics_sidebar import SIDEBAR_CONTEXT
+from products.ui_customization.backend.logic.cleanup import delete_orphaned_fragment_batch
 from products.ui_customization.backend.models import UserInterfaceFragment
 from products.ui_customization.backend.tests.conftest import UICustomizationTeamScopedTestMixin
 from products.ui_customization.backend.tests.test_analytics_sidebar import GROWTH_LAYOUT
@@ -75,6 +79,62 @@ class TestAnalyticsSidebarAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
         customization_facade.reset_analytics_sidebar(team=child, user=self.user)
 
         assert self._call("get").json()["customized"] is False
+
+    @parameterized.expand([("api",), ("orm",)])
+    def test_account_cleanup_after_leaving_organization_preserves_other_users(self, deletion: str) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        teammate = self._create_user("remaining-user@example.com")
+        self._call("put", {"layout": GROWTH_LAYOUT})
+        for team_id in [self.team.id, other_team.id]:
+            for user_id in [self.user.id, teammate.id]:
+                UserInterfaceFragment.objects.for_team(team_id).create(
+                    team_id=team_id, user_id=user_id, context="OtherSurface", content={}
+                )
+        OrganizationMembership.objects.filter(user=self.user).delete()
+        deleted_user_id = self.user.id
+        if deletion == "api":
+            assert self.client.delete("/api/users/@me/").status_code == 204
+        else:
+            User.objects.filter(id=deleted_user_id).delete()
+
+        with (
+            patch("products.ui_customization.backend.logic.cleanup.BATCH_SIZE", 2),
+            patch.object(delete_orphaned_fragments, "delay", side_effect=delete_orphaned_fragments.run),
+        ):
+            delete_orphaned_fragments.run()
+        assert not User.objects.filter(id=deleted_user_id).exists()
+        assert set(UserInterfaceFragment.objects.unscoped().values_list("team_id", "user_id", "context")) == {
+            (team_id, teammate.id, "OtherSurface") for team_id in [self.team.id, other_team.id]
+        }
+        assert Team.objects.filter(id__in=[self.team.id, other_team.id]).count() == 2
+
+    def test_account_cleanup_failure_keeps_rows_and_next_sweep_recovers_late_writes(self) -> None:
+        deleted_user = self._create_user("removed-user@example.com")
+        deleted_user_id = deleted_user.id
+        deleted_user.delete()
+        orphan = UserInterfaceFragment.objects.create(
+            team_id=self.team.id, user_id=deleted_user_id, context="OtherSurface", content={}
+        )
+        self._call("put", {"layout": GROWTH_LAYOUT})
+
+        def fail_user_lookup(execute, sql, params, many, context):
+            if 'FROM "posthog_user"' in sql:
+                raise OperationalError("User database unavailable")
+            return execute(sql, params, many, context)
+
+        with connections[router.db_for_write(User)].execute_wrapper(fail_user_lookup):
+            with self.assertRaisesRegex(OperationalError, "User database unavailable"):
+                delete_orphaned_fragment_batch()
+        assert UserInterfaceFragment.objects.filter(id=orphan.id).exists()
+
+        delete_orphaned_fragment_batch()
+        assert not UserInterfaceFragment.objects.filter(id=orphan.id).exists()
+        assert UserInterfaceFragment.objects.filter(user_id=self.user.id).exists()
+        UserInterfaceFragment.objects.create(
+            team_id=self.team.id, user_id=deleted_user_id, context="LateWrite", content={}
+        )
+        delete_orphaned_fragment_batch()
+        assert list(UserInterfaceFragment.objects.values_list("user_id", flat=True)) == [self.user.id]
 
     def test_team_deletion_removes_all_fragment_contexts_and_users_only_for_that_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other team")
