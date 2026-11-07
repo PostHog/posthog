@@ -615,8 +615,6 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(windowOf(callsBefore)).toEqual(first)
         })
 
-        // Rounding a window shorter than one bucket would reach into the selected period's first bucket and
-        // count events from before the selected start as current.
         // A previous period longer than the selected one makes flat traffic read as a drop. Sub-day ranges
         // keep the bounded skew documented on the period totals loader, so only whole-day ranges are pinned.
         it.each(['-7d', '-90d'])('compares %s against a previous period of the same length', async (dateFrom) => {
@@ -635,6 +633,8 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(Math.abs(previousMs - now.diff(selectedStart))).toBeLessThan(60_000)
         })
 
+        // Rounding a window shorter than one bucket would reach into the selected period's first bucket and
+        // count events from before the selected start as current.
         it('leaves a window shorter than one bucket where it starts', async () => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
