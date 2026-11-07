@@ -143,8 +143,8 @@ So with many metrics or many variants, the chance of _some_ spurious significanc
 
 - **Frequentist** at α=0.05 (the default): with 5 independent metrics, the chance of at least one false positive
   is ~23%; with 10 metrics, ~40%.
-- **Bayesian**: a result is significant when the chance to win is above the confidence level **or** below one minus it.
-  At the default 95% that is two tails of 5% each, so about one comparison in ten is marked significant when nothing changed, and the chance of at least one among 5 metrics is about 40%.
+- **Bayesian**: a result is significant when its credible interval does not include zero, the same rule as Frequentist.
+  At the default 95% that is two tails of 2.5% each, so the rates match the Frequentist ones above.
 
 (Confidence level is configurable — see C6.)
 
@@ -162,21 +162,19 @@ PostHog defaults to Bayesian, unless the project's default method says otherwise
 
 - **"96% chance to win"** is about _direction_ (test is better than the baseline), **not** the magnitude of
   the lift. Read the **credible interval** alongside it.
-- **The threshold is the confidence level.**
-  A result is significant when the chance to win is above the level, or below one minus it.
-  96% is significant at 90% and at 95%, and not at 99%.
-  At 95%, a chance to win below 5% is a significant loss.
+- **The threshold is two-sided.**
+  A result is significant when its credible interval does not include zero.
+  In chance-to-win terms, that is above `1 - (1 - level) / 2` or below one minus it: above 97.5% or below 2.5% at 95%.
+  96% is significant at 90%, and not at 95% or 99%.
+  At 95%, a chance to win below 2.5% is a significant loss.
 - **A metric whose goal is a decrease** (`goal: "decrease"` on the metric).
   The page shows one minus the stored value, so that a high chance to win always means "better".
-  The stored `chance_to_win` is not inverted: on such a metric a stored value below 5% is a significant win.
-- **"Significant, and the interval still crosses zero."**
-  Significance uses the chance to win, a one-sided value.
-  The interval shown is two-sided at the same level.
-  At 95%, a chance to win between 95% and 97.5% is significant while the 95% interval still includes zero.
-  Both statements are correct. The result is borderline.
-  The page's own help says otherwise: the tooltip of the interval column and the "How to read" tooltip say that a result is significant when the interval does not cross 0%.
-  That is the Frequentist rule.
-  Under Bayesian, the "Significant" column and the "Won" or "Lost" tag follow the chance to win.
+  The stored `chance_to_win` is not inverted: on such a metric a stored value below 2.5% is a significant win.
+- **"96% chance to win, and not significant."**
+  The chance to win is a one-sided value, and the interval is two-sided at the same level.
+  At 95%, a chance to win between 95% and 97.5% is not significant, because the 95% interval still includes zero.
+  The result is borderline.
+  The "Significant" column, the "Won" or "Lost" tag, and the interval always agree, as the "How to read" tooltip says.
 - **Don't ship the moment chance-to-win flips green** — early flips are within the noise band (C1).
 - **Flat priors.** PostHog uses a non-informative prior. Early swings
   aren't the prior pushing things around — they're the data being sparse.
@@ -211,8 +209,7 @@ A frequent source of confusion:
 
 - **Overlapping intervals do not imply non-significance, under either method.** Two intervals drawn per variant can overlap while the difference between the variants is significant.
   The page does not draw per-variant intervals: each test variant has one interval, of its difference from the baseline.
-  Under Frequentist, that interval decides: it does not cross 0 exactly when the result is significant (C6).
-  Under Bayesian, significance is determined by win probability, so that interval can still cross 0 on a significant result (C5).
+  Under both methods, that interval decides: it does not cross 0 exactly when the result is significant (C5, C6).
 - **p-values don't apply in Bayesian.** A question about "p < 0.05" is a frequentist frame. If the
   experiment is on Bayesian, redirect to win probability + credible interval.
 - **The method is a per-experiment setting with a project default.**
