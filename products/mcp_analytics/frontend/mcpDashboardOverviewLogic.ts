@@ -14,6 +14,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import {
     type ComparisonWindow,
@@ -26,8 +27,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
+    CachedMCPDashboardQueryResponse,
     HogQLFilters,
-    HogQLQueryResponse,
+    MCPAnalyticsPropertyFilter,
+    MCPDashboardQuery,
+    MCPDashboardSection,
     MCPHarnessBreakdownItem,
     MCPModelBreakdownItem,
     MCPProtocolVersionBreakdownItem,
@@ -48,97 +52,6 @@ export interface DateFilter {
 }
 
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
-
-// KPI tiles compare the selected window against the immediately preceding window
-// of equal length. The current/previous split is applied in `buildKPIs` against
-// the time buckets, so the query only needs the doubled date range. `__BUCKET__`
-// is replaced with a dateTrunc at the active interval at call time.
-//
-// Key on the canonical event only — also matching the legacy `mcp_tool_call` alias would double-count.
-const KPI_QUERY = `
-SELECT
-    __BUCKET__ AS bucket,
-    countDistinctIf($session_id, $session_id != '') AS sessions,
-    count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}
-GROUP BY bucket
-ORDER BY bucket
-`
-
-// Distinct MCP users for the "Users" tile — how many distinct people made tool calls.
-// Counted over the doubled window like the KPI query, then split into the selected period
-// and its equal-length predecessor with a single conditional uniq so the comparison is a
-// true distinct-user count (summing per-bucket distinct users would over-count anyone
-// active on more than one day). `__CUR_START__` is the selected-period boundary, injected
-// as a timezone-aware toDateTime at call time.
-// Users are counted by distinct_id, not person_id. HogQL resolves person_id through a join
-// over every person override of the project, and on large projects that join runs out of
-// memory. A person with several distinct_ids counts once per distinct_id.
-const PERIOD_TOTALS_QUERY = `
-SELECT
-    uniqIf(distinct_id, timestamp >= __CUR_START__) AS current_users,
-    uniqIf(distinct_id, timestamp < __CUR_START__) AS prior_users,
-    round(quantileIf(0.95)(toFloat(properties.$mcp_duration_ms), timestamp >= __CUR_START__)) AS current_p95,
-    round(quantileIf(0.95)(toFloat(properties.$mcp_duration_ms), timestamp < __CUR_START__)) AS prior_p95
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}
-`
-
-// Per-session rollup powering the Notable sessions block. The selector
-// applies fixed rules over this set; no per-rule SQL.
-const SESSION_ROWS_QUERY = `
-SELECT
-    $session_id AS session_id,
-    count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
-    uniq(toString(properties.$mcp_tool_name)) AS distinct_tools,
-    max(timestamp) AS last_seen
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND $session_id != ''
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}
-GROUP BY session_id
-HAVING tool_calls >= 1
-ORDER BY tool_calls DESC
-LIMIT 500
-`
-
-// Mirrors MCPToolQualityRowsQueryRunner (products/mcp_analytics/backend/hogql_queries/tool_quality_tables.py)
-// for the compact reliability matrix on the overview. Limited columns + 50 rows.
-const TOOL_ROWS_QUERY = `
-SELECT
-    toString(properties.$mcp_tool_name) AS tool,
-    count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}
-GROUP BY tool
-ORDER BY total_calls DESC
-LIMIT 50
-`
-
-// The harness breakdown is resolved server-side by the MCPHarnessBreakdownQuery
-// runner (products/mcp_analytics/backend/hogql_queries/harness_breakdown.py) — the
-// single source of truth for client → harness labelling — so the tile reads typed,
-// already-bucketed rows rather than re-deriving the labels in the browser.
 
 // The `__BUCKET__` expression the KPI query is built with. toString() is load-bearing: a bare
 // dateTrunc returns a typed DateTime that the query API serializes with the project's UTC offset
@@ -329,12 +242,34 @@ export function buildDailyActivity(rows: ActivityRow[], bucketKeys: string[]): D
     }
 }
 
-// Merge the dashboard's active filters with a doubled comparison window's date range.
-// Shared by the KPI and Users loaders so both tiles are scoped to the exact same window —
-// the tile-parity the reload test asserts. Keep the two loaders reading from here so the
-// window/filter plumbing can't drift between them.
-function kpiWindowFilters(queryFilters: HogQLFilters, kpiWindow: ComparisonWindow): HogQLFilters {
-    return { ...queryFilters, dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo } }
+// The window opens on a whole minute so the KPI and Users queries keep one cache key for that minute
+// instead of a new one per millisecond. A minute is the most the previous period may grow: rounding to
+// a whole bucket would make it up to a bucket longer than the selected period and skew every delta.
+function kpiComparisonWindow(dateFilter: DateFilter, timezone: string, interval: IntervalType): ComparisonWindow {
+    const window = buildComparisonWindow(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
+    return { ...window, dateFrom: dayjs(window.dateFrom).startOf('minute').toISOString() }
+}
+
+interface SectionQueryInputs {
+    dateFilter: DateFilter
+    interval: IntervalType
+    timezone: string
+    sharedQueryFilters: MCPSharedQueryFilters
+}
+
+function dashboardQuery(section: MCPDashboardSection, inputs: SectionQueryInputs): MCPDashboardQuery {
+    const { dateFilter, interval, timezone, sharedQueryFilters } = inputs
+    const window = kpiComparisonWindow(dateFilter, timezone, interval)
+    return {
+        kind: NodeKind.MCPDashboardQuery,
+        sections: [section],
+        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+        interval,
+        // The shared filter bar only offers event and person filters, which the server accepts.
+        properties: sharedQueryFilters.properties as MCPAnalyticsPropertyFilter[],
+        filterTestAccounts: sharedQueryFilters.filterTestAccounts,
+        comparison: { dateFrom: window.dateFrom, currentStartBucket: window.currentStartBucket },
+    }
 }
 
 function parseRows(rawRows: unknown[][]): BucketRow[] {
@@ -433,9 +368,14 @@ export type FailedLoads = Partial<
 
 // Drops a request superseded by a newer one, even when it fails, so a late failure can't mark the
 // newer result as failed.
-async function queryLatest<T>(query: Parameters<typeof api.query>[0], breakpoint: BreakPointFunction): Promise<T> {
+async function querySection<T>(query: MCPDashboardQuery, breakpoint: BreakPointFunction): Promise<T[]> {
     try {
-        return (await api.query(query)) as T
+        const [section] = query.sections
+        const result = ((await api.query(query)) as CachedMCPDashboardQueryResponse).results[section]
+        if (result?.error) {
+            throw new Error(result.error)
+        }
+        return (result?.results as T[] | undefined) ?? []
     } finally {
         breakpoint()
     }
@@ -802,23 +742,9 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             EMPTY_KPIS,
             {
                 loadKPIs: async (_: void, breakpoint) => {
-                    const { interval } = values
-                    const kpiWindow = buildComparisonWindow(
-                        values.dateFilter.dateFrom,
-                        values.dateFilter.dateTo,
-                        values.timezone,
-                        interval
-                    )
-                    const response = await queryLatest<HogQLQueryResponse>(
-                        {
-                            kind: NodeKind.HogQLQuery,
-                            query: KPI_QUERY.replace('__BUCKET__', bucketExpr(interval)),
-                            filters: kpiWindowFilters(values.queryFilters, kpiWindow),
-                        },
-                        breakpoint
-                    )
-                    const rows = parseRows((response?.results as unknown[][]) ?? [])
-                    return buildKPIs(rows, kpiWindow.currentStartBucket)
+                    const query = dashboardQuery(MCPDashboardSection.Kpis, values)
+                    const rows = await querySection<unknown[]>(query, breakpoint)
+                    return buildKPIs(parseRows(rows), query.comparison.currentStartBucket)
                 },
             },
         ],
@@ -826,30 +752,8 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             EMPTY_PERIOD_TOTALS,
             {
                 loadPeriodTotals: async (_: void, breakpoint): Promise<PeriodTotals> => {
-                    const { interval, timezone } = values
-                    const kpiWindow = buildComparisonWindow(
-                        values.dateFilter.dateFrom,
-                        values.dateFilter.dateTo,
-                        timezone,
-                        interval
-                    )
-                    // Split the doubled window at the selected period's start. currentStartBucket is
-                    // interval-aligned (buildComparisonWindow truncates to the bucket start), so comparing the raw
-                    // `timestamp` against toDateTime(bucket, tz) lands on the same instant as the KPI
-                    // tiles' dateTrunc bucket-string split — keeping this count consistent with them.
-                    // (For rolling sub-day ranges the two halves can differ by up to two intervals, the
-                    // same bounded skew the KPI tiles already carry; splitting on the raw start instead
-                    // would equalize the halves but desync Users from the other tiles, so don't.)
-                    const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`
-                    const response = await queryLatest<HogQLQueryResponse>(
-                        {
-                            kind: NodeKind.HogQLQuery,
-                            query: PERIOD_TOTALS_QUERY.replace(/__CUR_START__/g, curStart),
-                            filters: kpiWindowFilters(values.queryFilters, kpiWindow),
-                        },
-                        breakpoint
-                    )
-                    const row = (response?.results as unknown[][])?.[0] ?? []
+                    const query = dashboardQuery(MCPDashboardSection.PeriodTotals, values)
+                    const row = (await querySection<unknown[]>(query, breakpoint))[0] ?? []
                     const metric = (
                         value: number,
                         previousValue: number,
@@ -873,15 +777,10 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as ToolRow[],
             {
                 loadToolRows: async (_: void, breakpoint) => {
-                    const response = await queryLatest<HogQLQueryResponse>(
-                        {
-                            kind: NodeKind.HogQLQuery,
-                            query: TOOL_ROWS_QUERY,
-                            filters: values.queryFilters,
-                        },
+                    const raw = await querySection<unknown[]>(
+                        dashboardQuery(MCPDashboardSection.ToolRows, values),
                         breakpoint
                     )
-                    const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         tool: String(r[0] ?? ''),
                         total_calls: Number(r[1] ?? 0),
@@ -896,15 +795,10 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as SessionRow[],
             {
                 loadSessionRows: async (_: void, breakpoint) => {
-                    const response = await queryLatest<HogQLQueryResponse>(
-                        {
-                            kind: NodeKind.HogQLQuery,
-                            query: SESSION_ROWS_QUERY,
-                            filters: values.queryFilters,
-                        },
+                    const raw = await querySection<unknown[]>(
+                        dashboardQuery(MCPDashboardSection.SessionRows, values),
                         breakpoint
                     )
-                    const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         session_id: String(r[0] ?? ''),
                         tool_calls: Number(r[1] ?? 0),
@@ -921,72 +815,43 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as HarnessRow[],
             {
                 loadHarnessRows: async (_: void, breakpoint) => {
-                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = await queryLatest<{ results?: MCPHarnessBreakdownItem[] }>(
-                        {
-                            kind: NodeKind.MCPHarnessBreakdownQuery,
-                            dateRange,
-                            properties,
-                            filterTestAccounts,
-                        },
+                    const rows = await querySection<MCPHarnessBreakdownItem>(
+                        dashboardQuery(MCPDashboardSection.HarnessRows, values),
                         breakpoint
                     )
-                    return (response?.results ?? []).map(toHarnessRow)
+                    return rows.map(toHarnessRow)
                 },
             },
         ],
         modelRows: [
             [] as ModelRow[],
             {
-                loadModelRows: async (_: void, breakpoint): Promise<ModelRow[]> => {
-                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = await queryLatest<{ results?: MCPModelBreakdownItem[] }>(
-                        {
-                            kind: NodeKind.MCPModelBreakdownQuery,
-                            dateRange,
-                            properties,
-                            filterTestAccounts,
-                        },
+                loadModelRows: async (_: void, breakpoint): Promise<ModelRow[]> =>
+                    querySection<MCPModelBreakdownItem>(
+                        dashboardQuery(MCPDashboardSection.ModelRows, values),
                         breakpoint
-                    )
-                    return response?.results ?? []
-                },
+                    ),
             },
         ],
         protocolVersionRows: [
             [] as MCPProtocolVersionBreakdownItem[],
             {
-                loadProtocolVersionRows: async (_: void, breakpoint): Promise<MCPProtocolVersionBreakdownItem[]> => {
-                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = await queryLatest<{ results?: MCPProtocolVersionBreakdownItem[] }>(
-                        {
-                            kind: NodeKind.MCPProtocolVersionBreakdownQuery,
-                            dateRange,
-                            properties,
-                            filterTestAccounts,
-                        },
+                loadProtocolVersionRows: async (_: void, breakpoint): Promise<MCPProtocolVersionBreakdownItem[]> =>
+                    querySection<MCPProtocolVersionBreakdownItem>(
+                        dashboardQuery(MCPDashboardSection.ProtocolVersionRows, values),
                         breakpoint
-                    )
-                    return response?.results ?? []
-                },
+                    ),
             },
         ],
         activityRows: [
             [] as ActivityRow[],
             {
                 loadActivityRows: async (_: void, breakpoint): Promise<ActivityRow[]> => {
-                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = await queryLatest<{ results?: MCPToolCallsAndErrorsItem[] }>(
-                        {
-                            kind: NodeKind.MCPToolCallsAndErrorsQuery,
-                            dateRange,
-                            properties,
-                            filterTestAccounts,
-                            interval: values.interval,
-                        },
+                    const rows = await querySection<MCPToolCallsAndErrorsItem>(
+                        dashboardQuery(MCPDashboardSection.ActivityRows, values),
                         breakpoint
                     )
-                    return (response?.results ?? []).map((r) => ({
+                    return rows.map((r) => ({
                         day: normalizeBucket(r.bucket),
                         successes: r.successes,
                         errors: r.errors,
@@ -998,18 +863,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as ToolDailyRow[],
             {
                 loadToolDailyRows: async (_: void, breakpoint): Promise<ToolDailyRow[]> => {
-                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = await queryLatest<{ results?: MCPToolCallBreakdownItem[] }>(
-                        {
-                            kind: NodeKind.MCPToolCallBreakdownQuery,
-                            dateRange,
-                            properties,
-                            filterTestAccounts,
-                            interval: values.interval,
-                        },
+                    const rows = await querySection<MCPToolCallBreakdownItem>(
+                        dashboardQuery(MCPDashboardSection.ToolDailyRows, values),
                         breakpoint
                     )
-                    return (response?.results ?? []).map((r) => ({
+                    return rows.map((r) => ({
                         day: normalizeBucket(r.bucket),
                         tool: r.tool,
                         calls: r.calls,
