@@ -89,6 +89,8 @@ export const metricsAttributesRetrieveQueryMetricNameMax = 255
 export const metricsAttributesRetrieveQuerySearchDefault = ``
 export const metricsAttributesRetrieveQuerySearchMax = 255
 
+export const metricsAttributesRetrieveQuerySearchValuesDefault = false
+
 export const MetricsAttributesRetrieveQueryParams = () => zod.object({
     dateFrom: zod.iso
         .datetime({ offset: true })
@@ -114,6 +116,12 @@ export const MetricsAttributesRetrieveQueryParams = () => zod.object({
         .max(metricsAttributesRetrieveQuerySearchMax)
         .default(metricsAttributesRetrieveQuerySearchDefault)
         .describe('Substring filter (case-insensitive) applied to attribute keys.'),
+    search_values: zod
+        .boolean()
+        .default(metricsAttributesRetrieveQuerySearchValuesDefault)
+        .describe(
+            "Also list keys whose values contain the search term, on searches of 4 or more characters. Value matches come after key matches and carry matchedOn='value' with the matching matchedValue."
+        ),
 })
 
 /**
