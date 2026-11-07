@@ -34,7 +34,7 @@ export function WorkflowImportNotesBanner({ id }: { id: string }): JSX.Element |
                         'data-attr': 'workflow-import-notes-retry',
                     }}
                 >
-                    The import notes for this workflow didn't load. If it was imported from Customer.io, check them
+                    The import notes for this workflow didn't load. If it was imported from another tool, check them
                     before you enable it.
                 </LemonBanner>
             </div>
@@ -65,7 +65,8 @@ export function WorkflowImportNotesBanner({ id }: { id: string }): JSX.Element |
                         : undefined
                 }
             >
-                Imported from Customer.io ({importRecord.source_name || importRecord.source_id}). {summary}
+                Imported from {importRecord.source === 'resend' ? 'Resend' : 'Customer.io'} (
+                {importRecord.source_name || importRecord.source_id}). {summary}
                 {expanded && (
                     <div className="mt-2 flex flex-col gap-2">
                         {LEVEL_ORDER.map((level) => {

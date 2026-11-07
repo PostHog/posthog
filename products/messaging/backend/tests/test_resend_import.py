@@ -1,7 +1,7 @@
 import re
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 from posthog.test.base import BaseTest
@@ -14,6 +14,9 @@ from parameterized import parameterized
 
 from posthog.integrations import IntegrationManager
 
+from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cohorts.backend.models.cohort import Cohort
 from products.messaging.backend.facade.provider_imports import get_provider_import_run
 from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
 from products.messaging.backend.models.message_category import MessageCategory
@@ -28,10 +31,22 @@ from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
 from products.messaging.backend.services.suppression import remove_suppression
+from products.workflows.backend.facade.workflows import get_workflow
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "resend_account.json").read_text())
-ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs", "templates", "domains"]
+ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs", "templates", "automations", "domains"]
 API_KEY = "re_full_access_key"
+
+
+def _sync_email_template() -> None:
+    sync_template_to_db(
+        {
+            **MOCK_NODE_TEMPLATES[0],
+            "id": "template-email",
+            "name": "Email",
+            "inputs_schema": [{"key": "email", "type": "native_email", "label": "Email", "required": True}],
+        }
+    )
 
 
 class FakeResend:
@@ -55,7 +70,7 @@ class FakeResend:
             return self._response(status, {"name": "rate_limit_exceeded", "message": "Too many"}, headers)
         if match := re.fullmatch(r"/contacts/([^/]+)/topics", path):
             return self._page(self.data["contact_topics"].get(match.group(1), []), params)
-        if match := re.fullmatch(r"/(templates|domains|automations)/([^/]+)", path):
+        if match := re.fullmatch(r"/(templates|domains|automations|segments)/([^/]+)", path):
             for row in self.data[match.group(1)]:
                 if match.group(2) in (row["id"], row.get("alias")):
                     return self._response(200, row)
@@ -81,6 +96,7 @@ class TestResendImport(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.resend = FakeResend()
+        _sync_email_template()
         client = "products.messaging.backend.services.resend_client"
         self.sleep = self._patch(f"{client}.time.sleep")
         self.start_workflow = self._patch(
@@ -290,6 +306,7 @@ class TestResendImport(BaseTest):
         assert edited.content["email"]["subject"] == "Edited here"
         assert MessageTemplate.objects.filter(team_id=self.team.id).count() == templates_before
         assert run.progress["templates"]["counts"]["already_present"] == len(FIXTURES["templates"])
+        assert run.progress["automations"]["counts"] == {"already_present": len(FIXTURES["automations"])}
 
     def test_templates_carry_sender_key_and_review_notes(self) -> None:
         sender = IntegrationManager.email.credentials.create(
@@ -311,6 +328,71 @@ class TestResendImport(BaseTest):
         assert any("{{#if IS_PRO}}" in note and "{{else}}" in note for note in items["Conditional footer"]["notes"])
         imported_key = MessageTemplate.objects.filter(team_id=self.team.id, name__startswith="Přivítání").get().key
         assert imported_key is not None and imported_key.startswith("resend-")
+
+    def test_automations_become_drafts_with_notes(self) -> None:
+        run = self._run(["automations"])
+
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        assert items["Welcome series"]["status"] == "created"
+        workflow_id = items["Welcome series"]["url"].split("/")[2]
+        workflow = get_workflow(
+            team_id=self.team.id, workflow_id=workflow_id, user_access_control=None, required_level=None
+        )
+        assert workflow.status == "draft"
+        actions = cast(list[dict[str, Any]], workflow.actions)
+        action_types = {action["id"]: action["type"] for action in actions}
+        assert action_types["welcome"] == "function_email"
+        assert action_types["wait"] == "delay"
+        assert action_types["is_pro"] == "conditional_branch"
+        assert action_types["wait_upgrade"] == "wait_until_condition"
+        assert action_types["update"] == "function"
+        update = next(a for a in actions if a["id"] == "update")["config"]
+        assert update["inputs"]["set_properties"]["value"] == {"first_name": "{event.properties.first_name}"}
+        edges = {(edge["from"], edge["to"], edge["type"]) for edge in cast(list[dict[str, Any]], workflow.edges)}
+        assert ("wait_upgrade", "receipt", "branch") in edges
+        html = next(a for a in actions if a["id"] == "welcome")["config"]["inputs"]["email"]["value"]["html"]
+        assert "event.properties.name" in html
+        assert '"free"' in html
+        assert any("user.created" in note for note in items["Welcome series"]["notes"])
+        assert any("couldn't read this email's template" in note for note in items["Re-engagement"]["notes"])
+
+    def test_segments_become_one_static_cohort_that_later_imports_respect(self) -> None:
+        run = self._run(["automations"])
+        cohort = Cohort.objects.get(team_id=self.team.id, description="Imported from Resend segment seg-1.")
+        assert cohort.is_static
+        assert cohort.name == "Pro customers (from Resend)"
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        workflow = get_workflow(
+            team_id=self.team.id,
+            workflow_id=items["Welcome series"]["url"].split("/")[2],
+            user_access_control=None,
+            required_level=None,
+        )
+        tag = next(action for action in cast(list[dict[str, Any]], workflow.actions) if action["id"] == "tag")
+        assert tag["config"]["inputs"]["cohort_id"]["value"] == cohort.id
+
+        # A new automation naming the same segment reuses the cohort, and a deleted one stays deleted.
+        second = {**FIXTURES["automations"][0], "id": "a0000000-0000-4000-8000-000000000003", "name": "Copy"}
+        third = {**FIXTURES["automations"][0], "id": "a0000000-0000-4000-8000-000000000004", "name": "Another copy"}
+        self.resend.data = {**self.resend.data, "automations": [*self.resend.data["automations"], second]}
+        self._run(["automations"])
+        assert Cohort.objects.filter(team_id=self.team.id, description=cohort.description).count() == 1
+        Cohort.objects.filter(id=cohort.id).update(deleted=True)
+        self.resend.data = {**self.resend.data, "automations": [*self.resend.data["automations"], third]}
+        run = self._run(["automations"])
+
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        assert any("stays deleted" in note for note in items["Another copy"]["notes"])
+        assert Cohort.objects.filter(team_id=self.team.id, description=cohort.description).count() == 1
+
+    def test_a_segment_resend_no_longer_has_leaves_the_step_to_fill_in(self) -> None:
+        self.resend.data = {**self.resend.data, "segments": []}
+        run = self._run(["automations"])
+
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        assert items["Welcome series"]["status"] == "created"
+        assert any("no longer exists in Resend" in note for note in items["Welcome series"]["notes"])
+        assert not Cohort.objects.filter(team_id=self.team.id, is_static=True).exists()
 
     def test_run_state_exposes_summary_for_the_ui(self) -> None:
         run = self._run(["suppressions", "domains"])

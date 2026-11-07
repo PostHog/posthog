@@ -8,8 +8,10 @@ from products.workflows.backend.services.customerio_import.service import (
     record_import,
 )
 from products.workflows.backend.services.customerio_import.translator import translate_campaign
+from products.workflows.backend.services.resend_import.drafts import import_resend_automation
 
 __all__ = [
+    "import_resend_automation",
     "import_content",
     "import_for_workflow",
     "previous_import",

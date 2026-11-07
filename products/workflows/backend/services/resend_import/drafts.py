@@ -1,0 +1,95 @@
+"""Saves a translated Resend automation as a draft workflow."""
+
+from collections.abc import Mapping
+from typing import Any
+
+from posthog.models import Team, User
+
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.cdp.backend.flag_gated_templates import hidden_gated_template_ids
+from products.cohorts.backend.facade.api import CohortRef, create_empty_static_cohort, find_cohort_ref_by_description
+from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail, ProviderAutomationResult
+from products.workflows.backend.facade.enums import WorkflowImportSource
+from products.workflows.backend.services.customerio_import.service import previous_import
+from products.workflows.backend.services.resend_import.translator import (
+    SegmentCohort,
+    TranslationContext,
+    translate_automation,
+)
+
+
+def import_resend_automation(
+    team_id: int,
+    user_id: int | None,
+    automation: dict[str, Any],
+    emails: Mapping[str, ImportedEmail | None],
+    *,
+    step_emails: Mapping[str, ImportedStepEmail] | None = None,
+    segments: Mapping[str, str | None] | None = None,
+) -> ProviderAutomationResult:
+    """Saves a Resend automation as a draft workflow. An automation imported before stays as it is.
+
+    `segments` holds each segment's name by id, or None if Resend no longer has it.
+    """
+    # The draft check lives in the views layer, and importing it at load time would bring the whole API with it.
+    from products.workflows.backend.presentation.views.workflow_import_drafts import (  # noqa: PLC0415
+        save_provider_draft,
+    )
+
+    team = Team.objects.get(id=team_id)
+    user = User.objects.filter(id=user_id).first()
+    context = TranslationContext(step_emails=step_emails or {})
+    source_id = str(automation.get("id"))
+    # A rerun leaves the earlier draft alone, so it must not create cohorts that draft doesn't use.
+    if user is not None and previous_import(team, source_id, WorkflowImportSource.RESEND).record_id is None:
+        access = UserAccessControl(user=user, team=team)
+        step_types = {step.get("type") for step in automation.get("steps") or [] if isinstance(step, dict)}
+        context = TranslationContext(
+            step_emails=step_emails or {},
+            segment_cohorts={
+                segment_id: _segment_cohort(team_id, user, access, segment_id, name)
+                for segment_id, name in (segments or {}).items()
+            },
+            can_opt_out=access.check_access_level_for_resource("hog_flow", "editor"),
+            unavailable_templates=frozenset(hidden_gated_template_ids(team))
+            if step_types & {"add_to_segment", "contact_update"}
+            else frozenset(),
+        )
+    return save_provider_draft(
+        team_id, user_id, translate_automation(automation, emails, context), WorkflowImportSource.RESEND
+    )
+
+
+def _segment_cohort(
+    team_id: int, user: User, access: UserAccessControl, segment_id: str, name: str | None
+) -> SegmentCohort:
+    if name is None:
+        return SegmentCohort(problem="This segment no longer exists in Resend.")
+    # Nothing else ties a cohort to a segment, and the description stays the same when either one is renamed.
+    description = f"Imported from Resend segment {segment_id}."
+    existing = find_cohort_ref_by_description(team_id=team_id, description=description)
+    if existing is not None:
+        return _reused_cohort(existing, access, name)
+    if not access.check_access_level_for_resource("cohort", "editor"):
+        return SegmentCohort(problem="Creating a cohort for this segment needs edit access to cohorts.")
+    cohort_name = f"{name[:380]} (from Resend)"
+    created = create_empty_static_cohort(
+        team_id=team_id, name=cohort_name, description=description, created_by_id=user.id
+    )
+    return SegmentCohort(name=cohort_name, cohort_id=created.id)
+
+
+def _reused_cohort(existing: CohortRef, access: UserAccessControl, name: str) -> SegmentCohort:
+    if existing.deleted:
+        return SegmentCohort(
+            problem=f'The cohort made for the Resend segment "{name}" was deleted, so it stays deleted.'
+        )
+    if not existing.is_static:
+        return SegmentCohort(problem=f'The cohort made for the Resend segment "{name}" isn\'t static anymore.')
+    ref = ObjectAccessRef(
+        resource="cohort", id=str(existing.id), team_id=existing.team_id, created_by_id=existing.created_by_id
+    )
+    if not access.check_access_level_for_ref(ref, "editor"):
+        return SegmentCohort(problem=f'Adding people to the cohort for the Resend segment "{name}" needs edit access.')
+    return SegmentCohort(name=f"{name} (from Resend)", cohort_id=existing.id)
