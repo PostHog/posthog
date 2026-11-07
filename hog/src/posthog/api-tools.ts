@@ -11,8 +11,10 @@ import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import { VERSION } from '@/version'
 
-import { ApiError } from './api'
+import { ApiError, stepUpRequired } from './api'
+import type { Credentials } from './credentials'
 import type { OrganizationId, ProjectId } from './ids'
+import { addToKeyHint, canStepUp, isScopeName } from './scope-challenge'
 
 export interface ToolGroup {
     slug: string
@@ -34,7 +36,7 @@ export interface ToolRow {
 }
 
 const SCOPES_HINT =
-    'For a personal API key, add the scopes to it in PostHog under Settings, Personal API keys. For a login, run `hog auth login` again and keep these scopes when you approve it.'
+    'If you logged in with `hog auth login`, run `hog auth add` with the scopes PostHog named. If you use a personal API key, add the scopes to it in PostHog under Settings, Personal API keys.'
 
 // "Events & properties" becomes "events-properties".
 export function groupSlug(name: string): string {
@@ -135,15 +137,24 @@ export async function withApiConnection<T>(
     )
 }
 
-export function missingScopesError(tool: string, scopes: readonly string[]): HogError {
-    return new HogError('missing_scopes', `Your credentials need ${scopes.join(', ')} to call ${tool}.`, SCOPES_HINT)
+export function missingScopesError(
+    tool: string,
+    scopes: readonly string[],
+    credentials: Credentials | undefined
+): HogError {
+    const message = `Your credentials need ${scopes.join(', ')} to call ${tool}.`
+    const loginCanAdd = canStepUp(credentials)
+    if (loginCanAdd && scopes.every(isScopeName)) {
+        return stepUpRequired(scopes, { message, host: credentials?.key.host })
+    }
+    return new HogError('missing_scopes', message, loginCanAdd ? SCOPES_HINT : addToKeyHint(scopes))
 }
 
-export function toHogError(error: ApiToolError, tool?: string): HogError {
+export function toHogError(error: ApiToolError, tool?: string, credentials?: Credentials): HogError {
     switch (error.code) {
         case 'permission_denied':
             return error.missingScope && tool
-                ? missingScopesError(tool, [error.missingScope])
+                ? missingScopesError(tool, [error.missingScope], credentials)
                 : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT)
         case 'validation_error':
         case 'invalid_input':

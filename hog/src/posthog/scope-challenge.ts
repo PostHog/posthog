@@ -1,0 +1,37 @@
+import { parseInsufficientScopeChallenge } from '@posthog/mcp/src/lib/missing-scope'
+
+import type { Credentials } from './credentials'
+
+// Scopes can come from the server, and agents run the command they end up in.
+const SCOPE_NAME = /^[a-z][a-z0-9_]*:(read|write)$/
+
+export function isScopeName(scope: string): boolean {
+    return SCOPE_NAME.test(scope)
+}
+
+// Asking for `x:write` grants `x:read` too, so the read scope would only lengthen the request.
+export function fewestScopes(scopes: readonly string[]): string[] {
+    return scopes.filter((scope) => !(scope.endsWith(':read') && scopes.includes(scope.replace(/:read$/, ':write'))))
+}
+
+// `--host` or posthog.json can pick a login that isn't the default. Only URL characters keep the command safe.
+const SHELL_SAFE_HOST = /^https?:\/\/[\w.:-]+(\/[\w./-]*)?$/
+
+export function stepUpCommand(scopes: readonly string[], host?: string): string {
+    const hostFlag = host !== undefined && SHELL_SAFE_HOST.test(host) ? ` --host ${host}` : ''
+    return `hog auth add${hostFlag} ${scopes.join(' ')}`
+}
+
+export function canStepUp(credentials: Credentials | undefined): boolean {
+    return credentials?.source === 'store' && credentials.key.status().kind === 'oauth'
+}
+
+export function addToKeyHint(scopes: readonly string[]): string {
+    return `Add ${scopes.join(', ')} to the personal API key in PostHog under Settings, Personal API keys.`
+}
+
+// RFC 6750 section 3.1. A newer PostHog can name a scope this hog doesn't know, so only the shape is checked.
+export function challengedScopes(header: string | null): string[] | undefined {
+    const scopes = parseInsufficientScopeChallenge(header)?.filter(isScopeName)
+    return scopes?.length ? scopes : undefined
+}
