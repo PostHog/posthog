@@ -23,7 +23,7 @@ from django.conf import settings
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -36,6 +36,7 @@ from posthog.models.integration.github import _is_safe_github_repo_path
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import async_connect
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.enrollment import enrolled_sources
@@ -411,6 +412,28 @@ async def discover_failed_depot_attempts_activity(inputs: DepotDiscoveryInputs) 
     return await database_sync_to_async(_discover_failed_depot_attempts, thread_sensitive=False)(inputs)
 
 
+# A fetch child in one of these states blocks a new start under ALLOW_DUPLICATE_FAILED_ONLY.
+_STARTED_FETCHES_QUERY = (
+    '(WorkflowType = "fetch-github-job-log" OR WorkflowType = "fetch-depot-job-log")'
+    ' AND (ExecutionStatus = "Running" OR ExecutionStatus = "Completed")'
+    ' AND StartTime >= "{since}"'
+)
+
+
+@activity.defn
+async def list_started_job_log_fetches_activity(since_iso: str) -> list[str]:
+    """Ids of the fetch children that started after ``since_iso`` and did not fail.
+
+    Each tick discovers the same jobs again for the full lookback. A start for a job that already has
+    a running or completed child raises WorkflowAlreadyStartedError, and the tracing interceptor
+    records each of these expected rejections as an error span, so the coordinator skips these ids.
+    """
+    client = await async_connect()
+    return [
+        execution.id async for execution in client.list_workflows(query=_STARTED_FETCHES_QUERY.format(since=since_iso))
+    ]
+
+
 def _previous_depot_cursors() -> dict[str, DepotAttemptCursor]:
     # A schedule gives each run the result of the last run that completed. The cursors in it let a
     # backlog larger than one tick's cap page forward across ticks, instead of each tick reading the
@@ -435,14 +458,31 @@ class GithubJobLogsCoordinatorWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        already_started: set[str] = set()
+        if workflow.patched("skip-started-job-logs-2026-11"):
+            try:
+                already_started = set(
+                    await workflow.execute_activity(
+                        list_started_job_log_fetches_activity,
+                        cutoff_iso,
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                )
+            except ActivityError:
+                # Without the list, the reuse policy still rejects each duplicate start.
+                workflow.logger.warning("github_job_logs_started_fetches_unavailable")
         started = 0
         for job in jobs:
             inputs = FetchJobLogInputs(**job)
+            workflow_id = f"gh-logs-{inputs.team_id}-{inputs.job_id}"
+            if workflow_id in already_started:
+                continue
             try:
                 await workflow.start_child_workflow(
                     FetchGithubJobLogWorkflow.run,
                     inputs,
-                    id=f"gh-logs-{inputs.team_id}-{inputs.job_id}",
+                    id=workflow_id,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     execution_timeout=timedelta(minutes=15),
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
@@ -460,13 +500,16 @@ class GithubJobLogsCoordinatorWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         for attempt in depot.attempts:
+            workflow_id = f"depot-logs-{attempt.team_id}-{attempt.attempt_id}"
+            if workflow_id in already_started:
+                continue
             try:
                 # No execution timeout, because the retry policy bounds the child. While the child
                 # waits out Depot's Retry-After, its id stays taken, so a later tick cannot fetch early.
                 await workflow.start_child_workflow(
                     FetchDepotJobLogWorkflow.run,
                     attempt,
-                    id=f"depot-logs-{attempt.team_id}-{attempt.attempt_id}",
+                    id=workflow_id,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                 )

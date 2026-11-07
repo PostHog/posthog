@@ -1,19 +1,29 @@
+import uuid
+import asyncio
+import dataclasses
 from types import SimpleNamespace
+from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
+from temporalio import activity, workflow
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.team import Team
 
-from products.engineering_analytics.backend.logic.job_logs.activity import FetchDepotJobLogInputs
+from products.engineering_analytics.backend.logic.job_logs.activity import FetchDepotJobLogInputs, FetchJobLogInputs
 from products.engineering_analytics.backend.logic.job_logs.coordinator import (
     DepotAttemptCursor,
     DepotDiscovery,
     DepotDiscoveryInputs,
+    GithubJobLogsCoordinatorWorkflow,
     _discover_failed_depot_attempts,
     _discover_jobs_with_diagnostics,
     _github_source_params,
@@ -218,3 +228,66 @@ class TestQueryJobsWithDiagnostics:
         _query_jobs_with_diagnostics(Team(pk=1), "devex_", "2026-06-30T00:00:00+00:00", "PostHog/posthog")
         mock_execute.assert_called_once()
         assert mock_execute.call_args.kwargs["bypass_warehouse_access_control"] is True
+
+
+_started_fetch_ids: list[str] = []
+
+
+@workflow.defn(name="fetch-github-job-log")
+class _RecordingFetchWorkflow:
+    @workflow.run
+    async def run(self, _inputs: FetchJobLogInputs) -> None:
+        _started_fetch_ids.append(workflow.info().workflow_id)
+
+
+@activity.defn(name="discover_failed_jobs_activity")
+async def _discover_two_jobs(_cutoff_iso: str) -> list[dict[str, Any]]:
+    return [
+        dataclasses.asdict(FetchJobLogInputs(team_id=1, integration_id=7, repo="PostHog/posthog", job_id=job_id))
+        for job_id in (10, 11)
+    ]
+
+
+@activity.defn(name="discover_failed_depot_attempts_activity")
+async def _discover_no_depot_attempts(_inputs: DepotDiscoveryInputs) -> DepotDiscovery:
+    return DepotDiscovery(attempts=[], cursors={})
+
+
+@activity.defn(name="list_started_job_log_fetches_activity")
+async def _list_one_started_fetch(_since_iso: str) -> list[str]:
+    return ["gh-logs-1-10"]
+
+
+@activity.defn(name="list_started_job_log_fetches_activity")
+async def _fail_to_list_started_fetches(_since_iso: str) -> list[str]:
+    raise ApplicationError("visibility unavailable", non_retryable=True)
+
+
+@pytest.mark.parametrize(
+    "list_started_fetches, expected_started",
+    [
+        (_list_one_started_fetch, ["gh-logs-1-11"]),
+        (_fail_to_list_started_fetches, ["gh-logs-1-10", "gh-logs-1-11"]),
+    ],
+)
+async def test_coordinator_starts_a_fetch_only_for_jobs_without_a_started_fetch(
+    list_started_fetches: Any, expected_started: list[str]
+) -> None:
+    _started_fetch_ids.clear()
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue=task_queue,
+            workflows=[GithubJobLogsCoordinatorWorkflow, _RecordingFetchWorkflow],
+            activities=[_discover_two_jobs, _discover_no_depot_attempts, list_started_fetches],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            result = await environment.client.execute_workflow(
+                GithubJobLogsCoordinatorWorkflow.run, None, id=str(uuid.uuid4()), task_queue=task_queue
+            )
+            while len(_started_fetch_ids) < len(expected_started):
+                await asyncio.sleep(0.05)
+
+    assert result["workflows_started"] == len(expected_started)
+    assert sorted(_started_fetch_ids) == expected_started
