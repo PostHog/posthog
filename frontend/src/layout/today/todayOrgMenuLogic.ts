@@ -1,7 +1,7 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { matchesSwitcherSearch, newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
+import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
@@ -30,9 +30,7 @@ export interface todayOrgMenuLogicValues {
     guardAvailableFeature: GuardAvailableFeatureFn // upgradeModalLogic
     isSwitchingOrganization: boolean // userLogic
     otherOrganizations: OrganizationBasicType[] // userLogic
-    invites: PendingInviteForCurrentUser[]
     orgMenuActions: OrgMenuActionKey[]
-    orgSearchValue: string
     organizations: OrganizationBasicType[]
 }
 
@@ -50,9 +48,6 @@ export interface todayOrgMenuLogicActions {
     closeOrgSwitcher: () => {
         value: true
     } // newAccountMenuLogic
-    openOrgSwitcher: () => {
-        value: true
-    } // newAccountMenuLogic
     updateCurrentOrganization: (
         organizationId: string,
         destination?: string | undefined
@@ -66,9 +61,6 @@ export interface todayOrgMenuLogicActions {
     runOrgMenuAction: (key: OrgMenuActionKey) => {
         key: OrgMenuActionKey
     }
-    setOrgSearchValue: (searchValue: string) => {
-        searchValue: string
-    }
     switchOrganization: (organizationId: string) => {
         organizationId: string
     }
@@ -79,13 +71,8 @@ export interface todayOrgMenuLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         organizations: (
             currentOrganization: OrganizationType | null,
-            otherOrganizations: OrganizationBasicType[],
-            orgSearchValue: string
+            otherOrganizations: OrganizationBasicType[]
         ) => OrganizationBasicType[]
-        invites: (
-            pendingInvites: PendingInviteForCurrentUser[],
-            orgSearchValue: string
-        ) => PendingInviteForCurrentUser[]
         orgMenuActions: (
             isCloudOrDev: boolean | undefined,
             billingEntryUrl: string | null,
@@ -101,7 +88,7 @@ export type todayOrgMenuLogicType = MakeLogicType<
     todayOrgMenuLogicMeta
 >
 
-/** The org switcher: the orgs and pending invites the search matches, and the org actions after them. */
+/** The org switcher: the orgs and pending invites, and the org actions after them. */
 export const todayOrgMenuLogic = kea<todayOrgMenuLogicType>([
     path(['layout', 'today', 'todayOrgMenuLogic']),
     connect(() => ({
@@ -121,7 +108,7 @@ export const todayOrgMenuLogic = kea<todayOrgMenuLogicType>([
         ],
         actions: [
             newAccountMenuLogic,
-            ['openOrgSwitcher', 'closeOrgSwitcher'],
+            ['closeOrgSwitcher'],
             userLogic,
             ['updateCurrentOrganization'],
             globalModalsLogic,
@@ -133,37 +120,20 @@ export const todayOrgMenuLogic = kea<todayOrgMenuLogicType>([
         ],
     })),
     actions({
-        setOrgSearchValue: (searchValue: string) => ({ searchValue }),
         switchOrganization: (organizationId: string) => ({ organizationId }),
         openInvite: (inviteId: string) => ({ inviteId }),
         runOrgMenuAction: (key: OrgMenuActionKey) => ({ key }),
     }),
-    reducers({
-        orgSearchValue: [
-            '',
-            {
-                setOrgSearchValue: (_, { searchValue }) => searchValue,
-                openOrgSwitcher: () => '',
-                closeOrgSwitcher: () => '',
-            },
-        ],
-    }),
     selectors({
         organizations: [
-            (s) => [s.currentOrganization, s.otherOrganizations, s.orgSearchValue],
+            (s) => [s.currentOrganization, s.otherOrganizations],
             (
                 currentOrganization: OrganizationType | null,
-                otherOrganizations: OrganizationBasicType[],
-                orgSearchValue: string
+                otherOrganizations: OrganizationBasicType[]
             ): OrganizationBasicType[] =>
-                [...(currentOrganization ? [currentOrganization] : []), ...otherOrganizations]
-                    .filter((organization) => matchesSwitcherSearch(organization.name, orgSearchValue))
-                    .sort((a, b) => a.name.localeCompare(b.name)),
-        ],
-        invites: [
-            (s) => [s.pendingInvites, s.orgSearchValue],
-            (pendingInvites: PendingInviteForCurrentUser[], orgSearchValue: string): PendingInviteForCurrentUser[] =>
-                pendingInvites.filter((invite) => matchesSwitcherSearch(invite.organization_name, orgSearchValue)),
+                [...(currentOrganization ? [currentOrganization] : []), ...otherOrganizations].sort((a, b) =>
+                    a.name.localeCompare(b.name)
+                ),
         ],
         orgMenuActions: [
             (s) => [s.isCloudOrDev, s.billingEntryUrl, s.preflight],

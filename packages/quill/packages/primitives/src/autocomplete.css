@@ -88,14 +88,16 @@
      * `--available-height` is set by base-ui's Positioner in popover mode.
      * In inline mode (e.g. inside a Dialog) the variable is undefined, so we
      * fall back to `100vh` which lets the list expand to whatever the parent
-     * (e.g. DialogContent) actually allows.
+     * (e.g. DialogContent) actually allows. The list fills that height below
+     * the search input and scrolls only past it. A consumer that wants a
+     * shorter list sets its own `max-h-*`. The input height lives on the list,
+     * because inline mode has no `.quill-autocomplete__content` around it.
      */
     .quill-autocomplete__list {
+        --quill-autocomplete-input-height: calc(var(--spacing, 0.25rem) * 9);
+
         min-height: 0;
-        max-height: min(
-            calc(var(--spacing, 0.25rem) * 72 - var(--spacing, 0.25rem) * 9),
-            calc(var(--available-height, 100vh) - var(--spacing, 0.25rem) * 9)
-        );
+        max-height: calc(var(--available-height, 100vh) - var(--quill-autocomplete-input-height));
         padding: var(--spacing, 0.25rem);
 
         /* `hidden auto` = overflow-x: hidden, overflow-y: auto. Clips item
