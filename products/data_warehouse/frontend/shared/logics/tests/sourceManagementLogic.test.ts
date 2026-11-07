@@ -217,6 +217,33 @@ describe('sourceManagementLogic', () => {
     })
 
     it.each([
+        ['nothing is loaded yet', 'none', [false]],
+        ['a shallow schema is already loaded', 'shallow-loaded', []],
+        ['a consumer starts a full load in the same mount', 'full-alongside', [undefined]],
+    ])('loads the schema without fields on mount when %s', async (_, setup, expectedIncludeFields) => {
+        databaseLogic.mount()
+        if (setup === 'shallow-loaded') {
+            await databaseLogic.asyncActions.loadDatabase({ shallow: true })
+            ;(performQuery as jest.Mock).mockClear()
+        }
+
+        jest.useFakeTimers()
+        try {
+            logic.mount()
+            if (setup === 'full-alongside') {
+                databaseLogic.actions.loadDatabase()
+            }
+            jest.runOnlyPendingTimers()
+        } finally {
+            jest.useRealTimers()
+        }
+
+        expect((performQuery as jest.Mock).mock.calls.map(([query]) => query.includeFields)).toEqual(
+            expectedIncludeFields
+        )
+    })
+
+    it.each([
         ['no linked tables', [], ['orders', 'users', 'events']],
         ['one linked table', ['t-orders'], ['users', 'events']],
         ['all but one table linked', ['t-orders', 't-users'], ['events']],
