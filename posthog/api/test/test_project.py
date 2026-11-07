@@ -20,6 +20,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
@@ -83,6 +84,40 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             {team_in_other_org.project.id},
             "Only the project belonging to the scoped organization should be listed, the other one should be excluded",
         )
+
+    @parameterized.expand(
+        [
+            (credential, selected_restricted, ip, blocked)
+            for credential in ("session", "personal_api_key")
+            for selected_restricted in (False, True)
+            for ip, blocked in (("198.51.100.7", True), ("203.0.113.7", False))
+        ]
+    )
+    def test_project_list_filters_each_organizations_ip_policy(
+        self, credential: str, selected_restricted: bool, ip: str, blocked: bool
+    ) -> None:
+        other_org, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_organization = self.organization if selected_restricted else other_org
+        self.user.current_team = self.team if selected_restricted else other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"]
+            )
+        if credential == "personal_api_key":
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="Project list example",
+                secure_value=hash_key_value(token),
+                scopes=["project:read"],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = self.client.get("/api/projects/", REMOTE_ADDR=ip)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        expected = {other_team.project_id} if blocked else {self.project.id, other_team.project_id}
+        self.assertEqual({project["id"] for project in response.json()["results"]}, expected)
 
     @parameterized.expand([(True,), (False,)])
     def test_project_scoped_key_reads_organization_ai_consent(self, approved: bool) -> None:

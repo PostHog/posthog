@@ -83,6 +83,7 @@ from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayl
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -5103,9 +5104,11 @@ class TestGitHubTeamIntegrationComplete:
         assert "github_setup_error=invalid_state" in response["Location"]
 
     @pytest.mark.parametrize("stored_installation_id", [12345, "12345"])
+    @pytest.mark.parametrize("client_ip", ["203.0.113.4", "198.51.100.7"])
+    @pytest.mark.parametrize("with_state", [False, True])
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
     def test_team_update_heuristic_finds_existing_integration_regardless_of_jsonb_id_type(
-        self, mock_refresh, stored_installation_id, client: HttpClient
+        self, mock_refresh, stored_installation_id, client_ip: str, with_state: bool, client: HttpClient
     ):
         # ``config.installation_id`` has historically been written as either a
         # JSONB number or string; the update-without-state heuristic must match
@@ -5119,12 +5122,32 @@ class TestGitHubTeamIntegrationComplete:
             sensitive_config={"access_token": "ghs_test"},
         )
         mock_refresh.return_value = existing
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        selected, _, selected_team = Organization.objects.bootstrap(self.user, name="Other organization")
+        self.user.current_organization = selected
+        self.user.current_team = selected_team
+        self.user.save(update_fields=["current_organization", "current_team"])
 
-        response = client.get(
-            "/integrations/github/callback/",
-            {"installation_id": "12345", "setup_action": "update"},
-        )
+        payload = {"installation_id": "12345", "setup_action": "update"}
+        if with_state:
+            store_unified_authorize_state(
+                GitHubAuthorizeState(
+                    token="example-update-token",
+                    flow=FlowKind.TEAM_UPDATE,
+                    user_id=self.user.id,
+                    team_id=self.team.pk,
+                    installation_id="12345",
+                )
+            )
+            payload["state"] = urlencode({"token": "example-update-token"})
+        response = client.get("/integrations/github/callback/", payload, REMOTE_ADDR=client_ip)
 
+        if client_ip == "198.51.100.7":
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            mock_refresh.assert_not_called()
+            retained = IntegrationManager.github.oauth.get(self.team.id, existing.id)
+            assert retained.sensitive_config["access_token"] == "ghs_test"
+            response = client.get("/integrations/github/callback/", payload, REMOTE_ADDR="203.0.113.4")
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_setup_error" not in response["Location"]
         assert f"integration_id={existing.id}" in response["Location"]
