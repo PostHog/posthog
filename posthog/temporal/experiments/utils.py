@@ -9,6 +9,7 @@ from products.experiments.backend.facade.timeseries import (
     apply_saved_metric_overrides,
     previous_completed_metric_result,
 )
+from products.experiments.backend.metric_utils import get_default_quantile_metric_title
 from products.experiments.backend.models.experiment import Experiment
 
 logger = structlog.get_logger(__name__)
@@ -91,6 +92,8 @@ def _get_metric_name(metric_dict: dict) -> str:
         start = _get_source_name(metric_dict.get("start_event", {})) or "Start event"
         completion = _get_source_name(metric_dict.get("completion_event", {})) or "Completion event"
         return f"{start} / {completion}"
+    elif metric_type == "quantile":
+        return get_default_quantile_metric_title(metric_dict)
     return "Untitled metric"
 
 

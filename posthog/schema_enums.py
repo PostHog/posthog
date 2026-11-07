@@ -1550,6 +1550,7 @@ class ExperimentMetricType(StrEnum):
     MEAN = "mean"
     RATIO = "ratio"
     RETENTION = "retention"
+    QUANTILE = "quantile"
 
 
 class PrecomputationMode(StrEnum):

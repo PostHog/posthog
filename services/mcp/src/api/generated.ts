@@ -8438,6 +8438,40 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentQuantileMetricMetricType = typeof ExperimentQuantileMetricMetricType[keyof typeof ExperimentQuantileMetricMetricType];
+
+
+    export const ExperimentQuantileMetricMetricType = {
+      Quantile: 'quantile',
+    } as const;
+
+    export type ExperimentQuantileMetricResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentQuantileMetric {
+      breakdownFilter?: BreakdownFilter | null;
+      conversion_window?: number | null;
+      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
+      fingerprint?: string | null;
+      goal?: ExperimentMetricGoal | null;
+      isSharedMetric?: boolean | null;
+      kind?: 'ExperimentMetric';
+      metric_type: ExperimentQuantileMetricMetricType;
+      name?: string | null;
+      /**
+         * Quantile level, for example 0.9 for p90.
+         * @minimum 0.01
+         * @maximum 0.99
+         */
+      quantile: number;
+      response?: ExperimentQuantileMetricResponse;
+      sharedMetricId?: number | null;
+      /** Must set `math_property`, the numeric property to take the quantile of. `math` is ignored. */
+      source: EventsNode | ActionsNode;
+      uuid?: string | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type PrecomputationMode = typeof PrecomputationMode[keyof typeof PrecomputationMode];
 
 
@@ -8471,6 +8505,8 @@ export namespace Schemas {
       key: string;
       number_of_samples: number;
       numerator_denominator_sum_product?: number | null;
+      /** For quantile metrics: the quantile, then the lower and upper bound for each reference sample size. */
+      quantile_grid?: number[] | null;
       step_counts?: number[] | null;
       step_sessions?: SessionData[][] | null;
       sum: number;
@@ -8490,6 +8526,8 @@ export namespace Schemas {
       number_of_samples: number;
       numerator_denominator_sum_product?: number | null;
       p_value?: number | null;
+      /** For quantile metrics: the quantile, then the lower and upper bound for each reference sample size. */
+      quantile_grid?: number[] | null;
       significant?: boolean | null;
       step_counts?: number[] | null;
       step_sessions?: SessionData[][] | null;
@@ -8510,6 +8548,8 @@ export namespace Schemas {
       method?: 'bayesian';
       number_of_samples: number;
       numerator_denominator_sum_product?: number | null;
+      /** For quantile metrics: the quantile, then the lower and upper bound for each reference sample size. */
+      quantile_grid?: number[] | null;
       significant?: boolean | null;
       step_counts?: number[] | null;
       step_sessions?: SessionData[][] | null;
@@ -8544,7 +8584,7 @@ export namespace Schemas {
     export interface ExperimentQuery {
       experiment_id?: number | null;
       kind?: 'ExperimentQuery';
-      metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
+      metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | ExperimentQuantileMetric;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       name?: string | null;
@@ -43514,7 +43554,7 @@ export namespace Schemas {
       recommended_sample_size?: number | null;
     }
 
-    export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
+    export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | ExperimentQuantileMetric;
 
     /**
      * A shared metric's link to one experiment, as the experiment API returns it.
@@ -43656,6 +43696,7 @@ export namespace Schemas {
       Mean: 'mean',
       Ratio: 'ratio',
       Retention: 'retention',
+      Quantile: 'quantile',
     } as const;
 
     export type Kind3 = typeof Kind3[keyof typeof Kind3];
@@ -43719,12 +43760,14 @@ export namespace Schemas {
       numerator?: ExperimentApiEventSource | null;
       /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds. */
       numerator_outlier_handling?: ExperimentMetricOutlierHandling | null;
+      /** For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant. */
+      quantile?: number | null;
       retention_window_end?: number | null;
       retention_window_start?: number | null;
       retention_window_unit?: FunnelConversionWindowTimeUnit | null;
       /** For funnel metrics: array of EventsNode/ActionsNode steps. */
       series?: ExperimentApiEventSource[] | null;
-      /** For mean metrics: event source. */
+      /** For mean and quantile metrics: event source. Quantile metrics need `math_property`. */
       source?: ExperimentApiEventSource | null;
       /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure. */
       start_event?: ExperimentApiRetentionStart | null;
@@ -44316,7 +44359,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -45856,7 +45899,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query: unknown;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -46481,7 +46524,7 @@ export namespace Schemas {
     export type _ExperimentSetupStoredPropertyFilterList = (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
 
     export interface ExperimentSetupOutcome {
-      /** metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio' or 'retention'. */
+      /** metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio', 'retention' or 'quantile'. */
       metric_type: string;
       /**
          * Units the result counted across all variants. What a unit is depends on metric_type, so read analyzed_exposures where you need exposures. Null when the result stores no sample counts.
@@ -46606,7 +46649,7 @@ export namespace Schemas {
       secondary_metric_count: number;
       /** Shared metrics attached to the experiment. */
       shared_metric_count: number;
-      /** metric_type of each primary metric, for example 'mean', 'funnel', 'ratio' or 'retention'. */
+      /** metric_type of each primary metric, for example 'mean', 'funnel', 'ratio', 'retention' or 'quantile'. */
       primary_metric_types: string[];
       /** Event names the primary metrics count. */
       primary_metric_events: string[];
@@ -46679,7 +46722,7 @@ export namespace Schemas {
       /** Shared metric name. */
       name: string;
       /**
-         * 'mean', 'funnel', 'ratio' or 'retention', or null for older metrics.
+         * 'mean', 'funnel', 'ratio', 'retention' or 'quantile', or null for older metrics.
          * @nullable
          */
       metric_type: string | null;
@@ -46702,7 +46745,7 @@ export namespace Schemas {
          */
       matches_metric_event: boolean | null;
       /**
-         * Where metric_event sits in the metric: 'funnel_step' and 'funnel_final_step' for a funnel, 'mean_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or 'retention_completion'. A metric that only starts from the event is a different precedent from one that converts on it. Empty when the metric does not count it, and null when no metric_event was passed.
+         * Where metric_event sits in the metric: 'funnel_step' and 'funnel_final_step' for a funnel, 'mean_source', 'quantile_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or 'retention_completion'. A metric that only starts from the event is a different precedent from one that converts on it. Empty when the metric does not count it, and null when no metric_event was passed.
          * @nullable
          */
       metric_event_roles: string[] | null;
@@ -47304,7 +47347,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -83617,7 +83660,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query?: unknown;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
@@ -83701,7 +83744,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;

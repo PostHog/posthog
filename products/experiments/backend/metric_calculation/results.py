@@ -339,7 +339,10 @@ class MetricResultStore:
     def current_result(self, calculation_config: MetricCalculationConfig) -> MetricResultStats | None:
         """The statistics of the result that `current_outcome` picks, or None when it has none or doesn't parse."""
         response = self.current_response(calculation_config)
-        return MetricResultStats.from_response(response) if response is not None else None
+        if response is None:
+            return None
+        is_quantile = calculation_config.definition.get("metric_type") == "quantile"
+        return MetricResultStats.from_response(response, is_quantile=is_quantile)
 
     def current_response(self, calculation_config: MetricCalculationConfig) -> ExperimentQueryResponse | None:
         """The baseline and variant results of the result that `current_outcome` picks, or None when it has none or

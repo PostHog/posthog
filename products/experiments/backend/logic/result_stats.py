@@ -42,8 +42,16 @@ def _declared_variant_fields_only(variant: object) -> object:
     return variant if fields is None else _declared_fields_only(variant, fields)
 
 
-def _mean(total: float, number_of_samples: int) -> float | None:
-    return total / number_of_samples if number_of_samples else None
+def _mean(
+    stats: ExperimentStatsBaseValidated | ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist,
+    *,
+    is_quantile: bool,
+) -> float | None:
+    if is_quantile:
+        # A quantile metric stores the count of events at or below the quantile in sum, so its value is the
+        # quantile itself. A variant without qualifying events has no grid, and its quantile is undefined.
+        return stats.quantile_grid[0] if stats.quantile_grid else None
+    return stats.sum / stats.number_of_samples if stats.number_of_samples else None
 
 
 def _is_finite_interval(value: object) -> bool:
@@ -103,11 +111,11 @@ class BaselineStats:
     mean: float | None
 
     @classmethod
-    def from_schema(cls, baseline: ExperimentStatsBaseValidated) -> Self:
+    def from_schema(cls, baseline: ExperimentStatsBaseValidated, *, is_quantile: bool) -> Self:
         return cls(
             key=baseline.key,
             number_of_samples=baseline.number_of_samples,
-            mean=_mean(baseline.sum, baseline.number_of_samples),
+            mean=_mean(baseline, is_quantile=is_quantile),
         )
 
 
@@ -122,7 +130,7 @@ class VariantStats:
     significant: bool | None
 
     @classmethod
-    def from_schema(cls, variant: VariantResult) -> Self:
+    def from_schema(cls, variant: VariantResult, *, is_quantile: bool) -> Self:
         chance_to_win: float | None = None
         p_value: float | None = None
         if isinstance(variant, ExperimentVariantResultBayesian):
@@ -134,7 +142,7 @@ class VariantStats:
         return cls(
             key=variant.key,
             number_of_samples=variant.number_of_samples,
-            mean=_mean(variant.sum, variant.number_of_samples),
+            mean=_mean(variant, is_quantile=is_quantile),
             interval=None if bounds is None else Interval(low=bounds[0], high=bounds[1]),
             chance_to_win=chance_to_win,
             p_value=p_value,
@@ -149,21 +157,22 @@ class MetricResultStats:
     variants: tuple[VariantStats, ...]
 
     @classmethod
-    def from_response(cls, response: ExperimentQueryResponse) -> Self | None:
+    def from_response(cls, response: ExperimentQueryResponse, *, is_quantile: bool) -> Self | None:
+        """is_quantile comes from the metric definition, because a stored row does not record its metric type."""
         if response.baseline is None:
             return None
         variant_results = response.variant_results or []
         return cls(
             method=variant_results[0].method if variant_results else None,
-            baseline=BaselineStats.from_schema(response.baseline),
-            variants=tuple(VariantStats.from_schema(variant) for variant in variant_results),
+            baseline=BaselineStats.from_schema(response.baseline, is_quantile=is_quantile),
+            variants=tuple(VariantStats.from_schema(variant, is_quantile=is_quantile) for variant in variant_results),
         )
 
     @classmethod
-    def from_stored(cls, raw: object) -> Self | None:
+    def from_stored(cls, raw: object, *, is_quantile: bool) -> Self | None:
         """Return None instead of raising when the row does not parse or has no baseline."""
         response = parse_stored_response(raw)
-        return cls.from_response(response) if response is not None else None
+        return cls.from_response(response, is_quantile=is_quantile) if response is not None else None
 
     def variant(self, key: str) -> VariantStats | None:
         return next((variant for variant in self.variants if variant.key == key), None)
@@ -181,11 +190,13 @@ class MetricTimeseries:
     days: tuple[TimeseriesDay, ...]
 
     @classmethod
-    def from_stored(cls, *, status: str, timeseries: Mapping[str, object]) -> Self:
+    def from_stored(cls, *, status: str, timeseries: Mapping[str, object], is_quantile: bool) -> Self:
         return cls(
             status=status,
             days=tuple(
-                TimeseriesDay(date=date, result=MetricResultStats.from_stored(timeseries[date]))
+                TimeseriesDay(
+                    date=date, result=MetricResultStats.from_stored(timeseries[date], is_quantile=is_quantile)
+                )
                 for date in sorted(timeseries)
             ),
         )

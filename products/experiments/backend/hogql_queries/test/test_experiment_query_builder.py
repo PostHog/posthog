@@ -19,6 +19,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentMetricOutlierHandling,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
@@ -56,7 +57,13 @@ METRIC_EVENTS_TABLE = LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATE
 BOTH_TABLES = frozenset({EXPOSURES_TABLE, METRIC_EVENTS_TABLE})
 
 Output = Literal["query", "exposure_timeseries", "daily_exposures", "exposures_write", "metric_events_write"]
-Metric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+Metric = (
+    ExperimentMeanMetric
+    | ExperimentFunnelMetric
+    | ExperimentRatioMetric
+    | ExperimentRetentionMetric
+    | ExperimentQuantileMetric
+)
 
 PURCHASE = EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount")
 PAGEVIEW = EventsNode(event="$pageview")
@@ -155,6 +162,12 @@ CASES = [
         "ratio_breakdown",
         metric=ExperimentRatioMetric(numerator=PURCHASE, denominator=PAGEVIEW),
         breakdowns=BROWSER,
+    ),
+    param(
+        "quantile_events",
+        metric=ExperimentQuantileMetric(
+            source=EventsNode(event="app_ready", math_property="app_ready_ms"), quantile=0.9, **SEVEN_DAYS
+        ),
     ),
     param("funnel_ordered", metric=_funnel()),
     param("funnel_unordered", metric=_funnel(funnel_order_type=StepOrderValue.UNORDERED)),
