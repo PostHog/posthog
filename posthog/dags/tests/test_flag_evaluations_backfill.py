@@ -814,7 +814,8 @@ def test_backfill_runs_each_days_cutoff_and_copy_on_one_host() -> None:
     def fake_sync_execute(query: str, args: Mapping[str, Any] | None = None, **kwargs: Any) -> list[tuple]:
         kind = "copy" if args else "parts" if "system.parts" in query else "cutoff"
         queries_by_host.append((kwargs["sync_client"], kind))
-        return {"copy": [(5,)], "cutoff": [(2, 30)], "parts": [(0,)]}[kind]
+        results: dict[str, list[tuple]] = {"copy": [(5,)], "cutoff": [(2, 30)], "parts": [(0,)]}
+        return results[kind]
 
     cluster.on_host.side_effect = run_on_host
     backfill = shard_backfill(

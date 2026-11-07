@@ -611,10 +611,8 @@ def on_shard_host(
     workload: Workload,
     node_role: NodeRole,
 ) -> T:
-    result = cluster.map_any_host_in_shards_by_role(
-        {shard_num: tagged(query_tags, fn)}, workload=workload, node_role=node_role
-    ).result()
-    return next(iter(result.values()))
+    host = cluster.any_host_in_shard_by_roles(shard_num, [node_role], workload)
+    return cluster.on_host(host, tagged(query_tags, fn)).result()
 
 
 def inserted_rows(result: Any) -> int:
