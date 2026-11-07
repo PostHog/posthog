@@ -653,8 +653,10 @@ class HyperCache:
 
         The method removes the expiry tracking member even when a delete fails. With
         tracked_expiry_score, it removes the member only after every delete succeeds and only while
-        the member still holds that score. A write during the delete re-scores the member. The
-        member then stays, and the caller finds the rewritten entry again.
+        the member still holds that score. The caller must pass a score that _track_expiry cannot
+        write. _track_expiry writes whole seconds, so a score with a fractional part is safe. A write
+        during the delete then re-scores the member. The member stays, and the caller finds the
+        rewritten entry again.
         """
         kinds = kinds or ["redis", "s3"]
         redis_error: Exception | None = None
@@ -831,6 +833,9 @@ class HyperCache:
         try:
             identifier = self.get_cache_identifier(team)
             ttl_seconds = ttl if ttl is not None else self.cache_ttl
+            # The score must stay a whole number of seconds. cleanup_stale_expiry_tracking marks
+            # its retry members with a fractional score. delete_cache_entry compares scores to tell
+            # a rewrite from that marker.
             expiry_timestamp = int(time.time()) + ttl_seconds
 
             redis_client = get_client(self.redis_url)

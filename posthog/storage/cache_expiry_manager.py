@@ -13,6 +13,7 @@ from itertools import batched
 from typing import Literal
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -518,6 +519,8 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
                     removed += 1
                 else:
                     kept += 1
+            except SoftTimeLimitExceeded:
+                raise
             except Exception as e:
                 logger.exception(
                     f"Failed to delete stale {config.log_prefix[:-1]}",
@@ -535,6 +538,8 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
 
         return removed
 
+    except SoftTimeLimitExceeded:
+        raise
     except Exception as e:
         logger.exception(f"Error cleaning up {config.log_prefix} expiry tracking", error=str(e))
         capture_exception(e)
