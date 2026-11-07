@@ -26,11 +26,46 @@ const CREATED = {
     policy_id: null,
 }
 
-// The request API: a lookup, a new request, then `pendingPolls` answers of "still pending" before `final`.
+const PROVIDERS = {
+    supported: [
+        {
+            key: 'fake_ci',
+            name: 'Fake CI',
+            docs_url: 'https://example.com/docs/fake-ci',
+            condition_presets: [
+                {
+                    key: 'branch_push',
+                    label: 'Pushes to a branch',
+                    help_text: 'Runs for commits pushed to this branch.',
+                    conditions: { event_name: 'push', ref: 'refs/heads/{value}' },
+                    takes_value: true,
+                    placeholder: 'main',
+                    default_value: 'main',
+                },
+                {
+                    key: 'environment',
+                    label: 'A deployment environment',
+                    help_text: 'Jobs that deploy to this environment.',
+                    conditions: { environment: '{value}' },
+                    takes_value: true,
+                    placeholder: 'production',
+                    default_value: '',
+                },
+            ],
+            can_resolve_subject: true,
+            setup_snippet: 'fake-ci:\n  oidc: true',
+        },
+    ],
+}
+
+// The request API: providers, a lookup, a new request, then `pendingPolls` answers of "still pending" before `final`.
 function policyApi(options: { canApprove?: boolean; pendingPolls?: number; final?: string } = {}) {
     let polls = 0
     const created = { ...CREATED, can_approve: options.canApprove ?? false }
     return (url: string): { status: number; body: unknown } => {
+        if (url === `${REQUESTS}providers/`) {
+            return { status: 200, body: PROVIDERS }
+        }
         if (url.startsWith(`${REQUESTS}resolve_subject/`)) {
             return { status: 200, body: { subject: '123', subject_name: 'Acme/Web', found_via: 'Fake CI' } }
         }
@@ -52,7 +87,7 @@ function setup(args: string[], options: FakeRuntimeOptions): ReturnType<typeof r
 describe('hog ci setup', () => {
     test('asks for a policy for the repository it runs in, and hands an agent the link and the snippet', async () => {
         const run = await setup(
-            ['--branch', 'main', '--scope', 'query:read,error_tracking:write', '--scope', 'query:read'],
+            ['--preset', 'branch_push=main', '--scope', 'query:read,error_tracking:write', '--scope', 'query:read'],
             {
                 respond: policyApi(),
             }
@@ -89,7 +124,7 @@ describe('hog ci setup', () => {
             0,
         ],
     ])('%s', async (_name, canApprove, shown, polls) => {
-        const run = await setup(['--environment', 'production', '--scope', 'query:read'], {
+        const run = await setup(['--preset', 'environment=production', '--scope', 'query:read'], {
             stdoutIsTTY: true,
             respond: policyApi({ canApprove, pendingPolls: 1 }),
         })
@@ -102,7 +137,7 @@ describe('hog ci setup', () => {
     })
 
     test('--wait resumes the request an earlier run started and prints the snippet once approved', async () => {
-        const first = await setup(['--branch', 'main', '--scope', 'query:read'], { respond: policyApi() })
+        const first = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], { respond: policyApi() })
         const run = await runHog(['ci', 'setup', '--wait'], {
             env: TEST_CREDENTIALS,
             files: first.files,
@@ -122,7 +157,7 @@ describe('hog ci setup', () => {
         ['starts a new request once an admin rejected the last one', 'rejected', 2],
         ['picks up the policy once an admin approved the last one', 'approved', 1],
     ])('running it again %s', async (_name, lastStatus, created) => {
-        const args = ['--branch', 'main', '--scope', 'query:read']
+        const args = ['--preset', 'branch_push=main', '--scope', 'query:read']
         const first = await setup(args, { respond: policyApi() })
         const api = policyApi({ final: lastStatus })
         const run = await setup(args, { files: first.files, respond: api })
@@ -134,7 +169,7 @@ describe('hog ci setup', () => {
     })
 
     test('--wait after the deadline still picks up an approval that came in before it', async () => {
-        const first = await setup(['--branch', 'main', '--scope', 'query:read'], { respond: policyApi() })
+        const first = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], { respond: policyApi() })
         const pending = readJson(first.files[PENDING_FILE] ?? '{}', z.object({}).loose())
         const files = { ...first.files, [PENDING_FILE]: JSON.stringify({ ...pending, expiresAt: 0 }) }
 
@@ -145,7 +180,7 @@ describe('hog ci setup', () => {
     })
 
     test('--wait keeps the request when a gateway answers with an HTML error page', async () => {
-        const first = await setup(['--branch', 'main', '--scope', 'query:read'], { respond: policyApi() })
+        const first = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], { respond: policyApi() })
         const run = await runHog(['ci', 'setup', '--wait'], {
             env: TEST_CREDENTIALS,
             files: first.files,
@@ -157,7 +192,7 @@ describe('hog ci setup', () => {
     })
 
     test('--wait gives up after a while and keeps the request for the next --wait', async () => {
-        const first = await setup(['--branch', 'main', '--scope', 'query:read'], { respond: policyApi() })
+        const first = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], { respond: policyApi() })
         const run = await runHog(['ci', 'setup', '--wait'], {
             env: TEST_CREDENTIALS,
             files: first.files,
@@ -169,11 +204,29 @@ describe('hog ci setup', () => {
     })
 
     test.each([
-        ['no scope', ['--branch', 'main'], REPOSITORY, 'missing_scopes'],
-        ['no branch or environment', ['--scope', 'query:read'], REPOSITORY, 'missing_conditions'],
+        ['no scope', ['--preset', 'branch_push=main'], REPOSITORY, 'missing_scopes'],
+        ['an unknown preset', ['--preset', 'tag=v1', '--scope', 'query:read'], REPOSITORY, 'unknown_preset'],
+        [
+            'a preset passed twice',
+            ['--preset', 'branch_push=main', '--preset', 'branch_push=dev', '--scope', 'query:read'],
+            REPOSITORY,
+            'invalid_preset',
+        ],
+        [
+            'a control character in a value',
+            ['--preset', 'environment=prod\u001b', '--scope', 'query:read'],
+            REPOSITORY,
+            'invalid_preset',
+        ],
+        [
+            'no origin remote',
+            ['--provider', 'fake_ci', '--preset', 'branch_push=main', '--scope', 'query:read'],
+            { ...REPOSITORY, '/work/.git/config': '[remote "upstream"]\n\turl = git@ci.example.com:acme/web.git\n' },
+            'missing_repository',
+        ],
         [
             'no CI config in the repository',
-            ['--branch', 'main', '--scope', 'query:read'],
+            ['--preset', 'branch_push=main', '--scope', 'query:read'],
             { '/work/.git/config': REPOSITORY['/work/.git/config'] },
             'provider_not_detected',
         ],
@@ -185,8 +238,58 @@ describe('hog ci setup', () => {
         expect(run.requests.some((request) => request.url === REQUESTS)).toBe(false)
     })
 
+    test("without a preset, an agent gets the choices with PostHog's explanations and nothing is requested", async () => {
+        const run = await setup(['--scope', 'query:read'], { respond: policyApi() })
+
+        expect(run.exitCode).toBe(0)
+        expect(run.json()).toEqual({
+            status: 'input_required',
+            provider: 'Fake CI',
+            values: [],
+            presets: [
+                {
+                    option: '--preset branch_push=<value>',
+                    label: 'Pushes to a branch',
+                    help: 'Runs for commits pushed to this branch.',
+                    example: 'main',
+                },
+                {
+                    option: '--preset environment=<value>',
+                    label: 'A deployment environment',
+                    help: 'Jobs that deploy to this environment.',
+                    example: 'production',
+                },
+            ],
+            docsUrl: 'https://example.com/docs/fake-ci',
+        })
+        expect(run.requests.some((request) => request.url === REQUESTS)).toBe(false)
+    })
+
+    test('a person at the terminal picks a preset and types its value', async () => {
+        const run = await setup(['--scope', 'query:read'], {
+            stdoutIsTTY: true,
+            answers: ['environment', 'production'],
+            respond: policyApi(),
+        })
+
+        expect(run.exitCode).toBe(0)
+        expect(
+            (run.requests.find((request) => request.url === REQUESTS)?.body as { conditions?: unknown } | undefined)
+                ?.conditions
+        ).toEqual({ environment: 'production' })
+    })
+
+    test('a preset value goes into the condition exactly as typed', async () => {
+        const run = await setup(['--preset', "branch_push=v$&1$'", '--scope', 'query:read'], { respond: policyApi() })
+
+        expect(
+            (run.requests.find((request) => request.url === REQUESTS)?.body as { conditions?: unknown } | undefined)
+                ?.conditions
+        ).toEqual({ event_name: 'push', ref: "refs/heads/v$&1$'" })
+    })
+
     test('a token in the origin remote never reaches PostHog', async () => {
-        const run = await setup(['--branch', 'main', '--scope', 'query:read'], {
+        const run = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], {
             files: {
                 ...REPOSITORY,
                 '/work/.git/config':
@@ -197,11 +300,13 @@ describe('hog ci setup', () => {
 
         expect(run.exitCode).toBe(0)
         expect(JSON.stringify(run.requests)).not.toContain('secret')
-        expect(run.requests[0]?.url).toContain('subject_name=acme%2Fweb')
+        expect(run.requests.find((request) => request.url.includes('resolve_subject'))?.url).toContain(
+            'subject_name=acme%2Fweb'
+        )
     })
 
     test('a repository PostHog can not look up points to --subject-id', async () => {
-        const run = await setup(['--branch', 'main', '--scope', 'query:read'], {
+        const run = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], {
             respond: (url) =>
                 url.startsWith(`${REQUESTS}resolve_subject/`)
                     ? { status: 404, body: { detail: 'No repository acme/web that PostHog can see.' } }

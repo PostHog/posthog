@@ -144,6 +144,16 @@ describe('workload credentials', () => {
             'workload_policy_request_pending',
             'https://us.posthog.com/approve/1',
         ],
+        [
+            'the token is for another PostHog address',
+            {
+                error: 'invalid_grant',
+                error_description: "The OIDC token's audience must be https://us.posthog.com.",
+                error_code: 'workload_audience_mismatch',
+            },
+            'workload_audience_mismatch',
+            'HOG_HOST',
+        ],
     ])('a refused exchange where %s says what to do next', async (_name, body, code, hint) => {
         const runtime = runtimeWith({ env: IN_CI, respond: () => ({ status: 400, body }) })
         const error = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] }).catch((e) => e)
@@ -153,12 +163,12 @@ describe('workload credentials', () => {
         expect((error as HogError).hint).toContain(hint)
     })
 
-    test('waits once when the repository used up its exchanges for a moment', async () => {
+    test('waits a little past the hint while the repository has used up its exchanges', async () => {
         let calls = 0
         const runtime = runtimeWith({
             env: IN_CI,
             respond: () =>
-                calls++ === 0
+                calls++ < 2
                     ? { status: 429, body: { error_code: 'workload_rate_limited', retry_after: 3 } }
                     : exchanged(WORKLOAD_TOKEN),
         })
@@ -167,7 +177,8 @@ describe('workload credentials', () => {
         const credentials = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] })
 
         expect(credentials.source).toBe('workload')
-        expect(runtime.now() - start).toBe(3000)
+        expect(runtime.now() - start).toBeGreaterThanOrEqual(6000)
+        expect(runtime.now() - start).toBeLessThan(12_000)
     })
 
     test('usage data counts a job under its workload, never a person or the repository ID', async () => {

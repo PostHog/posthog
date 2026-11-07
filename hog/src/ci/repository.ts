@@ -51,7 +51,8 @@ export async function readRepository(runtime: Runtime): Promise<Repository | und
     }
     const config = await runtime.readFile(await configPath(runtime, found.gitPath)).catch(() => '')
     const remotes = parseRemoteUrls(config)
-    const url = (remotes.find(([name]) => name === 'origin') ?? remotes[0])?.[1]
+    // Only origin, so a checkout of someone else's repository never asks to trust theirs.
+    const url = remotes.find(([name]) => name === 'origin')?.[1]
     // A remote URL can carry a token, and the name read from it goes to PostHog.
     return { root: found.root, remote: url === undefined ? undefined : stripCredentials(url) }
 }

@@ -1,10 +1,19 @@
 import { CI_SETUP_COMMAND, policyRequestFlow, policyRequestWait, resolveSubject } from '@/ci/policy-request'
+import {
+    canLookUpSubject,
+    presetConditions,
+    providerSettings,
+    requiredPresets,
+    type Preset,
+    type ProviderSettings,
+} from '@/ci/provider-settings'
 import { WORKLOAD_PROVIDERS, type WorkloadConditions, type WorkloadProvider } from '@/ci/providers/registry'
 import { detectRepositoryProvider, pickProviderHint, readRepository } from '@/ci/repository'
 import { clearPending, printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls, type Output } from '@/core/output'
+import type { Prompts } from '@/core/prompts'
 import { cloudRegion, type Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 
@@ -18,9 +27,25 @@ interface Setup {
     docsUrl: string
 }
 
+interface NeededPreset {
+    option: string
+    label: string
+    help: string
+    example: string
+}
+
+interface InputRequired {
+    status: 'input_required'
+    provider: string
+    values: NeededPreset[]
+    presets: NeededPreset[]
+    docsUrl: string
+}
+
 type SetupResult =
     | (Extract<ApprovalResult<never>, { status: 'pending' }> & Setup)
     | ({ status: 'approved'; policyId: string } & Setup)
+    | InputRequired
 
 function providerByKey(key: string): WorkloadProvider {
     const provider = WORKLOAD_PROVIDERS.find((candidate) => candidate.key === key)
@@ -35,14 +60,14 @@ function providerByKey(key: string): WorkloadProvider {
     return provider
 }
 
-function setupFor(provider: WorkloadProvider, target: { host: Host; projectId: ProjectId }): Setup {
+function setupFor(settings: ProviderSettings, target: { host: Host; projectId: ProjectId }): Setup {
     const cloud = cloudRegion(target.host)
     return {
-        provider: provider.name,
+        provider: settings.name,
         posthogJson: { ...(cloud ? { host: cloud } : {}), projectId: Number(target.projectId) },
-        snippet: provider.snippet(target),
+        snippet: settings.setup_snippet,
         host: target.host,
-        docsUrl: provider.docsUrl,
+        docsUrl: settings.docs_url,
     }
 }
 
@@ -51,30 +76,148 @@ function scopesFrom(raw: readonly string[] | undefined): string[] {
     return [...new Set(scopes.filter(Boolean))].sort()
 }
 
-function conditionsFrom(
-    provider: WorkloadProvider,
-    options: { branch?: string; environment?: string }
-): WorkloadConditions {
-    if (options.environment !== undefined && provider.environmentConditions === undefined) {
-        throw new HogError(
-            'environment_not_supported',
-            `${provider.name} doesn't name an environment in its OIDC token.`,
-            'Pass --branch instead.',
-            EXIT_USAGE
-        )
+function usage(code: string, message: string, hint: string): HogError {
+    return new HogError(code, message, hint, EXIT_USAGE)
+}
+
+// `--preset key=value`, or a bare `key` for a preset that takes no value.
+function presetOptions(raw: readonly string[] | undefined): Map<string, string | undefined> {
+    const given = new Map<string, string | undefined>()
+    for (const entry of raw ?? []) {
+        const separator = entry.indexOf('=')
+        const key = separator === -1 ? entry : entry.slice(0, separator)
+        if (!key) {
+            throw usage(
+                'invalid_preset',
+                `--preset ${entry} has no name before the =.`,
+                'Pass it like --preset name=value.'
+            )
+        }
+        if (given.has(key)) {
+            throw usage('invalid_preset', `--preset ${key} appears twice.`, 'Pass each preset once.')
+        }
+        given.set(key, separator === -1 ? undefined : entry.slice(separator + 1))
     }
-    if (options.branch === undefined && options.environment === undefined) {
+    return given
+}
+
+function valueProblem(value: string): string | undefined {
+    if (!value || value.trim() !== value) {
+        return 'Enter a value without spaces around it.'
+    }
+    if (escapeControls(value) !== value) {
+        return "The value can't contain control characters."
+    }
+    // Policies compare values exactly, so a pattern would never match what the person meant.
+    return /[*?[\]]/.test(value) ? "The value can't contain *, ?, [ or ]." : undefined
+}
+
+function needed(preset: Preset): NeededPreset {
+    const option = preset.takes_value ? `--preset ${preset.key}=<value>` : `--preset ${preset.key}`
+    return { option, label: preset.label, help: preset.help_text, example: preset.placeholder }
+}
+
+// Which runs may get a token, from --preset, then from questions when a person can answer them.
+// Without a person, the presets still needed come back with PostHog's explanations.
+async function collectConditions(
+    settings: ProviderSettings,
+    raw: readonly string[] | undefined,
+    prompts: Prompts | undefined
+): Promise<{ status: 'ready'; conditions: WorkloadConditions } | InputRequired> {
+    const given = presetOptions(raw)
+    const byKey = new Map(settings.condition_presets.map((preset) => [preset.key, preset]))
+    for (const key of given.keys()) {
+        if (!byKey.has(key)) {
+            throw usage(
+                'unknown_preset',
+                `${settings.name} has no preset named ${key}.`,
+                `Pass one of: ${[...byKey.keys()].join(', ')}.`
+            )
+        }
+    }
+    const required = requiredPresets(settings)
+    const chosen = [...new Set([...required, ...[...given.keys()].map((key) => byKey.get(key)!)])]
+    const runPresets = settings.condition_presets.filter((preset) => !required.includes(preset))
+    if (runPresets.length === 0) {
+        // A policy without a run restriction would trust every run, so hog never asks for one.
         throw new HogError(
             'missing_conditions',
-            'Say which runs may get a token, so the policy never trusts every run of the repository.',
-            'Pass --branch main, --environment production, or both.',
-            EXIT_USAGE
+            `PostHog offers no preset that says which ${settings.name} runs may get a token.`,
+            'Add the policy in PostHog under the project settings, Trusted workloads.'
         )
     }
-    return {
-        ...(options.branch === undefined ? {} : provider.branchConditions(options.branch)),
-        ...(options.environment === undefined ? {} : provider.environmentConditions?.(options.environment)),
+    if (!chosen.some((preset) => runPresets.includes(preset)) && prompts) {
+        const key = await prompts.select(
+            'Which runs may get a token?',
+            runPresets.map((preset) => ({
+                value: preset.key,
+                label: escapeControls(preset.label),
+                hint: escapeControls(preset.help_text),
+            }))
+        )
+        chosen.push(byKey.get(key)!)
     }
+    const missing: NeededPreset[] = []
+    const conditions: WorkloadConditions = {}
+    for (const preset of chosen) {
+        let value = given.get(preset.key) ?? ''
+        if (preset.takes_value && !given.has(preset.key) && prompts) {
+            value = await prompts.text(escapeControls(preset.label), {
+                help: escapeControls(preset.help_text),
+                initialValue: valueProblem(preset.default_value) ? undefined : preset.default_value,
+                validate: valueProblem,
+            })
+        }
+        if (preset.takes_value && !value) {
+            missing.push(needed(preset))
+            continue
+        }
+        const problem = preset.takes_value ? valueProblem(value) : undefined
+        if (problem) {
+            throw usage('invalid_preset', `--preset ${preset.key}: ${problem}`, preset.help_text)
+        }
+        for (const [claim, claimValue] of Object.entries(presetConditions(preset, value))) {
+            // Conditions all have to hold, so a preset never quietly replaces what another one asked for.
+            if (claim in conditions && conditions[claim] !== claimValue) {
+                throw usage(
+                    'conflicting_presets',
+                    `Two presets ask for different values of ${claim}.`,
+                    'Keep only one of them.'
+                )
+            }
+            conditions[claim] = claimValue
+        }
+    }
+    const choices = chosen.some((preset) => runPresets.includes(preset)) ? [] : runPresets.map(needed)
+    if (missing.length || choices.length) {
+        return {
+            status: 'input_required',
+            provider: settings.name,
+            values: missing,
+            presets: choices,
+            docsUrl: settings.docs_url,
+        }
+    }
+    return { status: 'ready', conditions }
+}
+
+function printInputRequired(out: Output, result: InputRequired): void {
+    // PostHog wrote these, so they go through escapeControls like any server text shown in a terminal.
+    const item = (entry: NeededPreset, example: boolean): void => {
+        out.line('')
+        out.line(`  ${escapeControls(entry.option)}  ${escapeControls(entry.label)}`)
+        const help = example ? `${entry.help} For example, ${entry.example}.` : entry.help
+        out.line(out.style(`      ${escapeControls(help)}`, 'dim'))
+    }
+    out.line(`hog needs a few more answers to set up ${escapeControls(result.provider)}. Pass them as options:`)
+    result.values.forEach((entry) => item(entry, true))
+    if (result.presets.length) {
+        out.line('')
+        out.line('And say which runs may get a token, with one of:')
+        result.presets.forEach((entry) => item(entry, false))
+    }
+    out.line('')
+    out.line(out.style(`More in ${escapeControls(result.docsUrl)}`, 'dim'))
 }
 
 function printSnippet(out: Output, result: Setup): void {
@@ -83,7 +226,7 @@ function printSnippet(out: Output, result: Setup): void {
     out.line('')
     out.line(escapeControls(JSON.stringify(result.posthogJson, null, 4)))
     out.line('')
-    out.line(`Then add this to the ${result.provider} job that runs hog:`)
+    out.line(`Then add this to the ${escapeControls(result.provider)} job that runs hog:`)
     out.line('')
     out.line(escapeControls(result.snippet))
     out.line('')
@@ -92,7 +235,7 @@ function printSnippet(out: Output, result: Setup): void {
             ? `Or, instead of posthog.json, set HOG_HOST=${result.host} and HOG_PROJECT_ID=${result.posthogJson.projectId} in the job.`
             : `This PostHog isn't PostHog Cloud, so the job also needs HOG_HOST=${result.host}.`
     )
-    out.line(out.style(`More in ${result.docsUrl}`, 'dim'))
+    out.line(out.style(`More in ${escapeControls(result.docsUrl)}`, 'dim'))
 }
 
 export default defineCommand({
@@ -113,10 +256,12 @@ export default defineCommand({
             placeholder: 'id',
             description: "The workload's immutable ID, like the repository ID, when PostHog can not look it up",
         },
-        branch: { type: 'string', description: 'Trust only runs for pushes to this branch, like main' },
-        environment: {
+        preset: {
             type: 'string',
-            description: 'Trust only jobs that deploy to this environment, like production',
+            multiple: true,
+            placeholder: 'name=value',
+            description:
+                'Which runs may get a token, like branch_push=main or environment=production. Without it, hog asks, or lists the presets the provider offers',
         },
         scope: {
             type: 'string',
@@ -134,8 +279,9 @@ export default defineCommand({
         'The job then exchanges its OIDC token for a short-lived PostHog token on each run, with the scopes you asked for.',
     ].join('\n'),
     examples: [
-        'hog ci setup --branch main --scope error_tracking:write',
-        'hog ci setup --environment production --scope endpoint:write,query:read',
+        'hog ci setup --scope error_tracking:write',
+        'hog ci setup --preset branch_push=main --scope error_tracking:write',
+        'hog ci setup --preset environment=production --scope endpoint:write,query:read',
         'hog ci setup --wait',
     ],
 
@@ -145,11 +291,8 @@ export default defineCommand({
             const { host, projectId } = (await ctx.session()).current
             const approved = await resumeApproval(ctx, policyRequestWait(api, { host, projectId }))
             await clearPending(ctx.runtime, CI_SETUP_COMMAND)
-            return {
-                status: 'approved',
-                policyId: approved.policyId,
-                ...setupFor(providerByKey(approved.provider), approved),
-            }
+            const settings = await providerSettings(api, approved.projectId, approved.provider)
+            return { status: 'approved', policyId: approved.policyId, ...setupFor(settings, approved) }
         }
 
         // The checks that need no PostHog run first, so a usage mistake never waits on the keychain.
@@ -166,7 +309,6 @@ export default defineCommand({
         const provider = options.provider
             ? providerByKey(options.provider)
             : await detectRepositoryProvider(ctx.runtime, repository)
-        const conditions = conditionsFrom(provider, options)
         // The token carries the provider's exact spelling of the name, which a remote URL may not have.
         if (options.subjectId && !options.repository) {
             throw new HogError(
@@ -191,6 +333,19 @@ export default defineCommand({
         const api = await ctx.posthog()
         const { host, projectId } = (await ctx.session()).current
         const target = { host, projectId }
+        const settings = await providerSettings(api, projectId, provider.key)
+        const collected = await collectConditions(settings, options.preset, ctx.prompts)
+        if (collected.status === 'input_required') {
+            return collected
+        }
+        const { conditions } = collected
+        if (!options.subjectId && !canLookUpSubject(settings, conditions)) {
+            throw usage(
+                'missing_subject_id',
+                `PostHog can't look up the repository ID for these ${settings.name} conditions.`,
+                'Pass --subject-id with the repository ID, and --repository with its name.'
+            )
+        }
         const subject = options.subjectId
             ? { subject: options.subjectId, subject_name: subjectName }
             : await resolveSubject(api, projectId, provider, subjectName)
@@ -200,7 +355,7 @@ export default defineCommand({
             ctx,
             policyRequestFlow(api, target, { provider, name, subject, conditions, scopes })
         )
-        const setup = setupFor(provider, target)
+        const setup = setupFor(settings, target)
         if (result.status === 'pending') {
             return { ...result, ...setup }
         }
@@ -209,9 +364,13 @@ export default defineCommand({
     },
 
     human({ result, out }) {
+        if (result.status === 'input_required') {
+            printInputRequired(out, result)
+            return
+        }
         if (result.status === 'approved') {
             out.line(
-                `${out.style('Approved.', 'green', 'bold')} ${result.provider} jobs can now use hog in this project.`
+                `${out.style('Approved.', 'green', 'bold')} ${escapeControls(result.provider)} jobs can now use hog in this project.`
             )
         } else {
             printPending(out, result)
