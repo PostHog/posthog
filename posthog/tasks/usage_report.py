@@ -1060,10 +1060,8 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
     )
 
 
-# MCP usage is the `$mcp_*` events of an SDK, under its base `$lib` or its `-mcp` label. Some MCP
-# integrations stamp the `-mcp` label on every event of the client (@posthog/mcp does), others only on
-# their MCP events, and an app can set its own `$lib`. So the label alone does not identify MCP usage,
-# and `sdk_metrics` counts every other `-mcp` event as usage of the plain SDK.
+# MCP usage is an SDK's `$mcp_*` events under its base `$lib` or `-mcp` label. A `-mcp` label can also
+# cover app events (@posthog/mcp labels its whole client), so `sdk_metrics` counts those as the plain SDK.
 MCP_SDK_EVENT_METRICS: dict[str, tuple[str, ...]] = {
     "node_mcp_events": ("posthog-node", "posthog-node-mcp"),
     "python_mcp_events": ("posthog-python", "posthog-python-mcp"),

@@ -98,7 +98,7 @@ These are the failure modes that produce a plausible-looking answer rather than 
    lagged the published version, so version-dependent properties (typed error types, `$lib`
    identity, payload redaction) can be absent from PostHog's own data even when documented as
    current. Don't filter MCP traffic on `$lib`: `posthog-node-mcp` (0.7.0 on) and
-   `posthog-python-mcp` on posthog-python 7.x mark a whole relabeled client, and an app-set `$lib` beats any MCP label. Filter on `$mcp_*` events or
+   `posthog-python-mcp` on posthog-python 7.x mark a whole relabeled client, and an app can change `$lib` in `before_send`. Filter on `$mcp_*` events or
    `$mcp_source = 'posthog_mcp_analytics'` instead. Note too that `services/mcp` uses the
    **custom-dispatcher** (`PostHogMCP`) path rather than `instrument()`, so behaviour living
    only in the `instrument()` path — stable sessions, `$identify` deduplication, `_meta`-based
