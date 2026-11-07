@@ -25,12 +25,18 @@ Transactional email is never delayed by the send-time caps, but it is still char
 
 ## Configuration
 
-### Sandbox sender
+### Sandbox sender provisioning
 
-`WORKFLOWS_SANDBOX_SENDER_DOMAIN` names the shared sandbox domain.
-While it is empty, the check that stops a team from registering its own sender on that domain does nothing.
+The `workflows-sandbox-sender` flag enables a PostHog-managed email integration per project through `POST /api/projects/:project_id/integrations/email_sandbox_sender/`.
+The endpoint requires `integration:write` and project membership. Repeated requests keep the same integration and refresh its display name from the organization name.
+Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value, or a from address that is not an address on the sandbox domain or its subdomains, leaves the endpoint unavailable.
+While the flag is on for a project, each request with such settings reports `SandboxSenderMisconfigured` to error tracking.
+Teams can't register an integration on `WORKFLOWS_SANDBOX_SENDER_DOMAIN` or its subdomains while that setting has a value, even when the other two are empty.
+The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.
 Users cannot edit, verify, or remove the managed integration, make it the project default, use it for transactional email, or register their own integration on the shared domain.
 The managed integration is excluded from project SES tenant migration, identity cleanup, data suggestions, and the reputation page's domain breakdown.
+Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the sandbox caps ship.
+The flag is evaluated without person properties, so target it by organization, or by the project group's `id` property, which holds the environment's numeric ID (the team ID, which differs from the project ID in a project with several environments).
 
 ### Sending tiers
 
