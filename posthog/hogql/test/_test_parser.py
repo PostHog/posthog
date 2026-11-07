@@ -3150,15 +3150,15 @@ def parser_test_factory(backend: HogQLParserBackend, leak_check: bool = True):
             )
             self.assertEqual(expr, expected)
 
-        def test_reserved_keyword_alias_error(self):
-            query = f"SELECT 0 AS trUE FROM events"
+        @parameterized.expand([("ascii", ""), ("non_ascii_prefix", "'é😀', ")])
+        def test_reserved_keyword_alias_error(self, _name: str, prefix: str):
+            query = f"SELECT {prefix}0 AS trUE FROM events"
             with self.assertRaisesMessage(
                 SyntaxError,
                 '"trUE" cannot be an alias or identifier, as it\'s a reserved keyword',
             ) as e:
                 self._select(query)
-            self.assertEqual(e.exception.start, 7)
-            self.assertEqual(e.exception.end, 16)
+            self.assertEqual(query[e.exception.start : e.exception.end], "0 AS trUE")
 
         def test_unquoted_reserved_keyword_alias_is_invalid(self):
             with self.assertRaises(SyntaxError):
