@@ -94,9 +94,31 @@ def _find_query_plan_node(node: dict, condition: Callable[[dict], bool]) -> dict
     return None
 
 
-@pytest.mark.parametrize("access_type, separator", [("path", "."), ("sub_object", ".^")])
+@pytest.mark.parametrize(
+    "keys,path_sql,sub_object_sql",
+    [
+        (["a%2E.b", "tail%"], r"`a\x25252E\x252Eb`.`tail\x2525`", r"^`a\x25252E\x252Eb`.`tail\x2525`"),
+        (["?`b`"], "@`?``b```", "^`?``b```"),
+        (["^`b`"], "@`^``b```", "^`^``b```"),
+        (["@`b`"], "@`@``b```", "^`@``b```"),
+        ([":`Int64`"], "@`:``Int64```", "^`:``Int64```"),
+        (["a", ":`Int64`"], "@`a.:``Int64```", "^a.`:``Int64```"),
+        (["a", "?`b`"], "a.`?``b```", "^a.`?``b```"),
+        (["?`a%.b`"], r"@`?``a\x2525\x252Eb```", r"^`?``a\x2525\x252Eb```"),
+        (
+            ["__special_subcolumn_name_for_distinct_paths_calculation"],
+            "@__special_subcolumn_name_for_distinct_paths_calculation",
+            "^__special_subcolumn_name_for_distinct_paths_calculation",
+        ),
+    ],
+)
+@pytest.mark.parametrize("access_type", ["path", "sub_object"])
 def test_native_json_subcolumn_encodes_reversible_keys(
-    monkeypatch: pytest.MonkeyPatch, access_type: Literal["path", "sub_object"], separator: str
+    monkeypatch: pytest.MonkeyPatch,
+    access_type: Literal["path", "sub_object"],
+    keys: list[str],
+    path_sql: str,
+    sub_object_sql: str,
 ) -> None:
     monkeypatch.setattr("posthog.clickhouse.events_json.EVENTS_JSON_REVERSIBLE_KEYS", True)
     context = HogQLContext(team_id=1, use_new_events_schema=True)
@@ -105,12 +127,43 @@ def test_native_json_subcolumn_encodes_reversible_keys(
             chain=["properties"],
             type=ast.FieldType(table_type=ast.TableType(table=EventsTable()), name="properties"),
         ),
-        keys=["a%2E.b", "tail%"],
+        keys=keys,
         access_type=access_type,
     )
     sql = print_prepared_ast(node, context=context, dialect="clickhouse")
-    assert sql == rf"events.properties{separator}`a\x25252E\x252Eb`.`tail\x2525`"
+    expected_path = path_sql if access_type == "path" else sub_object_sql
+    assert sql == f"events.properties.{expected_path}"
     assert sql % {} == sql
+
+
+@pytest.mark.parametrize("reversible_keys", [False, True])
+@pytest.mark.parametrize(
+    "keys,expected_sql",
+    [
+        (["?`a%.b`"], "arrayElement(events.properties.objects[1], %(hogql_val_0)s)"),
+        (
+            ["a", ":`Int64`"],
+            "arrayElement(arrayElement(events.properties.objects[1], %(hogql_val_0)s), %(hogql_val_1)s)",
+        ),
+    ],
+)
+def test_native_json_reserved_path_after_array_index(
+    monkeypatch: pytest.MonkeyPatch, reversible_keys: bool, keys: list[str], expected_sql: str
+) -> None:
+    monkeypatch.setattr("posthog.clickhouse.events_json.EVENTS_JSON_REVERSIBLE_KEYS", reversible_keys)
+    context = HogQLContext(team_id=1, use_new_events_schema=True)
+    field = ast.Field(
+        chain=["properties"],
+        type=ast.FieldType(table_type=ast.TableType(table=EventsTable()), name="properties"),
+    )
+    node = ast.JsonSubcolumnAccess(
+        expr=ast.ArrayAccess(
+            array=ast.JsonSubcolumnAccess(expr=field, keys=["objects"]), property=ast.Constant(value=1)
+        ),
+        keys=keys,
+    )
+    assert print_prepared_ast(node, context=context, dialect="clickhouse") == expected_sql
+    assert list(context.values.values()) == keys
 
 
 class TestPrinter(BaseTest):

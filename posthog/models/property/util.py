@@ -8,7 +8,7 @@ from typing import Any, Literal, Optional, Union, cast
 
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.escape_sql import escape_clickhouse_json_path
+from posthog.hogql.escape_sql import escape_clickhouse_json_path, is_reserved_json_subcolumn
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -106,8 +106,12 @@ def _json_events_property_expr(property_name: PropertyName, column_ref: str) -> 
 def _json_events_subcolumn_expr(property_name: PropertyName, column_ref: str, *, sub_object: bool = False) -> str:
     # Encode the key so a dot cannot become a path separator. SQL escapes `%` as `\x25` to survive
     # the parameter substitution and str.format that callers run this SQL through.
-    separator = ".^" if sub_object else "."
-    return f"{column_ref}{separator}{escape_clickhouse_json_path(encode_json_key(property_name))}"
+    key = encode_json_key(property_name)
+    if not key:
+        path = "^``" if sub_object else ""
+        return f"getSubcolumn({column_ref}, '{path}')"
+    separator = ".^" if sub_object else ".@" if is_reserved_json_subcolumn(key) else "."
+    return f"{column_ref}{separator}{escape_clickhouse_json_path(key)}"
 
 
 def box_value(value: Any, remove_spaces=False) -> list[Any]:

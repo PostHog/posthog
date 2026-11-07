@@ -32,6 +32,7 @@ from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
     escape_clickhouse_json_path,
     escape_clickhouse_string,
+    is_reserved_json_subcolumn,
     safe_identifier,
 )
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
@@ -1518,13 +1519,25 @@ class ClickHousePrinter(BasePrinter):
         return super().visit_property_type(type)
 
     def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess) -> str:
-        if isinstance(node.expr, ast.Field) and isinstance(node.expr.type, ast.FieldType):
-            expr = super().visit_field_type(node.expr.type)
+        field_type = (
+            node.expr.type if isinstance(node.expr, ast.Field) and isinstance(node.expr.type, ast.FieldType) else None
+        )
+        if field_type is not None:
+            expr = super().visit_field_type(field_type)
         else:
             expr = self.visit(node.expr)
 
         # Encode each key before joining so a dot inside one key cannot become a path separator.
         keys = [encode_json_key(key) for key in node.keys]
+
+        path = ".".join(keys)
+        if node.access_type == "path" and is_reserved_json_subcolumn(path):
+            if field_type is not None:
+                return f"{expr}.@{escape_clickhouse_json_path(path)}"
+            # The .@ syntax requires a column identifier; bracket lookup accepts computed Dynamic values.
+            for key in node.keys:
+                expr = f"arrayElement({expr}, {self.context.add_value(key)})"
+            return expr
 
         # An empty key is not a valid SQL identifier, so that path goes to getSubcolumn as a bound value. Every
         # other key prints as a direct subcolumn read: getSubcolumn() reads every subcolumn and filters afterwards.
