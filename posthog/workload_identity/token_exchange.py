@@ -66,8 +66,8 @@ WORKLOAD_IDENTITY_DOCS_URL = "https://posthog.com/docs/api/workload-identity"
 
 _RESOURCE_PATH = re.compile(r"^/api/projects/(\d+)/?$")
 
-# Per workload subject, so one repository's matrix of jobs can't crowd out the others. A CI run
-# exchanges once per hog process and again every few minutes, so a large matrix stays well inside it.
+# Per policy, so the jobs of one policy can't crowd out the jobs of another. A CI run exchanges once per
+# hog process and again every few minutes, so a large matrix stays well inside it.
 WORKLOAD_EXCHANGE_BUDGET = Budget(burst=300, per_hour=3600)
 
 
@@ -265,17 +265,10 @@ def _signing_key(provider: WorkloadProvider, subject_token: str) -> PyJWK:
     return key
 
 
-def _expected_audience(provider: WorkloadProvider) -> str:
-    audience = expected_audience(provider)
-    if not audience:
-        raise _not_configured()
-    return audience
-
-
 def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tuple[VerifiedWorkload, int]:
     """Verify the OIDC token and return what it says about the workload and its expiry, or raise."""
     key = _signing_key(provider, subject_token)
-    audience = _expected_audience(provider)
+    audience = expected_audience(provider)
     try:
         claims = jwt.decode(
             subject_token,

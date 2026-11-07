@@ -68,7 +68,6 @@ export interface workloadTrustPoliciesLogicValues {
         subject: string
         subjectName: string
     }
-    conditionConflict: string | undefined
     conditionRows: WorkloadConditionRow[]
     editingPolicy: WorkloadTrustPolicyFormValues
     editingPolicyAllErrors: Record<string, any>
@@ -251,10 +250,6 @@ export interface workloadTrustPoliciesLogicMeta {
             providers: WorkloadProvidersResponseApi | null,
             editingPolicy: WorkloadTrustPolicyFormValues
         ) => WorkloadProviderApi | null
-        conditionConflict: (
-            conditionRows: WorkloadConditionRow[],
-            editingProvider: WorkloadProviderApi | null
-        ) => string | undefined
         claimLabels: (editingProvider: WorkloadProviderApi | null) => {
             subject: string
             subjectName: string
@@ -412,12 +407,12 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
     forms(({ values, actions }) => ({
         editingPolicy: {
             defaults: EMPTY_FORM,
-            errors: ({ name, issuer, subject_name, subject, conditions, scopes }) => ({
+            errors: ({ name, subject_name, subject, conditions, scopes }) => ({
                 name: !name ? 'Give the policy a name' : undefined,
-                issuer: !issuer ? 'Choose a provider' : undefined,
                 subject_name: !subject_name ? `${values.claimLabels.subjectName} is required` : undefined,
                 subject: !subject ? `${values.claimLabels.subject} is required` : undefined,
-                conditions: conditionsError(conditions, values.editingProvider, values.conditionConflict) as any,
+                conditions: (conditionsFromRows(values.conditionRows, values.editingProvider).conflict ??
+                    conditionsError(conditions, values.editingProvider)) as any,
                 scopes: !scopes.length ? ('Choose at least one scope' as any) : undefined,
             }),
             submit: async (payload, breakpoint) => {
@@ -486,11 +481,6 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                 editingPolicy: WorkloadTrustPolicyFormValues
             ): WorkloadProviderApi | null =>
                 providers?.supported.find((provider) => provider.issuer === editingPolicy.issuer) ?? null,
-        ],
-        conditionConflict: [
-            (s) => [s.conditionRows, s.editingProvider],
-            (rows: WorkloadConditionRow[], editingProvider: WorkloadProviderApi | null): string | undefined =>
-                conditionsFromRows(rows, editingProvider).conflict,
         ],
         claimLabels: [
             (s) => [s.editingProvider],

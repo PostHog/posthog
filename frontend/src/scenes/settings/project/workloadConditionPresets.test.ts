@@ -57,11 +57,11 @@ const PROVIDER = {
 } as WorkloadProviderApi
 
 describe('workload condition presets', () => {
-    it.each<[string, WorkloadConditionRow[], Record<string, string>]>([
+    it.each<[string, WorkloadConditionRow[], ReturnType<typeof conditionsFromRows>]>([
         [
             'a branch preset with its fixed event',
             [{ preset: 'branch_push', value: 'main' }],
-            { ref: 'refs/heads/main', event_name: 'push' },
+            { conditions: { ref: 'refs/heads/main', event_name: 'push' } },
         ],
         [
             'a preset and a custom claim',
@@ -69,32 +69,48 @@ describe('workload condition presets', () => {
                 { preset: 'environment', value: 'production' },
                 { preset: CUSTOM_CONDITION, claim: 'event_name', value: 'workflow_dispatch' },
             ],
-            { environment: 'production', event_name: 'workflow_dispatch' },
+            { conditions: { environment: 'production', event_name: 'workflow_dispatch' } },
         ],
         [
             // A half-filled branch preset must not save a policy that trusts every push.
             'a preset whose field is empty',
             [{ preset: 'branch_push', value: ' ' }],
-            {},
+            { conditions: {} },
         ],
-    ])('turns %s into conditions', (_name, rows, conditions) => {
-        expect(conditionsFromRows(rows, PROVIDER)).toEqual({ conditions })
+        [
+            'two rows that ask for different values of one claim',
+            [
+                { preset: 'branch_push', value: 'main' },
+                { preset: CUSTOM_CONDITION, claim: 'event_name', value: 'schedule' },
+            ],
+            {
+                conditions: { ref: 'refs/heads/main', event_name: 'push' },
+                conflict: 'Two conditions ask for different values of Event.',
+            },
+        ],
+    ])('turns %s into conditions', (_name, rows, result) => {
+        expect(conditionsFromRows(rows, PROVIDER)).toEqual(result)
     })
 
-    it('shows stored conditions as the rows that made them', () => {
-        const conditions = { ref: 'refs/heads/main', event_name: 'push', environment: 'production' }
-
-        expect(rowsFromConditions(conditions, PROVIDER)).toEqual([
-            { preset: 'branch_push', value: 'main' },
-            { preset: 'environment', value: 'production' },
-        ])
-    })
-
-    it('shows a stored condition that fits no preset as a custom row', () => {
-        expect(rowsFromConditions({ ref: 'refs/tags/v1', event_name: 'push' }, PROVIDER)).toEqual([
-            { preset: CUSTOM_CONDITION, claim: 'ref', value: 'refs/tags/v1' },
-            { preset: CUSTOM_CONDITION, claim: 'event_name', value: 'push' },
-        ])
+    it.each<[string, Record<string, string>, WorkloadConditionRow[]]>([
+        [
+            'conditions that fit the presets as the preset rows',
+            { ref: 'refs/heads/main', event_name: 'push', environment: 'production' },
+            [
+                { preset: 'branch_push', value: 'main' },
+                { preset: 'environment', value: 'production' },
+            ],
+        ],
+        [
+            'conditions that fit no preset as custom rows',
+            { ref: 'refs/tags/v1', event_name: 'push' },
+            [
+                { preset: CUSTOM_CONDITION, claim: 'ref', value: 'refs/tags/v1' },
+                { preset: CUSTOM_CONDITION, claim: 'event_name', value: 'push' },
+            ],
+        ],
+    ])('shows stored %s', (_name, conditions, rows) => {
+        expect(rowsFromConditions(conditions, PROVIDER)).toEqual(rows)
     })
 
     it('starts a new policy with the presets that cover the required claims', () => {
@@ -109,43 +125,35 @@ describe('workload condition presets', () => {
         ])
     })
 
-    it.each([
-        ['no conditions', {}, 'Set these conditions: Environment'],
-        ['only the required claim', { environment: 'production' }, 'Choose which runs can get a token'],
-        ['the required claim and a run condition', { environment: 'production', ref: 'refs/heads/main' }, undefined],
+    it.each<[string, Record<string, string>, string[], string | undefined]>([
+        ['no conditions', {}, [], 'Set these conditions: Environment'],
+        ['only the required claim', { environment: 'production' }, [], 'Choose which runs can get a token'],
+        [
+            'the required claim and a run condition',
+            { environment: 'production', ref: 'refs/heads/main' },
+            [],
+            undefined,
+        ],
+        [
+            'only account claims',
+            { environment: 'production', ref: 'refs/heads/main' },
+            ['ref'],
+            'Choose which runs can get a token',
+        ],
         [
             'a claim without its companion',
             { environment: 'production', event_name: 'push' },
+            [],
             'Event needs Branch or tag too. Why.',
         ],
-    ])('checks a policy with %s', (_name, conditions: Record<string, string>, expected) => {
+    ])('checks a policy with %s', (_name, conditions, accountClaims, expected) => {
         const provider = {
             ...PROVIDER,
             required_condition_claims: ['environment'],
+            account_condition_claims: accountClaims,
             condition_companions: [{ claims: ['event_name'], companions: ['ref'], reason: 'Why.' }],
         } as WorkloadProviderApi
 
         expect(conditionsError(conditions, provider)).toEqual(expected)
-    })
-
-    it('asks for a run condition when only account claims are set', () => {
-        const provider = {
-            ...PROVIDER,
-            required_condition_claims: ['environment'],
-            account_condition_claims: ['ref'],
-        } as WorkloadProviderApi
-
-        expect(conditionsError({ environment: 'production', ref: 'refs/heads/main' }, provider)).toEqual(
-            'Choose which runs can get a token'
-        )
-    })
-
-    it('refuses two rows that ask for different values of one claim', () => {
-        const rows = [
-            { preset: 'branch_push', value: 'main' },
-            { preset: CUSTOM_CONDITION, claim: 'event_name', value: 'schedule' },
-        ]
-
-        expect(conditionsFromRows(rows, PROVIDER).conflict).toBe('Two conditions ask for different values of Event.')
     })
 })

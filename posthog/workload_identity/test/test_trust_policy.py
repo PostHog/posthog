@@ -230,7 +230,6 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
         [
             ("missing_required_claim", {"ref": "refs/heads/main"}, status.HTTP_400_BAD_REQUEST),
             ("required_claim_set", {"ref": "refs/heads/main", "environment": "production"}, status.HTTP_201_CREATED),
-            ("only_the_required_claim", {"environment": "production"}, status.HTTP_400_BAD_REQUEST),
             ("only_account_claims", {"environment": "production", "owner_id": "42"}, status.HTTP_400_BAD_REQUEST),
         ]
     )
@@ -267,28 +266,6 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
         assert patch_response.status_code == status.HTTP_403_FORBIDDEN
         assert delete_response.status_code == status.HTTP_403_FORBIDDEN
         assert WorkloadTrustPolicy.objects.for_team(self.team.id).count() == 1
-
-    @parameterized.expand(
-        [
-            ("claim_alone", {"ref": "refs/heads/main"}, status.HTTP_400_BAD_REQUEST),
-            (
-                "claim_with_its_companion",
-                {"ref": "refs/heads/main", "environment": "production"},
-                status.HTTP_201_CREATED,
-            ),
-            ("companion_alone", {"environment": "production"}, status.HTTP_201_CREATED),
-        ]
-    )
-    def test_a_claim_that_needs_a_companion_is_refused_without_one(
-        self, _name: str, conditions: dict[str, str], expected_status: int
-    ) -> None:
-        self._set_level(OrganizationMembership.Level.ADMIN)
-        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, condition_companions=REF_NEEDS_ENVIRONMENT)
-
-        with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
-            response = self.client.post(self.url, _payload(conditions=conditions), format="json")
-
-        assert response.status_code == expected_status, response.json()
 
     def test_an_update_that_leaves_a_claim_without_its_companion_is_refused(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)

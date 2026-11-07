@@ -114,9 +114,6 @@ class WorkloadProvider:
     # The CI config that gives a job an OIDC token, with SNIPPET_HOST where the PostHog host goes.
     setup_snippet: str = ""
 
-    def setup_snippet_for(self, host: str) -> str:
-        return self.setup_snippet.replace(SNIPPET_HOST, host)
-
     def __post_init__(self) -> None:
         condition_names = [claim.name for claim in self.condition_claims]
         if len(set(condition_names)) != len(condition_names):

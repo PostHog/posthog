@@ -152,7 +152,7 @@ function workloadIdentity(token: WorkloadToken): WorkloadIdentity | undefined {
     return parsed && { ...parsed.workload, organization: parsed.org_id }
 }
 
-export class WorkloadKey implements AccessKey {
+class WorkloadKey implements AccessKey {
     readonly host: Host
     readonly projectId: ProjectId
     readonly provider: WorkloadProvider

@@ -51,7 +51,6 @@ describe('GitHub Actions', () => {
 
     test.each([
         ['a GitHub Actions job', { GITHUB_ACTIONS: 'true' }, true],
-        // Depot CI also sets GITHUB_ACTIONS, but its tokens come from Depot's issuer.
         ['a local shell', {}, false],
     ])('detects %s', (_name, env, expected) => {
         expect(GITHUB_ACTIONS.detect(env)).toBe(expected)

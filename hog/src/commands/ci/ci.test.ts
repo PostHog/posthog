@@ -31,6 +31,7 @@ const PROVIDERS = {
         {
             key: 'fake_ci',
             name: 'Fake CI',
+            issuer: 'https://ci.example.com',
             docs_url: 'https://example.com/docs/fake-ci',
             condition_presets: [
                 {

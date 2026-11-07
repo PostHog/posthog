@@ -7,8 +7,8 @@ import {
     type Preset,
     type ProviderSettings,
 } from '@/ci/provider-settings'
-import { WORKLOAD_PROVIDERS, type WorkloadConditions, type WorkloadProvider } from '@/ci/providers/registry'
-import { detectRepositoryProvider, pickProviderHint, readRepository } from '@/ci/repository'
+import type { WorkloadConditions } from '@/ci/providers/registry'
+import { detectRepositoryProvider, providerByKey, readRepository } from '@/ci/repository'
 import { clearPending, printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
@@ -46,19 +46,6 @@ type SetupResult =
     | (Extract<ApprovalResult<never>, { status: 'pending' }> & Setup)
     | ({ status: 'approved'; policyId: string } & Setup)
     | InputRequired
-
-function providerByKey(key: string): WorkloadProvider {
-    const provider = WORKLOAD_PROVIDERS.find((candidate) => candidate.key === key)
-    if (!provider) {
-        throw new HogError(
-            'unknown_provider',
-            `hog doesn't support the CI provider ${key}.`,
-            pickProviderHint(),
-            EXIT_USAGE
-        )
-    }
-    return provider
-}
 
 function setupFor(settings: ProviderSettings, target: { host: Host; projectId: ProjectId }): Setup {
     const cloud = cloudRegion(target.host)
@@ -299,11 +286,10 @@ export default defineCommand({
         // The checks that need no PostHog run first, so a usage mistake never waits on the keychain.
         const scopes = scopesFrom(options.scope)
         if (scopes.length === 0) {
-            throw new HogError(
+            throw usage(
                 'missing_scopes',
                 'Say which scopes the job gets.',
-                'Pass --scope with the scopes, like --scope error_tracking:write for source map uploads, or --scope endpoint:write,query:read for several.',
-                EXIT_USAGE
+                'Pass --scope with the scopes, like --scope error_tracking:write for source map uploads, or --scope endpoint:write,query:read for several.'
             )
         }
         const repository = await readRepository(ctx.runtime)
@@ -312,22 +298,20 @@ export default defineCommand({
             : await detectRepositoryProvider(ctx.runtime, repository)
         // The token carries the provider's exact spelling of the name, which a remote URL may not have.
         if (options.subjectId && !options.repository) {
-            throw new HogError(
+            throw usage(
                 'missing_repository',
                 '--subject-id needs --repository with the exact name the provider shows, because PostHog matches both.',
-                'Pass --repository too, like --repository PostHog/posthog.',
-                EXIT_USAGE
+                'Pass --repository too, like --repository PostHog/posthog.'
             )
         }
         const subjectName =
             options.repository ??
             (repository?.remote === undefined ? undefined : provider.nameFromRemote(repository.remote))
         if (!subjectName) {
-            throw new HogError(
+            throw usage(
                 'missing_repository',
                 `hog couldn't read the ${provider.name} repository from the origin remote.`,
-                'Pass --repository, like --repository owner/repo.',
-                EXIT_USAGE
+                'Pass --repository, like --repository owner/repo.'
             )
         }
 
@@ -349,12 +333,12 @@ export default defineCommand({
         }
         const subject = options.subjectId
             ? { subject: options.subjectId, subject_name: subjectName }
-            : await resolveSubject(api, projectId, provider, subjectName, conditions)
+            : await resolveSubject(api, projectId, settings, subjectName, conditions)
         const name = options.name ?? `${subject.subject_name} on ${provider.name}`
 
         const result = await runApproval(
             ctx,
-            policyRequestFlow(api, target, { provider, name, subject, conditions, scopes })
+            policyRequestFlow(api, target, { settings, name, subject, conditions, scopes })
         )
         const setup = setupFor(settings, target)
         if (result.status === 'pending') {

@@ -13,7 +13,7 @@ export interface WorkloadConditionRow {
     claim?: string
 }
 
-export interface WorkloadConditionsResult {
+interface WorkloadConditionsResult {
     conditions: Record<string, string>
     conflict?: string
 }
@@ -116,8 +116,7 @@ function companionError(conditions: Record<string, string>, provider: WorkloadPr
 
 export function conditionsError(
     conditions: Record<string, string>,
-    provider: WorkloadProviderApi | null,
-    conflict?: string
+    provider: WorkloadProviderApi | null
 ): string | undefined {
     const required = provider?.required_condition_claims ?? []
     const missing = required.filter((claim) => !conditions[claim]).map((claim) => claimLabel(provider, claim))
@@ -126,7 +125,6 @@ export function conditionsError(
     const runClaims = (provider?.condition_claims ?? []).filter((claim) => !accountClaims.has(claim.name))
     const noRuns = runClaims.length > 0 && !runClaims.some((claim) => conditions[claim.name])
     return (
-        conflict ??
         (missing.length ? `Set these conditions: ${missing.join(', ')}` : undefined) ??
         companionError(conditions, provider) ??
         (noRuns ? 'Choose which runs can get a token' : undefined)

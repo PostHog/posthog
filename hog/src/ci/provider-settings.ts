@@ -21,6 +21,7 @@ export type Preset = z.output<typeof Preset>
 const ProviderSettings = z.object({
     key: z.string(),
     name: z.string(),
+    issuer: z.string(),
     docs_url: z.string(),
     condition_presets: z.array(Preset),
     required_condition_claims: z.array(z.string()).default([]),
