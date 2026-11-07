@@ -16,6 +16,8 @@ export type RunTokenUsage = {
   thought_tokens: number;
   total_tokens: number;
   turns: number;
+  /** The run's model cost as the agent's SDK reports it. Absent when the adapter reports none. */
+  cost_usd?: number;
 };
 
 /**
@@ -34,6 +36,22 @@ export class RunUsageAccumulator {
     total_tokens: 0,
     turns: 0,
   };
+  // The SDK reports cost as a running total of its current query, and `/clear` starts a new query
+  // at zero. The base holds the cost of the queries before it, and of earlier processes of this run.
+  private costBaseUsd: number | undefined;
+  private queryCostUsd: number | undefined;
+
+  /** Records the SDK's running cost of its current query. */
+  reportCost(costUsd: number): void {
+    this.queryCostUsd = costUsd;
+  }
+
+  /** Carries the current query's cost into the base, because the next query reports from zero. */
+  startNewQuery(): void {
+    if (this.queryCostUsd === undefined) return;
+    this.costBaseUsd = (this.costBaseUsd ?? 0) + this.queryCostUsd;
+    this.queryCostUsd = undefined;
+  }
 
   /** Adds a settled turn's usage. Returns false when there was nothing to add. */
   add(usage: Usage | null | undefined): boolean {
@@ -50,12 +68,20 @@ export class RunUsageAccumulator {
 
   seed(totals: RunTokenUsage): boolean {
     if (this.totals.turns > 0 || this.totals.total_tokens > 0) return false;
-    this.totals = { ...totals };
+    const { cost_usd, ...tokens } = totals;
+    this.totals = tokens;
+    this.costBaseUsd = cost_usd;
     return true;
   }
 
   snapshot(): RunTokenUsage {
-    return { ...this.totals };
+    if (this.costBaseUsd === undefined && this.queryCostUsd === undefined) {
+      return { ...this.totals };
+    }
+    return {
+      ...this.totals,
+      cost_usd: (this.costBaseUsd ?? 0) + (this.queryCostUsd ?? 0),
+    };
   }
 }
 
@@ -69,6 +95,7 @@ const storedRunTokenUsageSchema = z.object({
   thought_tokens: storedTokenCount,
   total_tokens: storedTokenCount,
   turns: storedTokenCount,
+  cost_usd: z.number().nonnegative().optional().catch(undefined),
 });
 
 export function seedRunUsage(
@@ -92,9 +119,18 @@ export function reportRunUsage(
 ): Promise<void> {
   const send = (): Promise<void> =>
     api
-      .updateTaskRun(taskId, runId, {
-        state: { token_usage: accumulator.snapshot(), ...(extraState || {}) },
-      })
+      .updateTaskRun(
+        taskId,
+        runId,
+        {
+          state: {
+            token_usage: accumulator.snapshot(),
+            ...(extraState || {}),
+          },
+        },
+        // The Slack relay waits for this report, so a stalled request must not hold the reply.
+        AbortSignal.timeout(30_000),
+      )
       .then(
         () => undefined,
         (error: unknown) => {

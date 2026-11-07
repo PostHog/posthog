@@ -89,6 +89,27 @@ describe("RunUsageAccumulator", () => {
     expect(acc.snapshot().turns).toBe(0);
   });
 
+  test("reports no cost until the adapter reports one", () => {
+    const acc = new RunUsageAccumulator();
+    acc.add({ inputTokens: 1, outputTokens: 1, totalTokens: 2 });
+
+    expect(acc.snapshot()).not.toHaveProperty("cost_usd");
+  });
+
+  test("keeps the run's cost across a new query and a same-run resume", () => {
+    const acc = new RunUsageAccumulator();
+    acc.reportCost(0.5);
+    acc.reportCost(1.25);
+    acc.startNewQuery();
+    acc.reportCost(0.75);
+    expect(acc.snapshot().cost_usd).toBe(2);
+
+    const resumed = new RunUsageAccumulator();
+    expect(seedRunUsage(resumed, acc.snapshot())).toBe(true);
+    resumed.reportCost(0.5);
+    expect(resumed.snapshot().cost_usd).toBe(2.5);
+  });
+
   test("does not seed once a turn of its own has been counted", () => {
     const acc = new RunUsageAccumulator();
     acc.add({ inputTokens: 1, outputTokens: 1, totalTokens: 2 });

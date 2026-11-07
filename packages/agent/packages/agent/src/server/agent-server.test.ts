@@ -1785,6 +1785,7 @@ describe("AgentServer HTTP Mode", () => {
             },
           },
         },
+        expect.any(AbortSignal),
       );
       // The second report carries run-cumulative totals, not per-turn figures.
       expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
@@ -1803,6 +1804,7 @@ describe("AgentServer HTTP Mode", () => {
             },
           },
         },
+        expect.any(AbortSignal),
       );
     });
 
@@ -1833,6 +1835,7 @@ describe("AgentServer HTTP Mode", () => {
             budget_guard: { stage: "critical", steers: [] },
           }),
         }),
+        expect.any(AbortSignal),
       );
 
       const cleanupServer = stubSessionCleanup(testServer);
@@ -1866,6 +1869,7 @@ describe("AgentServer HTTP Mode", () => {
             },
           },
         },
+        expect.any(AbortSignal),
       );
     });
 
@@ -2233,6 +2237,7 @@ describe("AgentServer HTTP Mode", () => {
             },
           },
         },
+        expect.any(AbortSignal),
       );
     });
 
@@ -2303,6 +2308,7 @@ describe("AgentServer HTTP Mode", () => {
             }),
           },
         }),
+        expect.any(AbortSignal),
       );
     });
 
@@ -2809,6 +2815,7 @@ describe("AgentServer HTTP Mode", () => {
           "task-1",
           "run-1",
           expect.objectContaining({ state: expect.any(Object) }),
+          expect.any(AbortSignal),
         ),
       );
       expect(settled).toBe(false);
@@ -2978,6 +2985,7 @@ describe("AgentServer HTTP Mode", () => {
             }),
           },
         }),
+        expect.any(AbortSignal),
       );
     });
 
