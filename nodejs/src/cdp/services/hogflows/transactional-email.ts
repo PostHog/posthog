@@ -141,6 +141,17 @@ const MIME_TYPE_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+
 const CONTROL_CHARACTER_RE = /[\x00-\x1F\x7F]/
 const SES_ATTACHMENT_HEADER_MAX_LENGTH = 78
 
+// Windows drops trailing dots and spaces when it saves a file, so `setup.exe.` is saved as a runnable `setup.exe`.
+function extensionAsWindowsSavesIt(filename: string): string | undefined {
+    let end = filename.length
+    while (end > 0 && (filename[end - 1] === '.' || filename[end - 1] === ' ')) {
+        end--
+    }
+    const saved = filename.slice(0, end)
+    const dot = saved.lastIndexOf('.')
+    return dot < 0 ? undefined : saved.slice(dot + 1).toLowerCase()
+}
+
 const AttachmentSchema = z
     .object({
         filename: z
@@ -152,8 +163,8 @@ const AttachmentSchema = z
             })
             .refine(
                 (name) => {
-                    const dot = name.lastIndexOf('.')
-                    return dot < 0 || !BLOCKED_ATTACHMENT_EXTENSIONS.has(name.slice(dot + 1).toLowerCase())
+                    const extension = extensionAsWindowsSavesIt(name)
+                    return extension === undefined || !BLOCKED_ATTACHMENT_EXTENSIONS.has(extension)
                 },
                 { message: 'mailbox providers block this file type' }
             ),
