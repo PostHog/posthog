@@ -259,12 +259,6 @@ _BOUND_TO_ONE_ALERT_PATH: Final = (
 )
 
 
-class _JsonbPathExists(Func):
-    function = "jsonb_path_exists"
-    template = "%(function)s(%(expressions)s::jsonpath)"
-    output_field = BooleanField()
-
-
 def _unbound_alert_event_functions(
     *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool
 ) -> QuerySet[HogFunction]:
@@ -277,7 +271,14 @@ def _unbound_alert_event_functions(
             **enabled,
             **_RECEIVES_ALERT_EVENTS,
         )
-        .annotate(bound_to_one_alert=_JsonbPathExists(F("filters"), Value(_BOUND_TO_ONE_ALERT_PATH)))
+        .annotate(
+            bound_to_one_alert=Func(
+                F("filters"),
+                Value(_BOUND_TO_ONE_ALERT_PATH),
+                function="jsonb_path_exists",
+                output_field=BooleanField(),
+            )
+        )
         .filter(bound_to_one_alert=False)
     )
 
