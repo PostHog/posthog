@@ -276,7 +276,7 @@ class TaskSlackUnfurlDTO:
     id: UUID
     title: str
     created_by_id: int | None
-    latest_run_status: str | None
+    status: str | None
 
 
 @dataclass(frozen=True)
@@ -336,6 +336,9 @@ class TaskDetailDTO:
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
     client_provenance: str | None = None
+    status: str | None = None
+    status_reason: str | None = None
+    status_detail: str | None = None
 
 
 @dataclass(frozen=True)
@@ -572,6 +575,8 @@ class TaskSummaryDTO:
     updated_at: datetime
     origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
+    status: str | None = None
+    status_reason: str | None = None
 
 
 class TaskAnalysisError(Exception):

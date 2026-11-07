@@ -235,7 +235,7 @@ from products.tasks.backend.task_profiles import (
     USER,
     WIZARD,
 )
-from products.tasks.backend.task_run_sync import collect_status_mismatches, sync_task_pr_urls
+from products.tasks.backend.task_run_sync import collect_status_mismatches, sync_task_pr_urls, sync_task_status
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
@@ -264,6 +264,8 @@ TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
 TASK_SERVER_ONLY_ORIGIN_PRODUCTS = Task.SERVER_ONLY_ORIGIN_PRODUCTS
 TaskRuntime = Task.Runtime
+TaskStatus = Task.Status
+TaskStatusReason = Task.StatusReason
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
@@ -291,6 +293,8 @@ __all__ = [
     "TASK_SERVER_ONLY_ORIGIN_PRODUCTS",
     "TaskOriginProduct",
     "TaskRuntime",
+    "TaskStatus",
+    "TaskStatusReason",
     "TaskRunEnvironment",
     "TaskRunStatus",
     "ActiveSessionCapRefused",
@@ -846,17 +850,16 @@ def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -
     task = (
         _visible_task_qs(team_id, user_id)
         .filter(id=task_id, internal=False)
-        .only("id", "title", "created_by_id")
+        .only("id", "title", "created_by_id", "status", "status_reason")
         .first()
     )
     if task is None:
         return None
-    latest_run = task.runs.order_by("-created_at").only("status").first()
     return contracts.TaskSlackUnfurlDTO(
         id=task.id,
         title=task.title,
         created_by_id=task.created_by_id,
-        latest_run_status=latest_run.get_status_display() if latest_run else None,
+        status=task.status_label,
     )
 
 
@@ -1127,6 +1130,9 @@ def _task_detail_to_dto(
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
         latest_run_id=latest_run_id,
         channel=task.channel_id,
+        status=task.status,
+        status_reason=task.status_reason,
+        status_detail=task.status_detail if resolved_latest_run is not None and may_read_latest_context else None,
         slack_thread_references=_task_slack_thread_references(task),
         origin_key=None if task.is_scout_experiment else task.stored_idempotency_key,
         client_provenance=task.client_provenance,
@@ -7586,6 +7592,10 @@ def _list_tasks_queryset(
         latest_run_status = latest_run.values("status")[:1]
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
+    task_status = filters.get("task_status")
+    if task_status:
+        qs = qs.filter(status=task_status)
+
     # PR/CI state filters read the snapshot the PR webhook and the CI follow-up
     # loop persist onto a run's output. KeyTextTransform, so the comparison is
     # text = text.
@@ -7997,6 +8007,8 @@ def get_task_summaries(
                 updated_at=task.updated_at,
                 origin_product=task.origin_product,
                 latest_run=latest,
+                status=task.status,
+                status_reason=task.status_reason,
             )
         )
     return summaries, count
@@ -10465,6 +10477,8 @@ def run_task(
         cache_github_user_token(str(task_run.id), github_user_token)
 
     if scheduled_at is not None:
+        sync_task_status(task.id)
+        task.refresh_from_db(fields=["status", "status_reason", "status_detail"])
         return contracts.TaskRunResult(
             task=_task_detail_to_dto(task, latest_run=task_run, include_latest_run_log_url=False),
             run_id=task_run.id,

@@ -2206,6 +2206,33 @@ class TestTaskAPI(BaseTaskAPITest):
         assert dispatch.payload["user_id"] == self.user.id
         assert dispatch.payload["posthog_mcp_scopes"] == "read_only"
 
+    @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_schedule_after_a_failure_returns_the_cleared_status(self, _mock_workflow, _mock_internal_team) -> None:
+        task = self.create_task()
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.FAILED,
+            error_message="boom",
+            created_at=django_timezone.now() - timedelta(hours=1),
+        )
+        Task.objects.filter(pk=task.pk).update(
+            status=Task.Status.IDLE, status_reason=Task.StatusReason.UNEXPECTED_FAILURE, status_detail="boom"
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/run/",
+                {"scheduled_at": "2026-09-19T12:00:00", "pending_user_message": "Retry later.", "run_source": "agent"},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert (body["status"], body["status_reason"], body["status_detail"]) == ("idle", None, None)
+
     @parameterized.expand(
         [
             ("before_expiry", "2026-10-17T23:59:59Z", True, True),
@@ -6803,6 +6830,20 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.get("/api/projects/@current/tasks/?status=not_a_real_status")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand([("running", ["running"]), ("idle", ["idle"]), ("done", [])])
+    def test_filter_by_task_status(self, task_status: str, expected: list[str]) -> None:
+        for value in ("queued", "running", "idle"):
+            task = self.create_task(value)
+            Task.objects.filter(pk=task.pk).update(status=value, status_reason=None)
+
+        response = self.client.get(f"/api/projects/@current/tasks/?task_status={task_status}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(row["title"], row["status"]) for row in response.json()["results"]],
+            [(title, title) for title in expected],
+        )
+
     def test_filter_by_pr_state(self):
         open_pr = self.create_task("Open PR task")
         TaskRun.objects.create(
@@ -7841,6 +7882,8 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         "updated_at",
         "origin_product",
         "latest_run",
+        "status",
+        "status_reason",
     }
 
     def post_summaries(self, ids):
@@ -13230,6 +13273,9 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         )
         run = task.create_run(extra_state={"resume_from_run_id": str(original.id)})
         assert run.state["analytics_query_context"] == [query]
+        Task.objects.filter(pk=task.pk).update(
+            status=Task.Status.IDLE, status_reason=Task.StatusReason.UNEXPECTED_FAILURE, status_detail="Protected error"
+        )
         raw_key = generate_random_token_personal()
         key = PersonalAPIKey.objects.create(
             label="Trace reader", user=self.user, secure_value=hash_key_value(raw_key), scopes=["task:read"]
@@ -13246,6 +13292,7 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
             assert denied.json()["results"][0]["latest_run"]["task_summary"] is None
             redacted = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
             assert redacted.json()["latest_run"]["task_summary"] is None
+            assert redacted.json()["status_detail"] is None
             key.scopes = ["task:read", "query:read", "event_definition:read"]
             key.save(update_fields=["scopes"])
             self._seed_log(task, original, [self._make_posthog_entry("_posthog/user_message", "2026-01-01T00:00:00Z")])
@@ -13256,6 +13303,9 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
             assert readable.json()["results"][0]["latest_run"]["task_summary"] == "Protected metric findings"
             readable_run = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
             assert readable_run.json()["task_summary"] == "Protected metric findings"
+            assert (
+                self.client.get(f"/api/projects/@current/tasks/{task.id}/").json()["status_detail"] == "Protected error"
+            )
         detail = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         assert detail.status_code == status.HTTP_200_OK
         assert detail.json()["latest_run"]["log_url"] is None

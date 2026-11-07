@@ -563,15 +563,15 @@ def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:
     GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL.labels(scoped="true" if scoped else "false").inc()
 
 
-GITHUB_WEBHOOK_TASK_LOOKUP_SHADOW_TOTAL = Counter(
-    "posthog_tasks_github_webhook_task_lookup_shadow_total",
-    "GitHub webhook lookups by the run leg that matched, and whether the task column lookup found the same task",
-    labelnames=["leg", "outcome"],
+GITHUB_WEBHOOK_TASK_LOOKUP_TOTAL = Counter(
+    "posthog_tasks_github_webhook_task_lookup_total",
+    "GitHub webhook lookups by the leg that picked the run, and whether the task's pr_urls or head_branch named the task",
+    labelnames=["leg", "by_task_columns"],
 )
 
 
-def observe_github_webhook_task_lookup_shadow(*, leg: str, outcome: str) -> None:
-    GITHUB_WEBHOOK_TASK_LOOKUP_SHADOW_TOTAL.labels(leg=leg, outcome=outcome).inc()
+def observe_github_webhook_task_lookup(*, leg: str, by_task_columns: bool) -> None:
+    GITHUB_WEBHOOK_TASK_LOOKUP_TOTAL.labels(leg=leg, by_task_columns="true" if by_task_columns else "false").inc()
 
 
 MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL = Counter(
