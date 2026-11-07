@@ -2694,3 +2694,58 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             [(result["properties"], result["matched_fields"]) for result in response.json()["results"]],
             [({}, ["distinct_id"])],
         )
+
+    def _restrict_person_property(self, name: str) -> None:
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name=name, property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
+        )
+
+    def test_nested_restriction_hides_child_value(self) -> None:
+        self._restrict_person_property("profile.tax_id")
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["nested_user"],
+            properties={
+                "profile": {"tax_id": "T-1", "plan": "pro"},
+                "accounts": [{"id": 1}],
+                "profile.tax_id": "T-1",
+            },
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        retrieved = self.client.get(f"/api/environments/{self.team.id}/persons/{person.uuid}/")
+        listed = self.client.get(f"/api/environments/{self.team.id}/persons/")
+
+        self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        expected = {"profile": {"plan": "pro"}, "accounts": [{"id": 1}]}
+        self.assertEqual(retrieved.json()["properties"], expected)
+        self.assertEqual([result["properties"] for result in listed.json()["results"]], [expected])
+
+    def test_display_name_skips_restricted_property(self) -> None:
+        self._restrict_person_property("email")
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["display_user"],
+            properties={"email": "hidden@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        retrieved = self.client.get(f"/api/environments/{self.team.id}/persons/{person.uuid}/")
+        listed = self.client.get(f"/api/environments/{self.team.id}/persons/")
+
+        self.assertEqual(retrieved.json()["name"], "display_user")
+        self.assertEqual([result["name"] for result in listed.json()["results"]], ["display_user"])
+
+    def test_values_for_parent_of_restricted_property_are_empty(self) -> None:
+        self._restrict_person_property("profile.tax_id")
+
+        response = self.client.get("/api/person/values/?key=profile")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [], "refreshing": False})
