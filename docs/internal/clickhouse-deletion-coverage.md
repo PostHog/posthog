@@ -146,7 +146,25 @@ Queries use the `OFFLINE` workload because discovery runs in the background.
 The `customer_analytics_membership_discovery_` metrics report outcomes, batch duration, and scan duration.
 
 Discovery does not change existing person or group deletion processes.
-Membership erasure requires a separate deletion job that rechecks saved candidates before it deletes rows.
+The `customer-analytics-membership-deletion` schedule owns erasure and runs independently of discovery.
+It starts paused in dry-run mode. Deletion also requires an explicit team list.
+It selects candidates missing for at least 24 hours and repeats identity checks before each deletion batch.
+Recovered identities clear their candidates. Failed lookups or erasure verification keep work pending.
+Deletion never discovers new candidates.
+
+Both jobs use the same per-team lease. Each schedule has its own batch, team-page, and time limits.
+Deletion keeps its coordinator cursor in team row `-1`, separate from discovery's row `0`.
+Neither coordinator row starts a project sweep.
+Deletion preserves the key held in a discovery cursor until discovery advances past it.
+Its coordinator selects teams from overdue candidates and deleted-team scan state, without scanning membership.
+
+The deletion job uses lightweight deletes on storage shards and verifies that no matching membership survives.
+It checks for pending mutations before retrying and skips shards where matching rows are already absent.
+Shard connections use a finite socket timeout of twice the shared query execution limit.
+Mutation logs omit membership keys. Candidates are removed only after verified erasure.
+Deleted-team erasure also removes eligibility config and clears scan state after membership is gone.
+Live-team erasure keeps eligibility config and unrelated membership.
+The `customer_analytics_membership_deletion_` metrics report checked candidates, recovery, deletion, and failures.
 Event deletion and configured group-property deletion do not repair membership or its activity timestamps.
 
 ## Tables on TTL alone
