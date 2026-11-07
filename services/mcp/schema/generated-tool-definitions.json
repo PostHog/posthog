@@ -15182,7 +15182,7 @@
         "feature_flag": "today-rail-nav"
     },
     "today-analytics-sidebar-update": {
-        "description": "Replace the layout of the person's Analytics pane. It changes only the person who calls it, in this project. Build the layout from sections of items: links and buttons that open a PostHog page or an insight, dashboard or notebook of this project, metrics that show the latest value of a trends insight, and lists that PostHog fills (pinned, recents, by_posthog). Get the IDs of insights, dashboards and notebooks from their tools first; never invent them. Keep the default sections the person did not ask to remove. A 400 error names each value that does not fit, so fix those values and send it again.",
+        "description": "Replace the layout of the person's Analytics pane. It changes only the person who calls it, in this project. Build the layout from sections of items: links and buttons that open a PostHog page or an insight, dashboard or notebook of this project, metrics that show the latest value of a trends insight, and lists that PostHog fills (pinned, recents, by_posthog). Get the IDs of insights, dashboards and notebooks from their tools first; never invent them. Use at most 30 items total across all sections, including at most 4 live metrics. Each built-in list counts as one item. Keep the default sections the person did not ask to remove. A 400 error names each value that does not fit, so fix those values and send it again.",
         "category": "Today",
         "feature": "today",
         "summary": "Update the analytics sidebar",
