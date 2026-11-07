@@ -50,6 +50,13 @@ A tenant that SES no longer knows reads as not paused, so deleting it clears a s
 `missing` counts a read that found no tenant by that name, which is a deleted tenant or a `SES_SANDBOX_TENANT_NAME` that names the wrong one, so an alert should fire on it.
 `busy` counts a sync that found another sync holding the state row. Its task retries, so an alert can ignore it.
 A long SES outage or a blocked endpoint stays `transient` on every read, so an alert on the mirror also watches sustained `transient` failures. Ship that alert, on sustained `error`, `missing` and `transient` failures, before `workflows-sandbox-sender` reaches projects beyond test projects.
+The sending tier leaves `email_sandbox_sent` out of its volume and its rate denominators, and the sending allowance leaves it out too, also after the sandbox settings are cleared.
+The worker records each sandbox send's `email_sandbox_sent` in the same batch, workflow and step as its `email_sent`. Both readers keep the raw cutoff they used before for `email_sent`, so a team without sandbox sends gets the same numbers as before.
+The metrics table keeps one arbitrary timestamp per merged hour, so a cutoff inside an hour can split a send from its pair.
+Per workflow step and clock hour, the tier counts the smaller of the `email_sent` inside the window and the hour's `email_sent` minus its `email_sandbox_sent`, so a split pair cancels no other sends.
+The allowance counts the same way over its last day.
+A step that switches between the sandbox sender and its own sender inside the cutoff hour can still miscount that hour.
+Bounces and complaints of sandbox sends still count, so the exclusion can only raise a rate.
 
 ### Sending tiers
 

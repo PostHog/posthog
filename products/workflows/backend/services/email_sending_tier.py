@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
@@ -6,7 +6,7 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.app_metrics2 import fetch_app_metric_daily_totals_by_team
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
@@ -27,6 +27,7 @@ logger = structlog.get_logger(__name__)
 APP_SOURCE = "hog_flow"
 
 SENT_METRIC = "email_sent"
+SANDBOX_SENT_METRIC = "email_sandbox_sent"
 HARD_BOUNCE_METRIC = "email_bounced_hard"
 # SES complaint events are recorded under this name (see the SES webhook handler in the email
 # worker), so a complaint rate reads `email_blocked`, not a metric called "complaint".
@@ -293,6 +294,19 @@ def build_sending_histories(
     return {team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()}
 
 
+def team_own_sends_since(team_id: int, after: datetime) -> int:
+    days = _fetch_daily_metrics(after=after, before=None, team_ids=[team_id], feature=Feature.QUERY).get(team_id, {})
+    return sum(day.own_sent for day in days.values())
+
+
+@frozen
+class _DailyEmailMetrics:
+    own_sent: int
+    hard_bounced: int
+    complained: int
+    auto_paused: bool
+
+
 @frozen
 class SendingHistoryWindows:
     """Per-team sending histories over the promotion window and the shorter demotion window."""
@@ -330,35 +344,83 @@ def _fetch_daily_metrics(
     before: Optional[datetime],
     team_ids: Optional[list[int]],
     workload: Workload = Workload.DEFAULT,
-) -> dict[int, dict[str, dict[str, int]]]:
+    feature: Feature = Feature.ENRICHMENT,
+) -> dict[int, dict[str, _DailyEmailMetrics]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
-    metric_names = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
+    other_metrics = [HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
+    params: dict[str, Any] = {
+        "app_source": APP_SOURCE,
+        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "team_ids": team_ids,
+        "sent": SENT_METRIC,
+        "sandbox": SANDBOX_SENT_METRIC,
+        "names": [SENT_METRIC, SANDBOX_SENT_METRIC, *other_metrics],
+    }
+    in_window = "timestamp >= toDateTime64(%(after)s, 6)" + (
+        " AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""
+    )
+    in_hours = "toStartOfHour(timestamp) >= toStartOfHour(toDateTime64(%(after)s, 6))" + (
+        " AND toStartOfHour(timestamp) <= toStartOfHour(toDateTime64(%(before)s, 6))" if before else ""
+    )
+    hourly_others = ""
+    daily_others = ""
+    for index, metric_name in enumerate(other_metrics):
+        params[f"other_{index}"] = metric_name
+        hourly_others += f", sumIf(count, metric_name = %(other_{index})s AND {in_window}) AS other_{index}"
+        daily_others += f", sum(other_{index})"
+    query = f"""
+        SELECT team_id, toDate(hour) AS day,
+            sum(least(sent_in_window, greatest(0, sent_in_hour - sandbox_in_hour))){daily_others}
+        FROM (
+            SELECT
+                team_id,
+                toStartOfHour(timestamp) AS hour,
+                toInt64(sumIf(count, metric_name = %(sent)s AND {in_window})) AS sent_in_window,
+                toInt64(sumIf(count, metric_name = %(sent)s)) AS sent_in_hour,
+                toInt64(sumIf(count, metric_name = %(sandbox)s)) AS sandbox_in_hour{hourly_others}
+            FROM app_metrics2
+            WHERE app_source = %(app_source)s
+            {"AND team_id IN %(team_ids)s" if team_ids else ""}
+            AND {in_hours}
+            AND metric_name IN %(names)s
+            GROUP BY team_id, app_source_id, instance_id, hour
+        )
+        GROUP BY team_id, day
+    """
     # Tag the query so it is attributable in query-cost analysis and does not trip the untagged-query
     # guard in local dev. Celery adds only task identity, not a product or feature. This derives tier
     # state in the background, so it is enrichment, not a customer-facing query. One context here
-    # covers the daily sweep, the admin recompute, and the backfill command.
-    with tags_context(product=Product.WORKFLOWS, feature=Feature.ENRICHMENT):
-        return fetch_app_metric_daily_totals_by_team(
-            app_source=APP_SOURCE,
-            name=metric_names,
-            after=after,
-            before=before,
-            team_ids=team_ids,
-            workload=workload,
+    # covers the daily sweep, the admin recompute, and the backfill command. The sending allowance
+    # reads the same counts for a page, so it passes QUERY.
+    with tags_context(product=Product.WORKFLOWS, feature=feature):
+        rows = sync_execute(query, params, workload=workload)
+
+    daily: dict[int, dict[str, _DailyEmailMetrics]] = {}
+    for team_id, day, own, *others in rows:
+        # A day can sum to nothing once sandbox sends and the hour before the cutoff are left out.
+        if not own and not any(others):
+            continue
+        counts = {name: int(count) for name, count in zip(other_metrics, others)}
+        daily.setdefault(team_id, {})[day.strftime("%Y-%m-%d")] = _DailyEmailMetrics(
+            own_sent=int(own),
+            hard_bounced=counts[HARD_BOUNCE_METRIC],
+            complained=counts[COMPLAINT_METRIC],
+            auto_paused=any(counts[metric] > 0 for metric in auto_pause_metrics),
         )
+    return daily
 
 
-def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSendingHistory:
+def _history_from_daily(team_id: int, days: dict[str, _DailyEmailMetrics]) -> TeamSendingHistory:
     # The tier decision only reads team totals, so metrics recorded under a batch job id and under
     # its parent workflow id sum the same either way and need no per-source resolution.
-    auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     return TeamSendingHistory(
         team_id=team_id,
-        sent=sum(counts.get(SENT_METRIC, 0) for counts in days.values()),
-        hard_bounced=sum(counts.get(HARD_BOUNCE_METRIC, 0) for counts in days.values()),
-        complained=sum(counts.get(COMPLAINT_METRIC, 0) for counts in days.values()),
-        auto_paused=any(counts.get(metric, 0) > 0 for counts in days.values() for metric in auto_pause_metrics),
-        daily_sends={day: counts.get(SENT_METRIC, 0) for day, counts in days.items() if counts.get(SENT_METRIC, 0)},
+        sent=sum(day.own_sent for day in days.values()),
+        hard_bounced=sum(day.hard_bounced for day in days.values()),
+        complained=sum(day.complained for day in days.values()),
+        auto_paused=any(day.auto_paused for day in days.values()),
+        daily_sends={key: day.own_sent for key, day in days.items() if day.own_sent > 0},
     )
 
 

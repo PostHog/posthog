@@ -1,25 +1,31 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Optional
 
-from posthog.test.base import BaseTest
+import time_machine
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers import (
     Command as BackfillCommand,
 )
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.email_health import team_email_sending_allowance
 from products.workflows.backend.services.email_sending_tier import (
     SendingHistoryWindows,
     SesTenantState,
     TeamSendingHistory,
     TierDecision,
     apply_tier_decision,
+    build_sending_histories,
     decide_tier,
     highest_qualifying_tier,
     recompute_email_sending_tier_for_team,
@@ -517,3 +523,118 @@ class TestBackfillEmailSendingTiers(BaseTest):
             ghost_id: history(team_id=ghost_id),
         }
         assert set(BackfillCommand()._without_deleted_teams(histories)) == {self.team.id}
+
+
+@override_settings(**TIER_SETTINGS)
+class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
+    NOW = datetime(2026, 11, 4, 11, 30, tzinfo=UTC)
+
+    def _record(
+        self, metric_name: str, at: datetime, count: int = 1, source: str = "flow-a", instance: str = "step-1"
+    ) -> None:
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_flow",
+            app_source_id=source,
+            instance_id=instance,
+            timestamp=at,
+            metric_kind="success",
+            metric_name=metric_name,
+            count=count,
+        )
+
+    @parameterized.expand(
+        [
+            ("own_send_before_the_cutoff", [("email_sent", -1450, "step-1"), ("email_sent", -1390, "step-1")], 1),
+            ("full_pair", [("email_sent", -1420, "step-1"), ("email_sandbox_sent", -1420, "step-1")], 0),
+            ("pair_split_sent_inside", [("email_sandbox_sent", -1450, "step-1"), ("email_sent", -1430, "step-1")], 0),
+            (
+                "pair_split_sandbox_inside_beside_own_send",
+                [
+                    ("email_sent", -1450, "step-1"),
+                    ("email_sandbox_sent", -1430, "step-1"),
+                    ("email_sent", -1430, "step-2"),
+                ],
+                1,
+            ),
+            (
+                "own_send_outside_beside_pair_on_another_step",
+                [
+                    ("email_sent", -1450, "step-1"),
+                    ("email_sent", -1430, "step-2"),
+                    ("email_sandbox_sent", -1430, "step-2"),
+                ],
+                0,
+            ),
+        ]
+    )
+    def test_sending_allowance(self, _name: str, records: list[tuple[str, int, str]], last_day: int) -> None:
+        with time_machine.travel(self.NOW, tick=False):
+            for metric_name, minutes, instance in records:
+                self._record(metric_name, self.NOW + timedelta(minutes=minutes), instance=instance)
+            cache.clear()
+            allowance = team_email_sending_allowance(self.team.id)
+
+        assert allowance.emails_sent_last_day == last_day
+
+    @parameterized.expand(
+        [
+            ("own_send_before_the_cutoff", [("email_sent", -20, "step-1"), ("email_sent", 20, "step-2")], 1),
+            ("only_an_own_send_before_the_cutoff", [("email_sent", -20, "step-1")], 0),
+            ("only_sandbox_sends", [("email_sandbox_sent", 20, "step-1")], 0),
+            ("full_pair", [("email_sent", 20, "step-1"), ("email_sandbox_sent", 20, "step-1")], 0),
+            ("pair_split_sandbox_inside", [("email_sent", -10, "step-1"), ("email_sandbox_sent", 10, "step-1")], 0),
+            ("pair_split_sent_inside", [("email_sandbox_sent", -10, "step-1"), ("email_sent", 10, "step-1")], 0),
+            (
+                "pair_outside_beside_own_send",
+                [("email_sent", -10, "step-1"), ("email_sandbox_sent", -10, "step-1"), ("email_sent", 10, "step-2")],
+                1,
+            ),
+            (
+                "pair_split_sandbox_inside_beside_own_send",
+                [("email_sent", -10, "step-1"), ("email_sandbox_sent", 10, "step-1"), ("email_sent", 10, "step-2")],
+                1,
+            ),
+            (
+                "own_send_outside_beside_pair_on_another_step",
+                [("email_sent", -10, "step-1"), ("email_sent", 10, "step-2"), ("email_sandbox_sent", 10, "step-2")],
+                0,
+            ),
+            ("own_send_after_the_end", [("email_sent", 110, "step-1"), ("email_sent", 130, "step-2")], 1, 120),
+            (
+                "pair_split_sandbox_after_the_end",
+                [("email_sent", 110, "step-1"), ("email_sandbox_sent", 130, "step-1")],
+                0,
+                120,
+            ),
+        ]
+    )
+    def test_sending_history_at_the_cutoff(
+        self,
+        _name: str,
+        records: list[tuple[str, int, str]],
+        expected_sent: int,
+        before_minutes: Optional[int] = None,
+    ) -> None:
+        after = self.NOW - timedelta(days=1)
+        before = after + timedelta(minutes=before_minutes) if before_minutes is not None else None
+        with time_machine.travel(self.NOW, tick=False):
+            for metric_name, minutes, instance in records:
+                self._record(metric_name, after + timedelta(minutes=minutes), instance=instance)
+            histories = build_sending_histories(after=after, before=before, team_ids=[self.team.id])
+
+        assert {team_id: history.sent for team_id, history in histories.items()} == (
+            {self.team.id: expected_sent} if expected_sent else {}
+        )
+
+    def test_sending_history_keeps_bounces_of_sandbox_sends(self) -> None:
+        after = self.NOW - timedelta(days=1)
+        with time_machine.travel(self.NOW, tick=False):
+            self._record("email_sent", after + timedelta(hours=4), count=3)
+            self._record("email_sandbox_sent", after + timedelta(hours=4))
+            self._record("email_bounced_hard", after + timedelta(hours=4))
+            histories = build_sending_histories(after=after, team_ids=[self.team.id])
+
+        assert histories[self.team.id].sent == 2
+        assert histories[self.team.id].hard_bounced == 1
+        assert histories[self.team.id].daily_sends == {(after + timedelta(hours=4)).strftime("%Y-%m-%d"): 2}
