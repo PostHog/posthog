@@ -26,7 +26,7 @@ import { Telemetry } from '@/core/telemetry'
 import { kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
-import { canStepUp, stepUpCommand } from '@/posthog/scope-challenge'
+import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-challenge'
 import { VERSION } from '@/version'
 
 const ROOT_HELP = `
@@ -107,6 +107,9 @@ async function withScopeHint(error: unknown, scopes: readonly string[] | undefin
         return error
     }
     const credentials = await ctx.requestedCredentials?.catch(() => undefined)
+    if (credentials?.source === 'workload') {
+        return error.withHint(workloadScopesHint(scopes))
+    }
     if (!canStepUp(credentials)) {
         return error.withHint(
             `Check that the personal API key has the ${scopes.join(', ')} scope and access to this project.`
