@@ -2255,7 +2255,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     except serializers.ValidationError as error:
                         # These checks run before the inputs serializer. API clients map an error to its
                         # field by attr, so report it at the input's path, unwrapped as InputsSerializer does.
-                        detail = error.detail
+                        detail: Any = error.detail
                         if isinstance(detail, dict) and "input" in detail:
                             detail = detail["input"]
                         raise serializers.ValidationError({"inputs": {key: detail}})
