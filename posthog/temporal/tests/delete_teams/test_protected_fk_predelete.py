@@ -31,6 +31,7 @@ def test_team_cascade_is_blocked_by_a_widget_on_a_tile():
 
 
 @pytest.mark.parametrize("tile_deleted", [False, True])
+@pytest.mark.django_db(databases=["default", "ui_customization_db_writer", "ui_customization_db_reader"])
 def test_predelete_unblocks_team_deletion(tile_deleted: bool):
     team_id = _team_with_widget_on_a_tile(tile_deleted=tile_deleted)
 

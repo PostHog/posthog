@@ -115,6 +115,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.ui_customization",
     "products.account_audits",
     "products.alerts_platform",
     "products.ai_training",
