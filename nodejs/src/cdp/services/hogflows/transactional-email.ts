@@ -7,6 +7,7 @@ import {
     EmailAttachmentMetadata,
     MAX_EMAIL_ATTACHMENTS,
 } from '~/cdp/schema/cyclotron'
+import { HogFlow } from '~/cdp/schema/hogflow'
 
 export const MAX_COPY_RECIPIENTS = 10
 
@@ -219,6 +220,7 @@ export const AcceptedSendSchema = z
         bcc: CopyRecipientsSchema,
         attachments: AttachmentsSchema,
         tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
+        hogFlowVersion: z.number().int().positive().optional(),
     })
     .strict()
     .readonly()
@@ -273,6 +275,11 @@ export const acceptedSendEmailFields = (
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
 })
 
+export const predatesGradedVersion = (
+    hogFlow: Pick<HogFlow, 'version'>,
+    send: Pick<AcceptedSend, 'hogFlowVersion'> | undefined
+): boolean => send?.hogFlowVersion !== undefined && hogFlow.version < send.hogFlowVersion
+
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
     to: z.string().email({ pattern: RECIPIENT_ADDRESS_PATTERN }),
@@ -312,6 +319,7 @@ export type TransactionalEmailOutcome =
     | 'invalid_request'
     | 'not_found'
     | 'not_sendable'
+    | 'workflow_version_behind'
     | 'quota_limited'
     | 'sending_suspended'
     | 'sending_paused'

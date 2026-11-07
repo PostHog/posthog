@@ -52,6 +52,12 @@ export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
 const PRIMARY_RESULT_TTL_MS = 60 * 1000
 const PRIMARY_RESULT_MAX_SIZE = 10_000
 
+const meetsVersion = (flow: HogFlow | null, minimumVersion?: HogFlow['version']): flow is HogFlow =>
+    flow !== null && (minimumVersion === undefined || flow.version >= minimumVersion)
+
+const isOlderVersion = (incoming: HogFlow | null, cached: HogFlow | null): boolean =>
+    incoming !== null && cached !== null && incoming.version < cached.version
+
 export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
     private lazyLoaderByTeam: LazyLoader<HogFlowTeamInfo[]>
@@ -87,6 +93,7 @@ export class HogFlowManagerService {
             name: 'hog_flow_manager',
             ...cacheOptions,
             loader: async (ids) => await this.fetchHogFlows(ids),
+            isStale: isOlderVersion,
         })
 
         this.pubSub.on<{ teamId: Team['id']; hogFlowIds: HogFlow['id'][] }>('reload-hog-flows', (message) => {
@@ -147,8 +154,29 @@ export class HogFlowManagerService {
         return (await this.lazyLoader.get(id)) ?? null
     }
 
-    public async getHogFlowCheckingPrimaryOnMiss(id: HogFlow['id']): Promise<HogFlow | null> {
-        return (await this.getHogFlowsCheckingPrimaryOnMiss([id]))[id]
+    public async getHogFlowCheckingPrimaryOnMiss(
+        id: HogFlow['id'],
+        minimumVersion?: HogFlow['version']
+    ): Promise<HogFlow | null> {
+        const flow = (await this.getHogFlowsCheckingPrimaryOnMiss([id]))[id]
+        if (minimumVersion === undefined || meetsVersion(flow, minimumVersion)) {
+            return flow
+        }
+        return await this.readPrimaryMeeting(id, minimumVersion)
+    }
+
+    private async readPrimaryMeeting(id: HogFlow['id'], minimumVersion: HogFlow['version']): Promise<HogFlow | null> {
+        const joinsReadInFlight = this.primaryReads.has(id)
+        let flow = (await this.readPrimary([id]))[id]
+        if (joinsReadInFlight && !meetsVersion(flow, minimumVersion)) {
+            flow = (await this.readPrimary([id]))[id]
+        }
+        // The replica may stay behind the version this send was graded at, so keep the primary copy cached:
+        // a later replica load of an older version does not replace it.
+        if (flow) {
+            this.lazyLoader.set(id, flow)
+        }
+        return flow
     }
 
     public async getHogFlowsCheckingPrimaryOnMiss(

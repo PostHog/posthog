@@ -148,6 +148,96 @@ describe('HogFlowManager', () => {
         }, 10000)
     })
 
+    describe('a graded version newer than the cached copy', () => {
+        const flowReadsOn = (use: PostgresUse, querySpy: jest.SpyInstance): number =>
+            querySpy.mock.calls.filter(([queryUse, , , tag]) => queryUse === use && tag === 'fetchHogFlows').length
+
+        const uploadWithoutReloadBehindAStaleReplica = async (id: HogFlow['id']): Promise<jest.SpyInstance> => {
+            await manager.getHogFlow(id)
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET version = 2, name = 'Uploaded' WHERE id = $1`,
+                [id],
+                'upload-without-reload'
+            )
+            const query = hub.postgres.query.bind(hub.postgres)
+            return jest.spyOn(hub.postgres, 'query').mockImplementation(async (use, text, values, tag) => {
+                const result = await query(use, text, values, tag)
+                if (use === PostgresUse.COMMON_READ && tag === 'fetchHogFlows') {
+                    return { ...result, rows: result.rows.map((row) => ({ ...row, version: 1, name: 'Stale' })) }
+                }
+                return result
+            })
+        }
+
+        it('reads the primary once for concurrent sends', async () => {
+            const id = hogFlows[0].id
+            const querySpy = await uploadWithoutReloadBehindAStaleReplica(id)
+
+            const flows = await Promise.all(
+                Array.from({ length: 5 }, () => manager.getHogFlowCheckingPrimaryOnMiss(id, 2))
+            )
+
+            expect(flows.map((flow) => flow?.name)).toEqual(Array(5).fill('Uploaded'))
+            expect(flowReadsOn(PostgresUse.COMMON_WRITE, querySpy)).toBe(1)
+        })
+
+        it('reads the primary again for a send graded after the read it joined began', async () => {
+            const id = hogFlows[0].id
+            const query = hub.postgres.query.bind(hub.postgres)
+            await manager.getHogFlow(id)
+            await query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET version = 2 WHERE id = $1`,
+                [id],
+                'upload'
+            )
+            let releaseFirstRead: () => void = () => {}
+            const firstReadHeld = new Promise<void>((resolve) => (releaseFirstRead = resolve))
+            let primaryReads = 0
+            jest.spyOn(hub.postgres, 'query').mockImplementation(async (use, text, values, tag) => {
+                const result = await query(use, text, values, tag)
+                if (use === PostgresUse.COMMON_WRITE && tag === 'fetchHogFlows' && ++primaryReads === 1) {
+                    await firstReadHeld
+                }
+                return result
+            })
+
+            const gradedAtTwo = manager.getHogFlowCheckingPrimaryOnMiss(id, 2)
+            await waitForExpect(() => expect(primaryReads).toBe(1))
+            await query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET version = 3, name = 'Uploaded again' WHERE id = $1`,
+                [id],
+                'second-upload'
+            )
+            const gradedAtThree = manager.getHogFlowCheckingPrimaryOnMiss(id, 3)
+            await new Promise((resolve) => setImmediate(resolve))
+            releaseFirstRead()
+
+            expect([(await gradedAtTwo)?.version, (await gradedAtThree)?.name]).toEqual([2, 'Uploaded again'])
+            expect(primaryReads).toBe(2)
+        })
+
+        it('reuses the primary copy for a later send after the stale replica reloads', async () => {
+            const id = hogFlows[0].id
+            const baseNow = Date.now()
+            const querySpy = await uploadWithoutReloadBehindAStaleReplica(id)
+            try {
+                await manager.getHogFlowCheckingPrimaryOnMiss(id, 2)
+                jest.spyOn(Date, 'now').mockReturnValue(baseNow + 3 * 60_000)
+
+                const later = await manager.getHogFlowCheckingPrimaryOnMiss(id, 2)
+
+                expect(flowReadsOn(PostgresUse.COMMON_READ, querySpy)).toBe(1)
+                expect(later?.name).toBe('Uploaded')
+                expect(flowReadsOn(PostgresUse.COMMON_WRITE, querySpy)).toBe(1)
+            } finally {
+                jest.spyOn(Date, 'now').mockReturnValue(baseNow)
+            }
+        })
+    })
+
     it('reads the primary once per batch of workflows the database no longer has, and again once the miss expires', async () => {
         const [deletedId, secondDeletedId, thirdDeletedId] = Array.from(
             { length: 3 },

@@ -222,7 +222,7 @@ export class EmailStatusService {
                 messageId: result.invocation.id,
                 status: 'failed',
                 // Same precedence as the lifecycle row in hog_invocation_results: an error wins over a cancel.
-                reason: result.error ? classifyError(result.error).kind : 'canceled',
+                reason: result.error ? (result.errorKind ?? classifyError(result.error).kind) : 'canceled',
                 runOutcome: true,
             })
         }

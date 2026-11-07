@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { hasPushActions } from '~/cdp/services/hogflows/hogflow-utils'
@@ -7,6 +8,7 @@ import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
 import { isRowScopedTrigger } from '../schema/hogflow'
+import { predatesGradedVersion } from '../services/hogflows/transactional-email'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import {
     CyclotronJobInvocation,
@@ -19,9 +21,15 @@ import { createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
+const counterHogFlowJobsFailed = new Counter({
+    name: 'cdp_hogflow_worker_jobs_failed_total',
+    help: 'Hog flow jobs the worker failed before running them, by reason',
+    labelNames: ['reason'],
+})
+
 type LoadHogFlowsResult = {
     loadedInvocations: CyclotronJobInvocationHogFlow[]
-    canceledResults: CyclotronJobInvocationResult[]
+    terminalResults: CyclotronJobInvocationResult[]
 }
 
 // A transactional email's caller holds only a send key, which grants no access to person data, so its
@@ -45,9 +53,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     public override async processInvocations(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationResult[]> {
-        const { loadedInvocations, canceledResults } = await this.loadHogFlows(invocations)
+        const { loadedInvocations, terminalResults } = await this.loadHogFlows(invocations)
         const executed = await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
-        return [...canceledResults, ...executed]
+        return [...terminalResults, ...executed]
     }
 
     protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
@@ -102,11 +110,23 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return result
     }
 
+    private buildFailedResult(
+        item: CyclotronJobInvocation,
+        hogFlow: HogFlow,
+        failure: { errorKind: string; error: string }
+    ): CyclotronJobInvocationResult {
+        const invocation = { ...item, hogFlow }
+        const result = createInvocationResult(invocation, {}, { finished: true, error: failure.error })
+        result.errorKind = failure.errorKind
+        result.logs.push({ level: 'error', timestamp: DateTime.now(), message: failure.error })
+        return result
+    }
+
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
-        const canceledResults: CyclotronJobInvocationResult[] = []
+        const terminalResults: CyclotronJobInvocationResult[] = []
         const hogFlows = await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(
             invocations.filter((item) => !item.cancelRequestedAt).map((item) => item.functionId)
         )
@@ -119,19 +139,54 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // (deleted) or a lookup error still cancels.
                 if (item.cancelRequestedAt) {
                     const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId).catch(() => null)
-                    canceledResults.push(this.buildCanceledResult(item, 'Run canceled', hogFlow ?? undefined))
+                    terminalResults.push(this.buildCanceledResult(item, 'Run canceled', hogFlow ?? undefined))
                     return
                 }
 
                 const team = await this.deps.teamManager.getTeam(item.teamId)
-                const hogFlow = hogFlows[item.functionId]
+                const send = (item.state as CyclotronJobInvocationHogFlow['state'] | null)?.send
+                const batched = hogFlows[item.functionId]
+                // A send graded at a newer version than the batch read found reads the primary for that version.
+                const hogFlow =
+                    batched && predatesGradedVersion(batched, send)
+                        ? await this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(
+                              item.functionId,
+                              send?.hogFlowVersion
+                          )
+                        : batched
                 if (!hogFlow || !team) {
                     logger.error('⚠️', 'Error finding hog flow', {
                         id: item.functionId,
                     })
+                    counterHogFlowJobsFailed.labels({ reason: 'workflow_unavailable' }).inc()
 
                     failedInvocations.push(item)
                     this.invocationResultsService.emailStatusService.queueUnavailableRun(item)
+
+                    return
+                }
+
+                if (predatesGradedVersion(hogFlow, send)) {
+                    logger.error('⚠️', 'Hog flow is older than the version its send was graded at', {
+                        id: item.functionId,
+                        version: hogFlow.version,
+                        gradedVersion: send?.hogFlowVersion,
+                    })
+                    counterHogFlowJobsFailed.labels({ reason: 'workflow_version_behind' }).inc()
+
+                    const failure = {
+                        errorKind: 'workflow_version_behind',
+                        error: `Workflow version ${hogFlow.version} is older than version ${send?.hogFlowVersion}, which this send was checked against`,
+                    }
+                    const behind = { ...item, hogFlow }
+                    const recorded =
+                        await this.invocationResultsService.invocationResultsRowsService.recordTerminalFailureDurably(
+                            behind,
+                            failure
+                        )
+                    if (recorded || !this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+                        terminalResults.push(this.buildFailedResult(item, hogFlow, failure))
+                    }
 
                     return
                 }
@@ -145,7 +200,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                         status: hogFlow.status,
                     })
 
-                    canceledResults.push(
+                    terminalResults.push(
                         this.buildCanceledResult(item, 'Run canceled: the workflow is no longer active', hogFlow)
                     )
 
@@ -277,6 +332,6 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
 
-        return { loadedInvocations, canceledResults }
+        return { loadedInvocations, terminalResults }
     }
 }

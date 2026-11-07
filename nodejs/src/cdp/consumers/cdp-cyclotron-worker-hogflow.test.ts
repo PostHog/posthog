@@ -2,6 +2,7 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
+import { register } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
@@ -92,6 +93,11 @@ describe('CdpCyclotronWorkerHogFlow', () => {
     let team2: Team
     let hogFlows: HogFlow[]
     let jobQueue: ReturnType<typeof createMockJobQueue>
+
+    const failedJobCount = async (reason: string): Promise<number> => {
+        const metric = await register.getSingleMetric('cdp_hogflow_worker_jobs_failed_total')?.get()
+        return metric?.values.find((value) => value.labels.reason === reason)?.value ?? 0
+    }
 
     const createSerializedHogFlowInvocation = (
         hogFlow: HogFlow,
@@ -608,14 +614,42 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 })
             )
 
+            const unavailableBefore = await failedJobCount('workflow_unavailable')
+
             const results = await processor.processInvocations([lateInvocation, missingInvocation])
 
+            expect(await failedJobCount('workflow_unavailable')).toEqual(unavailableBefore + 1)
             expect(results).toHaveLength(1)
             expect(results[0]).toMatchObject({
                 finished: true,
                 invocation: { hogFlow: { id: lateFlow.id } },
             })
             expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([missingInvocation])
+        })
+
+        it.each([
+            ['newer than the cached copy runs the database version', 2, [2]],
+            ['missing runs the cached copy, as before the field', undefined, [1]],
+        ])('an accepted send whose graded workflow version is %s', async (_desc, hogFlowVersion, ranVersions) => {
+            const hogFlow = hogFlows[0]
+            await processor['hogFlowManager'].getHogFlow(hogFlow.id)
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET version = 2 WHERE id = $1`,
+                [hogFlow.id],
+                'upload-without-reload'
+            )
+            const invocation = createSerializedHogFlowInvocation(hogFlow, {
+                event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                send: { tracking: { captureEngagement: false }, hogFlowVersion },
+            })
+
+            const results = await processor.processInvocations([invocation])
+
+            expect(
+                results.map((result) => (result.invocation as CyclotronJobInvocationHogFlow).hogFlow.version)
+            ).toEqual(ranVersions)
+            expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([])
         })
 
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {

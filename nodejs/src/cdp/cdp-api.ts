@@ -66,6 +66,7 @@ import {
     decodeAttachments,
     fieldNotAcceptedError,
     isRecipientFormatIssue,
+    predatesGradedVersion,
     queuedSend,
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
@@ -189,16 +190,17 @@ const transactionalEmailFingerprint = (
 ): string => {
     const templateRequest = [hogFlowId, to, distinct_id, variables]
     return IdempotencyKeys.fingerprint(
-        send ? [...templateRequest, ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send)] : templateRequest
+        send ? [...templateRequest, ACCEPTED_SEND_FINGERPRINT_MARKER, whatTheCallerSent(send)] : templateRequest
     )
 }
 
 type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
 
-const withSenderTheCallerChose = ({
+const whatTheCallerSent = ({
     from,
+    hogFlowVersion,
     ...send
-}: QueuedSend): Omit<QueuedSend, 'from'> & { from?: CallerChosenSender } => ({
+}: QueuedSend): Omit<QueuedSend, 'from' | 'hogFlowVersion'> & { from?: CallerChosenSender } => ({
     ...send,
     from: senderTheCallerChose(from),
 })
@@ -1268,7 +1270,10 @@ export class CdpApi {
 
                 stages.start('load')
                 const teamLookup = this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
-                const hogFlowLookup = this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
+                const hogFlowLookup = this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(
+                    req.params.id,
+                    send?.hogFlowVersion
+                )
                 // A missing team returns before the workflow lookup is awaited, so its failure must not go unhandled.
                 hogFlowLookup.catch(() => undefined)
                 const team = await teamLookup
@@ -1278,6 +1283,9 @@ export class CdpApi {
                 const hogFlow = await hogFlowLookup
                 if (!hogFlow || hogFlow.team_id !== team.id) {
                     return reply('not_found', 404, { error: 'Workflow not found' })
+                }
+                if (predatesGradedVersion(hogFlow, send)) {
+                    return reply('workflow_version_behind', 503, { error: 'workflow_version_behind' })
                 }
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })

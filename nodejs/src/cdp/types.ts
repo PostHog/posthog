@@ -377,6 +377,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     // 'canceled'.
     canceled?: boolean
     error?: any
+    errorKind?: string
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]

@@ -2545,6 +2545,92 @@ describe('CDP API', () => {
             })
         })
 
+        describe('with the workflow version Django graded', () => {
+            const templateSend = { tracking: { captureEngagement: false } }
+            const UPLOADED_SUBJECT = 'Your new reset link'
+
+            const uploadWithoutReload = async (version: number) => {
+                const uploaded = hogFlow.actions.map((action) =>
+                    action.type === 'function_email'
+                        ? {
+                              ...action,
+                              config: {
+                                  ...action.config,
+                                  inputs: {
+                                      email: {
+                                          value: {
+                                              from: { integrationId: codeSend.from.integrationId },
+                                              subject: UPLOADED_SUBJECT,
+                                          },
+                                      },
+                                  },
+                              },
+                          }
+                        : action
+                )
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET version = $2, actions = $3 WHERE id = $1`,
+                    [hogFlow.id, version, JSON.stringify(uploaded)],
+                    'upload-without-reload'
+                )
+            }
+
+            const queuedFlow = () => {
+                const [invocation] = mockQueueInvocations.mock.calls[0][0]
+                const email = invocation.hogFlow.actions.find((action: any) => action.type === 'function_email')
+                return { version: invocation.hogFlow.version, subject: email.config.inputs?.email?.value?.subject }
+            }
+
+            beforeEach(async () => {
+                await api['hogFlowManager'].getHogFlow(hogFlow.id)
+                await uploadWithoutReload(2)
+            })
+
+            it.each([
+                ['newer than the cached copy sends the uploaded content', { hogFlowVersion: 2 }, 2, UPLOADED_SUBJECT],
+                ['the cached copy holds sends the cached content', { hogFlowVersion: 1 }, 1, undefined],
+                ['missing sends the cached content, as before the field', {}, 1, undefined],
+            ])('a graded version %s', async (_desc, graded, version, subject) => {
+                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...templateSend, ...graded } })
+
+                expect(res.status).toEqual(202)
+                expect(queuedFlow()).toEqual({ version, subject })
+            })
+
+            it('refuses a send whose graded version is newer than the workflow in the database', async () => {
+                const behindBefore = await outcomeCount('workflow_version_behind')
+
+                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...templateSend, hogFlowVersion: 3 } })
+
+                expect([res.status, res.body]).toEqual([503, { error: 'workflow_version_behind' }])
+                expect(await outcomeCount('workflow_version_behind')).toEqual(behindBefore + 1)
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            })
+
+            it('replays a keyed send whose retry Django graded at a newer version', async () => {
+                const idempotency_key = `key-${new UUIDT().toString()}`
+                const first = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    idempotency_key,
+                    send: { ...templateSend, hogFlowVersion: 1 },
+                })
+                const retry = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    idempotency_key,
+                    send: { ...templateSend, hogFlowVersion: 2 },
+                })
+
+                expect(first.status).toEqual(202)
+                expect(retry.body).toEqual({
+                    status: 'queued',
+                    invocation_id: first.body.invocation_id,
+                    replayed: true,
+                })
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            })
+        })
+
         it.each([
             ['a code send with rendered content', codeSend],
             [
@@ -2555,6 +2641,10 @@ describe('CDP API', () => {
             [
                 'a code send with copies to addresses that use atext symbols',
                 { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
+            ],
+            [
+                'a template send with the workflow version Django graded',
+                { tracking: { captureEngagement: false }, hogFlowVersion: 1 },
             ],
         ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
             const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })

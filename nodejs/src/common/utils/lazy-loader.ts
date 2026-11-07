@@ -93,6 +93,7 @@ export type LazyLoaderOptions<T> = {
     bufferMs?: number
     /** Maximum number of entries in the cache - LRU eviction when exceeded */
     maxSize?: number
+    isStale?: (incoming: T | null, cached: T | null) => boolean
 }
 
 export type LoadOptions = {
@@ -183,6 +184,12 @@ export class LazyLoader<T> {
         return await this.loadViaCache(keys, options)
     }
 
+    public set(key: string, value: T): void {
+        const map: LazyLoaderMap<T> = Object.create(null)
+        map[key] = value
+        this.setValues(map)
+    }
+
     public markForRefresh(key: string | string[]): void {
         for (const k of Array.isArray(key) ? key : [key]) {
             const entry = this.cache[k]
@@ -206,7 +213,7 @@ export class LazyLoader<T> {
         const now = Date.now()
         const keys = Object.keys(map)
         for (const key of keys) {
-            const value = map[key] ?? null
+            const value = this.newestOf(map[key] ?? null, this.cache[key]?.value ?? null)
             const jitter = Math.floor(Math.random() * this.refreshJitterMs)
             const refreshAge = value === null ? this.refreshNullAgeMs : this.refreshAgeMs
             const cacheUntil = now + refreshAge + jitter
@@ -223,6 +230,10 @@ export class LazyLoader<T> {
         }
         this.evictLRU()
         this.updateCacheSizeMetric()
+    }
+
+    private newestOf(incoming: T | null, cached: T | null): T | null {
+        return this.options.isStale?.(incoming, cached) ? cached : incoming
     }
 
     /**
