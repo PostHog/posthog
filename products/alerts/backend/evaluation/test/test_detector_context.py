@@ -171,6 +171,7 @@ class TestLLMVerdictReachesTheCheck:
             "insight_id": 42,
             "rationale": "Signups fell to 12.",
             "kind": "drop",
+            "model": "claude-sonnet-5",
         }
 
     def test_a_series_too_short_to_judge_leaves_the_check_uncomputed(self) -> None:

@@ -295,7 +295,12 @@ def _platform_fired_checks(alert: AlertConfiguration, moved_at: datetime) -> lis
 
 
 def _judge_attribution(
-    *, team: Team | None, user: User | None, evaluation_id: str | None, is_agent_billable: bool
+    *,
+    team: Team | None,
+    user: User | None,
+    evaluation_id: str | None,
+    is_agent_billable: bool,
+    alert_id: str | None = None,
 ) -> JudgeAttribution:
     """Who the judge's charged call runs as. Refused loudly when there is no one to attribute it to."""
     if team is None or user is None:
@@ -304,7 +309,9 @@ def _judge_attribution(
             "alert has neither, which happens when the person who created it was deleted. "
             "Recreate the alert to fix it."
         )
-    return JudgeAttribution(team=team, user=user, evaluation_id=evaluation_id, is_agent_billable=is_agent_billable)
+    return JudgeAttribution(
+        team=team, user=user, evaluation_id=evaluation_id, is_agent_billable=is_agent_billable, alert_id=alert_id
+    )
 
 
 def _series_judge(detector_config: dict[str, Any]) -> SeriesJudge:
@@ -455,6 +462,7 @@ def evaluate_with_detector(
                 user=alert.created_by if alert is not None else None,
                 evaluation_id=evaluation_id,
                 is_agent_billable=True,
+                alert_id=str(alert.id) if alert is not None else None,
             ),
         )
 

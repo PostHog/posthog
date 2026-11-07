@@ -4,16 +4,19 @@ The point is a "just watch this for anything odd" option that needs no statistic
 model and no threshold, and that can honor instructions the statistical detectors
 cannot express ("only care about drops", "ignore the weekend dip").
 
-One model call per check. The model sees the recent series as a table, a chart of the
-same points, a plain-English description of what the insight measures, and the alert
-author's own notes on what counts as strange.
+One model call decides each check. The model sees the recent series as a table, a chart
+of the same points, a plain-English description of what the insight measures, and the
+alert author's own notes on what counts as strange. On a sampled share of scheduled checks
+from allowlisted teams, a second model is asked the same question as a shadow, so models
+can be compared on identical inputs. Its verdict is recorded on the check and never acted on.
 """
 
 import json
+import time
 import uuid
 import hashlib
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.core.cache import cache
 
@@ -21,7 +24,6 @@ import numpy as np
 import anthropic
 import structlog
 
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client
 from posthog.tasks.alerts.detector import LLM_DETECTOR_MIN_POINTS, llm_detector_lookback
 
 from products.alerts.backend.judge.contract import (
@@ -32,15 +34,12 @@ from products.alerts.backend.judge.contract import (
     LLMDetectorUnavailableError,
     SeriesContext,
     SeriesJudgment,
+    ShadowJudgment,
 )
-from products.alerts.backend.judge.prompt import (
-    PROMPT_REVISION,
-    SYSTEM_PROMPT,
-    build_human_message,
-    earlier_flag_column,
-)
+from products.alerts.backend.judge.models import DEFAULT_JUDGE_MODEL, JUDGE_MODELS, JudgeModel, ModelCall
+from products.alerts.backend.judge.prompt import PROMPT_REVISION, SYSTEM_PROMPT, build_prompt, earlier_flag_column
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
-from products.alerts.backend.llm_detector_limits import llm_detector_access_error
+from products.alerts.backend.llm_detector_limits import llm_detector_access_error, llm_detector_shadow_config
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -55,14 +54,6 @@ def prompt_window(interval: str | None) -> int:
 
 MIN_POINTS_TO_JUDGE = LLM_DETECTOR_MIN_POINTS
 
-# One constant. Not exposed per alert: a per-alert model field is a cost lever we
-# don't want in the alert editor yet.
-LLM_DETECTOR_MODEL = "claude-haiku-5-5"
-
-# Own product key in LLM analytics, so this judge's spend is separable from the
-# investigation agent's.
-LLM_DETECTOR_AI_PRODUCT = "alert_llm_detector"
-
 LLM_DETECTOR_PAUSED_SUFFIX = (
     "This alert is still on and starts checking again once that changes. To keep it running now, "
     "switch it to a statistical detector."
@@ -74,12 +65,13 @@ LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE = (
     "checking again once credits are available."
 )
 
-# The verdict schema is a handful of fields; this only needs to cover that.
-MAX_OUTPUT_TOKENS = 1024
-
 # Bounded so a stalled model call cannot spend the evaluate activity's whole budget,
 # which would kill the check before the Temporal retry gets a real attempt.
 REQUEST_TIMEOUT_SECONDS = 60.0
+
+# The shadow runs after the primary verdict, inside the same check, so its whole budget is
+# added to the check's duration. It gets no retry and a shorter timeout than the primary.
+SHADOW_REQUEST_TIMEOUT_SECONDS = 30.0
 
 # The rationale is appended to the breach text that every destination renders. Discord
 # rejects a message over 2,000 characters, and the breach prefix and the other breaches in
@@ -91,6 +83,8 @@ MAX_RATIONALE_CHARS = 600
 # the wait covers the API's simulate path, whose request threads are its own pool. The wait
 # is short so a full pool fails a request fast instead of holding its thread.
 MODEL_CALL_SLOT_WAIT_SECONDS = 5.0
+# A shadow never waits for a slot, so it cannot delay the check or take a primary call's slot.
+SHADOW_SLOT_WAIT_SECONDS = 0.0
 _model_call_slots = threading.BoundedSemaphore(MAX_CONCURRENT_MODEL_CALLS)
 
 # The activity that pays for a verdict also writes the AlertCheck, and it retries as a whole,
@@ -98,15 +92,21 @@ _model_call_slots = threading.BoundedSemaphore(MAX_CONCURRENT_MODEL_CALLS)
 # activity's 12-minute close so it covers every attempt of one check and outlives none of them.
 VERDICT_MEMO_TTL_SECONDS = 20 * 60
 
+JudgeRole = Literal["primary", "shadow"]
+
+
+class _NoFreeModelCallSlotError(LLMDetectorUnavailableError):
+    pass
+
 
 def _verdict_memo_key(
-    series: SeriesContext, attribution: JudgeAttribution, *, data: np.ndarray, window: int
+    series: SeriesContext, attribution: JudgeAttribution, *, data: np.ndarray, window: int, model: str
 ) -> str | None:
-    """The memo key for one check's verdict, or None when there is nothing to memoize.
+    """The memo key for one check's verdict from one model, or None when there is nothing to memoize.
 
     The key covers the series and its earlier flags as well as the check, so a retry that
-    re-queries and gets different numbers or history asks the model again. A simulation carries
-    no check and is never memoized.
+    re-queries and gets different numbers or history asks the model again. It covers the model,
+    so a shadow never reuses the primary's verdict. A simulation carries no check and is never memoized.
     """
     if not attribution.evaluation_id:
         return None
@@ -123,7 +123,7 @@ def _verdict_memo_key(
                 series.instructions,
                 window,
                 earlier_flag_column(series, length=len(data), window=window),
-                LLM_DETECTOR_MODEL,
+                model,
                 PROMPT_REVISION,
                 SYSTEM_PROMPT,
             ],
@@ -182,6 +182,29 @@ def _memoize_verdict(memo_key: str | None, verdict: LLMDetectionVerdict) -> None
         logger.warning("alerts.llm_detector.memo_write_failed", exc_info=True)
 
 
+def _in_shadow_sample(evaluation_id: str, rate: float) -> bool:
+    # Hashed rather than random, so every retry of one check makes the same decision.
+    digest = hashlib.sha256(f"shadow:{evaluation_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") / 2**64 < rate
+
+
+def _shadow_model(attribution: JudgeAttribution, primary: JudgeModel) -> JudgeModel | None:
+    """The model to shadow this check with, or None when the check is not shadowed."""
+    # A simulation has no evaluation id, and a person waiting on a preview is never shadowed.
+    if not attribution.evaluation_id:
+        return None
+    config = llm_detector_shadow_config(organization_id=attribution.team.organization.id)
+    if config is None or attribution.team.id not in config.team_ids:
+        return None
+    model = JUDGE_MODELS.get(config.model)
+    if model is None:
+        logger.warning("alerts.llm_detector.unknown_shadow_model", shadow_model=config.model)
+        return None
+    if model.name == primary.name or not _in_shadow_sample(attribution.evaluation_id, config.rate):
+        return None
+    return model
+
+
 class LLMSeriesJudge:
     """Config:
     instructions: str - the author's description of what counts as unusual (optional)
@@ -196,24 +219,6 @@ class LLMSeriesJudge:
         if len(data) < MIN_POINTS_TO_JUDGE:
             return None
 
-        verdict = self._ask_model(
-            data=data, series=series, attribution=attribution, window=prompt_window(series.interval)
-        )
-        return SeriesJudgment(
-            fires=verdict.is_anomaly,
-            kind=verdict.kind,
-            rationale=verdict.rationale[:MAX_RATIONALE_CHARS],
-            model=LLM_DETECTOR_MODEL,
-        )
-
-    def _ask_model(
-        self,
-        *,
-        data: np.ndarray,
-        series: SeriesContext,
-        attribution: JudgeAttribution,
-        window: int,
-    ) -> LLMDetectionVerdict:
         # An alert created while the organization was in the rollout and had consent on keeps
         # being checked after either is withdrawn. Refusing here covers every path to the
         # model, scheduled or previewed, so the flag is a real stop on spend.
@@ -226,70 +231,138 @@ class LLMSeriesJudge:
         if attribution.is_agent_billable and _is_over_ai_credit_budget(attribution.team):
             raise LLMDetectorPausedError(LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE)
 
-        memo_key = _verdict_memo_key(series, attribution, data=data, window=window)
+        window = prompt_window(series.interval)
+        # Shared by the primary and the shadow call, so LLM analytics shows them as one trace.
+        trace_id = f"alert-llm-detector-{uuid.uuid4()}"
+        primary = JUDGE_MODELS[DEFAULT_JUDGE_MODEL]
+        verdict = self._ask_model(
+            model=primary,
+            role="primary",
+            data=data,
+            series=series,
+            attribution=attribution,
+            window=window,
+            trace_id=trace_id,
+        )
+        return SeriesJudgment(
+            fires=verdict.is_anomaly,
+            kind=verdict.kind,
+            rationale=verdict.rationale[:MAX_RATIONALE_CHARS],
+            model=primary.name,
+            shadow=self._shadow(
+                primary=primary, data=data, series=series, attribution=attribution, window=window, trace_id=trace_id
+            ),
+        )
+
+    def _shadow(
+        self,
+        *,
+        primary: JudgeModel,
+        data: np.ndarray,
+        series: SeriesContext,
+        attribution: JudgeAttribution,
+        window: int,
+        trace_id: str,
+    ) -> ShadowJudgment | None:
+        """Ask the shadow model, if this check is shadowed. Never raises, so it cannot change the check."""
+        try:
+            model = _shadow_model(attribution, primary)
+        except Exception:
+            logger.warning("alerts.llm_detector.shadow_config_failed", exc_info=True)
+            return None
+        if model is None:
+            return None
+
+        started_at = time.monotonic()
+        try:
+            verdict = self._ask_model(
+                model=model,
+                role="shadow",
+                data=data,
+                series=series,
+                attribution=attribution,
+                window=window,
+                trace_id=trace_id,
+            )
+        except _NoFreeModelCallSlotError:
+            return ShadowJudgment(model=model.name, latency_ms=_elapsed_ms(started_at), error="no_free_model_call_slot")
+        except Exception:
+            logger.warning("alerts.llm_detector.shadow_failed", shadow_model=model.name, exc_info=True)
+            return ShadowJudgment(model=model.name, latency_ms=_elapsed_ms(started_at), error="model_call_failed")
+        return ShadowJudgment(
+            model=model.name,
+            latency_ms=_elapsed_ms(started_at),
+            is_anomaly=verdict.is_anomaly,
+            kind=verdict.kind,
+            rationale=verdict.rationale[:MAX_RATIONALE_CHARS],
+        )
+
+    def _ask_model(
+        self,
+        *,
+        model: JudgeModel,
+        role: JudgeRole,
+        data: np.ndarray,
+        series: SeriesContext,
+        attribution: JudgeAttribution,
+        window: int,
+        trace_id: str,
+    ) -> LLMDetectionVerdict:
+        memo_key = _verdict_memo_key(series, attribution, data=data, window=window, model=model.name)
         memoized = _memoized_verdict(memo_key)
         if memoized is not None:
-            logger.info("alerts.llm_detector.verdict_reused", is_anomaly=memoized.is_anomaly)
+            logger.info("alerts.llm_detector.verdict_reused", is_anomaly=memoized.is_anomaly, role=role)
             return memoized
 
         from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS  # noqa: PLC0415
         from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
-        instructions_present = bool(series.instructions)
-        try:
-            client = build_ai_gateway_anthropic_client(
-                ai_product=LLM_DETECTOR_AI_PRODUCT,
-                trace_id=f"alert-llm-detector-{uuid.uuid4()}",
-                team_id=attribution.team.id,
-            )
-        except ValueError as error:
-            raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
-
+        is_shadow = role == "shadow"
         extra_headers: dict[str, str] = {}
-        if not attribution.is_agent_billable:
+        if is_shadow or not attribution.is_agent_billable:
             extra_headers["X-PostHog-Billable"] = "false"
         if is_privacy_mode_enabled(attribution.team):
             extra_headers["X-PostHog-Privacy-Mode"] = "true"
+        properties: dict[str, str] = {"llm_detector_role": role}
+        if attribution.alert_id:
+            properties["alert_id"] = attribution.alert_id
+        if attribution.evaluation_id:
+            properties["alert_evaluation_id"] = attribution.evaluation_id
+        call = ModelCall(
+            prompt=build_prompt(data=data, context=series, window=window),
+            team_id=attribution.team.id,
+            trace_id=trace_id,
+            properties=properties,
+            extra_headers=extra_headers,
+            timeout_seconds=SHADOW_REQUEST_TIMEOUT_SECONDS if is_shadow else REQUEST_TIMEOUT_SECONDS,
+            # One in-request retry absorbs a transient blip inside the check's own budget;
+            # the Temporal evaluate retry is the outer net. A shadow is not worth a retry.
+            max_retries=0 if is_shadow else 1,
+        )
 
-        with client:
-            if not _model_call_slots.acquire(timeout=MODEL_CALL_SLOT_WAIT_SECONDS):
-                raise LLMDetectorUnavailableError(
-                    f"The AI detector is already running {MAX_CONCURRENT_MODEL_CALLS} model calls on this worker."
-                )
-            try:
-                # One in-request retry absorbs a transient blip inside the check's own budget;
-                # the Temporal evaluate retry is the outer net.
-                response = client.with_options(max_retries=1, timeout=REQUEST_TIMEOUT_SECONDS).messages.parse(
-                    model=LLM_DETECTOR_MODEL,
-                    max_tokens=MAX_OUTPUT_TOKENS,
-                    # No temperature: Haiku 5.5 rejects non-default sampling params with a 400. Disabled
-                    # thinking is accepted only at effort "high" or below, so do not raise the effort past it.
-                    thinking={"type": "disabled"},
-                    system=SYSTEM_PROMPT,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": build_human_message(data=data, context=series, window=window),  # type: ignore[typeddict-item]
-                        }
-                    ],
-                    output_format=LLMDetectionVerdict,
-                    extra_headers=extra_headers,
-                )
-                verdict = response.parsed_output
-            except LLM_API_EXCEPTIONS as error:
-                # The in-app budget check above fails open and can read a stale budget, so the gateway's
-                # refusal is the backstop and pauses the check the same way.
-                if _is_gateway_credit_refusal(error):
-                    raise LLMDetectorPausedError(LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE) from error
-                # Provider credentials, permissions, and model availability are shared across
-                # alerts. Disabling an individual alert cannot fix a provider failure.
-                raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
-            except Exception as error:
-                raise LLMDetectorUnavailableError(
-                    f"The AI detector could not read the model response: {error}"
-                ) from error
-            finally:
-                _model_call_slots.release()
+        if not _model_call_slots.acquire(
+            timeout=SHADOW_SLOT_WAIT_SECONDS if is_shadow else MODEL_CALL_SLOT_WAIT_SECONDS
+        ):
+            raise _NoFreeModelCallSlotError(
+                f"The AI detector is already running {MAX_CONCURRENT_MODEL_CALLS} model calls on this worker."
+            )
+        try:
+            verdict = model.ask(model, call)
+        except LLM_API_EXCEPTIONS as error:
+            # The in-app budget check above fails open and can read a stale budget, so the gateway's
+            # refusal is the backstop and pauses the check the same way.
+            if _is_gateway_credit_refusal(error):
+                raise LLMDetectorPausedError(LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE) from error
+            # Provider credentials, permissions, and model availability are shared across
+            # alerts. Disabling an individual alert cannot fix a provider failure.
+            raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
+        except Exception as error:
+            # Includes the ValueError the client builders raise when the gateway is not configured.
+            raise LLMDetectorUnavailableError(
+                f"The AI detector could not get a verdict from the model: {error}"
+            ) from error
+        finally:
+            _model_call_slots.release()
 
         if not isinstance(verdict, LLMDetectionVerdict):
             raise LLMDetectorUnavailableError(
@@ -298,11 +371,17 @@ class LLMSeriesJudge:
 
         logger.info(
             "alerts.llm_detector.verdict",
+            role=role,
+            model=model.name,
             is_anomaly=verdict.is_anomaly,
             kind=verdict.kind,
-            instructions_present=instructions_present,
+            instructions_present=bool(series.instructions),
             earlier_flags=len(series.earlier_flags),
             points_shown=min(window, len(data)),
         )
         _memoize_verdict(memo_key, verdict)
         return verdict
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return int((time.monotonic() - started_at) * 1000)
