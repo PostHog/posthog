@@ -26,7 +26,7 @@ from products.tasks.backend.logic.services.sandbox_pricing import (
     calculate_sandbox_compute_cost,
     validate_compute_rate_cards,
 )
-from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance
+from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
 
 TASK_USAGE_SIGNATURE_HEADER = "X-PostHog-Task-Usage-Signature"
 TASK_USAGE_TIMESTAMP_HEADER = "X-PostHog-Task-Usage-Timestamp"
@@ -55,6 +55,27 @@ def get_task_usage(*, team_id: int, task_id: UUID, task_created_at: datetime) ->
 
 class TaskTokenUsageUnavailable(Exception):
     pass
+
+
+def get_task_reported_token_cost(*, team_id: int, task_id: UUID) -> Decimal | None:
+    """The model spend the task's agents reported across its runs, or `None` when it is unknown.
+
+    The agent reports the SDK's running cost of each run in `state.budget_guard.sdk_total_usd`
+    after every settled turn. Each run reports its own cost from zero, so the task total is the
+    sum over runs. A run that settled no turn spent nothing. A run that settled a turn without a
+    reported cost, such as one on an adapter without a budget guard, makes the total unknown.
+    """
+    total = Decimal(0)
+    # Only two keys are read, and `state` holds much more, so Postgres extracts them per run.
+    runs = TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list(
+        "state__budget_guard__sdk_total_usd", "state__token_usage__turns"
+    )
+    for reported, turns in runs:
+        if isinstance(reported, int | float) and not isinstance(reported, bool):
+            total += Decimal(str(reported))
+        elif turns:
+            return None
+    return total
 
 
 @frozen
