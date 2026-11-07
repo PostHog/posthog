@@ -1,20 +1,23 @@
-import {
-    uiCustomizationAnalyticsSidebarDestroy,
-    uiCustomizationAnalyticsSidebarRetrieve,
-    uiCustomizationAnalyticsSidebarUpdate,
-} from './generated/api'
+import { uiCustomizationDestroy, uiCustomizationRetrieve, uiCustomizationUpdate } from './generated/api'
 import type { SidebarConfiguration } from './sidebarCustomizationLogic'
 
-export type SidebarContextConfiguration = Pick<SidebarConfiguration, 'context' | 'defaults'>
+type SupportedContext = Parameters<typeof uiCustomizationRetrieve>[1]
 
-export function sidebarConfiguration(context: SidebarContextConfiguration): SidebarConfiguration {
+export type SidebarContextConfiguration = Pick<SidebarConfiguration, 'defaults'> & { context: SupportedContext }
+
+const contextDefinitions: Record<SupportedContext, { resetEvent: string }> = {
+    analytics_sidebar: { resetEvent: 'analytics sidebar reset' },
+}
+
+export function sidebarConfiguration(configuration: SidebarContextConfiguration): SidebarConfiguration {
+    const { context } = configuration
     return {
-        ...context,
-        // Keep the persisted layout key across the product extraction.
-        storageKey: 'layout.today.todayAnalyticsLogic.savedSidebar',
-        resetEvent: 'analytics sidebar reset',
-        retrieve: (projectId) => uiCustomizationAnalyticsSidebarRetrieve(projectId),
-        reset: (projectId) => uiCustomizationAnalyticsSidebarDestroy(projectId),
-        restore: (projectId, layout) => uiCustomizationAnalyticsSidebarUpdate(projectId, { layout }),
+        ...configuration,
+        // Context is part of the persistence prefix, alongside the user and project.
+        storageKey: 'uiCustomization.savedSidebar',
+        ...contextDefinitions[context],
+        retrieve: (projectId) => uiCustomizationRetrieve(projectId, context),
+        reset: (projectId) => uiCustomizationDestroy(projectId, context),
+        restore: (projectId, layout) => uiCustomizationUpdate(projectId, context, { layout }),
     }
 }

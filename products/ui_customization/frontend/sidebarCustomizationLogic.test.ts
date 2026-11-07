@@ -10,11 +10,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import type { AnalyticsSidebarApi } from './generated/api.schemas'
+import type { CustomizationApi } from './generated/api.schemas'
 import { SidebarCustomizationProps, sidebarCustomizationLogic } from './sidebarCustomizationLogic'
 
-const defaults: AnalyticsSidebarApi = { customized: false, layout: { version: 1, sections: [] } }
-const custom: AnalyticsSidebarApi = {
+const defaults: CustomizationApi = { customized: false, layout: { version: 1, sections: [] } }
+const custom: CustomizationApi = {
     customized: true,
     layout: { version: 1, sections: [{ id: 'saved', title: 'Saved', items: [] }] },
 }
@@ -60,7 +60,7 @@ describe('sidebarCustomizationLogic lifetime', () => {
             const logic = sidebarCustomizationLogic(props)
             const leave = logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            const pending = deferred<AnalyticsSidebarApi>()
+            const pending = deferred<CustomizationApi>()
             const method = operation === 'load' ? 'retrieve' : operation
             jest.spyOn(props.configuration, method).mockReturnValueOnce(pending.promise)
             const success = jest.spyOn(toast, 'success')
@@ -97,7 +97,7 @@ describe('sidebarCustomizationLogic lifetime', () => {
             const logic = sidebarCustomizationLogic(props)
             const leave = logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            const pending = deferred<AnalyticsSidebarApi>()
+            const pending = deferred<CustomizationApi>()
             jest.spyOn(props.configuration, 'reset').mockReturnValueOnce(pending.promise)
             const success = jest.spyOn(toast, 'success')
             const resetting = logic.asyncActions.resetSidebar(custom.layout)
@@ -119,12 +119,44 @@ describe('sidebarCustomizationLogic lifetime', () => {
         }
     )
 
+    it('keeps persisted layouts separate for contexts sharing a user, project, and storage key', async () => {
+        const first = configuration()
+        const second = configuration()
+        second.configuration.context = 'other_sidebar'
+        second.configuration.retrieve = jest.fn().mockResolvedValue(defaults)
+        const firstLogic = sidebarCustomizationLogic(first)
+        const secondLogic = sidebarCustomizationLogic(second)
+        const leaveFirst = firstLogic.mount()
+        const leaveSecond = secondLogic.mount()
+        await expectLogic(firstLogic).toFinishAllListeners()
+        await expectLogic(secondLogic).toFinishAllListeners()
+        leaveFirst()
+        leaveSecond()
+
+        const firstRead = deferred<CustomizationApi>()
+        const secondRead = deferred<CustomizationApi>()
+        jest.spyOn(first.configuration, 'retrieve').mockReturnValueOnce(firstRead.promise)
+        jest.spyOn(second.configuration, 'retrieve').mockReturnValueOnce(secondRead.promise)
+        const remountedFirst = sidebarCustomizationLogic(first)
+        const remountedSecond = sidebarCustomizationLogic(second)
+        const releaseFirst = remountedFirst.mount()
+        const releaseSecond = remountedSecond.mount()
+        expect(remountedFirst.values.shownSidebar).toEqual(custom)
+        expect(remountedSecond.values.shownSidebar).toEqual(defaults)
+        firstRead.resolve(custom)
+        secondRead.resolve(defaults)
+        await expectLogic(remountedFirst).toFinishAllListeners()
+        await expectLogic(remountedSecond).toFinishAllListeners()
+        releaseFirst()
+        releaseSecond()
+    })
+
     it('recovers a failed reset after remount and releases its retained mount', async () => {
         const props = configuration()
         const logic = sidebarCustomizationLogic(props)
         const leave = logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        const pending = deferred<AnalyticsSidebarApi>()
+        const pending = deferred<CustomizationApi>()
         jest.spyOn(props.configuration, 'reset').mockReturnValueOnce(pending.promise)
         const reset = logic.asyncActions.resetSidebar(custom.layout)
         leave()

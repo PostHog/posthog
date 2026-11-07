@@ -2,15 +2,16 @@ import { useActions } from 'kea'
 
 import { useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
 
+import { CUSTOMIZATION_WRITE_TOOLS, customizationWasChanged } from './customizationToolEvents'
 import { SidebarCustomizationProps, sidebarCustomizationLogic } from './sidebarCustomizationLogic'
 
-/** Reloads the Analytics sidebar when PostHog AI changes it, so the new layout shows as soon as the agent saves it. */
+/** Reloads the selected sidebar when PostHog AI changes its context, so the new layout shows as soon as the agent saves it. */
 export function SidebarAgentListener(props: SidebarCustomizationProps): null {
     const { loadSidebar } = useActions(sidebarCustomizationLogic(props))
     useToolStreamListener({
-        tools: ['ui-customization-analytics-sidebar-update', 'ui-customization-analytics-sidebar-reset'],
+        tools: CUSTOMIZATION_WRITE_TOOLS,
         onEvent: (event) => {
-            if (event.phase === 'completed') {
+            if (customizationWasChanged(event, props.configuration.context)) {
                 loadSidebar()
             }
         },

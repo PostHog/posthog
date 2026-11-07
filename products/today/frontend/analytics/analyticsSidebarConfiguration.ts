@@ -1,11 +1,11 @@
 import { getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { AnalyticsSidebarApi } from 'products/ui_customization/frontend/generated/api.schemas'
+import type { CustomizationApi } from 'products/ui_customization/frontend/generated/api.schemas'
 import { sidebarConfiguration, SidebarContextConfiguration } from 'products/ui_customization/frontend/sidebarContexts'
 import type { SidebarCustomizationProps } from 'products/ui_customization/frontend/sidebarCustomizationLogic'
 
-export const DEFAULT_ANALYTICS_SIDEBAR: AnalyticsSidebarApi = {
+export const DEFAULT_ANALYTICS_SIDEBAR: CustomizationApi = {
     customized: false,
     layout: {
         version: 1,
