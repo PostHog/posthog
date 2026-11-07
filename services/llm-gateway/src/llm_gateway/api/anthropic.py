@@ -24,6 +24,7 @@ from llm_gateway.bedrock import (
     count_tokens_with_bedrock,
     count_tokens_with_bedrock_mantle,
     ensure_bedrock_configured,
+    is_bedrock_configured,
     map_to_bedrock_model,
     supports_bedrock_runtime_count_tokens,
 )
@@ -87,9 +88,12 @@ def _get_provider_from_headers(request: Request) -> str:
 
 def _get_use_bedrock_fallback_from_headers(request: Request) -> bool:
     try:
-        return extract_posthog_use_bedrock_fallback_from_headers(request) or False
+        requested = extract_posthog_use_bedrock_fallback_from_headers(request) or False
     except ValueError as exc:
         raise _invalid_header_exception(str(exc)) from exc
+    # Without a region, Bedrock can only answer with a 503 configuration_error, which would hide
+    # the Anthropic error the caller needs to see. Fall back only where Bedrock can serve.
+    return requested and is_bedrock_configured(get_settings())
 
 
 # Params that are safe to forward on the Bedrock path. This is an allowlist on purpose:
