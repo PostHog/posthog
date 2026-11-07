@@ -21,7 +21,7 @@ from posthog.tasks.alerts.utils import due_insight_alerts_q
 from posthog.temporal.alerts.investigation import IN_FLIGHT_INVESTIGATION_HORIZON
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 
-from products.alerts.backend.facade.destinations import choose_delivery_path
+from products.alerts.backend.facade.destinations import choose_delivery_path, count_active_alert_destinations
 from products.alerts.backend.insight_alert_state_machine import (
     FIRING_NOT_RENOTIFIED_KEY,
     apply_invalid_configuration,
@@ -132,7 +132,20 @@ def _investigation_unsettled(alert: AlertConfiguration, at: datetime) -> bool:
     )
 
 
+def _has_firing_targets(alert: AlertConfiguration) -> bool:
+    return alert.subscribed_users.exists() or (
+        count_active_alert_destinations(
+            team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids={"$insight_alert_firing"}
+        )
+        > 0
+    )
+
+
 def _firing_notification_pending(alert: AlertConfiguration, at: datetime) -> bool:
+    # A firing check with nobody to tell never stamps `notification_sent_at`, so without this an
+    # alert firing on every check would stay skipped.
+    if not _has_firing_targets(alert):
+        return False
     # A check's workflow notifies before its execution timeout ends, so past that the insight stack
     # has sent the notification or given up on it.
     horizon = alert_timeouts(alert.calculation_interval).workflow_execution

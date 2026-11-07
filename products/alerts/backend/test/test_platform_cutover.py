@@ -11,11 +11,13 @@ from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 
 from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
+from products.alerts.backend.logic.destination_configs import destination_filter
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.platform_cutover import CutoverSkip, RollbackSkip, cut_over_team, roll_back_team
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.contracts import DeliveryPath
+from products.cdp.backend.facade.models import HogFunction
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 _CUTOVER = "products.alerts.backend.platform_cutover"
@@ -105,6 +107,16 @@ class TestInsightPlatformCutover(APIBaseTest):
             ("notification_sent", InvestigationStatus.DONE, NOW, timedelta(minutes=10), None),
             ("past_the_horizon", InvestigationStatus.RUNNING, None, timedelta(hours=2), None),
             ("firing_not_yet_notified", None, None, timedelta(minutes=5), CutoverSkip.NOTIFICATION_PENDING),
+            (
+                "firing_not_yet_sent_to_a_destination",
+                None,
+                None,
+                timedelta(minutes=5),
+                CutoverSkip.NOTIFICATION_PENDING,
+                None,
+                "destination",
+            ),
+            ("firing_with_nobody_to_tell", None, None, timedelta(minutes=5), None, None, None),
             ("firing_notified", None, NOW, timedelta(minutes=5), None),
             ("firing_past_its_workflow", None, None, timedelta(minutes=30), None),
             (
@@ -125,8 +137,21 @@ class TestInsightPlatformCutover(APIBaseTest):
         age: timedelta,
         reason: CutoverSkip | None,
         triggered_metadata: dict | None = None,
+        target: str | None = "subscriber",
     ) -> None:
         alert = self._alert(investigation_agent_enabled=True, detector_config={"type": "zscore"})
+        if target == "subscriber":
+            alert.subscribed_users.add(self.user)
+        elif target == "destination":
+            HogFunction.objects.create(
+                team=self.team,
+                name="Alert → Slack",
+                type="internal_destination",
+                hog="return 1",
+                enabled=True,
+                template_id="template-slack",
+                filters=destination_filter(str(alert.id), "$insight_alert_firing"),
+            )
         check = AlertCheck.objects.create(
             alert_configuration=alert,
             state=AlertState.FIRING,
