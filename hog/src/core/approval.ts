@@ -221,6 +221,10 @@ async function waitFor<Pending extends PendingApproval, Value>(
         if (isTransient(error)) {
             throw interrupted(error.message)
         }
+        // As in the loop above, a lapsed login keeps the request for `--wait` after `hog auth login`.
+        if (error.code === 'session_expired') {
+            throw error
+        }
     }
     return fail(expired(flow, pending))
 }

@@ -15,7 +15,7 @@ import { hostUrl, type Host } from './host'
 import type { ProjectId } from './ids'
 import { grantLifetime, OAuthErrorBody, oauthPost, TokenResponse } from './oauth'
 import type { LoginRecord } from './settings'
-import { WorkloadTokenSchema, type WorkloadToken } from './tokens'
+import { WorkloadTokenSchema, type ProviderIdToken, type WorkloadToken } from './tokens'
 
 const TOKEN_EXCHANGE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:token-exchange'
 const ID_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:id_token'
@@ -80,6 +80,8 @@ interface WorkloadKeyFields {
     projectId: ProjectId
     provider: WorkloadProvider
     accessToken: WorkloadToken
+    // The provider's OIDC token the exchange used. It stays in memory like the access token.
+    providerToken: ProviderIdToken
     // Epoch milliseconds when PostHog issued the token, and after which it refuses it.
     issuedAt: number
     expiresAt: number
@@ -129,6 +131,7 @@ export async function exchangeWorkloadToken(
         projectId,
         provider,
         accessToken: body.access_token,
+        providerToken: subjectToken,
         issuedAt: runtime.now(),
         ...grantLifetime(runtime, body, []),
     })
@@ -154,6 +157,7 @@ export class WorkloadKey implements AccessKey {
     readonly projectId: ProjectId
     readonly provider: WorkloadProvider
     readonly accessToken: WorkloadToken
+    private readonly providerToken: ProviderIdToken
     readonly issuedAt: number
     readonly expiresAt: number
     readonly scopes: string[]
@@ -168,6 +172,7 @@ export class WorkloadKey implements AccessKey {
         this.projectId = fields.projectId
         this.provider = fields.provider
         this.accessToken = fields.accessToken
+        this.providerToken = fields.providerToken
         this.issuedAt = fields.issuedAt
         this.expiresAt = fields.expiresAt
         this.scopes = fields.scopes
@@ -200,7 +205,7 @@ export class WorkloadKey implements AccessKey {
                 this.provider.missingTokenHint
             )
         }
-        renewed.expiresWithProviderToken = renewed.expiresAt <= this.expiresAt
+        renewed.expiresWithProviderToken = renewed.providerToken === this.providerToken
         await storage.save(renewed)
         return renewed
     }
