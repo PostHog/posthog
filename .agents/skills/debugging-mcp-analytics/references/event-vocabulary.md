@@ -165,9 +165,10 @@ The TypeScript SDK keeps this relabel on posthog-node 6, which reads it for each
 `capture()`, so events captured before `instrument()` report `posthog-node`. Give MCP analytics
 its own client.
 
-On their capture v1 majors the other SDKs keep their MCP labels: posthog-python 8 relabels the
-whole client `posthog-python-mcp`, as 7.x does, while posthog-go v2 and posthog-rs 1.0 label only
-their MCP events, `posthog-go-mcp` and `posthog-rs-mcp`. In every SDK a `$lib` the app sets on an
+posthog-python 7.x also relabels the whole client, as `posthog-python-mcp`. posthog-python 8,
+posthog-go v2 and posthog-rs 1.0 label only their MCP events, as `posthog-python-mcp`,
+`posthog-go-mcp` and `posthog-rs-mcp`. In posthog-python 8 that includes the `$exception` the MCP
+pipeline sends for a failed call. In every SDK a `$lib` the app sets on an
 event wins, and capture v1 fills `$lib` from the `PostHog-Sdk-Info` request header only when an
 event has none. So a label can cover app events, and MCP events can arrive under the base `$lib`:
 find MCP traffic by its `$mcp_*` event names or by `$mcp_source = 'posthog_mcp_analytics'`, not
