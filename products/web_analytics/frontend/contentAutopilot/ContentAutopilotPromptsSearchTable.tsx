@@ -5,6 +5,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import type { AEOPromptSetSearchApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { OVERVIEW_DAYS } from './contentAutopilotPromptsOverviewLogic'
 import { engineLabel } from './utils'
 
 type SearchRow = AEOPromptSetSearchApi
@@ -24,12 +25,17 @@ export const ContentAutopilotPromptsSearchTable = ({
         {
             title: 'Search',
             key: 'query',
-            render: (_, row) => <span className="font-semibold">{row.query}</span>,
+            render: (_, row) => (
+                <span className="block max-w-120 truncate font-semibold" title={row.query}>
+                    {row.query}
+                </span>
+            ),
         },
         {
             title: 'Prompts',
             key: 'prompts',
             align: 'right',
+            tooltip: 'Different prompts whose answers ran this search.',
             sorter: (a, b) => a.prompts - b.prompts,
             render: (_, row) => <span className="tabular-nums">{row.prompts}</span>,
         },
@@ -82,7 +88,7 @@ export const ContentAutopilotPromptsSearchTable = ({
                     </div>
                 ),
             }}
-            emptyState="The engines didn't run any web searches in this window"
+            emptyState={`No web searches in the last ${OVERVIEW_DAYS} days. Only some engines report the searches they run.`}
             footer={
                 <span className="px-3 py-2 text-xs text-muted">
                     The web searches the engines ran while answering your prompts. Expand one to see its prompts.

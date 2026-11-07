@@ -794,6 +794,11 @@ class TestAEOPromptAPI(APIBaseTest):
         child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
         via_child = get_prompt_set_overview(child.id, timezone_name="UTC", days=7)
         assert [domain.domain for domain in via_child.top_domains] == ["docs.example.com", "rival.example.org"]
+        assert [search.query for search in via_child.top_searches] == [
+            "funnel tools",
+            "example funnels",
+            "session replay",
+        ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_rankings_compare_the_brand_with_competitors_from_cited_domains(self) -> None:
