@@ -119081,6 +119081,10 @@ export namespace Schemas {
       condition_presets: ConditionPreset[];
       /** Rules for condition claims that a policy may set only together with another claim. */
       condition_companions: ConditionCompanions[];
+      /** Keys of the presets that set a condition claim every policy must set. */
+      required_presets: string[];
+      /** Keys of the presets a new policy starts with, in display order. */
+      default_presets: string[];
       /** Whether PostHog can look up the subject from its name with resolve_subject. */
       readonly can_resolve_subject: boolean;
       /** Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works. */

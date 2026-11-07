@@ -54,6 +54,18 @@ class TestWorkloadProviderEntry(SimpleTestCase):
         with self.assertRaises(ValueError):
             dataclasses.replace(FAKE_WORKLOAD_PROVIDER, **overrides)
 
+    @parameterized.expand(
+        [
+            ("no_required_claims", GITHUB_ACTIONS, (), ("branch_push",)),
+            ("required_claims", DEPOT_CI, ("organization",), ("organization", "branch_push")),
+        ]
+    )
+    def test_marks_the_presets_a_new_policy_needs_and_starts_with(
+        self, _name: str, provider: WorkloadProvider, required: tuple[str, ...], default: tuple[str, ...]
+    ) -> None:
+        assert provider.required_presets == required
+        assert provider.default_presets == default
+
 
 class TestRegistryConditionCompanions(SimpleTestCase):
     @parameterized.expand(

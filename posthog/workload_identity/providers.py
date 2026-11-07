@@ -105,6 +105,21 @@ class WorkloadProvider:
     # The CI config that gives a job an OIDC token, with SNIPPET_HOST where the PostHog host goes.
     setup_snippet: str = ""
 
+    @property
+    def required_presets(self) -> tuple[str, ...]:
+        """Keys of the presets that set a required condition claim."""
+        required = set(self.required_condition_claims)
+        return tuple(
+            preset.key for preset in self.condition_presets if any(claim in required for claim, _ in preset.conditions)
+        )
+
+    @property
+    def default_presets(self) -> tuple[str, ...]:
+        """Keys of the presets a new policy starts with: the required ones, then the first other one, so the
+        policy also limits which runs get a token."""
+        others = [preset.key for preset in self.condition_presets if preset.key not in self.required_presets]
+        return (*self.required_presets, *others[:1])
+
     def __post_init__(self) -> None:
         condition_names = [claim.name for claim in self.condition_claims]
         if len(set(condition_names)) != len(condition_names):

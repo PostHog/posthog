@@ -93,10 +93,9 @@ export function rowForPreset(preset: WorkloadProviderApi['condition_presets'][nu
 
 export function defaultConditionRows(provider: WorkloadProviderApi | null): WorkloadConditionRow[] {
     const presets = provider?.condition_presets ?? []
-    const required = new Set(provider?.required_condition_claims ?? [])
-    const covering = presets.filter((preset) => Object.keys(preset.conditions).some((claim) => required.has(claim)))
-    const first = presets.find((preset) => !covering.includes(preset))
-    return [...covering, ...(first ? [first] : [])].map(rowForPreset)
+    return (provider?.default_presets ?? [])
+        .flatMap((key) => presets.filter((preset) => preset.key === key))
+        .map(rowForPreset)
 }
 
 function claimLabel(provider: WorkloadProviderApi | null, claim: string): string {

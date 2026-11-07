@@ -52,6 +52,8 @@ const PROVIDER = {
     can_resolve_subject: true,
     required_condition_claims: [],
     account_condition_claims: [],
+    required_presets: [],
+    default_presets: ['branch_push'],
     subject_lookup_conditions: {},
     setup_snippet: 'HOG_HOST: {host}',
 } as WorkloadProviderApi
@@ -113,11 +115,8 @@ describe('workload condition presets', () => {
         expect(rowsFromConditions(conditions, PROVIDER)).toEqual(rows)
     })
 
-    it('starts a new policy with the presets that cover the required claims', () => {
-        const provider = {
-            ...PROVIDER,
-            required_condition_claims: ['environment'],
-        } as WorkloadProviderApi
+    it('starts a new policy with the default presets, in the order PostHog gives them', () => {
+        const provider = { ...PROVIDER, default_presets: ['environment', 'branch_push'] } as WorkloadProviderApi
 
         expect(defaultConditionRows(provider)).toEqual([
             { preset: 'environment', value: 'production' },

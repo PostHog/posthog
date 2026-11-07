@@ -407,6 +407,12 @@ class WorkloadProviderSerializer(serializers.Serializer):
     condition_companions = ConditionCompanionsSerializer(
         many=True, help_text="Rules for condition claims that a policy may set only together with another claim."
     )
+    required_presets = serializers.ListField(
+        child=serializers.CharField(), help_text="Keys of the presets that set a condition claim every policy must set."
+    )
+    default_presets = serializers.ListField(
+        child=serializers.CharField(), help_text="Keys of the presets a new policy starts with, in display order."
+    )
     can_resolve_subject = serializers.SerializerMethodField(
         help_text="Whether PostHog can look up the subject from its name with resolve_subject."
     )

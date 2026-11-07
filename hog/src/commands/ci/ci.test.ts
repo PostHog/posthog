@@ -58,7 +58,7 @@ const PROVIDERS = {
     ],
 }
 
-// Like Depot CI: every policy pins an organization, and the lookup only knows one forge.
+// Like Depot CI: every policy pins an organization.
 const ORG_PROVIDERS = {
     supported: [
         {
@@ -75,8 +75,7 @@ const ORG_PROVIDERS = {
                 },
                 ...PROVIDERS.supported[0]!.condition_presets,
             ],
-            required_condition_claims: ['org_id', 'forge'],
-            subject_lookup_conditions: { forge: 'github' },
+            required_presets: ['organization'],
         },
     ],
 }
