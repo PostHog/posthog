@@ -249,7 +249,7 @@ class PromptSetDomain:
 
 @frozen
 class PromptSetSearchPrompt:
-    """A prompt whose answers ran a search, with its text as it last ran."""
+    """A prompt whose answers ran a search, with its current text."""
 
     id: str
     text: str

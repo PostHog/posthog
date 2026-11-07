@@ -374,39 +374,42 @@ def _top_domains(
     )
 
 
-# One row per answered check and distinct search it ran, with the search normalized the way
-# `_PromptWindowReport` does it: case folded and whitespace collapsed.
-_WINDOW_SEARCHES_SQL = """
-    SELECT DISTINCT check_row.id, check_row.prompt_id, check_row.engine, check_row.cited,
-        lower(btrim(regexp_replace(query, '\\s+', ' ', 'g'))) AS query
-    FROM posthog_aeo_citation_check AS check_row, jsonb_array_elements_text(check_row.search_queries) AS query
-    WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
-        AND jsonb_typeof(check_row.search_queries) = 'array'
+# One statement, so the window is read once: `searches` has one row per answered check and distinct
+# search it ran, lowercased with whitespace collapsed; `ranked` keeps the top searches and `top_prompts`
+# the prompts that ran each of them most. Postgres materializes `searches` because both read it.
+_TOP_SEARCHES_SQL = """
+    WITH searches AS MATERIALIZED (
+        SELECT DISTINCT check_row.id, check_row.prompt_id, check_row.engine, check_row.cited,
+            lower(btrim(regexp_replace(query, '\\s+', ' ', 'g'))) AS query
+        FROM posthog_aeo_citation_check AS check_row,
+            jsonb_array_elements_text(
+                CASE WHEN jsonb_typeof(check_row.search_queries) = 'array' THEN check_row.search_queries ELSE '[]'::jsonb END
+            ) AS query
+        WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+    ),
+    ranked AS (
+        SELECT query, count(DISTINCT prompt_id) AS prompts, count(*) AS answers,
+            count(*) FILTER (WHERE cited) AS cited, array_agg(DISTINCT engine ORDER BY engine) AS engines
+        FROM searches
+        WHERE query <> ''
+        GROUP BY query
+        ORDER BY prompts DESC, answers DESC, query
+        LIMIT %s
+    ),
+    top_prompts AS (
+        SELECT query, prompt_id,
+            row_number() OVER (PARTITION BY query ORDER BY count(*) DESC, prompt_id) AS prompt_rank
+        FROM searches
+        WHERE query IN (SELECT query FROM ranked)
+        GROUP BY query, prompt_id
+    )
+    SELECT ranked.query, ranked.prompts, ranked.answers, ranked.cited, ranked.engines,
+        array_remove(array_agg(top_prompts.prompt_id ORDER BY top_prompts.prompt_rank), NULL)
+    FROM ranked
+    LEFT JOIN top_prompts ON top_prompts.query = ranked.query AND top_prompts.prompt_rank <= %s
+    GROUP BY ranked.query, ranked.prompts, ranked.answers, ranked.cited, ranked.engines
+    ORDER BY ranked.prompts DESC, ranked.answers DESC, ranked.query
 """
-_TOP_SEARCHES_SQL = (
-    "WITH searches AS ("
-    + _WINDOW_SEARCHES_SQL
-    + """)
-    SELECT query, count(DISTINCT prompt_id), count(*), count(*) FILTER (WHERE cited),
-        array_agg(DISTINCT engine ORDER BY engine)
-    FROM searches
-    WHERE query <> ''
-    GROUP BY query
-    ORDER BY count(DISTINCT prompt_id) DESC, count(*) DESC, query
-    LIMIT %s
-"""
-)
-_SEARCH_PROMPTS_SQL = (
-    "WITH searches AS ("
-    + _WINDOW_SEARCHES_SQL
-    + """)
-    SELECT query, prompt_id, count(*)
-    FROM searches
-    WHERE query = ANY(%s)
-    GROUP BY query, prompt_id
-    ORDER BY query, count(*) DESC, prompt_id
-"""
-)
 
 
 def _top_searches(team_id: int, *, since: dt.datetime) -> tuple[PromptSetSearch, ...]:
@@ -414,27 +417,12 @@ def _top_searches(team_id: int, *, since: dt.datetime) -> tuple[PromptSetSearch,
     each with the prompts that ran it most."""
     team_id = resolve_effective_team_id(team_id)
     with connection.cursor() as cursor:
-        cursor.execute(
-            _TOP_SEARCHES_SQL,
-            [team_id, since, MAX_OVERVIEW_SEARCHES],
-        )
+        cursor.execute(_TOP_SEARCHES_SQL, [team_id, since, MAX_OVERVIEW_SEARCHES, MAX_SEARCH_PROMPTS])
         rows = cursor.fetchall()
-        if not rows:
-            return ()
-        cursor.execute(
-            _SEARCH_PROMPTS_SQL,
-            [team_id, since, [row[0] for row in rows]],
-        )
-        prompt_rows = cursor.fetchall()
-
-    prompt_ids: dict[str, list[uuid.UUID]] = defaultdict(list)
-    for query, prompt_id, _ in prompt_rows:
-        if len(prompt_ids[query]) < MAX_SEARCH_PROMPTS:
-            prompt_ids[query].append(prompt_id)
     texts = {
         row["id"]: row["prompt"]
         for row in AEOPrompt.objects.for_team(team_id)
-        .filter(id__in={prompt_id for ids in prompt_ids.values() for prompt_id in ids})
+        .filter(id__in={prompt_id for *_, prompt_ids in rows for prompt_id in prompt_ids})
         .values("id", "prompt")
     }
     return tuple(
@@ -446,11 +434,11 @@ def _top_searches(team_id: int, *, since: dt.datetime) -> tuple[PromptSetSearch,
             engines=tuple(engines),
             top_prompts=tuple(
                 PromptSetSearchPrompt(id=str(prompt_id), text=texts[prompt_id])
-                for prompt_id in prompt_ids[query]
+                for prompt_id in prompt_ids
                 if prompt_id in texts
             ),
         )
-        for query, prompts, answers, cited, engines in rows
+        for query, prompts, answers, cited, engines, prompt_ids in rows
     )
 
 
