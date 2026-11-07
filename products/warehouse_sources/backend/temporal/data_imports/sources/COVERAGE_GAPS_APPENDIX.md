@@ -11247,13 +11247,13 @@ Today (5): `browser_profiles`, `credentials`, `runs`, `schedules`, `workflows`
 
 Diffed against: <https://api.skyvern.com/openapi.json>
 
-- [ ] `GET /v1/runs/{run_id}/timeline` — per-run block/step execution timeline - the state-transition history behind every run outcome (high)
-- [ ] `GET /v1/folders (and /v1/folders/{folder_id})` — lookup table resolving the folder a workflow/agent lives in (high)
-- [ ] `GET /v1/agents/{workflow_permanent_id}/tags` — workflow-to-tag membership for grouping and cost attribution of synced workflows (high)
+- [x] `GET /v1/runs/{run_id}/timeline` — per-run block/step execution timeline - the state-transition history behind every run outcome (high) → `run_timeline` (fan-out over workflows and runs, one row per block or thought; incremental on the runs `created_at_start` window; off by default)
+- [x] `GET /v1/folders (and /v1/folders/{folder_id})` — lookup table resolving the folder a workflow/agent lives in (high) → `folders` (full refresh; the single-folder endpoint adds nothing the list does not return)
+- [x] `GET /v1/agents/{workflow_permanent_id}/tags` — workflow-to-tag membership for grouping and cost attribution of synced workflows (high) → `workflow_tags` (full refresh, fan-out over `workflows`)
 - [ ] `GET /v1/browser_sessions` — persistent browser sessions runs attach to; explains run cost and reuse (medium)
 - [ ] `GET /v1/runs/{workflow_run_id}/tags` — run-to-tag membership, the standard breakdown dimension for run reporting (medium)
 - [ ] `GET /v1/tag-keys and GET /v1/tag-values` — lookup tables that resolve the tag key/value ids attached to workflows and runs (medium)
-- [ ] `GET /v1/agents/{workflow_permanent_id}/versions` — workflow version history, needed to attribute run results to a definition version (medium)
+- [x] `GET /v1/agents/{workflow_permanent_id}/versions` — workflow version history, needed to attribute run results to a definition version (medium) → `workflow_versions` (full refresh, fan-out over `workflows`)
 - [ ] `GET /v1/runs/{run_id}/artifacts` — artifact metadata produced per run (screenshots, logs, downloaded files) (medium)
 - [ ] `GET /v1/browser_profiles/{profile_id}/usage` — which runs consumed which browser profile (low)
 - [ ] `GET /v1/scripts (and /v1/scripts/{script_id})` — generated scripts deployed from workflows; joins to runs executed in script mode (low)
