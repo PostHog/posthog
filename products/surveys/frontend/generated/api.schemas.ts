@@ -2500,6 +2500,11 @@ export interface SiteSnapshotApi {
      * @nullable
      */
     page_url: string | null
+    /**
+     * Width in CSS pixels of the browser window the snapshot was recorded in, to draw it at its real scale.
+     * @nullable
+     */
+    viewport_width: number | null
 }
 
 /**

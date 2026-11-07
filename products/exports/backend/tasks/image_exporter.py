@@ -89,9 +89,17 @@ FIND_REPLAY_WRAPPER_JS = f"""(
 )"""
 
 MEASURE_CONTENT_HEIGHT_JS = f"""
+    // The player scales the replay down to fit the viewport, so its scaled box would shrink the viewport
+    // and the replay with it. Measure it unscaled, as the width measure does, and keep its aspect ratio
+    // when the width is capped.
+    const replayElement = {FIND_REPLAY_WRAPPER_JS};
+    if (replayElement) {{
+        const widthCap = Math.min(1, {MAX_WIDTH_PIXELS} / replayElement.offsetWidth);
+        return Math.round(replayElement.offsetHeight * widthCap);
+    }}
+
     const element = document.querySelector('.InsightCard__viz') ||
                   document.querySelector('.ExportedInsight__content') ||
-                  {FIND_REPLAY_WRAPPER_JS} ||
                   document.querySelector('.heatmap-exporter');
     if (element) {{
         const rect = element.getBoundingClientRect();
