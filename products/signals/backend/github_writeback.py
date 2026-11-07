@@ -9,10 +9,12 @@ thread.
 A scout that files a report about an issue records it as a `source_issue` artefact instead of a
 signal, so the writeback reads both (see `source_issues.py`). A scout usually files its report before
 the team's GitHub source ingests the issue, so a source issue gets its comment when the report is
-filed, without waiting for that signal. A report can name any issue URL, so the boundary on where a
-comment goes is the rest of the path: the team opted in, one of the team's own GitHub integrations
-covers the repository, GitHub says the issue is open and unlocked, and each (report, issue) pair gets
-one comment at most.
+filed, without waiting for that signal. A report can name any issue URL, so a source issue gets a
+comment only when the team's GitHub source syncs issues from its repository. Integration coverage
+alone is not enough, because an organization-wide GitHub App installation can reach repositories
+the team never connected. The rest of the path still applies: the team opted in, one of the team's
+own GitHub integrations covers the repository, GitHub says the issue is open and unlocked, and each
+(report, issue) pair gets one comment at most.
 """
 
 from __future__ import annotations
@@ -34,6 +36,10 @@ from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportGithubComment, SignalTeamConfig
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.source_issues import source_issues_by_report
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -53,6 +59,38 @@ def _comment_body(report_url: str, marker: str) -> str:
         "PostHog self-driving picked up this issue and researched it. Somebody may already be "
         f"working on it, so ask before you start a fix.\n\nReport (team access only): {report_url}\n\n{marker}"
     )
+
+
+def _legacy_repository(schema: ExternalDataSchema) -> str | None:
+    try:
+        job_inputs = SourceInputsStore.load(schema.source)
+    except UnreadableSourceInputsError:
+        return None
+    return str(job_inputs.get("repository") or "").strip() or None
+
+
+def _synced_issue_repositories(team_id: int) -> set[str]:
+    """The repositories, lowercased, whose issues the team's GitHub warehouse source syncs."""
+    schemas = (
+        ExternalDataSchema.objects.filter(
+            team_id=team_id, source__source_type=ExternalDataSourceType.GITHUB, should_sync=True
+        )
+        .exclude(deleted=True)
+        .exclude(source__deleted=True)
+        .select_related("source")
+    )
+    repositories: set[str] = set()
+    for schema in schemas:
+        repository, endpoint = github_schema_repo_endpoint(schema.schema_metadata, schema.name, None)
+        if endpoint != "issues":
+            continue
+        # A bare `issues` row comes from a single-repository source that names its repository only
+        # in its encrypted inputs, so those inputs are decrypted only for that row.
+        if repository is None:
+            repository = _legacy_repository(schema)
+        if repository:
+            repositories.add(repository.lower())
+    return repositories
 
 
 def _issue_refs(signals: list[dict], source_issues: Sequence[SourceIssue] = ()) -> list[PullRequestRef]:
@@ -212,6 +250,9 @@ def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[
         return 0
 
     source_issues = source_issues_by_report(team_id=team.pk, report_ids=[report_id]).get(report_id, [])
+    if source_issues:
+        synced = _synced_issue_repositories(team.pk)
+        source_issues = [issue for issue in source_issues if issue.repository in synced]
     refs = _issue_refs(signals, source_issues)
     if not refs:
         return 0

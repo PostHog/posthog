@@ -17,6 +17,7 @@ from products.signals.backend.models import (
     SignalReportGithubComment,
     SignalTeamConfig,
 )
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 WRITEBACK_MODULE_PATH = "products.signals.backend.github_writeback"
 
@@ -142,29 +143,54 @@ class TestPostReportLinkToGithubIssues(BaseTest):
 
         assert integration.first_for_team_repository.call_args.kwargs["priority"] == Priority.BATCH
 
+    def _sync_issues(self, schema_name, *, repository="", should_sync=True):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type="Github",
+            status="Running",
+            prefix=f"gh_{len(schema_name)}_",
+            job_inputs={"repository": repository},
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=source, name=schema_name, should_sync=should_sync)
+
     @parameterized.expand(
         [
-            ("a connected repository", True, False, 1),
-            ("a repository no team integration covers", False, False, 0),
-            ("the same issue from a signal and a source issue", True, True, 1),
+            ("a synced repository", "acme/widgets.issues", "", True, True, False, 1),
+            ("a synced single-repository source", "issues", "Acme/Widgets", True, True, False, 1),
+            ("a repository whose issues stopped syncing", "acme/widgets.issues", "", False, True, False, 0),
+            ("another synced repository the installation also reaches", "acme/other.issues", "", True, True, False, 0),
+            ("a synced repository no team integration covers", "acme/widgets.issues", "", True, False, False, 0),
+            ("the same issue from a signal and a source issue", "acme/other.issues", "", True, True, True, 1),
         ]
     )
-    def test_comments_on_a_source_issue_before_its_signal_is_ingested(self, _name, connected, with_signal, expected):
-        SignalReportArtefact.add_log(
-            team_id=self.team.pk,
-            report_id=str(self.report.id),
-            content=SourceIssue.github("Acme/Widgets", 42),
-            attribution=ArtefactAttribution.system(),
-        )
+    def test_comments_on_a_source_issue_in_a_synced_repository_before_its_signal_is_ingested(
+        self, _name, schema_name, repository, should_sync, connected, with_signal, expected
+    ):
+        self._sync_issues(schema_name, repository=repository, should_sync=should_sync)
+        self._name_source_issue()
 
         posted, comment = self._post([self.signal] if with_signal else [], connected=connected)
 
         assert posted == expected
         assert [call.args[:2] for call in comment.call_args_list] == [("acme/widgets", 42)] * expected
 
+    def test_posts_no_second_comment_when_the_issue_signal_joins_later(self):
+        self._sync_issues("acme/widgets.issues")
+        self._name_source_issue()
+
+        first, _ = self._post([])
         joined, comment = self._post([self.signal])
-        assert joined == 0
+
+        assert (first, joined) == (1, 0)
         comment.assert_not_called()
+
+    def _name_source_issue(self):
+        SignalReportArtefact.add_log(
+            team_id=self.team.pk,
+            report_id=str(self.report.id),
+            content=SourceIssue.github("Acme/Widgets", 42),
+            attribution=ArtefactAttribution.system(),
+        )
 
     def test_comments_once_when_two_signals_name_the_same_issue(self):
         posted, comment = self._post([self.signal, _signal()])
