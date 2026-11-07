@@ -59,6 +59,8 @@ from .email import (
     cleanup_ses_identity_on_integration_delete,
     is_sandbox_email_sender,
     is_sandbox_sender_domain,
+    sandbox_sender_configured,
+    sandbox_sender_settings_present,
 )
 from .external_issues import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
@@ -257,6 +259,8 @@ __all__ = [
     "SANDBOX_EMAIL_PROVIDER",
     "is_sandbox_email_sender",
     "is_sandbox_sender_domain",
+    "sandbox_sender_configured",
+    "sandbox_sender_settings_present",
     "LinearIntegration",
     "LinearIntegrationError",
     "LinearRateLimitedError",

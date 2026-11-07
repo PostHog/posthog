@@ -2,7 +2,7 @@ from django.conf import settings
 
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager
-from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER, is_sandbox_sender_domain
+from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER, sandbox_sender_configured
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
@@ -39,15 +39,6 @@ def _sandbox_sender_config(organization_name: str) -> dict[str, str | bool]:
     }
 
 
-def _from_address_on_sandbox_domain() -> bool:
-    local_part, _, domain = settings.SES_SANDBOX_FROM_ADDRESS.rpartition("@")
-    return bool(local_part) and is_sandbox_sender_domain(domain)
-
-
-def _sandbox_sender_configured() -> bool:
-    return bool(settings.SES_SANDBOX_TENANT_NAME) and _from_address_on_sandbox_domain()
-
-
 def _sandbox_sender_enabled(team: Team) -> bool:
     # Deferred: posthog.permissions pulls DRF and posthog.auth onto the django.setup() path,
     # and the workflows facade imports this module at startup.
@@ -69,7 +60,7 @@ def ensure_sandbox_email_sender(team_id: int) -> SandboxEmailSender:
     team = Team.objects.select_related("organization").get(id=team_id)
     if not _sandbox_sender_enabled(team) or _organization_blocked(team):
         raise SandboxSenderUnavailable()
-    if not _sandbox_sender_configured():
+    if not sandbox_sender_configured():
         capture_exception(SandboxSenderMisconfigured())
         raise SandboxSenderUnavailable()
 

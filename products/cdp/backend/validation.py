@@ -5,11 +5,13 @@ import contextlib
 from collections.abc import Iterable
 from typing import Any, Optional
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
+from rest_framework.fields import get_error_detail
 
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
@@ -20,7 +22,12 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager
-from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
+from posthog.models.integration import (
+    POSTHOG_CONNECT_KIND,
+    SANDBOX_EMAIL_PROVIDER,
+    WAREHOUSE_SOURCE_TYPE_CONFIG_KEY,
+    sandbox_sender_settings_present,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -92,6 +99,170 @@ def _sender_integration_ids(from_value: dict) -> set[int]:
         for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
         if isinstance(integration_id, int) and not isinstance(integration_id, bool)
     }
+
+
+_SENDER_ID_TEXT = re.compile(r"\s*[0-9]{1,19}\s*")
+
+
+def _configured_sender_ids(from_value: dict) -> list[object]:
+    rotation = from_value.get("integrationIds")
+    # Mirrors selectEmailSenderIntegrationId in the worker: a non-empty rotation replaces integrationId.
+    return rotation if isinstance(rotation, list) and rotation else [from_value.get("integrationId")]
+
+
+def _delivery_sender_id(integration_id: object) -> int | None:
+    # The worker looks a sender up by its ID as text, so a numeric string reaches the same sender.
+    if isinstance(integration_id, bool):
+        return None
+    if isinstance(integration_id, int):
+        return integration_id
+    if isinstance(integration_id, float) and integration_id.is_integer():
+        return int(integration_id)
+    if isinstance(integration_id, str) and _SENDER_ID_TEXT.fullmatch(integration_id):
+        return int(integration_id)
+    return None
+
+
+def _delivery_sender_ids(from_value: dict) -> set[int]:
+    return {
+        sender_id for sender_id in map(_delivery_sender_id, _configured_sender_ids(from_value)) if sender_id is not None
+    }
+
+
+def _is_templated(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _has_templated_sender_id(from_value: dict) -> bool:
+    # Templating resolves the whole email value at send time, so a string such as "{123}" can resolve to any
+    # sender, and a string rotation can resolve to a list that replaces integrationId.
+    return _is_templated(from_value.get("integrationIds")) or any(
+        _is_templated(integration_id) and _delivery_sender_id(integration_id) is None
+        for integration_id in _configured_sender_ids(from_value)
+    )
+
+
+def _sandbox_email_sender_ids(context: dict[str, Any]) -> frozenset[int]:
+    # One query per save, whatever the number of senders. A workflow validates each step with its own
+    # context, and every step shares this holder.
+    holder: dict[str, frozenset[int]] = context.setdefault("sandbox_email_integration_cache", {})
+    if "sandbox_ids" not in holder:
+        sandbox_senders = IntegrationManager.email.credentials.list(
+            context["get_team"]().id, where={"provider": SANDBOX_EMAIL_PROVIDER}
+        )
+        holder["sandbox_ids"] = frozenset(integration.id for integration in sandbox_senders)
+    return holder["sandbox_ids"]
+
+
+def _stored_email_values(context: dict[str, Any]) -> list[object]:
+    # A workflow step passes its stored email values. A hog function passes them by input key,
+    # so only the value stored under the input being validated counts.
+    stored = list(context.get("existing_email_values") or [])
+    by_key = context.get("existing_email_values_by_key")
+    mapping_index = context.get("mapping_index")
+    if isinstance(mapping_index, int):
+        by_mapping = context.get("existing_email_values_by_mapping") or []
+        by_key = by_mapping[mapping_index] if mapping_index < len(by_mapping) else None
+    schema = context.get("schema")
+    if isinstance(by_key, dict) and isinstance(schema, dict) and str(schema.get("key")) in by_key:
+        stored.append(by_key[str(schema.get("key"))])
+    return stored
+
+
+def _stored_reply_tos_for_sender(email_value: dict, stored_values: list[object]) -> list[str] | None:
+    reply_tos = [
+        stored.get("replyTo") or ""
+        for stored in stored_values
+        if isinstance(stored, dict) and email_value["from"] == stored.get("from")
+    ]
+    return reply_tos or None
+
+
+def _matches_stored_email(email_value: dict, stored_values: list[object]) -> bool:
+    return any(
+        isinstance(stored, dict)
+        and email_value["from"] == stored.get("from")
+        and (email_value.get("replyTo") or "") == (stored.get("replyTo") or "")
+        for stored in stored_values
+    )
+
+
+def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) -> None:
+    # Every check returns before any query while the sandbox settings are empty. The project flag
+    # only gates adoption: a sandbox sender the project already has keeps its limits with the flag off.
+    if not sandbox_sender_settings_present() or not isinstance(email_value, dict):
+        return
+    from_value = email_value.get("from")
+    if isinstance(from_value, dict):
+        integration_ids = _delivery_sender_ids(from_value)
+        templated_sender = _has_templated_sender_id(from_value)
+    elif _is_templated(from_value):
+        integration_ids, templated_sender = set(), True
+    else:
+        return
+    get_team = context.get("get_team")
+    if not (integration_ids or templated_sender) or get_team is None:
+        return
+    # Rejects an oversized rotation before any query. InputsItemSerializer applies the same limit to every save.
+    if len(integration_ids) > MAX_WORKFLOW_EMAIL_SENDERS:
+        raise serializers.ValidationError({"input": f"At most {MAX_WORKFLOW_EMAIL_SENDERS} email senders are allowed."})
+    sandbox_ids = _sandbox_email_sender_ids(context)
+    stored_step_values = [*_stored_email_values(context), *(context.get("existing_action_email_values") or [])]
+    if templated_sender and sandbox_ids:
+        stored_reply_tos = _stored_reply_tos_for_sender(email_value, stored_step_values)
+        if stored_reply_tos is None:
+            raise serializers.ValidationError(
+                {
+                    "input": "A templated sender is not supported while the project has the sandbox sender. "
+                    "Set 'from.integrationId' to the ID of one sender and remove 'from.integrationIds'."
+                }
+            )
+        # The templated sender can resolve to the sandbox sender, which allows no Reply-To override,
+        # so a stored step may keep or clear its Reply-To but not take a new one.
+        reply_to = email_value.get("replyTo") or ""
+        if reply_to and reply_to not in stored_reply_tos:
+            raise serializers.ValidationError(
+                {
+                    "input": "A templated sender can't take a new Reply-To while the project has the sandbox sender. "
+                    "Remove the Reply-To, or set 'from.integrationId' to the ID of one sender."
+                }
+            )
+    if not integration_ids & sandbox_ids:
+        return
+    if context.get("workflow_origin_product") == "broadcasts":
+        raise serializers.ValidationError(
+            {"input": "The sandbox sender cannot be used in broadcasts. Select a sender on your own verified domain."}
+        )
+    if context.get("workflow_origin_product") in ("transactional_emails", "transactional_email_keys"):
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender cannot send transactional email. Select a sender on your own verified domain."
+            }
+        )
+    if _matches_stored_email(email_value, _stored_email_values(context)):
+        return
+    is_test_send = getattr(context.get("view"), "action", None) == "invocations"
+    if context.get("workflow_action_type") != "function_email" and not is_test_send:
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender can only be used in workflow email steps and test sends. "
+                "Select a sender on your own verified domain."
+            }
+        )
+    if len(integration_ids) != 1:
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender must be the only sender. Remove the other senders "
+                "or select a sender on your own verified domain."
+            }
+        )
+    if email_value["from"].get("email") or email_value["from"].get("name") or email_value.get("replyTo"):
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender uses a fixed From address and name and does not support Reply-To. "
+                "Remove these overrides or select a sender on your own verified domain."
+            }
+        )
 
 
 def _validate_not_posthog_connection(integration_ids: list[int], context: dict) -> None:
@@ -967,6 +1138,7 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
+            validate_sandbox_email_sender(value, self.context)
             # Report every missing key in one error: these objects are typically authored
             # programmatically, and a one-at-a-time raise forces a round trip per missing key.
             missing = [f"'{key_}'" for key_ in ("from", "to", "subject") if not value.get(key_)]
@@ -1542,6 +1714,26 @@ class MappingsSerializer(FunctionInputsSerializer):
                 )
             data = {**data, "inputs_schema": inputs_schema}
         return super().to_internal_value(data)
+
+
+class MappingsListField(serializers.ListField):
+    def run_child_validation(self, data: list[Any]) -> list[Any]:
+        result = []
+        errors: dict[str, Any] = {}
+        try:
+            for index, item in enumerate(data):
+                self.context["mapping_index"] = index
+                try:
+                    result.append(self.child.run_validation(item))
+                except ValidationError as error:
+                    errors[str(index)] = error.detail
+                except DjangoValidationError as error:
+                    errors[str(index)] = get_error_detail(error)
+        finally:
+            self.context.pop("mapping_index", None)
+        if errors:
+            raise ValidationError(errors)
+        return result
 
 
 def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]:
