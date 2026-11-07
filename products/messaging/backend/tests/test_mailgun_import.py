@@ -24,7 +24,7 @@ from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.mailgun import MailgunImportProvider
 from products.messaging.backend.provider_imports.mailgun_templates import convert_text, convert_version
-from products.messaging.backend.services.suppression import remove_suppression
+from products.messaging.backend.services.suppression import remove_suppressions
 from products.messaging.backend.tests.fake_mailgun import (
     ANALYST_KEY,
     EMPTY_KEY,
@@ -126,7 +126,7 @@ class TestMailgunImport(BaseTest):
 
     def test_a_bounce_that_resumes_after_complaints_still_blocks_transactional_email(self) -> None:
         self._run(["complaints"], region="us")
-        remove_suppression(self.team.id, "angry@example.com")
+        remove_suppressions(self.team.id, ["angry@example.com"], confirm_complaints=True)
         self.mailgun.data["us"]["bounces"]["mg.example.com"].append(
             {"address": "angry@example.com", "code": "550", "error": "x", "created_at": "Thu, 11 Dec 2025 01:49:40 UTC"}
         )
@@ -372,7 +372,7 @@ class TestMailgunImport(BaseTest):
         first = self._run()
         assert first.status == "completed"
 
-        remove_suppression(self.team.id, "both@example.com")
+        remove_suppressions(self.team.id, ["both@example.com"], confirm_complaints=False)
         MessageTemplate.objects.filter(team_id=self.team.id, key="welcome").update(name="Edited here")
         MessageTemplate.objects.filter(team_id=self.team.id, key="eu-welcome").update(deleted=True)
         MessageCategory.objects.filter(team_id=self.team.id, name="Developers").update(name="Renamed")
