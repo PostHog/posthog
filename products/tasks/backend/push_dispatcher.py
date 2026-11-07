@@ -31,6 +31,8 @@ from posthog.push_notifications import mobile_push_preference_enabled
 from posthog.tasks.push_notifications import send_user_push
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.tasks.backend.logic.stream.push_message import PushMessage, truncate_push_message
+from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
 from products.tasks.backend.mobile_push import (
     enqueue_mobile_pr_outcome,
@@ -39,7 +41,7 @@ from products.tasks.backend.mobile_push import (
     task_mobile_push_eligible,
 )
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis_sync, run_uses_dedicated_stream
 from products.tasks.backend.visibility import task_visibility_q
 
 if TYPE_CHECKING:
@@ -49,7 +51,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PUSH_TITLE = "PostHog"
 AWAITING_INPUT_COOLDOWN_SECONDS = 30
 
 # Cooldown windows per push kind. Terminal pushes get a longer window because
@@ -196,7 +197,7 @@ def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: 
                 task=message.task,
                 kind="thread_message",
                 cooldown_subject=f"{message.id}:{user.id}",
-                body=f'{author_name} {action} in "{task_title}"',
+                body=message.content.strip() or f'{author_name} {action} in "{task_title}"',
                 data=data,
             )
         except Exception as exc:
@@ -305,6 +306,25 @@ def _enqueue_inner(
     if not recipient_ids:
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="no_recipient").inc()
         return False
+
+    if kind in {"completed", "turn_completed", "awaiting"}:
+        try:
+            # Preview reads run inline with turn-end ingestion, so fail fast and keep the status body.
+            client = get_tasks_stream_redis_sync(
+                run_uses_dedicated_stream(task_run.state), socket_timeout=0.5, socket_connect_timeout=0.5
+            )
+            preview = client.get(f"{get_task_run_stream_key(str(task_run.id))}:push-message")
+            if preview is not None:
+                message = PushMessage.from_json(preview)
+                if kind != "awaiting" or not message.finished:
+                    body = message.text.strip() or body
+            else:
+                final_message = (task_run.output or {}).get("final_message")
+                if isinstance(final_message, str) and final_message.strip():
+                    body = final_message.strip()
+        except Exception:
+            logger.warning("push_dispatcher.message_preview_failed", run_id=str(task_run.id), exc_info=True)
+
     subject = (
         f"pr:{task.id}:{hashlib.sha256(pull_request_url.encode()).hexdigest()}"
         if pull_request_url
@@ -378,7 +398,10 @@ def _enqueue_user(
             try:
 
                 def enqueue() -> None:
-                    send_user_push.delay(user.id, PUSH_TITLE, body, data, suppressed)
+                    title = Task.objects.filter(id=task.id, team_id=task.team_id).values_list("title", flat=True).get()
+                    send_user_push.delay(
+                        user.id, (title or "").strip() or "Untitled task", truncate_push_message(body), data, suppressed
+                    )
 
                 if pull_request_url is not None:
                     enqueued = enqueue_mobile_pr_outcome(

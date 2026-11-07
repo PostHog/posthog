@@ -57,10 +57,17 @@ Development and preview builds use [Mobile Build](../../products/mobile/docs/CI.
   Pin and unpin a view, then confirm its star on the web. Check loading, empty, unavailable and retry states.
 - **Notifications.** Use a physical device with working APNs or FCM credentials. Start or actively continue
   a task from mobile, background the app, and check its notification opens the correct chat. Test a report
-  push and a tap after a cold start. Ordinary task alerts use the title "PostHog"; report alerts can have
-  report-specific titles. Check the master and category controls in Settings, foreground suppression for
+  push and a tap after a cold start. Check that a completed chat shows the chat title and a preview of
+  the final reply. A blank title falls back to "Untitled task". Send a thread reply and check that the
+  alert shows the message text. Remove the recipient from a private chat and confirm subsequent task-run
+  alerts stop. Check the master and category controls in Settings, foreground suppression for
   the open chat, and a local snooze reminder. Report pushes also need `posthog-code-mobile-push`.
   See [Push notifications](../../products/mobile/docs/PUSH.md) for setup and routing checks.
+- **Chat notification fallback.** With stream Redis unavailable or slow, confirm chat completion and
+  input-needed pushes use the task status body and turn-end processing continues. Preview reads use
+  0.5-second socket and connection timeouts.
+  While a Claude or Codex task replies, run a background subagent. Confirm the push keeps the parent
+  reply preview when the subagent calls tools, sends messages, or finishes.
 - **Recovery and appearance.** Disconnect during refresh or send, then reconnect. Show a retryable error,
   preserve the draft and avoid duplicate sends. Check light and dark appearance, a narrow supported phone,
   larger text and screen-reader labels on the main actions.
