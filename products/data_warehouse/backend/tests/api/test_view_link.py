@@ -4,6 +4,7 @@ from textwrap import dedent
 from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import HogQLQueryResponse
@@ -229,6 +230,61 @@ class TestViewLinkQuery(APIBaseTest):
         )
         join.refresh_from_db()
         self.assertEqual(join.configuration, {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"})
+
+    @parameterized.expand(
+        [
+            ["unparseable_source_key", {"source_table_key": "if(event ="}, "unexpected token in expression: Eof"],
+            ["source_key_not_a_field", {"source_table_key": "1 + 1"}, "Join key 1 + 1 must be a table field"],
+            [
+                "unknown_source_table",
+                {"source_table_name": "nonexistent_table_xyz"},
+                "Invalid table: nonexistent_table_xyz",
+            ],
+            ["unparseable_joining_key", {"joining_table_key": "if(key ="}, "unexpected token in expression: Eof"],
+            [
+                "unknown_joining_table",
+                {"joining_table_name": "nonexistent_table_xyz"},
+                "Invalid table: nonexistent_table_xyz",
+            ],
+        ]
+    )
+    def test_update_rejects_invalid_join_key(self, _name: str, patch_data: dict[str, str], expected_error: str):
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="some_field",
+        )
+
+        response = self.client.patch(f"/api/environments/{self.team.id}/warehouse_view_links/{join.id}/", patch_data)
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["detail"], expected_error)
+        join.refresh_from_db()
+        self.assertEqual(
+            (join.source_table_name, join.source_table_key, join.joining_table_name, join.joining_table_key),
+            ("events", "distinct_id", "persons", "id"),
+        )
+
+    def test_update_accepts_valid_join_key(self):
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="some_field",
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_view_links/{join.id}/", {"source_table_key": "event"}
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        join.refresh_from_db()
+        self.assertEqual(join.source_table_key, "event")
 
     def test_delete(self):
         response = self.client.post(
