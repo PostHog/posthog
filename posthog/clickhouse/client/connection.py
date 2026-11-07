@@ -16,10 +16,14 @@ from django.conf import settings
 
 from clickhouse_driver import Client as SyncClient
 from clickhouse_driver.columns.datecolumn import DateColumn
+from clickhouse_driver.protocol import ServerPacketTypes
+from clickhouse_driver.result import QueryInfo
 from clickhouse_pool import ChPool
 from prometheus_client import Counter, Gauge
 
+from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
@@ -340,23 +344,83 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
 
 @frozen
 class QuerySummary:
-    """What one ClickHouse query read."""
+    """What one ClickHouse query read and the CPU it used. cpu_us is None when the client reports no CPU,
+    which is the case on the HTTP path."""
 
     rows: int = 0
     elapsed_ns: int = 0
+    cpu_us: int | None = None
+
+
+class MeteredQueryInfo(QueryInfo):
+    """The driver's query record plus the CPU the server reported for the query.
+
+    cpu_us is the sum of the OSCPUVirtualTimeMicroseconds increments in the ProfileEvents packets. The
+    initiator forwards the packets of the remote shards, so the sum covers the initiator and every shard.
+    An INSERT with data reads its packets outside receive_packet, so it stays at 0.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cpu_us: int = 0
+
+    def store_profile_events(self, block: Any) -> None:
+        # This runs inside the driver's packet loop for every native query, also when the CPU budget
+        # is off. An exception here disconnects the client and fails the query, so it must not escape.
+        try:
+            if block.num_rows == 0:
+                return
+            names = [name for name, _type in block.columns_with_types]
+            columns = dict(zip(names, block.get_columns()))
+            self.cpu_us += sum(
+                value
+                for event_type, name, value in zip(columns["type"], columns["name"], columns["value"])
+                if name == "OSCPUVirtualTimeMicroseconds" and event_type == "increment"
+            )
+        except Exception as e:
+            API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="cpu_packet").inc()
+            capture_exception(e)
 
 
 class ClickHouseClient(SyncClient):
-    """Keeps the progress of a query the server stopped.
+    """Keeps the progress of a query the server stopped, and the CPU each query used.
 
     The driver forgets its last query when it reconnects after an error, but a stopped query has
     already read rows, and the query scan reports them. The record is kept here until read once.
     """
 
+    last_query: Any
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         # Set before the base constructor, which calls reset_last_query.
         self.last_query_before_reset: Any = None
         super().__init__(*args, **kwargs)
+
+    def establish_connection(self, settings: Any) -> None:
+        super().establish_connection(settings)
+        self.last_query = MeteredQueryInfo()
+
+    def receive_packet(self) -> Any:
+        # The base method drops ProfileEvents packets, so this copies its dispatch for every other
+        # packet type from clickhouse-driver 0.2.10. Compare it with the base method when you upgrade
+        # the driver, because no test covers a change to the other packet types.
+        packet = self.connection.receive_packet()
+        if packet.type == ServerPacketTypes.PROFILE_EVENTS:
+            if isinstance(self.last_query, MeteredQueryInfo):
+                self.last_query.store_profile_events(packet.block)
+            return True
+        if packet.type == ServerPacketTypes.EXCEPTION:
+            raise packet.exception
+        if packet.type == ServerPacketTypes.PROGRESS:
+            self.last_query.store_progress(packet.progress)
+            return packet
+        if packet.type == ServerPacketTypes.END_OF_STREAM:
+            return False
+        if packet.type in (ServerPacketTypes.DATA, ServerPacketTypes.TOTALS, ServerPacketTypes.EXTREMES):
+            return packet
+        if packet.type == ServerPacketTypes.PROFILE_INFO:
+            self.last_query.store_profile(packet.profile_info)
+        return True
 
     def reset_last_query(self) -> None:
         last_query = getattr(self, "last_query", None)
