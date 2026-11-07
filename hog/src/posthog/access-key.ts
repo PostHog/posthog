@@ -51,14 +51,14 @@ export class MemoryKeyStorage implements AccessKeyStorage {
     }
 }
 
-// A key hog sends to PostHog. Each kind owns how it authenticates, renews, logs out and is stored,
-// so callers never branch on the kind.
 export interface WorkloadIdentity {
     provider: string
     subject: string
     organization?: string
 }
 
+// A key hog sends to PostHog. Each kind owns how it authenticates, renews, logs out and is stored,
+// so callers never branch on the kind.
 export interface AccessKey {
     readonly host: Host
     readonly projectId: ProjectId
