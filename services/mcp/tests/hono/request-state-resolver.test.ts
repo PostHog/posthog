@@ -20,6 +20,7 @@ const {
     mockApiKey: {
         scopes: ['*'],
         scoped_teams: [],
+        scoped_organizations: [] as string[],
         is_impersonated: undefined as boolean | undefined,
         suppress_analytics: undefined as boolean | undefined,
         mcp_allowed_tools: undefined as string[] | undefined,
@@ -218,6 +219,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockDistinctId.current = 'distinct-id'
         mockGetApiKey.mockReset().mockImplementation(async () => mockApiKey)
         mockApiKey.scopes = ['*']
+        mockApiKey.scoped_organizations = []
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
         mockApiKey.mcp_allowed_tools = undefined
@@ -1027,6 +1029,19 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.allTools.map((tool) => tool.name)).toEqual(['docs-search'])
         expect(result.scopeGatedTools.map((tool) => tool.name)).toEqual(['dashboards-get-all'])
         expect(result.flagGatedTools).toEqual([])
+    })
+
+    it.each([
+        ['an unscoped key', [], false],
+        ['an org-scoped key', ['org-1'], true],
+    ])('excludes organization-create for %s', async (_label, scopedOrganizations, excluded) => {
+        mockApiKey.scoped_organizations = scopedOrganizations
+        const { resolver, getFilteredTools } = makeResolverWithCatalog()
+
+        await resolver.resolve(makeProps())
+
+        const excludeTools = getFilteredTools.mock.calls[0]?.[0]?.excludeTools
+        expect(excludeTools?.includes('organization-create')).toBe(excluded)
     })
 
     it('merges request excludeTools into catalog filter options', async () => {
