@@ -1,0 +1,268 @@
+{
+    "id": "01a1352a-0c41-0000-5b93-e08a4c1f7d26",
+    "name": "Ticket SLA: set first response time",
+    "description": "When a customer opens a ticket, set how soon your team should send the first reply. The deadline depends on the customer's plan, and tickets that match no plan get a default. The ticket is also tagged with its tier, which the other SLA templates use. Working hours are Monday to Friday, 9:00-17:00 UTC: change them in each Set SLA step. Works with the Ticket SLA follow-up, next response, pause and reopened templates. Use at least follow-up and pause, or the deadline stays in place after your team replies.",
+    "scope": "global",
+    "tags": ["support", "support SLAs"],
+    "version": 1,
+    "created_at": "2026-10-13T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-13T00:00:00Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_ticket_created",
+                    "name": "$conversation_ticket_created",
+                    "type": "events",
+                    "order": 0
+                }
+            ],
+            "filter_test_accounts": false
+        }
+    },
+    "trigger_masking": null,
+    "conversion": null,
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "tier",
+            "type": "continue"
+        },
+        {
+            "from": "tier",
+            "to": "sla_tier_1",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "tier",
+            "to": "sla_tier_2",
+            "type": "branch",
+            "index": 1
+        },
+        {
+            "from": "tier",
+            "to": "sla_default",
+            "type": "continue"
+        },
+        {
+            "from": "sla_tier_1",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "sla_tier_2",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "sla_default",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "New ticket",
+            "description": "Runs when a customer opens a ticket.",
+            "type": "trigger",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_ticket_created",
+                            "name": "$conversation_ticket_created",
+                            "type": "events",
+                            "order": 0
+                        }
+                    ],
+                    "filter_test_accounts": false
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "tier",
+            "name": "Which plan is the customer on?",
+            "description": "Example tiers using the person property 'plan'. Change the property and values to match your plans, or pick a group property to tier by company. Tickets that match no tier get the default SLA.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Enterprise",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "plan",
+                                    "type": "person",
+                                    "value": ["enterprise"],
+                                    "operator": "exact"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Pro",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "plan",
+                                    "type": "person",
+                                    "value": ["pro"],
+                                    "operator": "exact"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_tier_1",
+            "name": "Set SLA: 4 working hours",
+            "description": "Enterprise: first reply due within 4 working hours. Set your working hours and timezone here. Also tags the ticket tier_enterprise, which the other SLA templates use to find the tier.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "4",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["tier_enterprise"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_tier_2",
+            "name": "Set SLA: 1 working day",
+            "description": "Pro: first reply due within 8 working hours (1 working day at 9:00-17:00). Set your working hours and timezone here. Also tags the ticket tier_pro, which the other SLA templates use to find the tier.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "8",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["tier_pro"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_default",
+            "name": "Set SLA: 2 working days",
+            "description": "Everyone else: first reply due within 16 working hours (2 working days at 9:00-17:00). Set your working hours and timezone here.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "16",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "",
+            "type": "exit",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "reason": "Done"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"]
+}

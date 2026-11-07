@@ -1,0 +1,303 @@
+{
+    "id": "01a1352a-0c41-0000-2e6f-8a4d1c9b5f73",
+    "name": "Ticket SLA: set next response time when a ticket is reopened",
+    "description": "When someone on your team reopens a pending, on hold or resolved ticket, set a new response deadline. Without this, a ticket reopened by hand has no SLA, because the SLA was cleared when it left open. Working hours are Monday to Friday, 9:00-17:00 UTC: change them in each Set SLA step. Works with the Ticket SLA first response template, which adds the tier tag, and the pause template.",
+    "scope": "global",
+    "tags": ["support", "support SLAs"],
+    "version": 1,
+    "created_at": "2026-10-13T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-13T00:00:00Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_ticket_status_changed",
+                    "name": "$conversation_ticket_status_changed",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [
+                        {
+                            "key": "new_status",
+                            "type": "event",
+                            "value": ["open"],
+                            "operator": "exact"
+                        },
+                        {
+                            "key": "old_status",
+                            "type": "event",
+                            "value": "^(pending|resolved|on_hold)$",
+                            "operator": "regex"
+                        }
+                    ]
+                }
+            ],
+            "filter_test_accounts": false
+        }
+    },
+    "trigger_masking": null,
+    "conversion": null,
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "get_ticket",
+            "type": "continue"
+        },
+        {
+            "from": "get_ticket",
+            "to": "tier",
+            "type": "continue"
+        },
+        {
+            "from": "tier",
+            "to": "sla_tier_1",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "tier",
+            "to": "sla_tier_2",
+            "type": "branch",
+            "index": 1
+        },
+        {
+            "from": "tier",
+            "to": "sla_default",
+            "type": "continue"
+        },
+        {
+            "from": "sla_tier_1",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "sla_tier_2",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "sla_default",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Ticket reopened",
+            "description": "Runs when a ticket moves back to open from pending, on hold or resolved.",
+            "type": "trigger",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_ticket_status_changed",
+                            "name": "$conversation_ticket_status_changed",
+                            "type": "events",
+                            "order": 0,
+                            "properties": [
+                                {
+                                    "key": "new_status",
+                                    "type": "event",
+                                    "value": ["open"],
+                                    "operator": "exact"
+                                },
+                                {
+                                    "key": "old_status",
+                                    "type": "event",
+                                    "value": "^(pending|resolved|on_hold)$",
+                                    "operator": "regex"
+                                }
+                            ]
+                        }
+                    ],
+                    "filter_test_accounts": false
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "get_ticket",
+            "name": "Get ticket",
+            "description": "Load the ticket's tags to find its tier.",
+            "type": "function",
+            "on_error": "abort",
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-get-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": {
+                "key": "ticket"
+            }
+        },
+        {
+            "id": "tier",
+            "name": "Which tier is the ticket?",
+            "description": "Uses the tier tag that 'Ticket SLA: set first response time' adds. Tickets without one get the default SLA.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Enterprise",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "has(variables.ticket.tags, 'tier_enterprise')",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Pro",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "has(variables.ticket.tags, 'tier_pro')",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_tier_1",
+            "name": "Set SLA: 4 working hours",
+            "description": "Enterprise: next reply due within 4 working hours. Set your working hours and timezone here.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "4",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_tier_2",
+            "name": "Set SLA: 1 working day",
+            "description": "Pro: next reply due within 8 working hours (1 working day at 9:00-17:00). Set your working hours and timezone here.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "8",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_default",
+            "name": "Set SLA: 2 working days",
+            "description": "Everyone else: next reply due within 16 working hours (2 working days at 9:00-17:00). Set your working hours and timezone here.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "16",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "",
+            "type": "exit",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "reason": "Done"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"]
+}

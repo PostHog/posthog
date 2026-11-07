@@ -1,16 +1,17 @@
 {
     "id": "01a12fb6-3cfe-0000-5d45-25a5b3a944e0",
-    "name": "AI support first responder",
-    "description": "When a support ticket comes in, an AI agent reads it alongside the customer's PostHog data, sets a priority, drafts a reply, and posts it to Slack.",
+    "name": "Ticket: AI triage and investigation",
+    "description": "When a ticket comes in, an AI agent with read-only access investigates it using the customer's PostHog data, and your docs if you connect them. It picks a category and priority, which the workflow applies to the ticket, and saves its findings and a suggested reply as a private note for your team. It never replies to the customer.",
+    "scope": "global",
+    "tags": ["ai", "support", "support lifecycle", "slack"],
     "version": 1,
-    "created_at": "2026-10-12T00:00:00Z",
+    "created_at": "2026-10-13T00:00:00Z",
     "created_by": null,
-    "updated_at": "2026-10-12T00:00:00Z",
+    "updated_at": "2026-10-13T00:00:00Z",
     "trigger": {
         "type": "event",
         "filters": {
             "source": "events",
-            "actions": [],
             "events": [
                 {
                     "id": "$conversation_ticket_created",
@@ -18,7 +19,8 @@
                     "type": "events",
                     "order": 0
                 }
-            ]
+            ],
+            "filter_test_accounts": false
         }
     },
     "trigger_masking": {
@@ -26,24 +28,85 @@
         "ttl": 86400,
         "threshold": null
     },
-    "conversion": {
-        "filters": [],
-        "window_minutes": null
-    },
+    "conversion": null,
     "exit_condition": "exit_only_at_end",
     "edges": [
         {
             "from": "trigger_node",
-            "to": "action_function_545f4bda-3275-4917-ae4f-a4cdfe002727",
+            "to": "triage",
             "type": "continue"
         },
         {
-            "from": "action_function_545f4bda-3275-4917-ae4f-a4cdfe002727",
-            "to": "action_function_97425ff1-96f5-4569-b2b1-8814063e0283",
+            "from": "triage",
+            "to": "did_triage",
             "type": "continue"
         },
         {
-            "from": "action_function_97425ff1-96f5-4569-b2b1-8814063e0283",
+            "from": "did_triage",
+            "to": "has_triage_line",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "did_triage",
+            "to": "tag_needs_triage",
+            "type": "continue"
+        },
+        {
+            "from": "has_triage_line",
+            "to": "apply_high",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "has_triage_line",
+            "to": "apply_medium",
+            "type": "branch",
+            "index": 1
+        },
+        {
+            "from": "has_triage_line",
+            "to": "apply_low",
+            "type": "branch",
+            "index": 2
+        },
+        {
+            "from": "has_triage_line",
+            "to": "note_investigation",
+            "type": "continue"
+        },
+        {
+            "from": "apply_high",
+            "to": "note_investigation",
+            "type": "continue"
+        },
+        {
+            "from": "apply_medium",
+            "to": "note_investigation",
+            "type": "continue"
+        },
+        {
+            "from": "apply_low",
+            "to": "note_investigation",
+            "type": "continue"
+        },
+        {
+            "from": "note_investigation",
+            "to": "slack_triage",
+            "type": "continue"
+        },
+        {
+            "from": "slack_triage",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "tag_needs_triage",
+            "to": "slack_fallback",
+            "type": "continue"
+        },
+        {
+            "from": "slack_fallback",
             "to": "exit_node",
             "type": "continue"
         }
@@ -52,18 +115,14 @@
         {
             "id": "trigger_node",
             "name": "Support ticket is created",
-            "description": "A customer has created a new support ticket.",
-            "on_error": null,
-            "created_at": 0,
-            "updated_at": 0,
-            "filters": null,
+            "description": "A customer has created a new support ticket. Runs once per ticket per day.",
             "type": "trigger",
-            "output_variable": null,
+            "on_error": null,
+            "filters": null,
             "config": {
                 "type": "event",
                 "filters": {
                     "source": "events",
-                    "actions": [],
                     "events": [
                         {
                             "id": "$conversation_ticket_created",
@@ -71,56 +130,258 @@
                             "type": "events",
                             "order": 0
                         }
-                    ]
+                    ],
+                    "filter_test_accounts": false
                 }
-            }
+            },
+            "output_variable": null
         },
         {
-            "id": "action_function_545f4bda-3275-4917-ae4f-a4cdfe002727",
-            "name": "Triage the ticket",
-            "description": "An AI agent investigates the ticket and drafts a reply.",
-            "on_error": "abort",
-            "created_at": 1791763200000,
-            "updated_at": 1791763200000,
-            "filters": null,
+            "id": "triage",
+            "name": "Investigate and triage the ticket",
+            "description": "An AI agent investigates the ticket, picks a category and priority, and drafts a reply for your team. It has read-only access, so it can't change anything itself: the next steps apply its category and priority. Edit the category list to match your team. To let it check your docs, add a docs or knowledge base connector under Connectors. Don't add a code repository: repository access isn't read-only, so a ticket could try to make the agent change it.",
             "type": "function",
+            "on_error": "continue",
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-create-task",
+                "inputs": {
+                    "prompt": {
+                        "value": "A customer just opened a support ticket. Read the ticket using the `ticket_id` property of the triggering event.\n\nThen investigate:\n- Look up this customer in PostHog: their recent activity, errors, and session recordings around the time of the ticket.\n- If you have access to the team's docs or other connectors, check them for known issues or relevant docs pages that explain the problem.\n\nThen classify the ticket:\n- Pick one category: `category_bug`, `category_billing`, `category_how_to`, `category_feature_request`, `category_account_access` or `category_other`.\n- Pick a priority: low, medium or high.\n\nStart your reply with this line on its own, exactly in this format, so the workflow can apply it:\nTRIAGE: <category> | <priority>\n\nThen reply with:\n1. A one-line summary of the problem.\n2. Why you picked that category and priority.\n3. What you found in their data or docs that explains the problem, with links.\n4. A suggested reply the support team can edit and send.\n\nKeep your whole reply under 1,200 characters, because longer replies get cut off. Do not change anything yourself, and never reply to the customer. Your write-up is for the support team, who decide what to send.",
+                        "templating": "hog"
+                    },
+                    "title": {
+                        "value": "Support ticket triage and investigation",
+                        "templating": "hog"
+                    },
+                    "posthog_mcp_scopes": {
+                        "value": "read_only",
+                        "templating": "hog"
+                    },
+                    "reply_in_slack_thread": {
+                        "value": false,
+                        "templating": "hog"
+                    },
+                    "non_failure_status_codes": {
+                        "value": [409],
+                        "templating": "hog"
+                    }
+                }
+            },
             "output_variable": [
                 {
                     "key": "task_final_message",
                     "result_path": "final_message"
                 }
-            ],
-            "config": {
-                "template_id": "template-posthog-create-task",
-                "inputs": {
-                    "prompt": {
-                        "value": "A customer just opened a support ticket. Read the ticket using the `ticket_id` property of the triggering event.\n\nThen look up this customer in PostHog: their recent activity, errors, and session recordings around the time of the ticket.\n\nReply with:\n1. A one-line summary of the problem.\n2. A priority (urgent, high, normal, or low) and the reason for it.\n3. Anything in their data that explains the problem, with links.\n4. A draft reply to the customer.\n\nDo not reply to the customer or change anything. A person reviews your draft before it is sent."
-                    },
-                    "title": {
-                        "value": "Support ticket triage"
-                    },
-                    "posthog_mcp_scopes": {
-                        "value": "read_only"
-                    },
-                    "reply_in_slack_thread": {
-                        "value": false
-                    },
-                    "non_failure_status_codes": {
-                        "value": [409]
-                    }
-                }
-            }
+            ]
         },
         {
-            "id": "action_function_97425ff1-96f5-4569-b2b1-8814063e0283",
-            "name": "Post to Slack",
-            "description": "Connect your support channel to see the triage and the draft reply.",
+            "id": "did_triage",
+            "name": "Did the agent finish?",
+            "description": "The agent may not run if too many tasks are already running or the daily task limit is reached.",
+            "type": "conditional_branch",
             "on_error": null,
-            "created_at": 1791763200000,
-            "updated_at": 1791763200000,
             "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Agent replied",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "length(toString(ifNull(variables.task_final_message, ''))) > 0",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "has_triage_line",
+            "name": "Did the agent pick a category and priority?",
+            "description": "Reads the 'TRIAGE: <category> | <priority>' line at the start of the write-up. Only a category_ tag and a priority of low, medium or high are applied, so a ticket that tries to trick the agent can't do anything else.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "High priority",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[2]) = 'high'",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Medium priority",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[2]) = 'medium'",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Low priority",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[2]) = 'low'",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "apply_high",
+            "name": "Tag category, set high priority",
+            "description": "Tags the ticket with the agent's category and sets it to high priority.",
             "type": "function",
-            "output_variable": null,
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": [
+                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[2])[1])[1])}"
+                        ],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
+                    },
+                    "priority": {
+                        "value": "high",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "apply_medium",
+            "name": "Tag category, set medium priority",
+            "description": "Tags the ticket with the agent's category and sets it to medium priority.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": [
+                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[2])[1])[1])}"
+                        ],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
+                    },
+                    "priority": {
+                        "value": "medium",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "apply_low",
+            "name": "Tag category, set low priority",
+            "description": "Tags the ticket with the agent's category and sets it to low priority.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": [
+                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[2])[1])[1])}"
+                        ],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
+                    },
+                    "priority": {
+                        "value": "low",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "note_investigation",
+            "name": "Save investigation to the ticket",
+            "description": "Adds the agent's write-up as a private note, so whoever picks up the ticket sees it there. Only your team can see private notes.",
+            "type": "function",
+            "on_error": "continue",
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-send-ticket-message",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "message": {
+                        "value": "AI investigation (not sent to the customer)\n\n{variables.task_final_message}",
+                        "templating": "hog"
+                    },
+                    "is_private": {
+                        "value": true,
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "slack_triage",
+            "name": "Post to Slack",
+            "description": "Connect your support channel to see the investigation and the suggested reply.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
             "config": {
                 "template_id": "template-slack",
                 "inputs": {
@@ -131,11 +392,11 @@
                         "templating": "hog"
                     },
                     "icon_emoji": {
-                        "value": ":hedgehog:",
+                        "value": ":mag:",
                         "templating": "hog"
                     },
                     "username": {
-                        "value": "PostHog",
+                        "value": "Support",
                         "templating": "hog"
                     },
                     "blocks": {
@@ -144,34 +405,129 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":ticket: *New ticket triaged by AI*"
+                                    "text": ":mag: Ticket *#{toInt(event.properties.ticket_number)}* investigated by AI. The write-up is also saved on the ticket as a private note."
                                 }
                             },
                             {
                                 "type": "markdown",
-                                "text": "{variables.task_final_message}"
+                                "text": "{replaceAll(toString(variables.task_final_message), '<', '‹')}"
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "type": "button",
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "View ticket"
+                                        },
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{toInt(event.properties.ticket_number)}"
+                                    }
+                                ]
                             }
                         ],
                         "templating": "hog"
                     },
                     "text": {
-                        "value": ":ticket: *New ticket triaged by AI*\n\n{variables.task_final_message}",
+                        "value": "Ticket #{toInt(event.properties.ticket_number)} investigated by AI\n\n{replaceAll(replaceAll(replaceAll(toString(variables.task_final_message), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}",
                         "templating": "hog"
                     }
                 }
-            }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "tag_needs_triage",
+            "name": "Tag for manual triage",
+            "description": "Adds a needs_triage tag, so a person can pick the ticket up.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["needs_triage"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "slack_fallback",
+            "name": "Post to Slack",
+            "description": "Lets your team know this ticket needs a person to triage it.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-slack",
+                "inputs": {
+                    "slack_workspace": {
+                        "templating": "hog"
+                    },
+                    "channel": {
+                        "templating": "hog"
+                    },
+                    "icon_emoji": {
+                        "value": ":warning:",
+                        "templating": "hog"
+                    },
+                    "username": {
+                        "value": "Support",
+                        "templating": "hog"
+                    },
+                    "blocks": {
+                        "value": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": ":warning: Ticket *#{toInt(event.properties.ticket_number)}* needs manual triage\nThe AI investigation didn't run, so it's been tagged needs_triage."
+                                }
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "type": "button",
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "View ticket"
+                                        },
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{toInt(event.properties.ticket_number)}"
+                                    }
+                                ]
+                            }
+                        ],
+                        "templating": "hog"
+                    },
+                    "text": {
+                        "value": "Ticket #{toInt(event.properties.ticket_number)} needs manual triage",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
         },
         {
             "id": "exit_node",
             "name": "Exit",
-            "description": "User moved through the workflow without errors.",
-            "on_error": null,
-            "created_at": 0,
-            "updated_at": 0,
-            "filters": null,
+            "description": "",
             "type": "exit",
+            "on_error": null,
+            "filters": null,
             "config": {
-                "reason": "Default exit"
+                "reason": "Done"
             },
             "output_variable": null
         }
@@ -184,7 +540,5 @@
             "default": ""
         }
     ],
-    "billable_action_types": ["function"],
-    "tags": ["ai", "support", "support ticket", "slack"],
-    "scope": "global"
+    "billable_action_types": ["function"]
 }
