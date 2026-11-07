@@ -149,7 +149,8 @@ class TestResolveGitHubRepository(SimpleTestCase):
 
 
 PUBLIC_PROJECT = {"id": 42, "path_with_namespace": "Acme/Tools/Web", "visibility": "public"}
-GITLAB_COM_INTEGRATION = {"hostname": "https://gitlab.com"}
+GITLAB_COM_INTEGRATION = {"hostname": "https://gitlab.com", "project_id": 42}
+OTHER_PROJECT_INTEGRATION = {"hostname": "https://gitlab.com", "project_id": 7}
 
 
 class TestResolveGitLabProject(SimpleTestCase):
@@ -159,9 +160,28 @@ class TestResolveGitLabProject(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "through_the_teams_integration",
+                "connected_private_project",
                 GITLAB_COM_INTEGRATION,
                 _response(200, {**PUBLIC_PROJECT, "visibility": "private"}),
+                None,
+                ResolvedWorkloadSubject(
+                    subject="42", subject_name="Acme/Tools/Web", found_via="your GitLab integration"
+                ),
+                ["glpat-team"],
+            ),
+            # A group or personal token sees more than the project it was connected for.
+            (
+                "another_private_project_the_integration_sees",
+                OTHER_PROJECT_INTEGRATION,
+                _response(200, {**PUBLIC_PROJECT, "visibility": "private"}),
+                _response(200, {**PUBLIC_PROJECT, "visibility": "private"}),
+                WorkloadSubjectNotFound,
+                ["glpat-team", "glpat-posthog"],
+            ),
+            (
+                "public_project_through_the_integration",
+                OTHER_PROJECT_INTEGRATION,
+                _response(200, PUBLIC_PROJECT),
                 None,
                 ResolvedWorkloadSubject(
                     subject="42", subject_name="Acme/Tools/Web", found_via="your GitLab integration"
@@ -209,7 +229,7 @@ class TestResolveGitLabProject(SimpleTestCase):
     def test_looks_up_the_project(
         self,
         _name: str,
-        integration_config: dict[str, str] | None,
+        integration_config: dict[str, Any] | None,
         integration_response: MagicMock | None,
         public_response: MagicMock | dict[str | None, MagicMock] | None,
         expected: Any,

@@ -44,6 +44,7 @@ from posthog.models.workload_trust_policy import (
 )
 from posthog.rate_limit import IPThrottle
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
+from posthog.utils import get_trusted_client_ip
 from posthog.workload_identity.providers import (
     WorkloadClaim,
     WorkloadProvider,
@@ -79,12 +80,19 @@ WORKLOAD_EXCHANGE_BUDGET = Budget(burst=300, per_hour=3600)
 # Charged per caller IP before the token is verified, so tokens no policy trusts can't make PostHog verify
 # signatures and look up policies without limit. CI runners often share egress IPs, so each limit is twice
 # what one policy's budget allows.
-class WorkloadExchangeBurstThrottle(IPThrottle):
+class WorkloadExchangeIPThrottle(IPThrottle):
+    def get_cache_key(self, request: Request, view: APIView) -> str:
+        # A forwarded address counts only when every hop is a trusted proxy, so a caller can't pick its bucket.
+        ip = get_trusted_client_ip(request) or request.META.get("REMOTE_ADDR") or ""
+        return self.cache_format % {"scope": self.scope, "ident": ip}
+
+
+class WorkloadExchangeBurstThrottle(WorkloadExchangeIPThrottle):
     scope = "workload_exchange_burst"
     rate = "600/minute"
 
 
-class WorkloadExchangeSustainedThrottle(IPThrottle):
+class WorkloadExchangeSustainedThrottle(WorkloadExchangeIPThrottle):
     scope = "workload_exchange_sustained"
     rate = "7200/hour"
 
