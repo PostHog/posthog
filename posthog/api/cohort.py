@@ -117,8 +117,10 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import (
     DEFAULT_COHORT_INSERT_BATCH_SIZE,
     REALTIME_COHORT_MAX_PERSON_COUNT,
+    STATIC_POPULATION_RUN_FIELDS,
     Cohort,
     CohortOrEmpty,
+    CohortPopulationMode,
     CohortType,
     Group,
 )
@@ -2174,11 +2176,16 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # tell an abandoned claim from a queued upload, so a CSV-only cohort skips the check, and the next upload
             # recovers it.
             claimable |= ~HAS_STATIC_POPULATION_SOURCE
-        claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(is_calculating=True)
+        # The claim records an append, which overwrites any mode a failed replace left behind, so that the stuck
+        # cohort sweep never redispatches an old replace in place of this request's population.
+        claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(
+            is_calculating=True, pending_population_mode=CohortPopulationMode.APPEND
+        )
         if not claimed:
             raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
-        # cohort.save() writes every field, so the in-memory value must match the claim.
+        # cohort.save() writes every field, so the in-memory values must match the claim.
         cohort.is_calculating = True
+        cohort.pending_population_mode = CohortPopulationMode.APPEND
 
     def _enqueue_query_population(self, cohort: Cohort) -> None:
         from posthog.tasks.calculate_cohort import insert_cohort_from_query
@@ -2398,13 +2405,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self._claim_static_population(cohort, "csv" if import_from_csv else "query")
                 cohort.save()
             elif cohort.is_static:
-                # A concurrent query PATCH can claim the cohort after this request loaded it. Writing this request's
-                # stale is_calculating would release that claim and let a duplicate population through.
+                # A concurrent query PATCH can claim the cohort after this request loaded it, and the population it
+                # starts writes its own state. Writing this request's stale copy would release that claim and let a
+                # duplicate population through, or change the replace marker under the running population.
                 cohort.save(
                     update_fields=[
                         field.name
                         for field in Cohort._meta.concrete_fields
-                        if not field.primary_key and field.name != "is_calculating"
+                        if not field.primary_key and field.name not in STATIC_POPULATION_RUN_FIELDS
                     ]
                 )
             else:

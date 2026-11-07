@@ -61,7 +61,12 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
+from products.cohorts.backend.models.cohort import (
+    DEFAULT_COHORT_INSERT_BATCH_SIZE,
+    Cohort,
+    CohortPopulationMode,
+    CohortType,
+)
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
 from products.cohorts.backend.models.team_access import (
     RealtimeCohortAccessPurpose,
@@ -884,6 +889,8 @@ email@example.org
         csv = SimpleUploadedFile("example.csv", b"distinct_id\n123\n", content_type="application/csv")
 
         first = self.client.patch(url, data={"query": query})
+        marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+        Cohort.objects.filter(pk=cohort.pk).update(population_marker=marker)
         with patch.object(CohortViewSet, "get_object", return_value=stale_for_rename):
             rename = self.client.patch(url, data={"name": "renamed"})
         with patch.object(CohortViewSet, "get_object", return_value=stale_for_query):
@@ -902,6 +909,11 @@ email@example.org
         )
         mock_delay.assert_called_once_with(cohort.pk, self.team.id)
         mock_csv_delay.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertEqual(
+            (cohort.name, cohort.pending_population_mode, cohort.population_marker),
+            ("renamed", CohortPopulationMode.APPEND, marker),
+        )
 
     @parameterized.expand(
         [
@@ -925,7 +937,9 @@ email@example.org
     def test_static_cohort_patch_releases_claim_when_enqueue_fails(
         self, source_field: str, delay_path: str, request_kwargs: Callable[[], dict[str, Any]]
     ):
-        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+        cohort = Cohort.objects.create(
+            team=self.team, name="static", is_static=True, pending_population_mode=CohortPopulationMode.REPLACE
+        )
         url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
 
         with patch(delay_path, side_effect=[ConnectionError("broker down"), None]) as mock_delay:
@@ -936,6 +950,8 @@ email@example.org
         self.assertEqual(failed.json()["attr"], source_field)
         self.assertEqual(retried.status_code, 200, retried.json())
         self.assertEqual(mock_delay.call_count, 2)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.pending_population_mode, CohortPopulationMode.APPEND)
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_csv_patch_recovers_csv_only_cohort_left_calculating(self, mock_csv_delay: MagicMock):

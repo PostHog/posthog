@@ -62,6 +62,15 @@ class CohortType(StrEnum):
     ANALYTICAL = "analytical"
 
 
+class CohortPopulationMode(models.TextChoices):
+    APPEND = "append", "Append"
+    REPLACE = "replace", "Replace"
+
+
+# Columns a static population owns while it runs. Only the claim and the population itself write them.
+STATIC_POPULATION_RUN_FIELDS = frozenset({"is_calculating", "pending_population_mode", "population_marker"})
+
+
 class CohortConditionFlags(TypedDict):
     """Boolean flags describing which kinds of leaf conditions a cohort's filters contain,
     independent of `CohortType` (which is about realtime-evaluation eligibility, not filter shape)."""
@@ -283,6 +292,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         blank=True,
         null=True,
         help_text="How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.",
+    )
+    pending_population_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=CohortPopulationMode.choices,
+        help_text="How the claimed static population writes its matches: append adds them to the current members, and replace also removes the members the query no longer matches. Null if the cohort was never claimed for a population.",
+    )
+    population_marker = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="ClickHouse _timestamp of the current replace attempt. Every attempt stores a newer value, and an attempt that finds a different value stored stops writing. Null when no replace is in flight.",
     )
 
     is_static = models.BooleanField(default=False)
