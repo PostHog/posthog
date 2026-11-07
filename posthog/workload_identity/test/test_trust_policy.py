@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -23,6 +24,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
 from posthog.tasks.email import send_workload_trust_policy_changed
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+from posthog.workload_identity.providers import ConditionCompanions
 from posthog.workload_identity.subjects import (
     ResolvedWorkloadSubject,
     WorkloadSubjectLookupUnavailable,
@@ -33,7 +35,14 @@ from posthog.workload_identity.test.fixtures import (
     FAKE_WORKLOAD_PROVIDER,
     with_fake_workload_provider,
 )
-from posthog.workload_identity.trust_policy import DUPLICATE_POLICY_MESSAGE, normalize_workload_conditions
+from posthog.workload_identity.trust_policy import (
+    DUPLICATE_POLICY_MESSAGE,
+    PROVIDER_MISMATCH_MESSAGE,
+    normalize_workload_conditions,
+    workload_providers_data,
+)
+
+REF_NEEDS_ENVIRONMENT = (ConditionCompanions(claims=("ref",), companions=("environment",), reason="Why."),)
 
 
 def _payload(**overrides: Any) -> dict[str, Any]:
@@ -85,7 +94,7 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
         self.organization_membership.save()
 
     def _create_policy(self, team: Team | None = None, **overrides: Any) -> WorkloadTrustPolicy:
-        fields = {**_payload(), **overrides}
+        fields = {**_payload(), "provider": FAKE_WORKLOAD_PROVIDER.key, **overrides}
         return WorkloadTrustPolicy.objects.for_team((team or self.team).id).create(team=team or self.team, **fields)
 
     def _use_token(self, kind: str) -> None:
@@ -106,6 +115,9 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
         response = self.client.post(self.url, _payload(), format="json")
 
         assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            assert response.json()["provider"] == FAKE_WORKLOAD_PROVIDER.key
+            assert WorkloadTrustPolicy.objects.for_team(self.team.id).get().provider == FAKE_WORKLOAD_PROVIDER.key
 
     def test_risky_scopes_are_grantable_and_come_with_a_warning(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
@@ -120,6 +132,22 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
             "Branch or tag",
             "Environment",
         ]
+
+    @parameterized.expand(
+        [
+            ("cloud", "https://eu.posthog.com", True),
+            ("self_hosted", "https://posthog.example.com", False),
+        ]
+    )
+    def test_job_settings_put_only_a_cloud_host_in_posthog_json(
+        self, _name: str, site_url: str, host_in_file: bool
+    ) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+
+        with override_settings(SITE_URL=f"{site_url}/"):
+            settings = self.client.get(f"{self.url}providers/").json()["job_settings"]
+
+        assert settings == {"host": site_url, "project_id": self.team.project_id, "host_in_posthog_json": host_in_file}
 
     def test_members_can_neither_read_nor_change_policies(self) -> None:
         policy = self._create_policy()
@@ -215,6 +243,47 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
         assert patch_response.status_code == status.HTTP_403_FORBIDDEN
         assert delete_response.status_code == status.HTTP_403_FORBIDDEN
         assert WorkloadTrustPolicy.objects.for_team(self.team.id).count() == 1
+
+    def test_an_update_that_leaves_a_claim_without_its_companion_is_refused(self) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        policy = self._create_policy(conditions={"ref": "refs/heads/main", "environment": "production"})
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, condition_companions=REF_NEEDS_ENVIRONMENT)
+
+        with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
+            response = self.client.patch(
+                f"{self.url}{policy.id}/", {"conditions": {"ref": "refs/heads/main"}}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        policy.refresh_from_db()
+        assert policy.conditions == {"ref": "refs/heads/main", "environment": "production"}
+
+    @parameterized.expand(
+        [
+            ("condition_change", {"conditions": {"ref": "refs/heads/release"}}, status.HTTP_400_BAD_REQUEST),
+            ("disable", {"enabled": False}, status.HTTP_200_OK),
+        ]
+    )
+    def test_a_policy_whose_provider_does_not_own_its_issuer_can_only_be_disabled_or_renamed(
+        self, _name: str, change: dict[str, Any], expected_status: int
+    ) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        policy = self._create_policy(provider="retired_ci")
+
+        response = self.client.patch(f"{self.url}{policy.id}/", change, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["detail"] == PROVIDER_MISMATCH_MESSAGE
+        policy.refresh_from_db()
+        assert policy.provider == "retired_ci"
+
+    @parameterized.expand([("policy", WorkloadTrustPolicy), ("request", WorkloadTrustPolicyRequest)])
+    def test_the_database_refuses_a_row_without_a_provider(
+        self, _name: str, model: type[WorkloadTrustPolicy] | type[WorkloadTrustPolicyRequest]
+    ) -> None:
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            model.objects.for_team(self.team.id).create(team=self.team, **_payload())
 
     def test_rejects_a_second_policy_whose_conditions_differ_only_by_an_empty_value(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
@@ -335,7 +404,9 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
 
     def _create_request(self, **overrides: Any) -> WorkloadTrustPolicyRequest:
         return WorkloadTrustPolicyRequest.objects.for_team(self.team.id).create(
-            team=self.team, requested_by=self.user, **{**_payload(), **overrides}
+            team=self.team,
+            requested_by=self.user,
+            **{**_payload(), "provider": FAKE_WORKLOAD_PROVIDER.key, **overrides},
         )
 
     @parameterized.expand(
@@ -361,6 +432,7 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         body = response.json()
         assert body["status"] == "pending"
+        assert (body["provider"], body["provider_name"]) == (FAKE_WORKLOAD_PROVIDER.key, "Fake CI")
         assert body["can_approve"] is False
         assert body["approvers"] == ["Olive Owner"]
         assert body["requested_via"] == "Test app"
@@ -464,6 +536,19 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
         policy_request.refresh_from_db()
         assert policy_request.status == WorkloadTrustPolicyRequest.Status.PENDING
 
+    def test_a_request_without_a_companion_is_refused_and_an_old_one_cannot_be_approved(self) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, condition_companions=REF_NEEDS_ENVIRONMENT)
+        filed_before_the_rule = self._create_request(conditions={"ref": "refs/heads/main"})
+
+        with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
+            created = self.client.post(self.url, _payload(conditions={"ref": "refs/heads/main"}), format="json")
+            approved = self.client.post(f"{self.url}{filed_before_the_rule.id}/approve/")
+
+        assert created.status_code == status.HTTP_400_BAD_REQUEST, created.json()
+        assert approved.status_code == status.HTTP_400_BAD_REQUEST, approved.json()
+        assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
+
     @patch("posthog.workload_identity.trust_policy.send_workload_trust_policy_changed")
     def test_admin_approves_their_own_request_which_creates_the_policy(self, mock_send: MagicMock) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
@@ -480,7 +565,8 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
         assert response.json()["status"] == "approved"
         assert response.json()["policy_id"] == str(policy.id)
         assert policy_request.conditions == {"ref": "refs/heads/main"}
-        assert (policy.subject, policy.conditions, sorted(policy.scopes), policy.created_by_id) == (
+        assert (policy.provider, policy.subject, policy.conditions, sorted(policy.scopes), policy.created_by_id) == (
+            FAKE_WORKLOAD_PROVIDER.key,
             "1234",
             {"ref": "refs/heads/main"},
             ["annotation:write", "error_tracking:write"],
@@ -492,6 +578,36 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
             .order_by("created_at")
             .values_list("activity", flat=True)
         ) == ["created", "approved"]
+
+    def test_a_request_whose_provider_does_not_own_its_issuer_cannot_be_approved(self) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        policy_request = self._create_request(provider="retired_ci")
+
+        response = self.client.post(f"{self.url}{policy_request.id}/approve/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == PROVIDER_MISMATCH_MESSAGE
+        policy_request.refresh_from_db()
+        assert policy_request.status == WorkloadTrustPolicyRequest.Status.PENDING
+        assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            ("request_read_scope", "workload_trust_policy_request:read", status.HTTP_200_OK),
+            ("policy_read_scope", "workload_trust_policy:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_a_member_reads_the_providers_with_the_request_scope(
+        self, _name: str, oauth_scope: str, expected_status: int
+    ) -> None:
+        use_token(self, "oauth_token", oauth_scope)
+
+        response = self.client.get(f"{self.url}providers/")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_200_OK:
+            assert response.json() == workload_providers_data(self.team.project_id)
+            assert [provider["key"] for provider in response.json()["supported"]] == [FAKE_WORKLOAD_PROVIDER.key]
 
     def test_admin_rejects_a_request(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)

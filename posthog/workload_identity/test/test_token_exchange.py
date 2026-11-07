@@ -24,10 +24,17 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
+from posthog.redis import TEST_clear_clients
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.test.authentication_checks import covers_authentication
-from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_ISSUER, with_fake_workload_provider
-from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
+from posthog.token_bucket import Budget, TEST_reset_scripts
+from posthog.workload_identity import token_exchange
+from posthog.workload_identity.test.fixtures import (
+    FAKE_WORKLOAD_ISSUER,
+    FAKE_WORKLOAD_PROVIDER,
+    with_fake_workload_provider,
+)
+from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE, WorkloadExchangeBurstThrottle
 
 from products.annotations.backend.models import Annotation
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
@@ -71,6 +78,8 @@ class TestWorkloadTokenExchange(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
+        TEST_clear_clients()
+        TEST_reset_scripts()
         jwks_patcher = patch(
             "posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(_jwks(), None)
         )
@@ -84,6 +93,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
         target = team or self.team
         fields: dict[str, Any] = {
             "name": "Production deploys",
+            "provider": FAKE_WORKLOAD_PROVIDER.key,
             "issuer": FAKE_WORKLOAD_ISSUER,
             "subject_name": "acme/web",
             "subject": "1234",
@@ -93,7 +103,14 @@ class TestWorkloadTokenExchange(APIBaseTest):
         }
         return WorkloadTrustPolicy.objects.for_team(target.id).create(team=target, **fields)
 
-    def _exchange(self, subject_token: str | None = None, **overrides: str) -> Any:
+    def _exchange(
+        self,
+        subject_token: str | None = None,
+        *,
+        remote_addr: str = "127.0.0.1",
+        forwarded_for: str | None = None,
+        **overrides: str,
+    ) -> Any:
         self.client.logout()
         data = {
             "grant_type": TOKEN_EXCHANGE_GRANT_TYPE,
@@ -102,7 +119,8 @@ class TestWorkloadTokenExchange(APIBaseTest):
             "resource": f"{_SITE_URL}/api/projects/{self.team.id}",
             **overrides,
         }
-        return self.client.post("/oauth/token/", data)
+        headers = {"X-Forwarded-For": forwarded_for} if forwarded_for else None
+        return self.client.post("/oauth/token/", data, REMOTE_ADDR=remote_addr, headers=headers)
 
     def _access_token(self) -> str:
         response = self._exchange()
@@ -175,7 +193,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
     @parameterized.expand(
         [
             ("unknown_issuer", {"iss": "https://token.ci.example.org"}, {}, "workload_issuer_not_allowed"),
-            ("wrong_audience", {"aud": "https://other.example.com"}, {}, "workload_token_invalid"),
+            ("wrong_audience", {"aud": "https://other.example.com"}, {}, "workload_audience_mismatch"),
             ("expired", {"exp": int(time.time()) - 120, "iat": int(time.time()) - 600}, {}, "workload_token_invalid"),
             ("recreated_repository", {"repository_id": "5678"}, {}, "workload_no_matching_policy"),
             ("renamed_repository", {"repository": "acme/other"}, {}, "workload_no_matching_policy"),
@@ -222,6 +240,54 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert response.json()["error"] == "temporarily_unavailable"
         assert response.json()["error_code"] == "workload_provider_unavailable"
 
+    def test_exchange_is_rate_limited_per_policy_once_a_policy_matches(self) -> None:
+        with patch("posthog.workload_identity.token_exchange.WORKLOAD_EXCHANGE_BUDGET", Budget(burst=1, per_hour=60)):
+            unverified = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))
+            untrusted_branch = self._exchange(_oidc_token(ref="refs/heads/feature"))
+            first = self._exchange()
+            second = self._exchange()
+
+        assert unverified.json()["error_code"] == "workload_token_invalid"
+        assert untrusted_branch.json()["error_code"] == "workload_no_matching_policy"
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert second.json()["error_code"] == "workload_rate_limited"
+        assert second["Retry-After"] == str(second.json()["retry_after"])
+
+    def test_exchange_attempts_are_throttled_per_ip_before_the_token_is_verified(self) -> None:
+        with (
+            patch.object(WorkloadExchangeBurstThrottle, "rate", "1/minute"),
+            patch.object(token_exchange, "_verify_subject_token", wraps=token_exchange._verify_subject_token) as verify,
+        ):
+            unverified = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))
+            trusted = self._exchange()
+
+        assert unverified.json()["error_code"] == "workload_token_invalid"
+        assert trusted.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert trusted.json()["error_code"] == "workload_rate_limited"
+        assert trusted["Retry-After"] == str(trusted.json()["retry_after"])
+        assert verify.call_count == 1
+
+    @parameterized.expand(
+        [
+            # Left-most forwarded addresses from a peer that isn't a trusted proxy say nothing about the caller.
+            ("untrusted_peer", "203.0.113.9", status.HTTP_429_TOO_MANY_REQUESTS),
+            ("trusted_proxy", "10.0.0.1", status.HTTP_200_OK),
+        ]
+    )
+    def test_exchange_attempts_count_forwarded_addresses_only_through_trusted_proxies(
+        self, _name: str, peer: str, second_status: int
+    ) -> None:
+        with (
+            override_settings(USE_X_FORWARDED_HOST=True, TRUSTED_PROXIES="10.0.0.1", TRUST_ALL_PROXIES=False),
+            patch.object(WorkloadExchangeBurstThrottle, "rate", "1/minute"),
+        ):
+            first = self._exchange(remote_addr=peer, forwarded_for="198.51.100.1")
+            second = self._exchange(remote_addr=peer, forwarded_for="198.51.100.2")
+
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.status_code == second_status, second.json()
+
     def test_exchange_refuses_a_token_signed_by_another_key(self) -> None:
         response = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))
 
@@ -249,6 +315,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
         pending = WorkloadTrustPolicyRequest.objects.for_team(self.team.id).create(
             team=self.team,
             name="Production deploys",
+            provider=FAKE_WORKLOAD_PROVIDER.key,
             issuer=FAKE_WORKLOAD_ISSUER,
             subject_name="acme/web",
             subject="1234",
@@ -297,6 +364,14 @@ class TestWorkloadTokenExchange(APIBaseTest):
         body = self._exchange(_oidc_token(**claim_overrides)).json()
 
         assert body["scope"] == expected_scope, body
+
+    def test_a_policy_for_a_provider_outside_the_registry_never_matches(self) -> None:
+        self.policy.provider = "retired_ci"
+        self.policy.save()
+
+        body = self._exchange().json()
+
+        assert body["error_code"] == "workload_no_matching_policy", body
 
     def test_token_never_outlives_the_oidc_token(self) -> None:
         body = self._exchange(_oidc_token(exp=int(time.time()) + 90)).json()

@@ -27461,6 +27461,37 @@ export namespace Schemas {
       Invalid: 'invalid',
     } as const;
 
+    export interface ConditionCompanions {
+      /** Condition claims a policy may set only with a companion. */
+      claims: string[];
+      /** Claims of which a policy must set at least one beside them. */
+      companions: string[];
+      /** Why the claims need a companion, to show the person. */
+      reason: string;
+    }
+
+    /**
+     * Claim name to value. {value} stands for what the person types into the preset's field.
+     */
+    export type ConditionPresetConditions = {[key: string]: string};
+
+    export interface ConditionPreset {
+      /** Stable identifier of the preset within its provider. */
+      key: string;
+      /** What the UI calls the preset, like Pushes to a branch. */
+      label: string;
+      /** What runs the preset matches. */
+      help_text: string;
+      /** Claim name to value. {value} stands for what the person types into the preset's field. */
+      readonly conditions: ConditionPresetConditions;
+      /** Whether the preset has a field to type a value into. */
+      takes_value: boolean;
+      /** An example value for the preset's field. */
+      placeholder: string;
+      /** The value the preset's field starts with. */
+      default_value: string;
+    }
+
     /**
      * * `high` - high
      * * `medium` - medium
@@ -80446,6 +80477,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `github_actions` - GitHub Actions
+     */
+    export type WorkloadProviderKeyEnum = typeof WorkloadProviderKeyEnum[keyof typeof WorkloadProviderKeyEnum];
+
+
+    export const WorkloadProviderKeyEnum = {
+      GithubActions: 'github_actions',
+    } as const;
+
+    /**
      * The label of each condition claim the provider allows, keyed by claim name.
      */
     export type WorkloadClaimLabelsConditions = {[key: string]: string};
@@ -80476,11 +80517,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       issuer: string;
-      /**
-         * The key of the workload provider the issuer belongs to.
-         * @nullable
-         */
-      readonly provider: string | null;
+      /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+       *
+       * * `github_actions` - GitHub Actions */
+      readonly provider: WorkloadProviderKeyEnum;
       /**
          * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
          * @maxLength 255
@@ -80548,11 +80588,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       issuer: string;
-      /**
-         * The key of the workload provider the issuer belongs to.
-         * @nullable
-         */
-      readonly provider: string | null;
+      /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+       *
+       * * `github_actions` - GitHub Actions */
+      readonly provider: WorkloadProviderKeyEnum;
       /**
          * The display name of the workload provider, or null.
          * @nullable
@@ -91210,11 +91249,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       issuer?: string;
-      /**
-         * The key of the workload provider the issuer belongs to.
-         * @nullable
-         */
-      readonly provider?: string | null;
+      /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+       *
+       * * `github_actions` - GitHub Actions */
+      readonly provider?: WorkloadProviderKeyEnum;
       /**
          * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
          * @maxLength 255
@@ -119102,11 +119140,24 @@ export namespace Schemas {
       label: string;
       /** A hint that says where to find the claim's value. */
       help_text: string;
+      /** An example value to show in an empty field. */
+      placeholder: string;
+    }
+
+    export interface WorkloadJobSettings {
+      /** The PostHog address a job sends its token to, which is its audience. */
+      host: string;
+      /** The project a job's token works in. */
+      project_id: number;
+      /** Whether hog reads the host from posthog.json. It does only for PostHog Cloud, so other hosts need HOG_HOST. */
+      host_in_posthog_json: boolean;
     }
 
     export interface WorkloadProvider {
-      /** Stable identifier of the provider. */
-      key: string;
+      /** Stable identifier of the provider.
+       *
+       * * `github_actions` - GitHub Actions */
+      key: WorkloadProviderKeyEnum;
       /** Display name of the provider. */
       name: string;
       /** OIDC issuer a policy for this provider uses. */
@@ -119119,6 +119170,14 @@ export namespace Schemas {
       subject_name_claim: WorkloadClaim;
       /** The claims a policy can require an exact value for, in display order. */
       condition_claims: WorkloadClaim[];
+      /** Common choices of conditions to offer before the raw claims, in display order. */
+      condition_presets: ConditionPreset[];
+      /** Rules for condition claims that a policy may set only together with another claim. */
+      condition_companions: ConditionCompanions[];
+      /** Whether PostHog can look up the subject from its name with resolve_subject. */
+      readonly can_resolve_subject: boolean;
+      /** The CI config a job needs to get a token for PostHog, empty when the provider has none. */
+      readonly setup_snippet: string;
     }
 
     /**
@@ -119129,6 +119188,8 @@ export namespace Schemas {
     export interface WorkloadProvidersResponse {
       /** Providers a policy can trust. */
       supported: WorkloadProvider[];
+      /** Where a job's host and project come from: posthog.json first, or HOG_HOST and HOG_PROJECT_ID. */
+      job_settings: WorkloadJobSettings;
       /** Every scope a policy's ceiling may hold. */
       grantable_scopes: string[];
       /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */

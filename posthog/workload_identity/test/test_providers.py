@@ -4,9 +4,11 @@ from typing import Any
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
-from posthog.workload_identity.providers import WorkloadClaim
+from posthog.workload_identity.providers import GITHUB_ACTIONS, ConditionPreset, WorkloadClaim, WorkloadProvider
 from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_PROVIDER
+from posthog.workload_identity.trust_policy import validate_condition_companions
 
 
 class TestWorkloadProviderEntry(SimpleTestCase):
@@ -20,6 +22,22 @@ class TestWorkloadProviderEntry(SimpleTestCase):
                 {"condition_claims": (WorkloadClaim(name="ref", label="Ref"), WorkloadClaim(name="ref", label="Ref"))},
             ),
             ("subject_as_condition_claim", {"condition_claims": (WorkloadClaim(name="repository_id", label="ID"),)}),
+            (
+                "preset_on_a_claim_policies_cannot_set",
+                {
+                    "condition_presets": (
+                        ConditionPreset(key="x", label="X", help_text="", conditions=(("sha", "abc"),)),
+                    )
+                },
+            ),
+            (
+                "preset_with_two_values_in_one_claim",
+                {
+                    "condition_presets": (
+                        ConditionPreset(key="x", label="X", help_text="", conditions=(("ref", "{value}/{value}"),)),
+                    )
+                },
+            ),
         ]
     )
     def test_rejects_an_entry_the_exchange_or_activity_log_cannot_use(
@@ -27,3 +45,32 @@ class TestWorkloadProviderEntry(SimpleTestCase):
     ) -> None:
         with self.assertRaises(ValueError):
             dataclasses.replace(FAKE_WORKLOAD_PROVIDER, **overrides)
+
+
+class TestRegistryConditionCompanions(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("github_ref_alone", GITHUB_ACTIONS, {"ref": "refs/heads/main"}, False),
+            (
+                "github_workflow_alone",
+                GITHUB_ACTIONS,
+                {"workflow_ref": "acme/web/.github/workflows/ci.yml@refs/heads/main"},
+                False,
+            ),
+            ("github_branch_push", GITHUB_ACTIONS, {"ref": "refs/heads/main", "event_name": "push"}, True),
+            (
+                "github_ref_and_environment",
+                GITHUB_ACTIONS,
+                {"ref": "refs/heads/main", "environment": "production"},
+                True,
+            ),
+        ]
+    )
+    def test_a_provider_refuses_claims_that_trust_fork_runs_on_their_own(
+        self, _name: str, provider: WorkloadProvider, conditions: dict[str, str], allowed: bool
+    ) -> None:
+        if allowed:
+            validate_condition_companions(conditions, provider)
+        else:
+            with self.assertRaises(ValidationError):
+                validate_condition_companions(conditions, provider)

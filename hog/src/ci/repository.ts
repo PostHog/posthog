@@ -51,13 +51,27 @@ export async function readRepository(runtime: Runtime): Promise<Repository | und
     }
     const config = await runtime.readFile(await configPath(runtime, found.gitPath)).catch(() => '')
     const remotes = parseRemoteUrls(config)
-    const url = (remotes.find(([name]) => name === 'origin') ?? remotes[0])?.[1]
+    // Only origin, so a checkout of someone else's repository never asks to trust theirs.
+    const url = remotes.find(([name]) => name === 'origin')?.[1]
     // A remote URL can carry a token, and the name read from it goes to PostHog.
     return { root: found.root, remote: url === undefined ? undefined : stripCredentials(url) }
 }
 
-export function pickProviderHint(): string {
+function pickProviderHint(): string {
     return `Pass --provider with one of: ${WORKLOAD_PROVIDERS.map((provider) => provider.key).join(', ')}.`
+}
+
+export function providerByKey(key: string): WorkloadProvider {
+    const provider = WORKLOAD_PROVIDERS.find((candidate) => candidate.key === key)
+    if (!provider) {
+        throw new HogError(
+            'unknown_provider',
+            `hog doesn't support the CI provider ${key}.`,
+            pickProviderHint(),
+            EXIT_USAGE
+        )
+    }
+    return provider
 }
 
 export async function detectRepositoryProvider(

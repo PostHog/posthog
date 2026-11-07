@@ -10,6 +10,7 @@ import { parseOrThrow } from '@/core/schema'
 import type { StoredSecret } from '@/posthog/credential-store/types'
 
 import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome, WorkloadIdentity } from './access-key'
+import type { HttpResponse } from './api'
 import { hostUrl, type Host } from './host'
 import type { ProjectId } from './ids'
 import { grantLifetime, OAuthErrorBody, oauthPost, TokenResponse } from './oauth'
@@ -32,12 +33,15 @@ const ExchangeErrorBody = OAuthErrorBody.extend({
     claims: z.record(z.string(), z.unknown()).optional().catch(undefined),
 })
 
+const RetryAfterBody = z.object({ retry_after: z.number().int().nonnegative() })
+const MAX_RETRY_AFTER_SECONDS = 60
+const MAX_RATE_LIMIT_RETRIES = 3
+
 const SET_HOST =
     'Put the address you open PostHog at in posthog.json as "host", like https://eu.posthog.com, or set HOG_HOST. A self-hosted PostHog needs HOG_HOST. hog asks for an OIDC token for that address and sends it there.'
 
 function exchangeHint(
     code: string,
-    message: string,
     body: z.output<typeof ExchangeErrorBody>,
     provider: WorkloadProvider,
     projectId: ProjectId
@@ -49,8 +53,7 @@ function exchangeHint(
             return body.approval_url
                 ? `Ask an organization admin to approve the request: ${body.approval_url}`
                 : 'Ask an organization admin to approve the request in PostHog.'
-        case 'workload_token_invalid':
-            return message.includes('audience') ? SET_HOST : `See ${WORKLOAD_DOCS_URL}`
+        case 'workload_audience_mismatch':
         case 'workload_invalid_request':
             return SET_HOST
         case 'workload_issuer_not_allowed':
@@ -69,7 +72,7 @@ function exchangeError(status: number, raw: unknown, provider: WorkloadProvider,
     const message = body.error_description ?? `PostHog refused the workload token exchange with HTTP ${status}.`
     const code = body.error_code ?? (status >= 500 ? 'workload_exchange_unavailable' : 'workload_exchange_failed')
     const claims = body.claims ? ` The job sent: ${JSON.stringify(body.claims)}.` : ''
-    return new HogError(code, `${message}${claims}`, exchangeHint(code, message, body, provider, projectId))
+    return new HogError(code, `${message}${claims}`, exchangeHint(code, body, provider, projectId))
 }
 
 interface WorkloadKeyFields {
@@ -94,12 +97,27 @@ export async function exchangeWorkloadToken(
     if (subjectToken === undefined) {
         return undefined
     }
-    const response = await oauthPost(runtime, host, 'oauth/token/', {
-        grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
-        subject_token: subjectToken,
-        subject_token_type: ID_TOKEN_TYPE,
-        resource: hostUrl(host, `api/projects/${projectId}`).toString(),
-    })
+    const exchange = (): Promise<HttpResponse> =>
+        oauthPost(runtime, host, 'oauth/token/', {
+            grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
+            subject_token: subjectToken,
+            subject_token_type: ID_TOKEN_TYPE,
+            resource: hostUrl(host, `api/projects/${projectId}`).toString(),
+        })
+    let response = await exchange()
+    // A large job matrix can use up the repository's exchanges for a moment, so a few short waits save
+    // the job. Each wait adds a random part, so the jobs don't all come back in the same second.
+    let waited = 0
+    for (let attempt = 0; attempt < MAX_RATE_LIMIT_RETRIES && response.status === 429; attempt++) {
+        const retryAfter = RetryAfterBody.safeParse(response.json).data?.retry_after
+        const wait = retryAfter === undefined ? undefined : retryAfter * (1 + Math.random())
+        if (wait === undefined || waited + wait > MAX_RETRY_AFTER_SECONDS) {
+            break
+        }
+        await runtime.sleep(wait * 1000)
+        waited += wait
+        response = await exchange()
+    }
     if (!response.ok) {
         throw exchangeError(response.status, response.json, provider, projectId)
     }

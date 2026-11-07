@@ -6,7 +6,8 @@ import { ApiError, type PostHogApi } from '@/posthog/api'
 import { HostSchema, type Host } from '@/posthog/host'
 import { ProjectIdSchema, type ProjectId } from '@/posthog/ids'
 
-import type { WorkloadConditions, WorkloadProvider } from './providers/registry'
+import type { ProviderSettings } from './provider-settings'
+import type { WorkloadConditions } from './providers/registry'
 
 export const CI_SETUP_COMMAND = 'hog ci setup'
 const POLL_INTERVAL_SECONDS = 5
@@ -51,7 +52,7 @@ export interface ApprovedPolicy {
 export type PendingPolicyRequest = z.output<typeof PendingPolicyRequestSchema>
 
 export interface PolicyRequestInput {
-    provider: WorkloadProvider
+    settings: ProviderSettings
     name: string
     subject: ResolvedSubject
     conditions: WorkloadConditions
@@ -65,18 +66,22 @@ function requestsPath(projectId: ProjectId): string {
 export async function resolveSubject(
     api: PostHogApi,
     projectId: ProjectId,
-    provider: WorkloadProvider,
+    settings: ProviderSettings,
     subjectName: string
 ): Promise<ResolvedSubject> {
-    const query = new URLSearchParams({ issuer: provider.issuer, subject_name: subjectName })
+    const query = new URLSearchParams({ issuer: settings.issuer, subject_name: subjectName })
     try {
         return await api.get(`${requestsPath(projectId)}resolve_subject/?${query}`, ResolvedSubject)
     } catch (error) {
         if (error instanceof ApiError && (error.status === 404 || error.status === 503)) {
-            throw error.withHint(`Pass the ID with --subject-id. ${provider.docsUrl} says where to find it.`)
+            throw error.withHint(`Pass the ID with --subject-id. ${settings.docs_url} says where to find it.`)
         }
         throw error
     }
+}
+
+function canonicalConditions(conditions: WorkloadConditions): string {
+    return JSON.stringify(Object.entries(conditions).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
 }
 
 export function policyRequestFlow(
@@ -84,13 +89,13 @@ export function policyRequestFlow(
     target: { host: Host; projectId: ProjectId },
     input: PolicyRequestInput
 ): ApprovalFlow<PendingPolicyRequest, ApprovedPolicy> {
-    const { provider, subject, conditions, scopes } = input
+    const { settings, subject, conditions, scopes } = input
     const same = (existing: PendingPolicyRequest): boolean =>
         existing.host === target.host &&
         existing.projectId === target.projectId &&
-        existing.provider === provider.key &&
+        existing.provider === settings.key &&
         existing.subject === subject.subject &&
-        JSON.stringify(existing.conditions) === JSON.stringify(conditions) &&
+        canonicalConditions(existing.conditions) === canonicalConditions(conditions) &&
         existing.scopes.join(' ') === scopes.join(' ')
     return {
         ...policyRequestWait(api, target),
@@ -99,7 +104,7 @@ export function policyRequestFlow(
                 requestsPath(target.projectId),
                 {
                     name: input.name,
-                    issuer: provider.issuer,
+                    issuer: settings.issuer,
                     subject: subject.subject,
                     subject_name: subject.subject_name,
                     conditions,
@@ -114,7 +119,7 @@ export function policyRequestFlow(
                 host: target.host,
                 projectId: target.projectId,
                 requestId: created.id,
-                provider: provider.key,
+                provider: settings.key,
                 subject: subject.subject,
                 conditions,
                 scopes,
