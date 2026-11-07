@@ -29,6 +29,8 @@ interface UseShortcutOptionsBase {
     ignoreInEditable?: boolean
     /** Higher priority items appear first in their group. Default: 0 */
     priority?: number
+    /** Runs only when the shortcut is typed, not when it is picked from search */
+    onKeyboardInvoke?: () => void
 }
 
 interface UseShortcutOptionsWithRef extends UseShortcutOptionsBase {
@@ -119,6 +121,9 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
         priority,
     } = options
 
+    const onKeyboardInvokeRef = useRef(options.onKeyboardInvoke)
+    onKeyboardInvokeRef.current = options.onKeyboardInvoke
+
     const internalRef = useRef<T>(null)
     const [isRefReady, setIsRefReady] = useState(false)
     const { registerShortcut, unregisterShortcut } = useActions(shortcutLogic)
@@ -150,6 +155,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
                 name,
                 keybind: platformAgnosticKeybinds,
                 callback: () => callbackFnRef.current?.(),
+                onKeyboardInvoke: () => onKeyboardInvokeRef.current?.(),
                 intent,
                 interaction: 'function',
                 scope,
@@ -162,6 +168,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
                 name,
                 keybind: platformAgnosticKeybinds,
                 ref: ref as React.RefObject<HTMLElement>,
+                onKeyboardInvoke: () => onKeyboardInvokeRef.current?.(),
                 intent,
                 interaction,
                 scope,

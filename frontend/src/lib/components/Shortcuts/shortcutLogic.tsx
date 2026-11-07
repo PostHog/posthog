@@ -38,6 +38,8 @@ interface ShortcutBase {
     ignoreInEditable?: boolean
     /** Higher priority items appear first in their group. Default: 0 */
     priority?: number
+    /** Runs only when the shortcut is typed, not when it is picked from search */
+    onKeyboardInvoke?: () => void
 }
 
 interface ShortcutWithRef extends ShortcutBase {
@@ -79,6 +81,8 @@ function triggerShortcut(shortcut: ShortcutType, triggeredKeybind: string[]): vo
         scope: shortcut.scope ?? 'global',
         mechanism: 'shortcut',
     })
+
+    shortcut.onKeyboardInvoke?.()
 
     if (shortcut.interaction === 'click') {
         shortcut.ref.current?.click()
