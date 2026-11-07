@@ -58,19 +58,18 @@ A build made with `APP_VARIANT=development` or `preview` uses the `posthog-dev:/
 
 ### Sign in to the local backend
 
-Until the backend setup changes merge, run the PostHog stack from the paired `codex/mobile-dev-environment` branch and the mobile app from `codex/mobile-app`.
-The backend branch contains the setup commands and shared seed data; it does not contain this mobile workspace yet.
-Use the normal [local development setup](../../docs/published/handbook/engineering/developing-locally.md), wait for migrations, then run from that backend checkout:
+Use the normal [local development setup](../../docs/published/handbook/engineering/developing-locally.md), wait for migrations, then create the demo project from the backend checkout:
 
 ```sh
-python manage.py setup_local_dev --json
-python manage.py check_local_dev --json
+python manage.py generate_demo_data
 ```
 
-The setup creates the usual `test@posthog.com` / `12345678` account when absent, registers the local OAuth callbacks, and adds personal Inbox reports and a completed Chat with saved messages.
-It preserves an existing account and selected project.
-It stops with instructions if migrations are missing or an existing account has different sign-in details.
-The JSON output contains the project and seeded object IDs.
+This creates the usual `test@posthog.com` / `12345678` account with a Hedgebox demo project.
+The project has pinned views and recent errors. It has no Inbox reports and no chats.
+Running the command again creates `test+1@posthog.com`.
+To add Inbox reports, run `python manage.py seed_inbox_data --team-id <project-id> --user-id <user-id>` with the demo project ID and the test account's user ID. The command works for any existing project, in local development only.
+To test Chat, start a chat from the app.
+`bin/migrate` registers the local OAuth callbacks. Local OAuth also needs `OIDC_RSA_PRIVATE_KEY` in the backend environment.
 
 From this mobile workspace, build the development app:
 
