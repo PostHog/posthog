@@ -362,7 +362,7 @@ jobs:
               shell: bash
               run: |
                   echo "📊 Feedback welcome in #team-devex"
-                  uv run ty check
+                  UV_PROJECT_ENVIRONMENT="$pythonLocation" uv run --no-sync ty check --python "$pythonLocation"
 
             - name: Add mypy Problem Matcher
               shell: bash
