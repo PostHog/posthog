@@ -1,5 +1,27 @@
 import type { MetricChartProps } from '@/ui/chart/types'
 
+// RNGH 3's native runtime installer has no JavaScript test runtime to decorate.
+jest.mock('react-native-gesture-handler/src/RNGestureHandlerModule', () => ({
+    ...jest.requireActual('react-native-gesture-handler/src/mocks/module'),
+    installUIRuntimeBindings: () => true,
+}))
+jest.mock('react-native-gesture-handler/lib/module/RNGestureHandlerModule', () => ({
+    ...jest.requireActual('react-native-gesture-handler/lib/module/mocks/module'),
+    installUIRuntimeBindings: () => true,
+}))
+
+// Gesture recognition runs in the native UI runtime; screen tests exercise its rendered children.
+jest.mock('react-native-gesture-handler', () => ({
+    ...jest.requireActual('react-native-gesture-handler'),
+    GestureDetector: jest.requireActual('react-native').View,
+}))
+
+jest.mock('react-native-reserved-regions', () => ({
+    ReservedRegionsProvider: jest.requireActual('react-native').View,
+    useReservedRegions: jest.fn(() => []),
+    useReservedRegionsReady: () => true,
+}))
+
 // Use a deterministic 12-hour device preference, matching the en-US locale in Expo's mock.
 jest.mock('expo-localization', () => {
     const localization = jest.requireActual<typeof import('expo-localization')>('expo-localization')

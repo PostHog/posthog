@@ -100,6 +100,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     trial_capabilities,
 )
 from products.signals.backend.scout_harness.trial_result import get_trial_workflow_status
+from products.signals.backend.task_profiles import FIRST_REPORT_SCOUT, SCOUT, SCOUT_FULL_NETWORK
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     EvaluateScoutPrecheckOutput,
     RunSignalsScoutInput,
@@ -112,7 +113,6 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
     start_trial_signals_scout_run,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
-from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import AgentTurnFailed, CustomPromptSandboxContext
 
 if TYPE_CHECKING:
@@ -2337,7 +2337,7 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    assert captured["mcp_builtin_agent_key"] == "scout"
+    assert captured["profile"].mcp_agent == "scout"
     assert captured.get("mcp_credential_owner_id") is None
     assert captured["mcp_gateway_server_ids"] == ["11111111-1111-1111-1111-111111111111"]
 
@@ -2653,24 +2653,14 @@ async def test_mounted_mcp_server_names_reach_the_prompt(ateam, aerrors_skill, r
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "network_access,expected_env_name,expected_level",
+    "network_access,expected_env_name,expected_profile",
     [
-        pytest.param(
-            None,
-            SIGNALS_SCOUT_SANDBOX_ENV_NAME,
-            tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
-            id="default_trusted",
-        ),
-        pytest.param(
-            "full",
-            SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
-            tasks_facade.SandboxNetworkAccessLevel.FULL,
-            id="full",
-        ),
+        pytest.param(None, SIGNALS_SCOUT_SANDBOX_ENV_NAME, SCOUT, id="default_trusted"),
+        pytest.param("full", SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME, SCOUT_FULL_NETWORK, id="full"),
     ],
 )
 async def test_sandbox_env_matches_config_network_access(
-    ateam, aerrors_skill, network_access, expected_env_name, expected_level
+    ateam, aerrors_skill, network_access, expected_env_name, expected_profile
 ):
     # The (env name, level) pair is the egress enforcement point: `upsert_internal_sandbox_env`
     # reasserts policy per call on the per-team env row named here, so a `full` config routed to
@@ -2683,12 +2673,16 @@ async def test_sandbox_env_matches_config_network_access(
         )
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     env_mock = MagicMock(return_value="env-id")
+    started_with: dict = {}
+
+    async def _capture_start(*args, before_task_dispatch=None, **kwargs):
+        started_with.update(kwargs)
+        return await _fake_start_invoking_hook(session, result)(
+            *args, before_task_dispatch=before_task_dispatch, **kwargs
+        )
 
     with (
-        patch(
-            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
-            new=_fake_start_invoking_hook(session, result),
-        ),
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
         patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", env_mock),
         patch(
             "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
@@ -2697,7 +2691,8 @@ async def test_sandbox_env_matches_config_network_access(
     ):
         run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    env_mock.assert_called_once_with(ateam.id, expected_env_name, expected_level)
+    env_mock.assert_called_once_with(ateam.id, expected_env_name, expected_profile)
+    assert started_with["profile"] == expected_profile
     # Provenance stamp: `metadata.network_access` is present exactly when the run departed from
     # the trusted default — a later config edit must not rewrite what past runs could reach.
     bridge = await database_sync_to_async(SignalScoutRun.objects.unscoped().get)(id=run_result.run_id)
@@ -3005,8 +3000,7 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
         return
     assert outcome.status == "completed"
     context = captured["context"]
-    assert captured["internal"] is True
-    assert captured["origin_product"] == "signals_scout"
+    assert captured["profile"] == FIRST_REPORT_SCOUT
     assert (context.runtime, context.runtime_adapter, context.model, context.service_tier) == (
         runtime,
         adapter,

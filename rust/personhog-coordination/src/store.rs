@@ -8,9 +8,9 @@ use etcd_client::{
 
 use crate::error::{Error, Result};
 use crate::types::{
-    AssignmentPrecondition, AssignmentStatus, ChangelogConfig, HandoffReplacement, HandoffState,
-    LeaderInfo, MigrationState, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck,
-    RegisteredPod, RegisteredRouter, RouterFreezeAck,
+    AssignmentPrecondition, AssignmentStatus, ChangelogConfig, ClusterEndpoint, HandoffReplacement,
+    HandoffState, LeaderInfo, MigrationState, PartitionAssignment, PodDrainedAck, PodStatus,
+    PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
 };
 
 mod migration;
@@ -1471,9 +1471,21 @@ impl PersonhogStore {
         partitions: u32,
         writer_group: &str,
     ) -> Result<bool> {
+        self.seed_changelog_config_on(topic, partitions, writer_group, None)
+            .await
+    }
+
+    pub async fn seed_changelog_config_on(
+        &self,
+        topic: &str,
+        partitions: u32,
+        writer_group: &str,
+        cluster: Option<ClusterEndpoint>,
+    ) -> Result<bool> {
         count_call("seed_changelog_config");
         let config = ChangelogConfig {
             writer_group: writer_group.to_string(),
+            cluster,
             ..ChangelogConfig::new(topic, partitions)
         };
         self.create_changelog_config(serde_json::to_vec(&config)?)

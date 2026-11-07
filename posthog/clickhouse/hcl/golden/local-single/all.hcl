@@ -4254,6 +4254,37 @@ database "posthog" {
     }
   }
 
+  table "kafka_person_group_membership" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    engine "kafka" {
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_person_group_membership"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 10000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 10000
+      flush_interval_ms    = 7500
+      thread_per_consumer  = true
+    }
+  }
+
   table "kafka_person_overrides" {
     column "team_id" {
       type = "Int32"
@@ -7834,6 +7865,12 @@ SQL
     column "_offset" {
       type = "UInt64"
     }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
+    }
     engine "null" {
     }
   }
@@ -7877,7 +7914,8 @@ SQL
   }
 
   table "metrics4_samples" {
-    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    primary_key  = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint", "histogram_bounds_hash"]
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
@@ -7928,12 +7966,15 @@ SQL
     column "histogram_bounds" {
       type = "SimpleAggregateFunction(anyLast, Array(Float64))"
     }
+    column "histogram_bounds_hash" {
+      type = "UInt64"
+    }
     column "_topic" {
       type = "SimpleAggregateFunction(any, LowCardinality(String))"
     }
     column "timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
-      codec = "DoubleDelta, Default"
+      codec = "Delta(8), Default"
     }
     column "observed_timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
@@ -15842,7 +15883,7 @@ SQL
     column "max_lag" {
       type = "SimpleAggregateFunction(max, UInt64)"
     }
-    engine "replicated_merge_tree" {
+    engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics"
       replica_name = "{replica}-{shard}"
     }
@@ -18202,6 +18243,9 @@ SQL
     column "histogram_bounds" {
       type = "SimpleAggregateFunction(anyLast, Array(Float64))"
     }
+    column "histogram_bounds_hash" {
+      type = "UInt64"
+    }
     column "_topic" {
       type = "SimpleAggregateFunction(any, LowCardinality(String))"
     }
@@ -18289,6 +18333,35 @@ SQL
       cluster_name    = "logs"
       remote_database = "posthog"
       remote_table    = "metrics4_series"
+    }
+  }
+
+  table "writable_metrics_kafka_metrics" {
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "max_offset" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "max_observed_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_created_at" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_lag" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metrics_kafka_metrics"
     }
   }
 
@@ -22107,7 +22180,9 @@ SELECT
   ) AS attributes,
   _partition,
   _topic,
-  _offset
+  _offset,
+  _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,
+  toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition
 FROM posthog.kafka_metrics_avro4
 WHERE kafka_metrics_avro4.series_fingerprint IS NOT NULL
 SETTINGS
@@ -22195,6 +22270,12 @@ SQL
     }
     column "_offset" {
       type = "UInt64"
+    }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
     }
   }
 
@@ -23136,6 +23217,7 @@ SELECT
   metric_name,
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
   series_fingerprint,
+  if(empty(input.histogram_bounds), 0, cityHash64(input.histogram_bounds)) AS histogram_bounds_hash,
   toDate32(original_expiry_timestamp) AS original_expiry_date,
   any(resource_fingerprint) AS resource_fingerprint,
   any(service_name) AS service_name,
@@ -23154,9 +23236,9 @@ SELECT
   groupArray(10000)(trace_id) AS trace_id_arr,
   groupArray(10000)(span_id) AS span_id_arr,
   groupArray(10000)(trace_flags) AS trace_flags_arr
-FROM posthog.metrics4_input
+FROM posthog.metrics4_input AS input
 GROUP BY
-  team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date
+  team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash, original_expiry_date
 SQL
 
     column "team_id" {
@@ -23169,6 +23251,9 @@ SQL
       type = "DateTime"
     }
     column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "histogram_bounds_hash" {
       type = "UInt64"
     }
     column "original_expiry_date" {
@@ -23286,6 +23371,47 @@ SQL
     }
     column "original_expiry_timestamp" {
       type = "DateTime64(6)"
+    }
+  }
+
+  materialized_view "metrics4_input_to_metrics_kafka_metrics" {
+    to_table = "posthog.writable_metrics_kafka_metrics"
+    query    = <<SQL
+SELECT
+  kafka_partition AS _partition,
+  kafka_topic AS _topic,
+  maxSimpleState(kafka_offset) AS max_offset,
+  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+  maxSimpleState(now()) AS max_created_at
+FROM
+  (
+    SELECT
+      kafka_source.1 AS kafka_topic,
+      kafka_source.2 AS kafka_partition,
+      kafka_source.3 AS kafka_offset,
+      observed_timestamp
+    FROM
+      posthog.metrics4_input ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
+    WHERE kafka_topic != ''
+  )
+GROUP BY
+  kafka_partition, kafka_topic
+SQL
+
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "max_offset" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "max_observed_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    column "max_created_at" {
+      type = "SimpleAggregateFunction(max, DateTime)"
     }
   }
 
@@ -24095,6 +24221,59 @@ SQL
     }
     column "_partition" {
       type = "UInt64"
+    }
+  }
+
+  materialized_view "person_group_membership_mv" {
+    to_table = "posthog.writable_person_group_membership"
+    query    = <<SQL
+SELECT
+  team_id,
+  group_type_index,
+  replaceRegexpAll(
+    JSONExtractRaw(properties, concat('$group_', toString(group_type_index))),
+    '^"|"$',
+    ''
+  ) AS group_key,
+  distinct_id,
+  min(timestamp) AS first_seen,
+  max(timestamp) AS last_seen
+FROM
+  (
+    SELECT
+      team_id,
+      dictGet('posthog.person_group_membership_config_dict', 'group_type_index', tuple(team_id)) AS group_type_index,
+      distinct_id,
+      properties,
+      timestamp
+    FROM posthog.kafka_person_group_membership
+    WHERE
+      dictHas('posthog.person_group_membership_config_dict', tuple(team_id))
+    AND
+      (person_mode != 'propertyless')
+  )
+WHERE notEmpty(group_key)
+GROUP BY
+  team_id, group_type_index, group_key, distinct_id
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "group_key" {
+      type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "first_seen" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "last_seen" {
+      type = "DateTime64(6, 'UTC')"
     }
   }
 

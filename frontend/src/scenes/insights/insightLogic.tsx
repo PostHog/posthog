@@ -35,7 +35,6 @@ import { objectsEqual } from 'lib/utils/objects'
 import { RetainedValues } from 'lib/utils/retainedValues'
 import { retryImport } from 'lib/utils/retryImport'
 import { withBackLink } from 'scenes/analytics/analyticsBackLink'
-import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -76,6 +75,7 @@ import {
     SetInsightOptions,
 } from '~/types'
 
+import { isDashboardFilterOverrideEmpty } from 'products/dashboards/frontend/dashboardFilterEmpty'
 import { dashboardsPartialUpdate } from 'products/dashboards/frontend/generated/api'
 import {
     titleMentionsMCP,
@@ -92,7 +92,11 @@ import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
 import type { QueryScanSummary } from '../../queries/schema/schema-general'
-import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '../../queries/schema/schema-general'
+import type {
+    AccessControlFilterWarning,
+    BreakdownNotAppliedWarning,
+    DataWarehouseSyncWarning,
+} from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
@@ -324,7 +328,10 @@ export interface insightLogicActions {
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
-            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
+            warnings?:
+                | (AccessControlFilterWarning | BreakdownNotAppliedWarning | DataWarehouseSyncWarning)[]
+                | null
+                | undefined
         },
         payload?: {
             filtersOverride: DashboardFilter | null | undefined
@@ -373,7 +380,10 @@ export interface insightLogicActions {
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
-            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
+            warnings?:
+                | (AccessControlFilterWarning | BreakdownNotAppliedWarning | DataWarehouseSyncWarning)[]
+                | null
+                | undefined
         }
         payload?: {
             filtersOverride: DashboardFilter | null | undefined
@@ -529,7 +539,10 @@ export interface insightLogicActions {
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
-            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
+            warnings?:
+                | (AccessControlFilterWarning | BreakdownNotAppliedWarning | DataWarehouseSyncWarning)[]
+                | null
+                | undefined
         },
         payload?: {
             metadataUpdate: Partial<
@@ -577,7 +590,10 @@ export interface insightLogicActions {
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
-            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
+            warnings?:
+                | (AccessControlFilterWarning | BreakdownNotAppliedWarning | DataWarehouseSyncWarning)[]
+                | null
+                | undefined
         }
         payload?: {
             metadataUpdate: Partial<

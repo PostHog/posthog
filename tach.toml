@@ -328,6 +328,7 @@ layer = "modules"
 [[modules]]
 path = "products.dashboards"
 depends_on = [
+    "products.event_definitions",
     "products.notebooks",
     "ee",
     "posthog",
@@ -418,6 +419,7 @@ depends_on = [
     "products.ai_observability",
     "products.annotations",
     "products.dashboards",
+    "products.event_definitions",
     "products.exports",
     "products.notifications",
     "products.posthog_ai",
@@ -449,6 +451,7 @@ depends_on = [
     "products.data_modeling",
     "products.data_tools",
     "products.data_warehouse",
+    "products.event_definitions",
     "products.notifications",
     "products.posthog_ai",
     "products.revenue_analytics",
@@ -579,6 +582,8 @@ depends_on = [
     "products.product_tours",
     "products.surveys", "products.access_control",
     "products.notifications",
+    # Facade-only: the flag code analysis starts and reads a read-only Tasks run.
+    "products.tasks",
     # Facade-only: feature flags declares its Today highlight sources against the Today facade contract.
     "products.today",
 ]
@@ -1176,6 +1181,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.analytics_platform",
+    "products.event_definitions",
     "products.notifications",
     # The web trends, web vitals and calendar heatmap runners subclass product analytics' trends runners.
     "products.product_analytics",
@@ -1197,6 +1203,7 @@ depends_on = [
     "products.cdp",
     "products.early_access_features",
     "products.error_tracking",
+    "products.event_definitions",
     "products.feature_flags",
     "products.surveys",
     "products.messaging",
@@ -1230,7 +1237,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(actions|autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|review_hog|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # signals is not isolated, so it gets its own blocks instead of a place in the shared one above.

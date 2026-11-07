@@ -1,19 +1,25 @@
+import { z } from 'zod'
+
 import type { Context } from './context'
 import { HogError } from './errors'
+import { parseJsonOrUndefined } from './json'
 import { escapeControls, type Output } from './output'
 import { hogFile } from './paths'
 import type { Spinner } from './prompts'
 import type { Runtime } from './runtime'
+import type { Schema } from './schema'
 
 // Something a person approves in a browser, saved in hog's folder while hog waits for them.
-export interface PendingApproval {
-    url: string
+export const PendingApprovalSchema = z.object({
+    url: z.string(),
     // The code the approval page shows, so the person can check it is the request they started.
-    userCode?: string
+    userCode: z.string().optional(),
     // Epoch milliseconds after which PostHog forgets the request.
-    expiresAt: number
-    intervalSeconds: number
-}
+    expiresAt: z.number(),
+    intervalSeconds: z.number(),
+})
+
+export type PendingApproval = z.output<typeof PendingApprovalSchema>
 
 export type PollOutcome<Value> =
     | { state: 'pending' }
@@ -32,6 +38,11 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
     command: string
     // What the person approves, in copy and in error codes, like `login`.
     noun: string
+    // The command to start over after a rejection or expiry, when `command` alone can't ask for the
+    // same thing again. Agents run it as written.
+    restart?: (pending: Pending) => string
+    // Reads the pending item back from its file. An item hog can't read counts as none.
+    pending: Schema<Pending>
     start: () => Promise<Pending>
     // Whether a pending item from an earlier run can stand in for a new one, so an agent that
     // retries hands the person the link it already shared.
@@ -43,7 +54,7 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
 // What resuming a pending item needs. It can't start a new one.
 export type ApprovalWait<Pending extends PendingApproval, Value> = Pick<
     ApprovalFlow<Pending, Value>,
-    'command' | 'noun' | 'poll'
+    'command' | 'noun' | 'pending' | 'poll' | 'restart'
 >
 
 export type ApprovalResult<Value> =
@@ -71,10 +82,10 @@ function pendingPath(runtime: Runtime, command: string): string {
 
 async function readPending<Pending extends PendingApproval>(
     runtime: Runtime,
-    command: string
+    flow: ApprovalWait<Pending, unknown>
 ): Promise<Pending | undefined> {
     try {
-        return JSON.parse(await runtime.readFile(pendingPath(runtime, command))) as Pending
+        return parseJsonOrUndefined(await runtime.readFile(pendingPath(runtime, flow.command)), flow.pending)
     } catch {
         return undefined
     }
@@ -89,7 +100,7 @@ async function startPending<Pending extends PendingApproval, Value>(
     runtime: Runtime,
     flow: ApprovalFlow<Pending, Value>
 ): Promise<Pending> {
-    const existing = await readPending<Pending>(runtime, flow.command)
+    const existing = await readPending(runtime, flow)
     if (existing && existing.expiresAt - runtime.now() > REUSE_MARGIN_MS && flow.reuse?.(existing)) {
         return existing
     }
@@ -158,21 +169,24 @@ async function waitFor<Pending extends PendingApproval, Value>(
                     new HogError(
                         `${flow.noun}_rejected`,
                         `The ${flow.noun} was rejected in the browser.`,
-                        `Run \`${flow.command}\` to start again.`
+                        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start again.`
                     )
                 )
             case 'expired':
-                return fail(expired(flow))
+                return fail(expired(flow, pending))
         }
     }
-    return fail(expired(flow))
+    return fail(expired(flow, pending))
 }
 
-function expired(flow: { noun: string; command: string }): HogError {
+function expired<Pending extends PendingApproval>(
+    flow: Pick<ApprovalWait<Pending, unknown>, 'noun' | 'command' | 'restart'>,
+    pending: Pending
+): HogError {
     return new HogError(
         `${flow.noun}_expired`,
         `The ${flow.noun} request expired before it was approved.`,
-        `Run \`${flow.command}\` to start a new one.`
+        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start a new one.`
     )
 }
 
@@ -199,6 +213,19 @@ async function withSpinner<Value>(spinner: Spinner | undefined, noun: string, wa
         throw error
     }
 }
+
+// Nobody approves anything in CI. Agents pass, because they hand the link to a person.
+export function refuseInCi(ctx: Context, command: string, hint: string): void {
+    if (!ctx.prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
+        throw new HogError(
+            'login_needs_a_person',
+            `${command} needs a person to approve it in a browser, so it does not run in CI.`,
+            hint
+        )
+    }
+}
+
+export type PendingResult = Extract<ApprovalResult<never>, { status: 'pending' }>
 
 // Starts a command that waits for a person. At a terminal it shows the link, opens the browser when it
 // can, and waits; Ctrl-C keeps the pending item for `--wait`. Agents and scripts get the link and the
@@ -229,7 +256,7 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
     ctx: Context,
     flow: ApprovalWait<Pending, Value>
 ): Promise<Value> {
-    const pending = await readPending<Pending>(ctx.runtime, flow.command)
+    const pending = await readPending(ctx.runtime, flow)
     if (!pending) {
         throw new HogError(
             `no_pending_${flow.noun}`,
@@ -242,7 +269,7 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
 }
 
 // What a person sees when an agent or a script started the request.
-export function printPending(out: Output, result: Extract<ApprovalResult<unknown>, { status: 'pending' }>): void {
+export function printPending(out: Output, result: PendingResult): void {
     out.line(
         result.code
             ? `Open this link to approve, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`

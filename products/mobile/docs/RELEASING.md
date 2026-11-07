@@ -189,6 +189,9 @@ Profiles are in `eas.json`. Each profile has its own update channel and EAS envi
 Production builds raise them automatically (`autoIncrement`); the public app/runtime version still needs a deliberate bump in each native release PR.
 Check the current values with `eas build:version:get`.
 
+Production Android builds use the EAS `large` resource class to give Gradle and native compilation more memory.
+This selects a larger cloud build worker and increases build cost. See [Expo's build server infrastructure](https://docs.expo.dev/build-reference/infrastructure/) for its memory and CPU allocation.
+
 Mobile Build runs `scripts/eas-build.sh`; Mobile Release uses the hosted release helper.
 Both upload only `products/mobile`, filtered by `.easignore`.
 Without it, EAS uploads the whole repository and installs the root pnpm workspace, which excludes this app.

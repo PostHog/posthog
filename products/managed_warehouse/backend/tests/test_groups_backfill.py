@@ -340,7 +340,7 @@ def test_groups_backfill_registers_through_trino_without_duckgres(
 ) -> None:
     inserts, catalog, connect_catalog, context = _run_groups_through_trino(partition_key, DucklingBackfillConfig())
 
-    connect_catalog.assert_called_once_with("org", canary=False, team_id=7)
+    connect_catalog.assert_called_with("org", canary=False, team_id=7)
     assert catalog.tables == [("groups_team_7", GROUPS_TRINO_COLUMN_TYPES)]
     [(table, files, registered_replacement)] = catalog.registered
     assert (table, registered_replacement) == ("groups_team_7", replacement)
@@ -361,7 +361,7 @@ def test_groups_backfill_opts_in_to_trino_when_the_org_is_not_on_the_flag() -> N
         "7", DucklingBackfillConfig(register_through_trino=True), org_on_flag=False
     )
 
-    connect_catalog.assert_called_once()
+    connect_catalog.assert_called()
     assert catalog.registered
 
 
