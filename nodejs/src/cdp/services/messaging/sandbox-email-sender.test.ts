@@ -13,6 +13,7 @@ const teamManager = {
     getTeam: jest.fn().mockResolvedValue({ organization_id: '00000000-0000-0000-0000-000000000001' }),
 } as unknown as TeamManager
 const blockedEventRedis = { useClient: jest.fn() }
+const senderState = { isPaused: jest.fn().mockResolvedValue(false) }
 const sender = new SandboxEmailSender(
     {
         enabled: true,
@@ -24,7 +25,8 @@ const sender = new SandboxEmailSender(
     },
     teamManager,
     blockedEventRedis,
-    null
+    null,
+    senderState
 )
 const manyAttributes = (count: number, prefix = 'a'): string =>
     Array.from({ length: count }, (_, index) => `${prefix}${index}`).join(' ')
@@ -83,7 +85,8 @@ describe('sandbox email content', () => {
             },
             teamManager,
             blockedEventRedis,
-            null
+            null,
+            senderState
         )
         const result = await paddedSender.buildSandboxMessage(
             params('<p>Hello</p>'),
@@ -101,7 +104,13 @@ describe('sandbox email content', () => {
         ['switched off', { enabled: false }],
     ])('cannot send when %s', (_case, overrides) => {
         expect(
-            new SandboxEmailSender({ ...sender.config, ...overrides }, teamManager, blockedEventRedis, null).canSend
+            new SandboxEmailSender(
+                { ...sender.config, ...overrides },
+                teamManager,
+                blockedEventRedis,
+                null,
+                senderState
+            ).canSend
         ).toBe(false)
     })
     it.each([
@@ -110,7 +119,13 @@ describe('sandbox email content', () => {
     ])('%s', (_case, dailyCapLimiter, dailyTeamCap, errors) => {
         const error = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
         try {
-            new SandboxEmailSender({ ...sender.config, dailyTeamCap }, teamManager, blockedEventRedis, dailyCapLimiter)
+            new SandboxEmailSender(
+                { ...sender.config, dailyTeamCap },
+                teamManager,
+                blockedEventRedis,
+                dailyCapLimiter,
+                senderState
+            )
             expect(error).toHaveBeenCalledTimes(errors)
         } finally {
             error.mockRestore()
@@ -132,11 +147,20 @@ describe('sandbox email content', () => {
                 { ...sender.config, dailyRecipientCap },
                 teamManager,
                 blockedEventRedis,
-                exhaustedLimiter
+                exhaustedLimiter,
+                senderState
             )
             expect(await capSender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type })
         }
     )
+    it.each([
+        ['open', () => Promise.resolve(false)],
+        ['paused', () => Promise.resolve(true)],
+        ['check_failed', () => Promise.reject(new Error('relation does not exist'))],
+    ])('answers the pause gate with %s', async (expected, isPaused) => {
+        const gateSender = new SandboxEmailSender(sender.config, teamManager, blockedEventRedis, null, { isPaused })
+        expect(await gateSender.pauseGate({ fresh: true })).toBe(expected)
+    })
     it('sends from the fixed address, drops the reply-to and adds the footer to the text part', async () => {
         const result = await sender.buildSandboxMessage(
             { ...params('<p>Hello</p>', 'Hello'), replyTo: 'replies@example.org' },

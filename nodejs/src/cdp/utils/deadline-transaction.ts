@@ -14,7 +14,13 @@ export async function runTransactionBeforeDeadline<Result>(
     statementTimeoutMs: number,
     read: (tx: TransactionClient) => Promise<Result>
 ): Promise<Result> {
-    const client = await postgres.connect(PostgresUse.COMMON_WRITE)
+    let client: Awaited<ReturnType<PostgresRouter['connect']>>
+    try {
+        client = await postgres.connect(PostgresUse.COMMON_WRITE)
+    } catch (error) {
+        handlePostgresError(error as Error, PostgresUse.COMMON_WRITE)
+        throw error
+    }
     if (deadline.hasPassed()) {
         client.release()
         throw new Error(`The ${tag} lookup got its connection after its deadline`)

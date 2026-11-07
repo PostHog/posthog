@@ -384,7 +384,8 @@ describe('RateLimiterService', () => {
             },
             teamManager,
             redis,
-            limiter
+            limiter,
+            { isPaused: () => Promise.resolve(false) }
         )
 
         const ageOrganizationAllowances = async (organizationId: string, ms: number): Promise<void> => {
@@ -423,7 +424,8 @@ describe('RateLimiterService', () => {
                 },
                 teamManager,
                 redis,
-                limiter
+                limiter,
+                { isPaused: () => Promise.resolve(false) }
             )
             expect(await roomyProjectSender.claimDailyCaps(7, ['copy@example.com', 'Copy@example.com'])).toEqual({
                 type: 'recipient_cap_reached',
@@ -661,7 +663,8 @@ describe('RateLimiterService', () => {
                 },
                 teamManager,
                 redis,
-                new RateLimiterService(sandboxEmailCapValkey!, { name: 'sandbox-email' })
+                new RateLimiterService(sandboxEmailCapValkey!, { name: 'sandbox-email' }),
+                { isPaused: () => Promise.resolve(false) }
             )
             const bucket = { key: `${KEY}/stalled`, requested: 1, capacity: 1, refillPerSecond: 0 }
             try {

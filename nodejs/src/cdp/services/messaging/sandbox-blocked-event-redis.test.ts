@@ -92,7 +92,8 @@ function senderOn(
                 name: 'sandbox-blocked-event-store-test',
             })
         ),
-        null
+        null,
+        { isPaused: () => Promise.resolve(false) }
     )
 }
 

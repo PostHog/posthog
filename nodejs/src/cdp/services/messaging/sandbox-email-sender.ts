@@ -18,6 +18,7 @@ import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
+import { SandboxSenderStateService } from '../managers/sandbox-sender-state.service'
 import { ClaimOutcome, ClaimRequest, IssuedClaim, RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { preheaderSpan } from './helpers/preheader'
 
@@ -604,7 +605,8 @@ export class SandboxEmailSender {
         public readonly config: SandboxEmailSenderConfig,
         private teamManager: TeamManager,
         private blockedEventRedis: Pick<RedisV2, 'useClient'>,
-        private dailyCapLimiter: RateLimiterService | null
+        private dailyCapLimiter: RateLimiterService | null,
+        private senderState: Pick<SandboxSenderStateService, 'isPaused'>
     ) {
         this.config = {
             ...config,
@@ -624,6 +626,15 @@ export class SandboxEmailSender {
         this.dailyCaps = team !== null && recipient !== null ? { team, recipient } : null
         if (this.config.enabled && !this.dailyCaps) {
             logger.error('Sandbox email daily caps are not configured correctly, so every cap check fails')
+        }
+    }
+
+    public async pauseGate({ fresh = false }: { fresh?: boolean } = {}): Promise<'open' | 'paused' | 'check_failed'> {
+        try {
+            return (await this.senderState.isPaused({ fresh })) ? 'paused' : 'open'
+        } catch (error) {
+            logger.warn('Could not check the sandbox sender pause state', { error })
+            return 'check_failed'
         }
     }
 
