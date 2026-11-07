@@ -343,11 +343,12 @@ def start_mcp_server(
         # being mutually exclusive makes unavoidable — an eval of the legacy tools
         # needs its own lever, not this one. mcp-exec-skills follows the run's
         # skill delivery mode. dashboard-widgets gates the widget batch tools that
-        # the dashboard widget evals exercise.
+        # the dashboard widget evals exercise. investigate-insight gates explain-chart.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
                 "revamped-py-notebooks": True,
                 "dashboard-widgets": True,
+                "investigate-insight": True,
                 MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
             }
         ),
