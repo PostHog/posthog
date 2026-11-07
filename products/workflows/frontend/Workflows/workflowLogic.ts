@@ -43,7 +43,6 @@ import {
     moveWorkflowsToBroadcasts,
     movedToBroadcastsMessage,
 } from '../Broadcasts/broadcastLifecycle'
-import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { resolveDefaultEmailSender, teamDefaultEmailSenderId } from '../Channels/defaultEmailSender'
 import {
@@ -77,7 +76,7 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
-import { listedSandboxSenderIds, sendsFromSandboxSender } from './workflowBroadcastMoveLogic'
+import { canOfferBroadcastConversion } from './workflowBroadcastMoveLogic'
 import { workflowStartPath } from './workflowBuilderProgress'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
@@ -2706,8 +2705,8 @@ export interface workflowLogicActions {
     publishDraft: () => {
         value: true
     }
-    rememberSandboxSender: (integrationId: number) => {
-        integrationId: number
+    rememberSandboxSender: (integrationId: number | null) => {
+        integrationId: number | null
     }
     replayDeferredResourceEdited: () => {
         value: true
@@ -3467,7 +3466,7 @@ export const workflowLogic = kea<workflowLogicType>([
         setWorkflowActionConfig: (actionId: string, config: HogFlowAction['config']) => ({ actionId, config }),
         setWorkflowAction: (actionId: string, action: HogFlowAction) => ({ actionId, action }),
         // The project's sender list can lack the environment's sandbox sender, so record each one a lookup hands out.
-        rememberSandboxSender: (integrationId: number) => ({ integrationId }),
+        rememberSandboxSender: (integrationId: number | null) => ({ integrationId }),
         setWorkflowActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
@@ -3563,9 +3562,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 ? withTriggerConfig(newWorkflow as HogFlow, templateTriggerConfig)
                                 : (newWorkflow as HogFlow)
                             const withSender = await withDefaultEmailSender(templated)
-                            if (withSender.sandboxSenderId !== null) {
-                                actions.rememberSandboxSender(withSender.sandboxSenderId)
-                            }
+                            actions.rememberSandboxSender(withSender.sandboxSenderId)
                             return withSender.workflow as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
@@ -3584,9 +3581,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 : null
                             cache.emailBrand = brand
                             const withSender = await withDefaultEmailSender(withEmailBrand(prefilled, brand))
-                            if (withSender.sandboxSenderId !== null) {
-                                actions.rememberSandboxSender(withSender.sandboxSenderId)
-                            }
+                            actions.rememberSandboxSender(withSender.sandboxSenderId)
                             return withSender.workflow
                         }
                         return { ...NEW_WORKFLOW }
@@ -3833,17 +3828,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 if (
                     (!props.id || props.id === 'new') &&
                     !props.editTemplateId &&
-                    // The broadcast editor always saves this exit condition, so any other one would be lost.
-                    workflow.exit_condition === 'exit_only_at_end' &&
-                    isBroadcastShaped(workflow.actions) &&
-                    canEditInWizard(workflow.actions, workflow.edges) &&
-                    // Broadcasts can't send through the sandbox sender, so the wizard would refuse to launch it.
-                    // Until the senders load, a sandbox sender can't be told apart from any other.
-                    values.integrations !== null &&
-                    !sendsFromSandboxSender(workflow, [
-                        ...listedSandboxSenderIds(values.integrations),
-                        ...values.knownSandboxSenderIds,
-                    ])
+                    canOfferBroadcastConversion(workflow, values.integrations, values.knownSandboxSenderIds)
                 ) {
                     const others = await loadBroadcastConversionCandidates(String(ApiConfig.getCurrentTeamId()))
                     const choice = await confirmCreateAsBroadcast(others)
@@ -3872,7 +3857,7 @@ export const workflowLogic = kea<workflowLogicType>([
             [] as number[],
             {
                 rememberSandboxSender: (ids, { integrationId }) =>
-                    ids.includes(integrationId) ? ids : [...ids, integrationId],
+                    integrationId === null || ids.includes(integrationId) ? ids : [...ids, integrationId],
             },
         ],
         aiEmailDraftApplied: [
