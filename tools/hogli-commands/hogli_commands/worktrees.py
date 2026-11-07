@@ -561,7 +561,7 @@ def worktrees_clean(
         _clean_worktree_boxes(removed_boxes, box_action)
     elif removed_boxes:
         # A box left alone on purpose must not look like a failed cleanup to a later run.
-        forget_worktree_boxes([box.worktree_path for box in removed_boxes])
+        forget_worktree_boxes({box.worktree_path: box.record for box in removed_boxes})
         names = " ".join(box.workspace for box in removed_boxes)
         click.echo(f"Left these devboxes as they are. worktrees:clean no longer tracks them: {names}")
 
@@ -590,10 +590,12 @@ def _boxes_of_removed_worktrees(
 ) -> list[WorktreeBox]:
     """Registered boxes whose worktree is gone, limited to the selected repo and sources.
 
-    The admin directory in the shared git dir outlives a moved or unmounted
-    checkout, so only its absence shows that the worktree was removed. A
-    record without a worktree ID cannot tell its admin directory from a
-    reused one, so any directory at that path counts as its own.
+    The admin directory in the shared git dir survives a `git worktree move`,
+    and Claude Code deletes a worktree's folder without it. So a worktree
+    counts as removed when its admin directory is gone, or when `git worktree
+    prune` would delete that directory. A record without a worktree ID cannot
+    tell its admin directory from a reused one, so any directory at that path
+    counts as its own.
     """
     if repo_common is None:
         return []
@@ -601,12 +603,24 @@ def _boxes_of_removed_worktrees(
     for path, record in registry.items():
         admin_dir = Path(record.git_dir)
         admin_dir_is_its_own = record.tracks_worktree(admin_dir) if record.worktree_id else admin_dir.exists()
-        if Path(path).exists() or admin_dir_is_its_own or _resolve(admin_dir.parent.parent) != _resolve(repo_common):
+        worktree_is_live = admin_dir_is_its_own and not _git_would_prune(admin_dir)
+        if Path(path).exists() or worktree_is_live or _resolve(admin_dir.parent.parent) != _resolve(repo_common):
             continue
         if selected_sources is not None and _source_under(_resolve(Path(path)), repo_root) not in selected_sources:
             continue
         boxes.append(WorktreeBox(worktree_path=Path(path), record=record))
     return boxes
+
+
+def _git_would_prune(admin_dir: Path) -> bool:
+    """`git worktree prune`'s rule: the worktree is not locked, and its `gitdir` file is missing or names a missing path."""
+    if (admin_dir / "locked").exists():
+        return False
+    try:
+        checkout_git_file = Path((admin_dir / "gitdir").read_text().strip())
+    except OSError:
+        return True
+    return not (admin_dir / checkout_git_file).exists()
 
 
 def prune_boxes_of_removed_worktrees(
@@ -628,7 +642,7 @@ def prune_boxes_of_removed_worktrees(
     if dry_run:
         click.echo(f"[DRY-RUN] Would {box_action} them.")
     else:
-        _clean_worktree_boxes(boxes, box_action)
+        _clean_worktree_boxes(boxes, box_action, require_removed=True)
     return boxes
 
 
@@ -757,22 +771,29 @@ def _clean_worktree_boxes(
     box_action: str,
     idle_before: float = float("inf"),
     keep_stopped_records: bool = False,
+    require_removed: bool = False,
 ) -> None:
     """Stop or delete *boxes* and forget their records.
 
     With *keep_stopped_records*, a box that ends up stopped keeps its record, so
-    the worktree can start it again when a tool restores it.
+    the worktree can start it again when a tool restores it. With
+    *require_removed*, a box whose worktree came back while the provider was
+    listed is left alone, because the new worktree may have taken the box over.
     """
     hogland_boxes = [box for box in boxes if box.record.provider == "hogland"]
     coder_boxes = [box for box in boxes if box.record.provider != "hogland"]
     if hogland_boxes:
-        _clean_hogland_boxes(hogland_boxes, box_action, idle_before, keep_stopped_records)
+        _clean_hogland_boxes(hogland_boxes, box_action, idle_before, keep_stopped_records, require_removed)
     if coder_boxes:
-        _clean_coder_boxes(coder_boxes, box_action, idle_before, keep_stopped_records)
+        _clean_coder_boxes(coder_boxes, box_action, idle_before, keep_stopped_records, require_removed)
+
+
+def _worktree_came_back(box: WorktreeBox) -> bool:
+    return box.worktree_path.exists() or load_worktree_boxes().get(str(box.worktree_path)) != box.record
 
 
 def _clean_hogland_boxes(
-    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool, require_removed: bool
 ) -> None:
     try:
         hogland.ensure_cli()
@@ -781,23 +802,26 @@ def _clean_hogland_boxes(
         names = " ".join(box.workspace for box in boxes)
         click.echo(f"  ⚠️  could not reach Hogland, so these devboxes were left as they are: {names}")
         return
-    handled: list[Path] = []
+    handled: dict[Path, WorktreeBoxRecord] = {}
     for box in boxes:
         devbox = get_workspace(box.workspace, devboxes)
         if devbox is None:
             click.echo(f"  {box.workspace} no longer exists.")
             hogland.forget_ssh_entry(box.workspace)
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
             continue
         if not box.record.owns(devbox):
             click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
             continue
         last_used = _box_last_used(devbox)
         if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
             click.echo(
                 f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
             )
+            continue
+        if require_removed and _worktree_came_back(box):
+            click.echo(f"  {box.workspace} belongs to a worktree at {box.worktree_path} again, so it was left alone.")
             continue
         try:
             mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
@@ -818,12 +842,12 @@ def _clean_hogland_boxes(
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogland devbox {command} {box.workspace}`.")
             continue
         if box_action == "delete" or not keep_stopped_records:
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
     forget_worktree_boxes(handled)
 
 
 def _clean_coder_boxes(
-    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool, require_removed: bool
 ) -> None:
     try:
         ensure_runtime_ready()
@@ -837,22 +861,25 @@ def _clean_coder_boxes(
         names = " ".join(box.workspace for box in boxes)
         click.echo(f"  ⚠️  could not list your devboxes, so these were left as they are: {names}")
         return
-    handled: list[Path] = []
+    handled: dict[Path, WorktreeBoxRecord] = {}
     for box in boxes:
         workspace = get_workspace(box.workspace, workspaces)
         if workspace is None:
             click.echo(f"  {box.workspace} no longer exists.")
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
             continue
         if not box.record.owns(workspace):
             click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
             continue
         last_used = _box_last_used(workspace)
         if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
             click.echo(
                 f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
             )
+            continue
+        if require_removed and _worktree_came_back(box):
+            click.echo(f"  {box.workspace} belongs to a worktree at {box.worktree_path} again, so it was left alone.")
             continue
         try:
             mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
@@ -874,7 +901,7 @@ def _clean_coder_boxes(
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogli {command} {label}`.")
             continue
         if box_action == "delete" or not keep_stopped_records:
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
     forget_worktree_boxes(handled)
 
 

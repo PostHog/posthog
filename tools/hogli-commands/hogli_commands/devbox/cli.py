@@ -1147,6 +1147,7 @@ class _ConfigItem:
     needs_secrets: bool
     status: Callable[[DevboxConfig, set[str]], str | None]
     reset: Callable[[], bool]
+    unset_text: str = "not set"
 
 
 _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
@@ -1198,6 +1199,7 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         needs_secrets=False,
         status=_field_status("worktree_auto_box"),
         reset=_reset_worktree_auto_sources,
+        unset_text="off",
     ),
     _ConfigItem(
         cli_key="worktree-provider",
@@ -1247,10 +1249,11 @@ def _print_setup_status(status: list[tuple[str, str | None]]) -> bool:
     if not any(value for _, value in status):
         return False
     width = max(len(label) for label, _ in status) + 1
+    unset_texts = {item.label: item.unset_text for item in _CONFIG_ITEMS}
     click.echo()
     click.echo("Currently configured:")
     for label, value in status:
-        rendered = value if value else click.style("not set", fg="yellow")
+        rendered = value if value else click.style(unset_texts.get(label, "not set"), fg="yellow")
         click.echo(f"  {label:<{width}} {rendered}")
     return True
 
