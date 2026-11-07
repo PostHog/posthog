@@ -1857,6 +1857,7 @@ expose = [
     "backend\\.dashboard_templates.*",
     "backend\\.dataset_queries.*",
     "backend\\.dataset_service.*",
+    "backend\\.eval_suggestions\\.client.*",
     "backend\\.hog.*",
     "backend\\.llm.*",
     "backend\\.markdown_outline.*",
