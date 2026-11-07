@@ -47,7 +47,6 @@ from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, cons
 from posthog.workload_identity.providers import (
     WorkloadClaim,
     WorkloadProvider,
-    expected_audience,
     get_supported_workload_providers,
     get_workload_provider_by_issuer,
     normalize_issuer,
@@ -290,7 +289,7 @@ def _signing_key(provider: WorkloadProvider, subject_token: str) -> PyJWK:
 def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tuple[VerifiedWorkload, int]:
     """Verify the OIDC token and return what it says about the workload and its expiry, or raise."""
     key = _signing_key(provider, subject_token)
-    audience = expected_audience(provider)
+    audience = workload_site_url()
     try:
         claims = jwt.decode(
             subject_token,

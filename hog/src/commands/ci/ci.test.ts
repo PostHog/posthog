@@ -53,7 +53,6 @@ const PROVIDERS = {
                     default_value: '',
                 },
             ],
-            can_resolve_subject: true,
             setup_snippet: 'fake-ci:\n  oidc: true',
         },
     ],
