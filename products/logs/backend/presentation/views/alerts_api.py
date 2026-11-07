@@ -965,19 +965,21 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
 def _create_native_alert(validated_data: dict, grouping: Grouping | None) -> LogsAlertConfiguration:
     snooze_until = validated_data.get("snooze_until")
-    try:
-        created = create_native(
-            team_id=validated_data["team_id"],
-            fields=validated_data,
-            grouping=grouping,
-            created_by_id=validated_data["created_by"].id,
-        )
-    except PlatformAlertCreateRefused as error:
-        raise ValidationError(str(error)) from error
-    if snooze_until is None:
-        return created
-    snoozed = update_native(created, {}, grouping=None, snooze_until=snooze_until, snooze_changed=True)
-    return created if snoozed is None else snoozed
+    # One transaction, so no check sees the alert before its snooze holds.
+    with transaction.atomic():
+        try:
+            created = create_native(
+                team_id=validated_data["team_id"],
+                fields=validated_data,
+                grouping=grouping,
+                created_by_id=validated_data["created_by"].id,
+            )
+        except PlatformAlertCreateRefused as error:
+            raise ValidationError(str(error)) from error
+        if snooze_until is None:
+            return created
+        snoozed = update_native(created, {}, grouping=None, snooze_until=snooze_until, snooze_changed=True)
+        return created if snoozed is None else snoozed
 
 
 def _write_platform_edit[T](write: Callable[[], T]) -> T:
