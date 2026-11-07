@@ -146,18 +146,6 @@ Explicit aliases work with these names, for example `SELECT p.id FROM posthog.pe
 Trusted internal ASTs can set `JoinExpr.table_schema` to bind a table without adding it to the public catalog.
 User SQL still resolves tables through the catalog. Never bind table names taken from user expressions.
 
-Account-person queries can use the built-in catalog behind `account-persons-builtin-catalog`.
-This path accepts only supported person columns, membership columns, person properties, and person-property filters.
-Custom expressions, warehouse joins, virtual properties, cohort filters, and unsupported modifiers return a validation error.
-Both experiment variants enforce these input limits. Control builds the full catalog, while test builds only the built-in catalog.
-The query context retains the requesting user and access-control state, so property restrictions still apply.
-Each query run evaluates the flag using the user's distinct ID, with organization and project context.
-Control and test variants use separate cache keys.
-
-The experiment records `slo_operation_started` and `slo_operation_completed` with `catalog_experiment`, `catalog_variant`, and the flag value.
-Completion events include query-run duration, catalog build duration, cache status, and outcome, without property names or values.
-Cache-only lookups do not emit experiment events.
-
 The HogQL database schema is in flux. You will soon be able to explore it in the [PostHog app itself](https://github.com/PostHog/posthog/pull/14591).
 
 The most up to date resource is [hogql/database.py](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database.py) on Github. At the time of writing, these tables were available:
