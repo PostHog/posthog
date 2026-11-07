@@ -15,10 +15,7 @@ import { initKeaTests } from '~/test/init'
 
 import * as sidebarApi from 'products/ui_customization/frontend/generated/api'
 import type { AnalyticsSidebarApi } from 'products/ui_customization/frontend/generated/api.schemas'
-import {
-    sidebarCustomizationLogic,
-    selectShownSidebar,
-} from 'products/ui_customization/frontend/sidebarCustomizationLogic'
+import { sidebarCustomizationLogic } from 'products/ui_customization/frontend/sidebarCustomizationLogic'
 
 import { DEFAULT_ANALYTICS_SIDEBAR, analyticsSidebarProps } from './analyticsSidebarConfiguration'
 import { DEFAULT_COLLAPSED_SECTIONS, todayAnalyticsLogic } from './todayAnalyticsLogic'
@@ -199,7 +196,7 @@ describe('todayAnalyticsLogic', () => {
 
         fails ? read.reject(new Error('Old request failed')) : read.resolve(stale)
         await reading
-        expect(logic.values.sidebar).toEqual(expected)
+        expect(logic.values.shownSidebar).toEqual(expected)
         expect(logic.values.savedSidebar).toEqual(expected)
         expect(logic.values.sidebarFailed).toBe(false)
         expect(logic.values.sidebarLoading).toBe(false)
@@ -237,7 +234,7 @@ describe('todayAnalyticsLogic', () => {
         await writing
         await expectLogic(logic).toFinishAllListeners()
         expect(read).toHaveBeenCalledTimes(1)
-        expect(logic.values.sidebar).toEqual(expected)
+        expect(logic.values.shownSidebar).toEqual(expected)
         expect(logic.values.savedSidebar).toEqual(expected)
         expect(logic.values.sidebarLoading).toBe(false)
         if (operation === 'reset') {
@@ -267,7 +264,7 @@ describe('todayAnalyticsLogic', () => {
         await Promise.all([resetting, restoring])
         await expectLogic(logic).toFinishAllListeners()
         expect(restore).toHaveBeenCalledTimes(1)
-        expect(logic.values.sidebar).toEqual(CUSTOM_SIDEBAR)
+        expect(logic.values.shownSidebar).toEqual(CUSTOM_SIDEBAR)
         expect(logic.values.savedSidebar).toEqual(CUSTOM_SIDEBAR)
         expect(logic.values.sidebarFailed).toBe(false)
         expect(logic.values.sidebarLoading).toBe(false)
@@ -295,7 +292,7 @@ describe('todayAnalyticsLogic', () => {
 
         expect(read).toHaveBeenCalledTimes(1)
         expect(errorToast).toHaveBeenCalled()
-        expect(logic.values.sidebar).toEqual(CUSTOM_SIDEBAR)
+        expect(logic.values.shownSidebar).toEqual(CUSTOM_SIDEBAR)
         expect(logic.values.savedSidebar).toEqual(CUSTOM_SIDEBAR)
         expect(logic.values.sidebarFailed).toBe(false)
         expect(logic.values.sidebarLoading).toBe(false)
@@ -320,15 +317,29 @@ describe('todayAnalyticsLogic', () => {
         await Promise.all([resetting, restoring])
         await expectLogic(logic).toFinishAllListeners()
         expect(read).toHaveBeenCalledTimes(1)
-        expect(logic.values.sidebar).toEqual(DEFAULT_SIDEBAR)
+        expect(logic.values.shownSidebar).toEqual(DEFAULT_SIDEBAR)
         expect(logic.values.savedSidebar).toEqual(DEFAULT_SIDEBAR)
         expect(logic.values.sidebarLoading).toBe(false)
     })
 
-    it('prefers a server layout over a saved layout, and a saved layout over the default', () => {
-        expect(selectShownSidebar(null, null, DEFAULT_ANALYTICS_SIDEBAR)).toEqual(DEFAULT_ANALYTICS_SIDEBAR)
-        expect(selectShownSidebar(null, CUSTOM_SIDEBAR, DEFAULT_ANALYTICS_SIDEBAR)).toEqual(CUSTOM_SIDEBAR)
-        expect(selectShownSidebar(DEFAULT_SIDEBAR, CUSTOM_SIDEBAR, DEFAULT_ANALYTICS_SIDEBAR)).toEqual(DEFAULT_SIDEBAR)
+    it('shows the persisted layout on remount until the server replaces it', async () => {
+        const props = analyticsSidebarProps()
+        const logic = sidebarCustomizationLogic(props)
+        const unmount = logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        unmount()
+
+        const read = deferred<AnalyticsSidebarApi>()
+        jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarRetrieve').mockReturnValueOnce(read.promise)
+        const remounted = sidebarCustomizationLogic(props)
+        remounted.mount()
+        expect(remounted.values.shownSidebar).toEqual(CUSTOM_SIDEBAR)
+        expect(remounted.values.sidebarLoading).toBe(true)
+
+        read.resolve(DEFAULT_SIDEBAR)
+        await expectLogic(remounted).toFinishAllListeners()
+        expect(remounted.values.shownSidebar).toEqual(DEFAULT_SIDEBAR)
+        expect(remounted.values.savedSidebar).toEqual(DEFAULT_SIDEBAR)
     })
 
     it('starts with every section open, and remembers a toggled section', () => {
