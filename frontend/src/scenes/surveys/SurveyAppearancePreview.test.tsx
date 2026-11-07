@@ -84,4 +84,14 @@ describe('SurveyAppearancePreview', () => {
             })
         )
     })
+
+    it('leaves unset colors out of the appearance so the renderer keeps its defaults', () => {
+        render(<SurveyAppearancePreview survey={survey} previewPageIndex={0} />)
+
+        const { appearance } = mockRenderSurveysPreview.mock.calls[0][0].survey
+        expect(appearance).toHaveProperty('maxWidth', '640px')
+        for (const colorKey of ['backgroundColor', 'borderColor', 'ratingButtonColor', 'submitButtonColor']) {
+            expect(appearance).not.toHaveProperty(colorKey)
+        }
+    })
 })
