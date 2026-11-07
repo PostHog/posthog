@@ -19,9 +19,9 @@ Do NOT:
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from copy import copy
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -279,6 +279,35 @@ def group_property_names_with_access_rules(*, team_id: int, group_type_index: in
             property_definition__group_type_index=group_type_index,
         ).values_list("property_definition__name", flat=True)
     )
+
+
+def property_key_overlaps_restriction(key: str, restricted_names: Collection[str]) -> bool:
+    """Whether a top-level property key is restricted, sits under a restricted name, or holds one inside its value.
+
+    Names are dot paths, as HogQL reads them: a rule on `a.b` covers the flat key `a.b` and the child `b` of `a`.
+    """
+    segments = key.split(".")
+    for name in restricted_names:
+        name_segments = name.split(".")
+        shared = min(len(segments), len(name_segments))
+        if segments[:shared] == name_segments[:shared]:
+            return True
+    return False
+
+
+def redact_restricted_properties(properties: Mapping[str, Any], restricted_names: Collection[str]) -> dict[str, Any]:
+    """Drop restricted properties, following dot paths into nested objects the way HogQL masks them."""
+    if not restricted_names:
+        return dict(properties)
+    redacted: dict[str, Any] = {}
+    for key, value in properties.items():
+        if any(key == name or key.startswith(f"{name}.") for name in restricted_names):
+            continue
+        children = [name[len(key) + 1 :] for name in restricted_names if name.startswith(f"{key}.")]
+        if children and isinstance(value, Mapping):
+            value = redact_restricted_properties(value, children)
+        redacted[key] = value
+    return redacted
 
 
 def team_has_public_sharing_access_rules(*, team_id: int) -> bool:

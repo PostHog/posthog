@@ -2732,6 +2732,42 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         properties_by_type = {actor["type"]: actor["properties"] for actor in response.json()}
         self.assertEqual(properties_by_type, {"person": {"plan": "pro"}, "group": {"name": "Acme"}})
+        person_actor = next(actor for actor in response.json() if actor["type"] == "person")
+        self.assertEqual(person_actor["name"], "p1")
+
+    def _restrict_nested_group_property(self) -> None:
+        nested_def = PropertyDefinition.objects.create(
+            team=self.team, name="customer.tax_id", type=PropertyDefinition.Type.GROUP, group_type_index=0
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=nested_def, access_level=PropertyAccessLevel.NONE.value
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:2",
+            properties={"customer": {"tax_id": "T-1", "tier": "gold"}, "customer.tax_id": "T-1", "plan": "pro"},
+        )
+
+    def test_find_hides_restricted_nested_group_property(self) -> None:
+        self._restrict_nested_group_property()
+        self.assertEqual(self._find_properties(0, "org:2"), {"customer": {"tier": "gold"}, "plan": "pro"})
+
+    @parameterized.expand([("parent", "customer"), ("child", "customer.tax_id")])
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
+    def test_update_property_blocks_keys_overlapping_nested_restriction(
+        self, _name: str, key: str, _mock_capture: mock.MagicMock
+    ) -> None:
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
+        )
+        self._restrict_nested_group_property()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:2&group_type_index=0",
+            {"key": key, "value": "x"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
     @parameterized.expand([("integer", 123), ("empty", "")])
     def test_update_property_rejects_non_string_key(self, _name: str, key: Any) -> None:

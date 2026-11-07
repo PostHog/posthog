@@ -25,6 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import extend_schema
+from posthog.api.person import get_person_name_helper
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SerializedGroupActorSerializer, SerializedPersonActorSerializer
@@ -276,9 +277,9 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
         restricted: dict[int | None, frozenset[str]] | None = self.context.get("restricted_group_properties")
         if restricted and representation.get("group_properties"):
             names = restricted.get(instance.group_type_index, frozenset()) | restricted.get(None, frozenset())
-            representation["group_properties"] = {
-                key: value for key, value in representation["group_properties"].items() if key not in names
-            }
+            representation["group_properties"] = access_control_api.redact_restricted_properties(
+                representation["group_properties"], names
+            )
         return representation
 
 
@@ -874,7 +875,8 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         if restricted:
             for entry in activity_response.data["results"]:
                 detail = entry.get("detail") or {}
-                if detail.get("name") in restricted:
+                name = detail.get("name")
+                if isinstance(name, str) and access_control_api.property_key_overlaps_restriction(name, restricted):
                     for change in detail.get("changes") or []:
                         change["before"] = None
                         change["after"] = None
@@ -920,7 +922,11 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             else:
                 names = restricted_person
             if names:
-                actor["properties"] = {key: value for key, value in actor["properties"].items() if key not in names}
+                actor["properties"] = access_control_api.redact_restricted_properties(actor["properties"], names)
+                if actor["type"] == "person":
+                    actor["name"] = get_person_name_helper(
+                        actor["id"], actor["properties"], actor["distinct_ids"], self.team
+                    )
         return response.Response(results)
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
@@ -1014,7 +1020,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         non_writable = access_control_api.get_non_writable_group_property_names(
             user=cast(Optional[User], user), team_id=self.team_id, group_type_index=group_type_index
         )
-        blocked = sorted(set(keys) & non_writable)
+        blocked = sorted(
+            key for key in set(keys) if access_control_api.property_key_overlaps_restriction(key, non_writable)
+        )
         if blocked:
             raise ValidationError(f"You do not have write access to the following properties: {', '.join(blocked)}.")
 
@@ -1032,7 +1040,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         restricted = access_control_api.group_property_names_with_access_rules(
             team_id=self.team.id, group_type_index=group.group_type_index
         )
-        properties = {key: value for key, value in group.group_properties.items() if key not in restricted}
+        properties = access_control_api.redact_restricted_properties(group.group_properties, restricted)
         # A group name is customer data and can hold line breaks. Markdown escapes inline syntax
         # but keeps line breaks, so a second line starts its own block — a heading, a list, or a
         # live component. Collapse the name to one line, which is what a title is anyway.

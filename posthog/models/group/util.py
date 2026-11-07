@@ -246,7 +246,8 @@ def list_groups(
     consistent. ``search`` matches a substring of the latest raw properties JSON or the group key
     exactly (case-insensitive), preserving the previous endpoint's semantics. The keyset cursor
     breaks ``created_at`` ties on ``group_key`` (unique within a team and type).
-    ``search_excluded_property_keys`` are left out of the properties ``search`` matches against.
+    ``search_excluded_property_keys`` are dot paths left out of the properties ``search`` matches against, with any
+    top-level key that holds one.
     ``restricted_properties`` replaces the team-default property restrictions HogQL applies to the query.
 
     Dedup runs in two phases, so memory does not grow with the group type's total property volume.
@@ -281,7 +282,8 @@ def list_groups(
         pattern = ast.Constant(value=f"%{_escape_clickhouse_like(search)}%")
         if search_excluded_property_keys:
             properties_match = parse_expr(
-                "arrayExists(kv -> NOT has({excluded}, kv.1) AND (kv.1 ILIKE {pattern} OR kv.2 ILIKE {pattern}),"
+                "arrayExists(kv -> NOT arrayExists(name -> kv.1 = name OR startsWith(kv.1, concat(name, '.'))"
+                " OR startsWith(name, concat(kv.1, '.')), {excluded}) AND (kv.1 ILIKE {pattern} OR kv.2 ILIKE {pattern}),"
                 " JSONExtractKeysAndValuesRaw(toString(properties)))",
                 placeholders={
                     "excluded": ast.Array(exprs=[ast.Constant(value=k) for k in sorted(search_excluded_property_keys)]),
