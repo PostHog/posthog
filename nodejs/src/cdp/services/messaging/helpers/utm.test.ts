@@ -17,6 +17,11 @@ describe('addUtmTagsToEmail', () => {
             expected: `<a href="https://example.com/p?a=1&amp;b=2&amp;${QUERY}#plans">x</a>`,
         },
         {
+            case: 'a link whose query encodes its ampersand as an uppercase entity',
+            html: '<a href="https://example.com/p?a=1&AMP;b=2">x</a>',
+            expected: `<a href="https://example.com/p?a=1&amp;b=2&amp;${QUERY}">x</a>`,
+        },
+        {
             case: 'a link that already sets its campaign',
             html: "<a class='btn' href='https://example.com/?utm_campaign=launch'>x</a>",
             expected:
