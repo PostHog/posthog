@@ -123,7 +123,8 @@ Results for a search with words rank with one scorer that applies the same rules
   The type preference breaks ties: a search that looks like a domain or an email address prefers accounts and persons, and any other search prefers products, then saved objects and settings, then accounts and persons.
   An account with no Salesforce, HubSpot deal or billing ID, no tag and no notebook ranks three match tiers lower, so a generic account name such as "Studio" does not lead an equally good saved object. A domain or email search still finds its account.
 - When no result has every word, results use the words that matched. A callout above the results names the dropped word ("No matches for **xyzzy**. Showing results for **report**."). When every match needs a typo, it says "No exact matches for **dashbord**. Showing close spellings." The callout is not selectable.
-- **Best matches** comes first: the three best results of different types.
+- Matching products always come first, above every other result, because people often search to open a product. In a grouped list they get their own **Products** group at the top. In a flat list they lead the rows.
+- **Best matches** comes next: the three best results of different types, products excluded.
 - The other results follow in groups by type, each with its total count and up to three rows. A group ends with a **See all N <types>** row that adds the `is:` chip and keeps the words. A one-word search that starts a type name (`dash`, `flag`) moves that type's group up.
 - Results with the same name show as one row with a "+N with this name" badge.
 - A short list (8 or fewer) or a list of one type shows flat, under one **Results** header. A flat list of saved objects shows at most 20 rows and ends with its **See all N <types>** row. Products, settings, persons, and accounts have no **See all** row, so a flat list of one of those types shows every match.

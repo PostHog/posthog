@@ -299,7 +299,12 @@ export function buildRankedResults({
             },
         ]
     }
-    const pool = collapseSameName(matching)
+    // Products lead whatever they rank against, because people use search to jump to a product.
+    const collapsed = collapseSameName(matching)
+    const pool = [
+        ...collapsed.filter((entry) => entry.groupKey === 'products'),
+        ...collapsed.filter((entry) => entry.groupKey !== 'products'),
+    ]
     const groupCount = new Set(pool.map((entry) => entry.groupKey)).size
     if (pool.length <= FLAT_LIST_LIMIT || groupCount === 1) {
         const hasContinuation = !LOCAL_GROUPS.includes(pool[0].groupKey)
@@ -343,7 +348,7 @@ export function buildRankedResults({
         if (best.length === BEST_MATCHES_LIMIT) {
             break
         }
-        if (!seenGroups.has(entry.groupKey)) {
+        if (entry.groupKey !== 'products' && !seenGroups.has(entry.groupKey)) {
             best.push(entry)
             seenGroups.add(entry.groupKey)
         }
@@ -360,17 +365,15 @@ export function buildRankedResults({
             groups.set(entry.groupKey, [])
         }
     }
-    const sections: CommandKSection[] = [
-        ...notices,
-        {
-            key: 'best-matches',
-            label: 'Best matches',
-            rows: best.map((entry) =>
-                itemRow('best-matches', entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
-            ),
-            state,
-        },
-    ]
+    const bestMatches: CommandKSection = {
+        key: 'best-matches',
+        label: 'Best matches',
+        rows: best.map((entry) =>
+            itemRow('best-matches', entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
+        ),
+        state,
+    }
+    const groupSections: CommandKSection[] = []
     const typeIntent = (groupKey: string): boolean =>
         queryWords.length === 1 &&
         queryWords[0].length >= 3 &&
@@ -405,7 +408,7 @@ export function buildRankedResults({
         if (!rows.length) {
             continue
         }
-        sections.push({
+        groupSections.push({
             key: `group-${groupKey}`,
             label: groupLabel(groupKey),
             count: total,
@@ -414,5 +417,10 @@ export function buildRankedResults({
             state,
         })
     }
-    return sections
+    return [
+        ...notices,
+        ...groupSections.filter((section) => section.key === 'group-products'),
+        bestMatches,
+        ...groupSections.filter((section) => section.key !== 'group-products'),
+    ]
 }
