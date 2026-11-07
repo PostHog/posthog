@@ -25,7 +25,7 @@ class TestAnalyticsSidebarAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
 
     def _call(self, method: str, body: dict | None = None, flag: bool = True) -> "_MonkeyPatchedResponse":
         with patch(
-            "products.ui_customization.backend.facade.feature_flags.feature_enabled_or_false", return_value=flag
+            "products.ui_customization.backend.facade.feature_flags.posthog_feature_flag_value", return_value=flag
         ):
             return getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/ui_customization/analytics_sidebar/", body, format="json"
@@ -140,7 +140,7 @@ class TestAnalyticsSidebarAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
         )
         self.client.logout()
         with patch(
-            "products.ui_customization.backend.facade.feature_flags.feature_enabled_or_false", return_value=True
+            "products.ui_customization.backend.facade.feature_flags.posthog_feature_flag_value", return_value=True
         ):
             response = getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/ui_customization/analytics_sidebar/",
@@ -211,7 +211,7 @@ class TestAnalyticsSidebarAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
     @parameterized.expand([("get", None), ("put", {"layout": GROWTH_LAYOUT}), ("delete", None)])
     def test_navigation_flag_alone_does_not_enable_customization(self, method: str, body: dict | None) -> None:
         with patch(
-            "products.ui_customization.backend.facade.feature_flags.feature_enabled_or_false",
+            "products.ui_customization.backend.facade.feature_flags.posthog_feature_flag_value",
             side_effect=lambda key, *args, **kwargs: key == "today-rail-nav",
         ):
             response = getattr(self.client, method)(
