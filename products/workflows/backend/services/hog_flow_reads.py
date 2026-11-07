@@ -3,7 +3,7 @@ searched and access-filtered page of them. Each workflow is a contract with its 
 
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Final, Optional, cast
+from typing import TYPE_CHECKING, Final, Optional, Protocol, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -27,10 +27,11 @@ from products.workflows.backend.facade.contracts import (
     WorkflowListFilterError,
     WorkflowListFiltersInvalid,
     WorkflowListQuery,
+    WorkflowListRow,
     WorkflowNotFound,
     WorkflowRef,
 )
-from products.workflows.backend.facade.enums import HogFlowScheduleStatus, WorkflowProposalStatus
+from products.workflows.backend.facade.enums import HogFlowScheduleStatus, HogFlowType, WorkflowProposalStatus
 from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
@@ -221,12 +222,36 @@ def list_workflows(
     """One page of the team's workflows that match `query` and that the reader may see. Pass None
     for `user_access_control` to skip the access filter, as a service credential does. Raises
     WorkflowListFiltersInvalid when a field filter does not parse."""
-    queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin)
+    queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin, summaries=False)
+    flows = _select_page_with_access(queryset, page, user_access_control)
+    template_cache: TemplateCache = {}
+    return flows.map(lambda flow: _to_workflow(flow, user_access_control, template_cache, with_schedules=False))
+
+
+def list_workflow_summaries(
+    *,
+    team_id: int,
+    query: WorkflowListQuery,
+    user_access_control: "UserAccessControl | None",
+    page: PageRequest,
+) -> Page[WorkflowListRow]:
+    """One page of summary rows for the team's workflows that match `query` and that the reader may see,
+    newest created first. It takes the list's filters but not its sort options. Pass None for
+    `user_access_control` to skip the access filter, as a service credential does. Raises
+    WorkflowListFiltersInvalid when a field filter does not parse."""
+    queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin=False, summaries=True)
+    flows = _select_page_with_access(queryset, page, user_access_control)
+    template_cache: TemplateCache = {}
+    return flows.map(lambda flow: _to_list_row(flow, user_access_control, template_cache))
+
+
+def _select_page_with_access(
+    queryset: QuerySet, page: PageRequest, user_access_control: "UserAccessControl | None"
+) -> Page[HogFlow]:
     flows = select_page(queryset, page)
     if user_access_control is not None and flows.results:
         user_access_control.preload_object_access_controls(cast("list[models.Model]", flows.results))
-    template_cache: TemplateCache = {}
-    return flows.map(lambda flow: _to_workflow(flow, user_access_control, template_cache, with_schedules=False))
+    return flows
 
 
 def _list_queryset(
@@ -234,6 +259,8 @@ def _list_queryset(
     query: WorkflowListQuery,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
+    *,
+    summaries: bool,
 ) -> QuerySet:
     queryset: QuerySet = (
         HogFlow.objects.filter(team_id=team_id)
@@ -261,7 +288,12 @@ def _list_queryset(
     # workflow with one suggestion would push a fresh one off their first page.
     # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
     # otherwise repeat on one page and never appear on another.
-    if query.suggestions_first:
+    if summaries:
+        # A summary row has no step graph to show, so it skips the staged draft, which can be large.
+        queryset = (
+            annotate_workflow_type(queryset).defer("draft", "draft_encrypted_inputs").order_by("-created_at", "-id")
+        )
+    elif query.suggestions_first:
         queryset = queryset.order_by("-pending_suggestions", "-updated_at", "-id")
     elif query.latest_send_first:
         queryset = annotate_latest_send(queryset).order_by(
@@ -334,9 +366,9 @@ def _list_queryset(
     regex_pattern = re.escape(query.search).replace(r"\ ", r"[\s\-_]*")
 
     # Name, description and tags are small, while the step search has to read every workflow's `actions`
-    # JSON (tens of KB per email step). Only fall through to the step content when nothing matched by
-    # name, so the common search stays cheap and a subject line or body text, which rarely appears in a
-    # workflow name, is still found.
+    # JSON (tens of KB per email step). The list falls through to the step content only when nothing
+    # matched by name, so its common search stays cheap. Summary pages return both kinds of match
+    # together, because the redesigned list shows every workflow that mentions the term, and pay the scan.
     by_name = (
         Q(name__iregex=regex_pattern)
         | Q(description__iregex=regex_pattern)
@@ -346,6 +378,8 @@ def _list_queryset(
             .values("object_uuid")
         )
     )
+    if summaries:
+        return queryset.filter(by_name | Q(_action_content_matches(regex_pattern)))
     if queryset.filter(by_name).exists():
         return queryset.filter(by_name)
     return queryset.filter(Q(_action_content_matches(regex_pattern)))
@@ -408,18 +442,81 @@ def _to_workflow(
     )
 
 
+class _ListRowAnnotations(Protocol):
+    # _list_queryset annotates these on every summary row.
+    workflow_type: str
+    pending_suggestions: int
+    suggestions_enabled: bool
+
+
+def _to_list_row(
+    flow: HogFlow, user_access_control: "UserAccessControl | None", template_cache: TemplateCache
+) -> WorkflowListRow:
+    # The summary queryset defers the staged draft, so only the trigger is masked here.
+    masked: dict[str, object] = {"trigger": flow.trigger}
+    mask_workflow_fields(
+        masked,
+        live_actions=flow.actions,
+        live_trigger=flow.trigger,
+        encrypted_inputs=flow.encrypted_inputs,
+        draft_encrypted_inputs=None,
+        template_cache=template_cache,
+    )
+    annotated = cast(_ListRowAnnotations, flow)
+    return WorkflowListRow(
+        id=flow.id,
+        team_id=flow.team_id,
+        name=flow.name,
+        description=flow.description,
+        version=flow.version,
+        status=flow.status,
+        origin_product=flow.origin_product,
+        created_at=flow.created_at,
+        created_by=flow.created_by,
+        updated_at=flow.updated_at,
+        trigger=masked["trigger"],
+        user_access_level=user_access_control.get_user_access_level(flow) if user_access_control is not None else None,
+        tags=tuple(sorted(current_tag_names(flow))),
+        workflow_type=HogFlowType(annotated.workflow_type),
+        pending_suggestions=annotated.pending_suggestions,
+        suggestions_enabled=annotated.suggestions_enabled,
+    )
+
+
 # A workflow's type is what owns it, else what it does. `loop` and `broadcast` name the surfaces that
 # have their own page, and the behavioural values exclude them: a flow those surfaces own is tagged
 # by surface in the UI (see WorkflowTypeTag), so returning it under `messaging` would contradict the
 # tag on the row. Accepting several lets a list say which surfaces it covers, which is how the
 # workflows page asks for everything except the ones that moved out.
-WORKFLOW_TYPES: Final[tuple[str, ...]] = ("messaging", "automation", "loop", "broadcast", "transactional_email")
+WORKFLOW_TYPES: Final[tuple[str, ...]] = tuple(HogFlowType.values)
 OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
-    "loop": HogFlow.OriginProduct.LOOPS,
-    "broadcast": HogFlow.OriginProduct.BROADCASTS,
-    "transactional_email": HogFlow.OriginProduct.TRANSACTIONAL_EMAILS,
+    HogFlowType.LOOP: HogFlow.OriginProduct.LOOPS,
+    HogFlowType.BROADCAST: HogFlow.OriginProduct.BROADCASTS,
+    HogFlowType.TRANSACTIONAL_EMAIL: HogFlow.OriginProduct.TRANSACTIONAL_EMAILS,
 }
 HIDDEN_ORIGIN_PRODUCTS: Final[tuple[str, ...]] = (HogFlow.OriginProduct.TRANSACTIONAL_EMAIL_KEYS,)
+
+
+def _has_messaging_action_q() -> Q:
+    messaging = Q()
+    for action_type in MESSAGING_ACTION_TYPES:
+        messaging |= Q(actions__contains=[{"type": action_type}])
+    return messaging
+
+
+def annotate_workflow_type(queryset: QuerySet) -> QuerySet:
+    """Adds `workflow_type`, decided by the same rules as the `type` filter in workflow_type_q."""
+    return queryset.annotate(
+        workflow_type=models.Case(
+            *(
+                models.When(origin_product=origin_product, then=models.Value(workflow_type))
+                for workflow_type, origin_product in OWNED_WORKFLOW_TYPES.items()
+            ),
+            models.When(_has_messaging_action_q(), then=models.Value(HogFlowType.MESSAGING)),
+            default=models.Value(HogFlowType.AUTOMATION),
+            output_field=models.CharField(),
+        )
+    )
 
 
 def workflow_type_q(requested: set[str]) -> Q:
@@ -428,13 +525,11 @@ def workflow_type_q(requested: set[str]) -> Q:
     if not behavioural:
         return owned
 
-    messaging = Q()
-    for action_type in MESSAGING_ACTION_TYPES:
-        messaging |= Q(actions__contains=[{"type": action_type}])
+    messaging = _has_messaging_action_q()
     unowned = ~Q(origin_product__in=[*OWNED_WORKFLOW_TYPES.values(), *HIDDEN_ORIGIN_PRODUCTS])
-    if behavioural == {"messaging", "automation"}:
+    if behavioural == {HogFlowType.MESSAGING, HogFlowType.AUTOMATION}:
         return owned | unowned
-    return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
+    return owned | (unowned & (messaging if behavioural == {HogFlowType.MESSAGING} else ~messaging))
 
 
 BROADCAST_TRIGGER_TYPE = "batch"
