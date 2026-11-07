@@ -8,6 +8,7 @@ import { LemonDialog, LemonDialogProps } from 'lib/lemon-ui/LemonDialog'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo, MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
@@ -262,6 +263,28 @@ describe('workflowLogic auto-save', () => {
             await jest.advanceTimersByTimeAsync(3500)
 
             expect(logic.values.workflowHasErrors).toBe(true)
+            expect(updateCalls).toBe(0)
+        })
+
+        it('does not auto-save edits from a user with view access only', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({
+                        user_access_level: AccessControlLevel.Viewer,
+                    }),
+                },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowValue('name', 'Edited by a viewer')
+            await jest.advanceTimersByTimeAsync(3500)
+
+            expect(logic.values.isAutoSavePending).toBe(false)
             expect(updateCalls).toBe(0)
         })
 

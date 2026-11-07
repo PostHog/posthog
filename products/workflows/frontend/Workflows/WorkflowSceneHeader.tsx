@@ -32,7 +32,7 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 import { WorkflowScenePanel } from './WorkflowScenePanel'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
-    const { workflow, hasUnsavedChanges, hasStagedDraft, workflowLoading, workflowUserAccessLevel } =
+    const { workflow, hasUnsavedChanges, hasStagedDraft, workflowLoading, workflowUserAccessLevel, isViewOnly } =
         useValues(workflowLogic)
     const { setWorkflowValue, duplicate, archiveWorkflow, publishDraft, discardDraft } = useActions(workflowLogic)
     const { searchParams } = useValues(router)
@@ -170,7 +170,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 name={workflow?.name}
                 description={workflow?.description}
                 resourceType={{ type: 'workflows' }}
-                canEdit
+                canEdit={!isViewOnly}
                 onNameChange={(name) => setWorkflowValue('name', name)}
                 onDescriptionChange={(description) => setWorkflowValue('description', description)}
                 isLoading={workflowLoading && !workflow}
