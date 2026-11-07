@@ -20,6 +20,7 @@ describe('workflowSceneLogic', () => {
             access_control_resource: 'hog_flow',
             access_control_resource_id: '0190abcd-1234-7000-8000-000000000000',
         })
+        expect(logic.values.projectTreeRef).toEqual({ type: 'hog_flow', ref: '0190abcd-1234-7000-8000-000000000000' })
     })
 
     it('exposes no access control context for an unsaved workflow', () => {
@@ -27,5 +28,6 @@ describe('workflowSceneLogic', () => {
         logic.mount()
 
         expect(logic.values.sidePanelContext).toBeNull()
+        expect(logic.values.projectTreeRef).toBeNull()
     })
 })

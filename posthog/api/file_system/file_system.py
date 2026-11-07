@@ -38,6 +38,7 @@ from posthog.api.file_system.access_levels import (
     _coerce_refs_for_lookup,
     denied_short_id_refs,
     entries_missing_access_level,
+    filter_workflow_files_by_access_level,
 )
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
@@ -57,7 +58,11 @@ from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
 from posthog.exceptions import Conflict
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
-from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES
+from posthog.models.file_system.constants import (
+    RETIRED_FILE_SYSTEM_TYPES,
+    WORKFLOW_FILE_SYSTEM_TYPES,
+    workflow_project_files_enabled,
+)
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
@@ -441,7 +446,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         about, so its product registers a filter. Evaluated on every read, so a channel's type or
         membership changing needs no resync.
         """
-        return apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
+        queryset = apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
+        return self._visible_files(queryset)
 
     def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
         queryset = self._filter_by_product_visibility(queryset)
@@ -450,8 +456,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         accessible_team_ids = self._accessible_team_ids
         if accessible_team_ids is not None:
             queryset = queryset.filter(team_id__in=accessible_team_ids)
+        queryset = filter_workflow_files_by_access_level(queryset, self.user_access_control, self.team.project_id)
         return self.user_access_control.filter_and_annotate_file_system_queryset(
-            queryset, extra_denied_refs=self._denied_short_id_refs
+            queryset, extra_denied_refs=self._denied_short_id_refs, resolved_types=WORKFLOW_FILE_SYSTEM_TYPES
         )
 
     def _ensure_can_delete_objects(self, objects: builtins.list[tuple[str, str, int]]) -> None:
@@ -466,7 +473,23 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return
         denied = entries_missing_access_level(objects, self.user_access_control, self.team.project_id, "editor")
         if denied:
-            raise PermissionDenied("You need editor access to delete this. Ask a project admin to grant it.")
+            raise PermissionDenied("You need editor access to change this. Ask a project admin to grant it.")
+
+    def _ensure_can_change_workflow_files(self, files: QuerySet) -> None:
+        workflow_files = self._filter_by_access_control(self._scope_by_project_and_environment(files)).filter(
+            type__in=WORKFLOW_FILE_SYSTEM_TYPES, shortcut=False
+        )
+        self._ensure_can_delete_objects(
+            [
+                (entry_type, ref, team_id)
+                for entry_type, ref, team_id in workflow_files.values_list("type", "ref", "team_id")
+                if ref
+            ]
+        )
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        self._ensure_can_change_workflow_files(FileSystem.objects.filter(pk=cast(FileSystem, serializer.instance).pk))
+        super().perform_update(serializer)
 
     def _basename_regex(self, value: str) -> str:
         return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
@@ -608,6 +631,33 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # type !~ 'hog_function/.*' or team = $current
         queryset = queryset.filter(Q(**self.parent_query_kwargs) | ~Q(type__startswith="hog_function/"))
         return queryset
+
+    @cached_property
+    def _workflow_files_enabled(self) -> bool:
+        return workflow_project_files_enabled(self.team, cast(User, self.request.user))
+
+    def _visible_files(self, queryset: QuerySet) -> QuerySet:
+        if self._workflow_files_enabled:
+            return queryset
+        other_files = (
+            self._scope_by_project(FileSystem.objects.all())
+            .filter(path__startswith=Concat(OuterRef("path"), Value("/")))
+            .exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
+            .exclude(type="folder", path__in=["Unfiled/Workflows", "Unfiled/Email templates"])
+        )
+        workflow_files = self._scope_by_project(FileSystem.objects.all()).filter(
+            path__startswith=Concat(OuterRef("path"), Value("/")), type__in=WORKFLOW_FILE_SYSTEM_TYPES
+        )
+        return (
+            queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
+            .alias(_has_other_files=Exists(other_files), _has_workflow_files=Exists(workflow_files))
+            .exclude(
+                type="folder",
+                path__in=["Unfiled", "Unfiled/Workflows", "Unfiled/Email templates"],
+                _has_other_files=False,
+                _has_workflow_files=True,
+            )
+        )
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         return self._scope_by_project(queryset)
@@ -957,6 +1007,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         not_type_param = request.query_params.get("not_type")
         # Drop retired types before the view-log limit, or their views take slots that hydration then empties.
         exclude_types = [*RETIRED_FILE_SYSTEM_TYPES, *([not_type_param] if not_type_param else [])]
+        if not self._workflow_files_enabled:
+            exclude_types.extend(WORKFLOW_FILE_SYSTEM_TYPES)
         search_param = request.query_params.get("search")
 
         base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id).exclude(
@@ -1288,6 +1340,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
         new_path = validate_file_system_path(new_path)
 
+        moving_files = FileSystem.objects.filter(pk=instance.pk)
+        if instance.type == "folder":
+            moving_files = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
+        self._ensure_can_change_workflow_files(moving_files)
+
         self._assure_parent_folders(new_path, cast(User, request.user))
 
         if instance.type == "folder":
@@ -1609,7 +1666,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
 
         # TODO: this needs some concurrency controls or a unique index
-        scoped_files = self._scope_by_project_and_environment(FileSystem.objects.all())
+        scoped_files = self._visible_files(self._scope_by_project_and_environment(FileSystem.objects.all()))
         existing_paths = set(scoped_files.values_list("path", flat=True))
 
         folders_to_create = []

@@ -6,7 +6,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { ActivityScope, Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb, ProjectTreeRef } from '~/types'
 
 import { metricsRangeFromSearchParams } from './metricsDrillParams'
 
@@ -30,6 +30,7 @@ export interface WorkflowSceneLogicProps {
 export interface workflowSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     currentTab: WorkflowTab
+    projectTreeRef: ProjectTreeRef | null
     sidePanelContext: SidePanelSceneContext | null
 }
 
@@ -45,6 +46,7 @@ export interface workflowSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (arg: WorkflowSceneLogicProps['id']) => Breadcrumb[]
+        projectTreeRef: (arg: WorkflowSceneLogicProps['id']) => ProjectTreeRef | null
         sidePanelContext: (arg: WorkflowSceneLogicProps['id']) => SidePanelSceneContext | null
     }
 }
@@ -89,6 +91,11 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
                     },
                 ]
             },
+        ],
+        projectTreeRef: [
+            () => [(_, props) => props.id as WorkflowSceneLogicProps['id']],
+            (id: WorkflowSceneLogicProps['id']): ProjectTreeRef | null =>
+                id && id !== 'new' ? { type: 'hog_flow', ref: id } : null,
         ],
         // Drives the side panel: surfaces the Access control (and Activity) tab for a saved workflow.
         // Must live on the scene logic — sidePanelContextLogic reads SIDE_PANEL_CONTEXT_KEY off the

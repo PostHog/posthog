@@ -12184,6 +12184,10 @@ export namespace Schemas {
         /**
          * Mixin for serializers to add user access control fields
          */
+        _create_in_folder?: string | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
         name?: (string | null) | undefined;
         /**
          * Mixin for serializers to add user access control fields
@@ -12353,6 +12357,10 @@ export namespace Schemas {
      */
     export type HogFlowUpdate = {
         id: string;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        _create_in_folder?: string | undefined;
         /**
          * Mixin for serializers to add user access control fields
          */
@@ -15789,6 +15797,7 @@ export namespace Schemas {
      */
     export type PatchedHogFlowUpdate = Partial<{
         id: string;
+        _create_in_folder: string;
         name: string | null;
         description: string;
         tags: Array<string>;

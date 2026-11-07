@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import replace
 from enum import Enum
 from functools import cache, cached_property
@@ -340,7 +340,7 @@ def model_to_resource(model: Model | type[Model]) -> Optional[APIScopeObject]:
         return "endpoint"
     # The workflow scope is "hog_flow" but the model is "hogflow"; its batch jobs and schedules have no
     # route of their own and inherit the parent workflow's access (same idea as endpointversion → endpoint).
-    if name in ("hogflow", "hogflowbatchjob", "hogflowschedule"):
+    if name in ("hogflow", "hogflowbatchjob", "hogflowschedule", "messagetemplate"):
         return "hog_flow"
     if name == "externaldatasource":
         return "external_data_source"
@@ -1621,7 +1621,10 @@ class UserAccessControl:
         return self.object_ids_matching(resources, lambda ac: ac.access_level == NO_ACCESS_LEVEL)
 
     def filter_and_annotate_file_system_queryset(
-        self, queryset: QuerySet["FileSystem"], extra_denied_refs: Optional[dict[tuple[str, int], list[str]]] = None
+        self,
+        queryset: QuerySet["FileSystem"],
+        extra_denied_refs: Optional[dict[tuple[str, int], list[str]]] = None,
+        resolved_types: Collection[str] = (),
     ) -> QuerySet["FileSystem"]:
         """
         Annotate each FileSystem with the effective_access_level (either 'none' or 'some')
@@ -1632,6 +1635,10 @@ class UserAccessControl:
         object's primary key. Keyed by team_id, like the rest of this method, because the queryset
         can span every environment in a project - a denial made in one team must not hide a
         same-valued ref that happens to belong to a different team.
+
+        `resolved_types` names file system types the caller already filtered with full object
+        access resolution. This method skips its denial for them, because it treats any matching
+        `none` row as a denial, even when a member grant overrides it.
         """
         user = self._user
 
@@ -1703,6 +1710,8 @@ class UserAccessControl:
             if refs:
                 denied |= Q(team_id=team_id, type=entry_type, ref__in=refs)
 
+        if resolved_types:
+            denied &= ~Q(type__in=resolved_types)
         queryset = queryset.exclude(denied & Q(is_project_admin=False) & ~Q(created_by=user))
 
         return queryset

@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { IconCdCase, IconDocument, IconPlug, IconUser } from '@posthog/icons'
 
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -95,10 +96,16 @@ export function TreeSearchField({ root, placeholder, treeRef, isActive }: TreeSe
                                   hint: 'Search by type',
                                   icon: <IconCdCase />,
                               },
-                              productTypesMapped.filter(
-                                  (productType) =>
-                                      !productType.flag || featureFlags[productType.flag as keyof typeof featureFlags]
-                              ),
+                              [
+                                  ...productTypesMapped.filter(
+                                      (productType) =>
+                                          !productType.flag ||
+                                          featureFlags[productType.flag as keyof typeof featureFlags]
+                                  ),
+                                  ...(!featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]
+                                      ? [{ value: 'workflows', label: 'Workflow', icon: iconForType('workflows') }]
+                                      : []),
+                              ],
                               'enter a type',
                           ],
                           [

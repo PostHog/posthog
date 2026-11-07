@@ -6,6 +6,8 @@ from uuid import UUID
 from django.db import models, transaction
 from django.utils import timezone
 
+from posthog.models.file_system.file_system import delete_file
+
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import WorkflowActor, WorkflowSummary
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -145,6 +147,8 @@ def convert_workflow_to_broadcast(*, team_id: int, hog_flow_id: UUID, actor: Wor
         HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).update(
             origin_product=flow.origin_product, updated_at=flow.updated_at
         )
+        # The queryset update also skips the file system sync, and a broadcast has no workflow file.
+        delete_file(team=flow.team, file_type="hog_flow", ref=str(hog_flow_id))
     log_workflow_activity(
         actor=actor,
         workflow_id=hog_flow_id,

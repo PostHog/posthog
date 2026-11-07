@@ -3,11 +3,14 @@ the workflow's fields from before and after the write."""
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Final, Optional, cast
+from typing import TYPE_CHECKING, Final, Optional, cast
 from uuid import UUID
 
 from django.db import models, transaction
 
+from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, changes_between, log_activity
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -16,7 +19,47 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.hog_flow_writes import field_values
 from products.workflows.backend.services.workflow_email_health import resume_email_sending
 
+if TYPE_CHECKING:
+    from posthog.api.file_system.deletion import DeletionContext
+
 _SCOPE: Final = "HogFlow"
+
+
+def report_file_system_workflow_deletion(context: "DeletionContext", instance: HogFlow) -> None:
+    user = context.user
+    if user is None:
+        return
+    properties = {
+        "workflow_id": context.entry.ref,
+        "workflow_name": instance.name,
+        "team_id": str(instance.team_id),
+        "organization_id": str(instance.team.organization_id),
+        "via": "file_system",
+    }
+
+    def report_deletion() -> None:
+        try:
+            report_user_action(user, "hog_flow_deleted", properties, team=instance.team, request=context.request)
+        except Exception as error:
+            capture_exception(error)
+
+    transaction.on_commit(report_deletion)
+
+
+def log_file_system_workflow_deletion(context: "DeletionContext", instance: HogFlow) -> None:
+    if context.organization is None:
+        return
+    log_workflow_activity(
+        actor=WorkflowActor(
+            organization_id=context.organization.id,
+            team_id=instance.team_id,
+            user=context.user,
+            was_impersonated=is_impersonated(context.request),
+        ),
+        workflow_id=instance.id,
+        name=instance.name,
+        activity="deleted",
+    )
 
 
 def log_workflow_activity(

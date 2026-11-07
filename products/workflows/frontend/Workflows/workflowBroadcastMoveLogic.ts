@@ -6,8 +6,7 @@ import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
-import { hogFlowsConvertToBroadcast } from 'products/workflows/frontend/generated/api'
-
+import { moveWorkflowToBroadcasts } from '../Broadcasts/broadcastLifecycle'
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { HogFlow } from './hogflows/types'
 
@@ -75,7 +74,7 @@ export const workflowBroadcastMoveLogic = kea<workflowBroadcastMoveLogicType>([
     listeners(({ actions, props }) => ({
         moveToBroadcasts: async () => {
             try {
-                await hogFlowsConvertToBroadcast(String(ApiConfig.getCurrentTeamId()), props.id)
+                await moveWorkflowToBroadcasts(String(ApiConfig.getCurrentTeamId()), props.id)
             } catch {
                 posthog.capture('workflow broadcast move failed', { workflow_id: props.id })
                 lemonToast.error("Couldn't move this workflow to broadcasts. Reload the page and try again.")

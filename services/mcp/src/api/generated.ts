@@ -53448,6 +53448,8 @@ export namespace Schemas {
      */
     export interface HogFlow {
       readonly id: string;
+      /** Project folder for a newly created workflow. */
+      _create_in_folder?: string;
       /**
          * Workflow name.
          * @maxLength 400
@@ -53619,6 +53621,18 @@ export namespace Schemas {
       remaining: number;
       /** True when no in-flight runs of this batch remain unflagged. */
       done: boolean;
+    }
+
+    export interface HogFlowBulkDeleteRequest {
+      /** IDs of the archived workflows to delete permanently. */
+      ids: string[];
+    }
+
+    export interface HogFlowBulkDeleteResponse {
+      /** Number of workflows deleted. */
+      deleted: number;
+      /** IDs of the deleted workflows. A workflow that is not archived, or that you cannot edit, is skipped. */
+      deleted_ids: string[];
     }
 
     export interface HogFlowConvertedToBroadcast {
@@ -54074,6 +54088,8 @@ export namespace Schemas {
      */
     export interface HogFlowUpdate {
       readonly id: string;
+      /** Project folder for a newly created workflow. */
+      _create_in_folder?: string;
       /**
          * Workflow name.
          * @maxLength 400
@@ -67229,6 +67245,8 @@ export namespace Schemas {
     }
 
     export interface MessageTemplate {
+      /** Project folder for the new email template. */
+      _create_in_folder?: string;
       readonly id: string;
       /**
          * Human-readable template name shown in the library.
@@ -84591,6 +84609,8 @@ export namespace Schemas {
      */
     export interface PatchedHogFlowUpdate {
       readonly id?: string;
+      /** Project folder for a newly created workflow. */
+      _create_in_folder?: string;
       /**
          * Workflow name.
          * @maxLength 400
@@ -85782,6 +85802,8 @@ export namespace Schemas {
     }
 
     export interface PatchedMessageTemplate {
+      /** Project folder for the new email template. */
+      _create_in_folder?: string;
       readonly id?: string;
       /**
          * Human-readable template name shown in the library.
