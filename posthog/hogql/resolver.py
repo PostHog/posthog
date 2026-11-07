@@ -1672,7 +1672,13 @@ class Resolver(CloningVisitor):
                 node_type = ast.ColumnAliasedTableType(
                     alias=table_alias, table_type=node_table_type, alias_to_original=alias_to_original
                 )
-            elif table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
+            elif (
+                table_alias != table_name_alias
+                or isinstance(database_table, FunctionCallTable)
+                # `persons` and `posthog.persons` resolve to the same table, and their types compare equal. Later
+                # passes find a scan by comparing types. Without an alias, they read the second scan as the first.
+                or node_table_type in scope.tables.values()
+            ):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type

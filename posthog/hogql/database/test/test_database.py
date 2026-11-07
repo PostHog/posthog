@@ -3734,7 +3734,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             sync_type_config={"schema_metadata": {"foreign_keys": foreign_keys}},
         )
 
-    def test_deferred_foreign_keys_wire_for_a_table_reached_through_a_data_warehouse_join(self):
+    @parameterized.expand([("root_name", "events"), ("posthog_qualified_name", ["posthog", "events"])])
+    def test_deferred_foreign_keys_wire_for_a_table_reached_through_a_data_warehouse_join(self, _name, source_table):
         self._postgres_warehouse_source_with_foreign_key(
             foreign_keys=[{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}]
         )
@@ -3751,7 +3752,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # The join holds the warehouse table as an object, so resolving through it never calls
         # get_table on the warehouse name. Accessing the join's source table has to arm the build.
-        join_field = database.get_table("events").fields["activitylog"]
+        join_field = database.get_table(source_table).fields["activitylog"]
         assert isinstance(join_field, LazyJoin)
         joined = join_field.resolve_table(HogQLContext(team_id=self.team.pk, database=database))
         assert isinstance(joined.fields.get("team"), LazyJoin)
@@ -4502,6 +4503,48 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         prepare_and_print_ast(parse_select("select * from posthog.events"), context, dialect="clickhouse")
+
+    def test_views_under_a_table_and_its_posthog_qualified_name_stay_separate(self):
+        for name, value in (("events.summary", 1), ("posthog.events.summary", 2)):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"query": f"SELECT {value} AS value"},
+                columns={"value": "Int64"},
+            )
+
+        database = Database.create_for(team=self.team)
+
+        assert str(database.get_table("events.summary").query) == "SELECT 1 AS value"
+        assert str(database.get_table("posthog.events.summary").query) == "SELECT 2 AS value"
+
+    @parameterized.expand(
+        [
+            ("events", "uuid"),
+            ("persons", "id"),
+            ("groups", "key"),
+            ("sessions", "session_id"),
+        ]
+    )
+    def test_join_of_a_table_to_its_posthog_qualified_name_compares_both_sides(self, table_name, column):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database.create_for(team=self.team, modifiers=modifiers),
+            modifiers=modifiers,
+        )
+
+        sql, _ = prepare_and_print_ast(
+            parse_select(
+                f"SELECT count() FROM {table_name} JOIN posthog.{table_name} "
+                f"ON {table_name}.{column} = posthog.{table_name}.{column}"
+            ),
+            context,
+            dialect="clickhouse",
+        )
+
+        assert f"ON equals({table_name}.{column}, posthog__{table_name}.{column})" in sql
 
     def test_database_serialization_handles_invalid_sources_gracefully(self):
         """Test that serialization continues even with sources that have invalid prefixes."""
