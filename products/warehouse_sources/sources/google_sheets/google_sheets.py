@@ -8,8 +8,8 @@ from urllib.parse import quote
 
 import gspread
 import requests
-from babel.core import UnknownLocaleError
-from babel.numbers import get_decimal_symbol
+from babel.core import Locale, UnknownLocaleError
+from babel.numbers import NumberFormatError, get_decimal_symbol, parse_decimal
 from cachetools import Cache, TTLCache, cached
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
@@ -199,26 +199,27 @@ def _resolve_column_names(headers: list[str]) -> list[str]:
     return resolved
 
 
-def _decimal_symbol(worksheet: gspread.Worksheet) -> str:
+def _spreadsheet_locale(worksheet: gspread.Worksheet) -> Locale | None:
     try:
-        return get_decimal_symbol(worksheet.spreadsheet.locale)
+        return Locale.parse(worksheet.spreadsheet.locale)
     except (KeyError, UnknownLocaleError, ValueError, TypeError):
-        return "."
+        return None
 
 
-def _numericise_keeping_commas(text: str) -> int | float | str | None:
-    # gspread's `numericise` deletes every comma, which turns a decimal comma such as "0,5" into 5.
+def _parse_number_text(text: str, locale: Locale | None) -> int | float | str | None:
+    if locale is None or get_decimal_symbol(locale) == ".":
+        return numericise(text, default_blank=None)
     if text == "":
         return None
-    if "_" in text:
-        return text
+    # `strict` rejects text the locale would not write, so "1.5" in de_DE stays text instead of
+    # becoming 15, while "1.200" reads as 1200.
     try:
-        return int(text)
-    except ValueError:
-        try:
-            return float(text)
-        except ValueError:
-            return text
+        number = parse_decimal(text, locale, strict=True)
+    except NumberFormatError:
+        return text
+    if get_decimal_symbol(locale) not in text and number == number.to_integral_value():
+        return int(number)
+    return float(number)
 
 
 def _cell_text(cell: Any) -> str | None:
@@ -229,17 +230,15 @@ def _cell_text(cell: Any) -> str | None:
     return str(cell)
 
 
-def _cell_value(cell: Any, decimal_symbol: str) -> Any:
+def _cell_value(cell: Any, locale: Locale | None) -> Any:
     if isinstance(cell, bool):
         return _cell_text(cell)
     if isinstance(cell, str):
-        if decimal_symbol == ".":
-            return numericise(cell, default_blank=None)
-        return _numericise_keeping_commas(cell)
+        return _parse_number_text(cell, locale)
     return cell
 
 
-def _records_from_grid(grid: list[list[Any]], header_row: list[str], decimal_symbol: str) -> list[dict[str, Any]]:
+def _records_from_grid(grid: list[list[Any]], header_row: list[str], locale: Locale | None) -> list[dict[str, Any]]:
     if not grid or grid == [[]]:
         return []
 
@@ -247,8 +246,7 @@ def _records_from_grid(grid: list[list[Any]], header_row: list[str], decimal_sym
     padding = [""] * (len(grid[0]) - len(header_row))
     column_names = _resolve_column_names([*header_row, *padding])
 
-    # Blank cells import as null, so numeric columns that have gaps stay numeric.
-    records = [dict(zip(column_names, [_cell_value(cell, decimal_symbol) for cell in row])) for row in grid[1:]]
+    records = [dict(zip(column_names, [_cell_value(cell, locale) for cell in row])) for row in grid[1:]]
 
     # A column that holds both numbers and text must stay text. The pipeline JSON-encodes a column
     # of mixed Python types, which stores each text cell wrapped in double quotes.
@@ -595,9 +593,8 @@ def google_sheets_source(
         # Read the raw grid and build the records ourselves rather than calling
         # `get_all_records`, which can't cope with a blank header cell. `pad_values=True` mirrors
         # what `get_all_records` asks for, so every row is the same width as the widest one.
-        # Unformatted values give number cells as numbers. Formatted values give them as text in the
-        # spreadsheet locale, so "0,5" in a decimal-comma locale has no safe parse. Dates, times and
-        # durations stay formatted text, because the unformatted value is a day serial number.
+        # Number cells come unformatted because formatted text depends on the spreadsheet locale.
+        # Dates stay formatted, because their unformatted value is a day serial number.
         try:
             grid = cast(
                 list[list[Any]],
@@ -619,7 +616,7 @@ def google_sheets_source(
             else:
                 raise
         header_row = headers[0] if headers else [_cell_text(cell) or "" for cell in (grid[0] if grid else [])]
-        values = _records_from_grid(grid, header_row, _decimal_symbol(worksheet))
+        values = _records_from_grid(grid, header_row, _spreadsheet_locale(worksheet))
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
