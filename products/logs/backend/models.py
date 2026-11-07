@@ -261,6 +261,8 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         default=PlatformAlertOwner.SOURCE.value,
         db_default=PlatformAlertOwner.SOURCE.value,
     )
+    # Where the legacy shadow of a platform-owned row starts. An alert created in a team already
+    # cut over takes the team's cutover time, which can be before its own `created_at`.
     owner_changed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

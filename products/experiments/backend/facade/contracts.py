@@ -472,9 +472,35 @@ class ExperimentHealthCheckResult:
 
 
 @frozen
+class ExperimentHealthReleaseCondition:
+    """A condition set of the flag: the share of its matching users or groups who get the flag, how many filters they
+    must match, and the group type it assigns variants by (None for users)."""
+
+    rollout_percentage: float
+    property_count: int
+    aggregation_group_type_index: int | None
+
+
+@frozen
+class ExperimentHealthSetup:
+    """The settings of the experiment's flag that decide who gets the flag and which variant a user gets."""
+
+    # The flag's condition sets as stored, in evaluation order.
+    release_conditions: tuple[ExperimentHealthReleaseCondition, ...]
+    early_exit: bool
+    bucketing_identifier: str
+    aggregation_group_type_index: int | None
+    evaluation_runtime: str
+    evaluation_contexts: tuple[str, ...]
+    ensure_experience_continuity: bool
+
+
+@frozen
 class ExperimentHealth:
     findings: tuple[ExperimentHealthFinding, ...]
     checks: tuple[ExperimentHealthCheckResult, ...]
+    # None when not loaded or when the experiment has no flag. Only the health endpoint loads it.
+    setup: ExperimentHealthSetup | None = None
 
 
 @frozen

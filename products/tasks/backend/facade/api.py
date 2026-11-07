@@ -2056,6 +2056,12 @@ def collect_task_run_state_metrics(
 # --- Writes ---
 
 
+def mark_slack_task_manual_billing(*, team_id: int, task_id: str) -> None:
+    Task.objects.get(team_id=team_id, id=task_id, origin_product=Task.OriginProduct.SLACK)
+    for run_id in TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list("id", flat=True):
+        TaskRun.update_state_atomic(run_id, updates={"billing_product": "posthog_ai"})
+
+
 def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, user_id: int) -> None:
     """Link only a saved Slack task; a repeated activity must not add another discussion entry."""
     from products.signals.backend.facade.api import record_slack_report_discussion
