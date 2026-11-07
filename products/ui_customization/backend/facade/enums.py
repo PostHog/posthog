@@ -1,6 +1,10 @@
 from posthog.enums import LabeledStrEnum
 
 
+class CustomizationContext(LabeledStrEnum):
+    ANALYTICS_SIDEBAR = "analytics_sidebar", "Analytics sidebar"
+
+
 class SidebarPage(LabeledStrEnum):
     ANALYTICS_ALL = "analytics_all", "View all"
     ANALYTICS_MINE = "analytics_mine", "My work"

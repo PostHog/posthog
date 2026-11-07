@@ -15896,14 +15896,14 @@
         },
         "feature_flag": "tasks"
     },
-    "ui-customization-analytics-sidebar-get": {
-        "description": "Get the layout of the person's Analytics pane: the sidebar of the Analytics section in the new navigation. It is the person's own layout, or the default when customized is false. Call it before you change the sidebar, then send the whole changed layout to ui-customization-analytics-sidebar-update.",
+    "ui-customization-get": {
+        "description": "Get the person's layout for a supported UI customization context. For analytics_sidebar, this is the Analytics pane in the new navigation. It is the person's own layout, or the default when customized is false. Call it before you change the sidebar, then send the whole changed layout to ui-customization-set.",
         "category": "UI customization",
         "feature": "ui_customization",
-        "summary": "Get the analytics sidebar",
-        "title": "Get the analytics sidebar",
+        "summary": "Get UI customization",
+        "title": "Get UI customization",
         "required_scopes": ["user:read"],
-        "api_operations": ["GET /api/projects/{project_id}/ui_customization/analytics_sidebar/"],
+        "api_operations": ["GET /api/projects/{project_id}/ui_customization/{context}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -15912,14 +15912,14 @@
         },
         "feature_flag": "ui-customization"
     },
-    "ui-customization-analytics-sidebar-reset": {
-        "description": "Remove the person's own layout of the Analytics pane, so it shows the default again. Returns the default layout.",
+    "ui-customization-reset": {
+        "description": "Remove the person's own layout for the selected context, so it shows the default again. Returns the default layout.",
         "category": "UI customization",
         "feature": "ui_customization",
-        "summary": "Reset the analytics sidebar",
-        "title": "Reset the analytics sidebar",
+        "summary": "Reset UI customization",
+        "title": "Reset UI customization",
         "required_scopes": ["user:write"],
-        "api_operations": ["DELETE /api/projects/{project_id}/ui_customization/analytics_sidebar/"],
+        "api_operations": ["DELETE /api/projects/{project_id}/ui_customization/{context}/"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -15928,14 +15928,14 @@
         },
         "feature_flag": "ui-customization"
     },
-    "ui-customization-analytics-sidebar-update": {
-        "description": "Replace the layout of the person's Analytics pane. It changes only the person who calls it, in this project. Build the layout from sections of items: links and buttons that open a PostHog page or an insight, dashboard or notebook of this project, metrics that show the latest value of a trends insight, and lists that PostHog fills (pinned, recents, by_posthog). Get the IDs of insights, dashboards and notebooks from their tools first; never invent them. Keep the default sections the person did not ask to remove. A 400 error names each value that does not fit, so fix those values and send it again.",
+    "ui-customization-set": {
+        "description": "Replace the person's layout for the selected UI customization context. It changes only the person who calls it, in this project. For analytics_sidebar: Build the layout from sections of items: links and buttons that open a PostHog page or an insight, dashboard or notebook of this project, metrics that show the latest value of a trends insight, and lists that PostHog fills (pinned, recents, by_posthog). Get the IDs of insights, dashboards and notebooks from their tools first; never invent them. Keep the default sections the person did not ask to remove. A 400 error names each value that does not fit, so fix those values and send it again.",
         "category": "UI customization",
         "feature": "ui_customization",
-        "summary": "Update the analytics sidebar",
-        "title": "Update the analytics sidebar",
+        "summary": "Set UI customization",
+        "title": "Set UI customization",
         "required_scopes": ["user:write"],
-        "api_operations": ["PUT /api/projects/{project_id}/ui_customization/analytics_sidebar/"],
+        "api_operations": ["PUT /api/projects/{project_id}/ui_customization/{context}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

@@ -8,60 +8,63 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { AnalyticsSidebarApi, AnalyticsSidebarRequestApi } from './api.schemas'
+import type { CustomizationApi, CustomizationRequestApi } from './api.schemas'
 
-export const getUiCustomizationAnalyticsSidebarRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/ui_customization/analytics_sidebar/`
+export const getUiCustomizationRetrieveUrl = (projectId: string, context: 'analytics_sidebar') => {
+    return `/api/projects/${projectId}/ui_customization/${context}/`
 }
 
 /**
- * The layout of the Analytics pane in the new navigation: the person's own layout, or the default when they have not saved one. Read it before you change it, so you keep the sections the person wants. 404 when the person does not have UI customization enabled.
- * @summary Get the person's analytics sidebar
+ * Returns the person's layout for the selected context, or its default. Read it before changing it. Unknown contexts and people without UI customization enabled receive 404.
+ * @summary Get the person's UI customization
  */
-export const uiCustomizationAnalyticsSidebarRetrieve = async (
+export const uiCustomizationRetrieve = async (
     projectId: string,
+    context: 'analytics_sidebar',
     options?: RequestInit
-): Promise<AnalyticsSidebarApi> => {
-    return apiMutator<AnalyticsSidebarApi>(getUiCustomizationAnalyticsSidebarRetrieveUrl(projectId), {
+): Promise<CustomizationApi> => {
+    return apiMutator<CustomizationApi>(getUiCustomizationRetrieveUrl(projectId, context), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getUiCustomizationAnalyticsSidebarUpdateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/ui_customization/analytics_sidebar/`
+export const getUiCustomizationUpdateUrl = (projectId: string, context: 'analytics_sidebar') => {
+    return `/api/projects/${projectId}/ui_customization/${context}/`
 }
 
 /**
- * Replaces the layout of the person's Analytics pane. It changes only the person who calls it, in this project. The pane shows the new layout the next time it loads. 400 lists every value that does not fit the layout schema. 404 when the person does not have UI customization enabled.
- * @summary Set the person's analytics sidebar
+ * Replaces the person's layout for the selected context in this project. The context defines its allowed layout schema and limits. Unknown contexts and people without UI customization enabled receive 404.
+ * @summary Set the person's UI customization
  */
-export const uiCustomizationAnalyticsSidebarUpdate = async (
+export const uiCustomizationUpdate = async (
     projectId: string,
-    analyticsSidebarRequestApi: AnalyticsSidebarRequestApi,
+    context: 'analytics_sidebar',
+    customizationRequestApi: CustomizationRequestApi,
     options?: RequestInit
-): Promise<AnalyticsSidebarApi> => {
-    return apiMutator<AnalyticsSidebarApi>(getUiCustomizationAnalyticsSidebarUpdateUrl(projectId), {
+): Promise<CustomizationApi> => {
+    return apiMutator<CustomizationApi>(getUiCustomizationUpdateUrl(projectId, context), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(analyticsSidebarRequestApi),
+        body: JSON.stringify(customizationRequestApi),
     })
 }
 
-export const getUiCustomizationAnalyticsSidebarDestroyUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/ui_customization/analytics_sidebar/`
+export const getUiCustomizationDestroyUrl = (projectId: string, context: 'analytics_sidebar') => {
+    return `/api/projects/${projectId}/ui_customization/${context}/`
 }
 
 /**
- * Removes the person's own layout, so the Analytics pane shows the default again. Returns the default layout. 404 when the person does not have UI customization enabled.
- * @summary Reset the person's analytics sidebar
+ * Removes the person's saved layout for the selected context and returns its default. Unknown contexts and people without UI customization enabled receive 404.
+ * @summary Reset the person's UI customization
  */
-export const uiCustomizationAnalyticsSidebarDestroy = async (
+export const uiCustomizationDestroy = async (
     projectId: string,
+    context: 'analytics_sidebar',
     options?: RequestInit
-): Promise<AnalyticsSidebarApi> => {
-    return apiMutator<AnalyticsSidebarApi>(getUiCustomizationAnalyticsSidebarDestroyUrl(projectId), {
+): Promise<CustomizationApi> => {
+    return apiMutator<CustomizationApi>(getUiCustomizationDestroyUrl(projectId, context), {
         ...options,
         method: 'DELETE',
     })

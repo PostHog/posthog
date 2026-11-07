@@ -14171,18 +14171,6 @@ export namespace Schemas {
       sections: SidebarSection[];
     }
 
-    export interface AnalyticsSidebar {
-      /** The sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. */
-      layout: AnalyticsSidebarLayout;
-      /** True when the person saved their own layout. False for the default layout. */
-      customized: boolean;
-    }
-
-    export interface AnalyticsSidebarRequest {
-      /** The sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole sidebar, so send every section to keep. */
-      layout: AnalyticsSidebarLayout;
-    }
-
     /**
      * * `USR` - user
      * * `GIT` - GitHub
@@ -30871,6 +30859,18 @@ export namespace Schemas {
       email: string;
       /** The sender's display name. */
       name?: string;
+    }
+
+    export interface Customization {
+      /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. */
+      layout: AnalyticsSidebarLayout;
+      /** True when the person saved their own layout. False for the default layout. */
+      customized: boolean;
+    }
+
+    export interface CustomizationRequest {
+      /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole sidebar, so send every section to keep. */
+      layout: AnalyticsSidebarLayout;
     }
 
     export type DashboardFilters = { [key: string]: unknown };

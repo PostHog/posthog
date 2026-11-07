@@ -9,10 +9,13 @@
 import * as zod from 'zod'
 
 /**
- * The layout of the Analytics pane in the new navigation: the person's own layout, or the default when they have not saved one. Read it before you change it, so you keep the sections the person wants. 404 when the person does not have UI customization enabled.
- * @summary Get the person's analytics sidebar
+ * Returns the person's layout for the selected context, or its default. Read it before changing it. Unknown contexts and people without UI customization enabled receive 404.
+ * @summary Get the person's UI customization
  */
-export const UiCustomizationAnalyticsSidebarRetrieveParams = () => zod.object({
+export const UiCustomizationRetrieveParams = () => zod.object({
+    context: zod
+        .enum(['analytics_sidebar'])
+        .describe('The UI surface to customize. Each supported context defines its layout schema and defaults.'),
     project_id: zod
         .string()
         .describe(
@@ -21,10 +24,13 @@ export const UiCustomizationAnalyticsSidebarRetrieveParams = () => zod.object({
 })
 
 /**
- * Replaces the layout of the person's Analytics pane. It changes only the person who calls it, in this project. The pane shows the new layout the next time it loads. 400 lists every value that does not fit the layout schema. 404 when the person does not have UI customization enabled.
- * @summary Set the person's analytics sidebar
+ * Replaces the person's layout for the selected context in this project. The context defines its allowed layout schema and limits. Unknown contexts and people without UI customization enabled receive 404.
+ * @summary Set the person's UI customization
  */
-export const UiCustomizationAnalyticsSidebarUpdateParams = () => zod.object({
+export const UiCustomizationUpdateParams = () => zod.object({
+    context: zod
+        .enum(['analytics_sidebar'])
+        .describe('The UI surface to customize. Each supported context defines its layout schema and defaults.'),
     project_id: zod
         .string()
         .describe(
@@ -32,64 +38,56 @@ export const UiCustomizationAnalyticsSidebarUpdateParams = () => zod.object({
         ),
 })
 
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneVersionDefault = 1
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemIdMax = 32
+export const uiCustomizationUpdateBodyLayoutOneVersionDefault = 1
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemIdMax = 32
 
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemIdRegExp = new RegExp(
-    '^[a-z0-9]+(?:-[a-z0-9]+)\*$'
-)
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemTitleOneMax = 60
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemIdRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)\*$')
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemTitleOneMax = 60
 
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemTitleOneRegExp = new RegExp('^[^\\x00]\*$')
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneToTwoShortIdRegExp = new RegExp(
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemTitleOneRegExp = new RegExp('^[^\\x00]\*$')
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemOneToTwoShortIdRegExp = new RegExp(
     '^[A-Za-z0-9]{1,12}$'
 )
 
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneToFourShortIdRegExp = new RegExp(
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemOneToFourShortIdRegExp = new RegExp(
     '^[A-Za-z0-9]{1,12}$'
 )
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneMax = 60
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneMax = 60
 
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneRegExp = new RegExp(
-    '^[^\\x00]\*$'
-)
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoToTwoShortIdRegExp = new RegExp(
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneRegExp = new RegExp('^[^\\x00]\*$')
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemTwoToTwoShortIdRegExp = new RegExp(
     '^[A-Za-z0-9]{1,12}$'
 )
 
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoToFourShortIdRegExp = new RegExp(
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemTwoToFourShortIdRegExp = new RegExp(
     '^[A-Za-z0-9]{1,12}$'
 )
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelMax = 60
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelMax = 60
 
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelRegExp = new RegExp(
-    '^[^\\x00]\*$'
-)
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoVariantDefault = `outline`
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeInsightRegExp = new RegExp(
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelRegExp = new RegExp('^[^\\x00]\*$')
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemTwoVariantDefault = `outline`
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemThreeInsightRegExp = new RegExp(
     '^[A-Za-z0-9]{1,12}$'
 )
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelMax = 60
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelMax = 60
 
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelRegExp = new RegExp(
-    '^[^\\x00]\*$'
-)
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsMax = 12
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelRegExp = new RegExp('^[^\\x00]\*$')
+export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsMax = 12
 
-export const uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsMax = 10
+export const uiCustomizationUpdateBodyLayoutOneSectionsMax = 10
 
-export const UiCustomizationAnalyticsSidebarUpdateBody = () => zod.object({
+export const UiCustomizationUpdateBody = () => zod.object({
     layout: zod
         .object({
-            version: zod.number().default(uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneVersionDefault),
+            version: zod.number().default(uiCustomizationUpdateBodyLayoutOneVersionDefault),
             sections: zod
                 .array(
                     zod.object({
                         id: zod
                             .string()
                             .min(1)
-                            .max(uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemIdMax)
-                            .regex(uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemIdRegExp)
+                            .max(uiCustomizationUpdateBodyLayoutOneSectionsItemIdMax)
+                            .regex(uiCustomizationUpdateBodyLayoutOneSectionsItemIdRegExp)
                             .describe(
                                 "Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID."
                             ),
@@ -98,10 +96,8 @@ export const UiCustomizationAnalyticsSidebarUpdateBody = () => zod.object({
                                 zod
                                     .string()
                                     .min(1)
-                                    .max(uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemTitleOneMax)
-                                    .regex(
-                                        uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemTitleOneRegExp
-                                    ),
+                                    .max(uiCustomizationUpdateBodyLayoutOneSectionsItemTitleOneMax)
+                                    .regex(uiCustomizationUpdateBodyLayoutOneSectionsItemTitleOneRegExp),
                                 zod.null(),
                             ])
                             .optional()
@@ -165,7 +161,7 @@ export const UiCustomizationAnalyticsSidebarUpdateBody = () => zod.object({
                                                         short_id: zod
                                                             .string()
                                                             .regex(
-                                                                uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneToTwoShortIdRegExp
+                                                                uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemOneToTwoShortIdRegExp
                                                             )
                                                             .describe(
                                                                 "The insight's short ID, as in \/insights\/<short_id>."
@@ -180,7 +176,7 @@ export const UiCustomizationAnalyticsSidebarUpdateBody = () => zod.object({
                                                         short_id: zod
                                                             .string()
                                                             .regex(
-                                                                uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneToFourShortIdRegExp
+                                                                uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemOneToFourShortIdRegExp
                                                             )
                                                             .describe(
                                                                 "The notebook's short ID, as in \/notebooks\/<short_id>."
@@ -196,10 +192,10 @@ export const UiCustomizationAnalyticsSidebarUpdateBody = () => zod.object({
                                                         .string()
                                                         .min(1)
                                                         .max(
-                                                            uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneMax
+                                                            uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneMax
                                                         )
                                                         .regex(
-                                                            uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneRegExp
+                                                            uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneRegExp
                                                         ),
                                                     zod.null(),
                                                 ])
@@ -263,7 +259,7 @@ export const UiCustomizationAnalyticsSidebarUpdateBody = () => zod.object({
                                                         short_id: zod
                                                             .string()
                                                             .regex(
-                                                                uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoToTwoShortIdRegExp
+                                                                uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemTwoToTwoShortIdRegExp
                                                             )
                                                             .describe(
                                                                 "The insight's short ID, as in \/insights\/<short_id>."
@@ -278,7 +274,7 @@ export const UiCustomizationAnalyticsSidebarUpdateBody = () => zod.object({
                                                         short_id: zod
                                                             .string()
                                                             .regex(
-                                                                uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoToFourShortIdRegExp
+                                                                uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemTwoToFourShortIdRegExp
                                                             )
                                                             .describe(
                                                                 "The notebook's short ID, as in \/notebooks\/<short_id>."
@@ -291,11 +287,9 @@ export const UiCustomizationAnalyticsSidebarUpdateBody = () => zod.object({
                                             label: zod
                                                 .string()
                                                 .min(1)
-                                                .max(
-                                                    uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelMax
-                                                )
+                                                .max(uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelMax)
                                                 .regex(
-                                                    uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelRegExp
+                                                    uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelRegExp
                                                 ),
                                             icon: zod
                                                 .union([
@@ -327,7 +321,7 @@ export const UiCustomizationAnalyticsSidebarUpdateBody = () => zod.object({
                                             variant: zod
                                                 .enum(['default', 'primary', 'outline'])
                                                 .default(
-                                                    uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoVariantDefault
+                                                    uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemTwoVariantDefault
                                                 ),
                                         })
                                         .describe(
@@ -339,17 +333,17 @@ export const UiCustomizationAnalyticsSidebarUpdateBody = () => zod.object({
                                             insight: zod
                                                 .string()
                                                 .regex(
-                                                    uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeInsightRegExp
+                                                    uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemThreeInsightRegExp
                                                 )
                                                 .describe('Short ID of a trends insight.'),
                                             label: zod
                                                 .string()
                                                 .min(1)
                                                 .max(
-                                                    uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelMax
+                                                    uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelMax
                                                 )
                                                 .regex(
-                                                    uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelRegExp
+                                                    uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelRegExp
                                                 )
                                                 .describe('Short name of the number, such as Signups.'),
                                         })
@@ -365,23 +359,26 @@ export const UiCustomizationAnalyticsSidebarUpdateBody = () => zod.object({
                                 ])
                             )
                             .min(1)
-                            .max(uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsMax),
+                            .max(uiCustomizationUpdateBodyLayoutOneSectionsItemItemsMax),
                     })
                 )
                 .min(1)
-                .max(uiCustomizationAnalyticsSidebarUpdateBodyLayoutOneSectionsMax),
+                .max(uiCustomizationUpdateBodyLayoutOneSectionsMax),
         })
         .describe('The sections of the Analytics pane, from top to bottom. A section with no items to show is hidden.')
         .describe(
-            "The sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole sidebar, so send every section to keep."
+            "The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole sidebar, so send every section to keep."
         ),
 })
 
 /**
- * Removes the person's own layout, so the Analytics pane shows the default again. Returns the default layout. 404 when the person does not have UI customization enabled.
- * @summary Reset the person's analytics sidebar
+ * Removes the person's saved layout for the selected context and returns its default. Unknown contexts and people without UI customization enabled receive 404.
+ * @summary Reset the person's UI customization
  */
-export const UiCustomizationAnalyticsSidebarDestroyParams = () => zod.object({
+export const UiCustomizationDestroyParams = () => zod.object({
+    context: zod
+        .enum(['analytics_sidebar'])
+        .describe('The UI surface to customize. Each supported context defines its layout schema and defaults.'),
     project_id: zod
         .string()
         .describe(

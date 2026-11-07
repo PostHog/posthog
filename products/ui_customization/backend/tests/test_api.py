@@ -13,8 +13,8 @@ from posthog.models import Organization, OrganizationMembership, PersonalAPIKey,
 from posthog.models.personal_api_key import hash_key_value
 
 from products.ui_customization.backend.facade import api as customization_facade
+from products.ui_customization.backend.facade.enums import CustomizationContext
 from products.ui_customization.backend.facade.tasks import delete_orphaned_fragments
-from products.ui_customization.backend.logic.analytics_sidebar import SIDEBAR_CONTEXT
 from products.ui_customization.backend.logic.cleanup import delete_orphaned_fragment_batch
 from products.ui_customization.backend.models import UserInterfaceFragment
 from products.ui_customization.backend.tests.conftest import UICustomizationTeamScopedTestMixin
@@ -24,16 +24,30 @@ if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
 
 
-class TestAnalyticsSidebarAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
+class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
     databases = {"default", "ui_customization_db_writer", "ui_customization_db_reader"}
 
-    def _call(self, method: str, body: dict | None = None, flag: bool = True) -> "_MonkeyPatchedResponse":
+    def _call(
+        self, method: str, body: dict | None = None, flag: bool = True, context: str = "analytics_sidebar"
+    ) -> "_MonkeyPatchedResponse":
         with patch(
             "products.ui_customization.backend.facade.feature_flags.posthog_feature_flag_value", return_value=flag
         ):
             return getattr(self.client, method)(
-                f"/api/projects/{self.team.id}/ui_customization/analytics_sidebar/", body, format="json"
+                f"/api/projects/{self.team.id}/ui_customization/{context}/", body, format="json"
             )
+
+    @parameterized.expand([("get",), ("put",), ("delete",)])
+    def test_unknown_context_does_not_read_or_change_stored_fragments(self, method: str) -> None:
+        fragment = UserInterfaceFragment.objects.create(
+            team_id=self.team.id, user_id=self.user.id, context="unknown", content=GROWTH_LAYOUT
+        )
+        with self.assertNumQueries(0, using="ui_customization_db_writer"):
+            with self.assertNumQueries(0, using="ui_customization_db_reader"):
+                response = self._call(method, {"layout": GROWTH_LAYOUT} if method == "put" else None, context="unknown")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        fragment.refresh_from_db()
+        assert fragment.content == GROWTH_LAYOUT
 
     def _section_ids(self, response: "_MonkeyPatchedResponse") -> tuple[bool, list[str]]:
         body = response.json()
@@ -71,12 +85,12 @@ class TestAnalyticsSidebarAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
         self._call("put", {"layout": GROWTH_LAYOUT})
 
         assert (
-            customization_facade.get_analytics_sidebar(team=child, user=self.user).layout.model_dump(
-                mode="json", exclude_none=True
-            )
+            customization_facade.get_customization(
+                team=child, user=self.user, context="analytics_sidebar"
+            ).layout.model_dump(mode="json", exclude_none=True)
             == GROWTH_LAYOUT
         )
-        customization_facade.reset_analytics_sidebar(team=child, user=self.user)
+        customization_facade.reset_customization(team=child, user=self.user, context="analytics_sidebar")
 
         assert self._call("get").json()["customized"] is False
 
@@ -141,7 +155,7 @@ class TestAnalyticsSidebarAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
         teammate = self._create_user("fragment-teammate@example.com")
         for team_id in [self.team.id, other_team.id]:
             for user_id in [self.user.id, teammate.id]:
-                for context in [SIDEBAR_CONTEXT, "OtherSurface"]:
+                for context in [CustomizationContext.ANALYTICS_SIDEBAR, "OtherSurface"]:
                     UserInterfaceFragment.objects.for_team(team_id).create(
                         team_id=team_id, user_id=user_id, context=context, content={"title": context}
                     )
@@ -153,7 +167,7 @@ class TestAnalyticsSidebarAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
         assert set(UserInterfaceFragment.objects.for_team(other_team.id).values_list("user_id", "context")) == {
             (user_id, context)
             for user_id in [self.user.id, teammate.id]
-            for context in [SIDEBAR_CONTEXT, "OtherSurface"]
+            for context in [CustomizationContext.ANALYTICS_SIDEBAR, "OtherSurface"]
         }
 
     def test_a_layout_outside_the_schema_is_rejected_and_names_the_value(self) -> None:
@@ -169,7 +183,7 @@ class TestAnalyticsSidebarAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
     def test_a_stored_layout_the_schema_no_longer_accepts_shows_the_default_and_stays_stored(self) -> None:
         stored = {"sections": [{"id": "x", "items": [{"type": "retired_widget"}]}]}
         UserInterfaceFragment.objects.create(
-            team_id=self.team.id, user_id=self.user.id, context=SIDEBAR_CONTEXT, content=stored
+            team_id=self.team.id, user_id=self.user.id, context=CustomizationContext.ANALYTICS_SIDEBAR, content=stored
         )
 
         response = self._call("get")

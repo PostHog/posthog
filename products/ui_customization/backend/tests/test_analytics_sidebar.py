@@ -1,4 +1,5 @@
 from copy import deepcopy
+from types import SimpleNamespace
 from typing import Any
 
 from django.test import SimpleTestCase
@@ -6,7 +7,10 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import serializers
 
-from products.ui_customization.backend.presentation.serializers import AnalyticsSidebarLayoutField
+from posthog.models import Team, User
+
+from products.ui_customization.backend.facade import api
+from products.ui_customization.backend.presentation.serializers import CustomizationRequestSerializer
 
 GROWTH_LAYOUT: dict[str, Any] = {
     "version": 1,
@@ -62,7 +66,9 @@ class TestAnalyticsSidebarLayout(SimpleTestCase):
                 for start in range(0, item_count, 12)
             ],
         }
-        field = AnalyticsSidebarLayoutField()
+        field = CustomizationRequestSerializer(
+            context={"view": SimpleNamespace(kwargs={"context": "analytics_sidebar"})}
+        ).fields["layout"]
         if accepted:
             result = field.to_representation(field.to_internal_value(layout))
             assert sum(len(section["items"]) for section in result["sections"]) == item_count
@@ -80,7 +86,9 @@ class TestAnalyticsSidebarLayout(SimpleTestCase):
             "label": "Signups",
         }
 
-        field = AnalyticsSidebarLayoutField()
+        field = CustomizationRequestSerializer(
+            context={"view": SimpleNamespace(kwargs={"context": "analytics_sidebar"})}
+        ).fields["layout"]
         assert field.to_representation(field.to_internal_value(layout)) == layout
 
     @parameterized.expand([("",), ("a" * 13,), ("../insights",), ("a?query",), ("a#hash",)])
@@ -91,11 +99,15 @@ class TestAnalyticsSidebarLayout(SimpleTestCase):
         ]
         for item in items:
             with self.assertRaises(serializers.ValidationError):
-                AnalyticsSidebarLayoutField().to_internal_value(_item(item))
+                CustomizationRequestSerializer(
+                    context={"view": SimpleNamespace(kwargs={"context": "analytics_sidebar"})}
+                ).fields["layout"].to_internal_value(_item(item))
 
     @parameterized.expand([("Zx9Yw8Vu",), ("scratchpad",), ("aB3dE5fG7hIj",), ("a",)])
     def test_a_layout_with_every_kind_of_item_round_trips(self, notebook_short_id: str) -> None:
-        field = AnalyticsSidebarLayoutField()
+        field = CustomizationRequestSerializer(
+            context={"view": SimpleNamespace(kwargs={"context": "analytics_sidebar"})}
+        ).fields["layout"]
         layout = _with(["sections", 0, "items", 2, "to", "short_id"], notebook_short_id)
 
         assert field.to_representation(field.to_internal_value(layout)) == layout
@@ -190,6 +202,16 @@ class TestAnalyticsSidebarLayout(SimpleTestCase):
         self, _name: str, layout: dict[str, Any], path: str
     ) -> None:
         with self.assertRaises(serializers.ValidationError) as raised:
-            AnalyticsSidebarLayoutField().to_internal_value(layout)
+            CustomizationRequestSerializer(
+                context={"view": SimpleNamespace(kwargs={"context": "analytics_sidebar"})}
+            ).fields["layout"].to_internal_value(layout)
 
         assert any(str(message).startswith(f"{path}:") for message in raised.exception.detail), raised.exception.detail
+
+
+class TestCustomizationContexts(SimpleTestCase):
+    @parameterized.expand([("get_customization",), ("set_customization",), ("reset_customization",)])
+    def test_unknown_context_is_rejected_before_storage(self, operation: str) -> None:
+        kwargs = {"layout": GROWTH_LAYOUT} if operation == "set_customization" else {}
+        with self.assertRaisesRegex(ValueError, "Unsupported customization context"):
+            getattr(api, operation)(team=Team(id=1), user=User(id=1), context="unknown", **kwargs)

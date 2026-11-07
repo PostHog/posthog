@@ -145,7 +145,10 @@ class AnalyticsSidebarLayout(_SidebarModel):
         return self
 
 
+CustomizationLayout = AnalyticsSidebarLayout
+
+
 @frozen
-class AnalyticsSidebar:
-    layout: AnalyticsSidebarLayout
+class Customization:
+    layout: CustomizationLayout
     customized: bool

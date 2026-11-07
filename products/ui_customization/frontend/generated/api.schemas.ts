@@ -185,14 +185,14 @@ export interface AnalyticsSidebarLayoutApi {
     sections: SidebarSectionApi[]
 }
 
-export interface AnalyticsSidebarApi {
-    /** The sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. */
+export interface CustomizationApi {
+    /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. */
     layout: AnalyticsSidebarLayoutApi
     /** True when the person saved their own layout. False for the default layout. */
     customized: boolean
 }
 
-export interface AnalyticsSidebarRequestApi {
-    /** The sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole sidebar, so send every section to keep. */
+export interface CustomizationRequestApi {
+    /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole sidebar, so send every section to keep. */
     layout: AnalyticsSidebarLayoutApi
 }

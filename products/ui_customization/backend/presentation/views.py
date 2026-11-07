@@ -1,6 +1,6 @@
 from typing import cast
 
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -14,36 +14,44 @@ from posthog.models import User
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from ..facade import api
-from .serializers import AnalyticsSidebarRequestSerializer, AnalyticsSidebarSerializer
+from ..facade.enums import CustomizationContext
+from .serializers import CustomizationRequestSerializer, CustomizationSerializer
 
 
-class AnalyticsSidebarBurstThrottle(UserRateThrottle):
-    scope = "ui_customization_analytics_sidebar_burst"
+class CustomizationBurstThrottle(UserRateThrottle):
+    scope = "ui_customization_burst"
     rate = "30/minute"
 
 
-class AnalyticsSidebarSustainedThrottle(UserRateThrottle):
-    scope = "ui_customization_analytics_sidebar_sustained"
+class CustomizationSustainedThrottle(UserRateThrottle):
+    scope = "ui_customization_sustained"
     rate = "300/day"
 
 
-ANALYTICS_SIDEBAR_THROTTLES = [
+CUSTOMIZATION_THROTTLES = [
     BurstRateThrottle,
     SustainedRateThrottle,
-    AnalyticsSidebarBurstThrottle,
-    AnalyticsSidebarSustainedThrottle,
+    CustomizationBurstThrottle,
+    CustomizationSustainedThrottle,
 ]
-ANALYTICS_SIDEBAR_WRITES = ["set_analytics_sidebar", "reset_analytics_sidebar"]
+CUSTOMIZATION_WRITES = ["set_customization", "reset_customization"]
+CONTEXT_PARAMETER = OpenApiParameter(
+    "context",
+    str,
+    OpenApiParameter.PATH,
+    enum=list(CustomizationContext),
+    description="The UI surface to customize. Each supported context defines its layout schema and defaults.",
+)
 
 
 class UICustomizationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "user"
-    scope_object_read_actions = ["analytics_sidebar"]
-    scope_object_write_actions = ANALYTICS_SIDEBAR_WRITES
+    scope_object_read_actions = ["get_customization"]
+    scope_object_write_actions = CUSTOMIZATION_WRITES
 
     def get_throttles(self) -> list[BaseThrottle]:
-        if self.action in ANALYTICS_SIDEBAR_WRITES:
-            return [throttle() for throttle in ANALYTICS_SIDEBAR_THROTTLES]
+        if self.action in CUSTOMIZATION_WRITES:
+            return [throttle() for throttle in CUSTOMIZATION_THROTTLES]
         return super().get_throttles()
 
     def _customization_user(self) -> User:
@@ -52,35 +60,52 @@ class UICustomizationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise NotFound()
         return user
 
-    @validated_request(
-        responses={200: OpenApiResponse(response=AnalyticsSidebarSerializer)},
-        summary="Get the person's analytics sidebar",
-        description="The layout of the Analytics pane in the new navigation: the person's own layout, or the default when they have not saved one. Read it before you change it, so you keep the sections the person wants. 404 when the person does not have UI customization enabled.",
-    )
-    @action(detail=False, methods=["get"], url_path="analytics_sidebar")
-    def analytics_sidebar(self, request: Request, **kwargs) -> Response:
-        found = api.get_analytics_sidebar(team=self.team, user=self._customization_user())
-        return Response(AnalyticsSidebarSerializer(found).data)
+    def initial(self, request: Request, *args, **kwargs) -> None:
+        super().initial(request, *args, **kwargs)
+        try:
+            api.validate_customization_context(self.kwargs["context"])
+        except ValueError:
+            raise NotFound("Unsupported customization context.") from None
+
+    def get_serializer_context(self) -> dict:
+        return {**super().get_serializer_context(), "request": self.request, "view": self}
 
     @validated_request(
-        request_serializer=AnalyticsSidebarRequestSerializer,
-        responses={200: OpenApiResponse(response=AnalyticsSidebarSerializer)},
-        summary="Set the person's analytics sidebar",
-        description="Replaces the layout of the person's Analytics pane. It changes only the person who calls it, in this project. The pane shows the new layout the next time it loads. 400 lists every value that does not fit the layout schema. 404 when the person does not have UI customization enabled.",
+        parameters=[CONTEXT_PARAMETER],
+        responses={200: OpenApiResponse(response=CustomizationSerializer)},
+        operation_id="ui_customization_retrieve",
+        summary="Get the person's UI customization",
+        description="Returns the person's layout for the selected context, or its default. Read it before changing it. Unknown contexts and people without UI customization enabled receive 404.",
     )
-    @analytics_sidebar.mapping.put
-    def set_analytics_sidebar(self, request: Request, **kwargs) -> Response:
-        saved = api.set_analytics_sidebar(
-            team=self.team, user=self._customization_user(), layout=request.validated_data["layout"]
+    @action(detail=False, methods=["get"], url_path=r"(?P<context>[^/.]+)")
+    def get_customization(self, request: Request, context: str, **kwargs) -> Response:
+        found = api.get_customization(team=self.team, user=self._customization_user(), context=context)
+        return Response(CustomizationSerializer(found).data)
+
+    @validated_request(
+        parameters=[CONTEXT_PARAMETER],
+        request_serializer=CustomizationRequestSerializer,
+        include_serializer_context=True,
+        responses={200: OpenApiResponse(response=CustomizationSerializer)},
+        operation_id="ui_customization_update",
+        summary="Set the person's UI customization",
+        description="Replaces the person's layout for the selected context in this project. The context defines its allowed layout schema and limits. Unknown contexts and people without UI customization enabled receive 404.",
+    )
+    @get_customization.mapping.put
+    def set_customization(self, request: Request, context: str, **kwargs) -> Response:
+        saved = api.set_customization(
+            team=self.team, user=self._customization_user(), context=context, layout=request.validated_data["layout"]
         )
-        return Response(AnalyticsSidebarSerializer(saved).data)
+        return Response(CustomizationSerializer(saved).data)
 
     @validated_request(
-        responses={200: OpenApiResponse(response=AnalyticsSidebarSerializer)},
-        summary="Reset the person's analytics sidebar",
-        description="Removes the person's own layout, so the Analytics pane shows the default again. Returns the default layout. 404 when the person does not have UI customization enabled.",
+        parameters=[CONTEXT_PARAMETER],
+        responses={200: OpenApiResponse(response=CustomizationSerializer)},
+        operation_id="ui_customization_destroy",
+        summary="Reset the person's UI customization",
+        description="Removes the person's saved layout for the selected context and returns its default. Unknown contexts and people without UI customization enabled receive 404.",
     )
-    @analytics_sidebar.mapping.delete
-    def reset_analytics_sidebar(self, request: Request, **kwargs) -> Response:
-        default = api.reset_analytics_sidebar(team=self.team, user=self._customization_user())
-        return Response(AnalyticsSidebarSerializer(default).data)
+    @get_customization.mapping.delete
+    def reset_customization(self, request: Request, context: str, **kwargs) -> Response:
+        default = api.reset_customization(team=self.team, user=self._customization_user(), context=context)
+        return Response(CustomizationSerializer(default).data)
