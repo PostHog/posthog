@@ -16,7 +16,25 @@ import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
 import type { HogFlowTemplate } from './hogflows/types'
+import { parseFacetQuery } from './WorkflowsListV2/FacetSearchBar/facetQuery'
+import { buildWorkflowListFacets } from './WorkflowsListV2/workflowListFacets'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
+
+function newWorkflowFolderParams(
+    searchParams: Record<string, unknown>,
+    projectBrowser: boolean
+): Record<string, string> {
+    const carriedFolder = new URLSearchParams(router.values.location.search).get('_create_in_folder')
+    if (!projectBrowser) {
+        return {}
+    }
+    const folder =
+        carriedFolder ??
+        parseFacetQuery(typeof searchParams.q === 'string' ? searchParams.q : '', buildWorkflowListFacets([])).find(
+            (filter) => filter.facet === 'in' && !filter.negated
+        )?.value
+    return folder && folder !== 'Unfiled' ? { _create_in_folder: folder } : {}
+}
 
 /** The new-workflow URL for an entry that means "start from nothing", the only kind the composer answers. */
 export function urlForNewWorkflowComposer(): string {
@@ -154,7 +172,14 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
                 posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW)
             }
             if (values.aiFirstNewEnabled) {
-                router.actions.push(urls.workflowNew(), { [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE })
+                router.actions.push(urls.workflowNew(), {
+                    ...newWorkflowFolderParams(
+                        values.searchParams,
+                        !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2] &&
+                            !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]
+                    ),
+                    [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE,
+                })
             } else {
                 actions.showNewWorkflowModal()
             }
@@ -163,15 +188,28 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
             actions.showNewWorkflowModal()
         },
         createWorkflowFromTemplate: ({ template }) => {
+            const folderParams = newWorkflowFolderParams(
+                values.searchParams,
+                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2] &&
+                    !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]
+            )
             actions.hideNewWorkflowModal()
-            router.actions.push(urls.workflowNew(), { templateId: template.id })
+            router.actions.push(urls.workflowNew(), {
+                ...folderParams,
+                templateId: template.id,
+            })
         },
         createEmptyWorkflow: () => {
-            actions.hideNewWorkflowModal()
-            router.actions.push(
-                urls.workflowNew(),
-                values.aiFirstNewEnabled ? { [EDITOR_MODE_PARAM]: EDITOR_MODE_VALUE } : {}
+            const folderParams = newWorkflowFolderParams(
+                values.searchParams,
+                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2] &&
+                    !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]
             )
+            actions.hideNewWorkflowModal()
+            router.actions.push(urls.workflowNew(), {
+                ...folderParams,
+                ...(values.aiFirstNewEnabled ? { [EDITOR_MODE_PARAM]: EDITOR_MODE_VALUE } : {}),
+            })
         },
     })),
     urlToAction(({ actions }) => ({

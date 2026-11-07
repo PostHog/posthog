@@ -5,10 +5,13 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -77,6 +80,9 @@ describe('workflowsListV2Logic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES], {
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true,
+        })
     })
 
     afterEach(() => {
@@ -98,6 +104,88 @@ describe('workflowsListV2Logic', () => {
             text: '',
         })
         expect(logic.values.templateTypeFilter).toBe('all')
+    })
+
+    it('keeps the existing list facets when project files are disabled', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.facets.map((facet) => facet.key)).not.toContain('in')
+        await expectLogic(logic, () =>
+            router.actions.push(urls.workflows(), { q: 'in:Campaigns' })
+        ).toFinishAllListeners()
+        expect(logic.values.value.filters).toEqual([])
+    })
+
+    it.each(['in', 'path', 'folder', 'Folder'])(
+        'opens a project folder and restores it from %s: in the URL',
+        async (key) => {
+            logic = workflowsListV2Logic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const unmountTree = projectTreeDataLogic.mount()
+            const workflow = FIXTURE_WORKFLOWS[0]
+            projectTreeDataLogic.actions.loadFolderSuccess(
+                'Campaigns',
+                [{ id: 'file-welcome', path: 'Campaigns/Welcome', type: 'hog_flow', ref: workflow.id }],
+                false,
+                1
+            )
+            projectTreeDataLogic.actions.loadFolderSuccess(
+                'campaigns',
+                [{ id: 'file-renewal', path: 'campaigns/Renewal', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[1].id }],
+                false,
+                1
+            )
+            logic.actions.setValue({ filters: [{ facet: 'in', value: 'Campaigns', negated: false }], text: '' })
+            expect(shownIds(logic)).toEqual([workflow.id])
+            unmountTree()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.searchParams.q).toBe('in:Campaigns')
+            logic.actions.clearFilters()
+            router.actions.push(urls.workflows(), { q: `${key}:Campaigns` })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(shownIds(logic)).toEqual([workflow.id])
+            expect(router.values.searchParams.q).toBe('in:Campaigns')
+        }
+    )
+
+    it('does not treat a shortcut-only folder as the workflow folder', async () => {
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const workflow = FIXTURE_WORKFLOWS[0]
+        projectTreeDataLogic.actions.loadFolderSuccess(
+            'Z',
+            [{ id: 'shortcut', path: 'Z/Welcome', type: 'hog_flow', ref: workflow.id, shortcut: true }],
+            false,
+            1
+        )
+        logic.actions.setValue({ filters: [{ facet: 'in', value: 'Z', negated: false }], text: '' })
+        expect(shownIds(logic)).toEqual([])
+    })
+
+    it('uses the original workflow entry when a shortcut sorts after it', async () => {
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const workflow = FIXTURE_WORKFLOWS[0]
+        projectTreeDataLogic.actions.loadFolderSuccess(
+            'Campaigns',
+            [{ id: 'original', path: 'Campaigns/Welcome', type: 'hog_flow', ref: workflow.id, shortcut: false }],
+            false,
+            1
+        )
+        projectTreeDataLogic.actions.loadFolderSuccess(
+            'Z',
+            [{ id: 'shortcut', path: 'Z/Welcome', type: 'hog_flow', ref: workflow.id, shortcut: true }],
+            false,
+            1
+        )
+        logic.actions.setValue({ filters: [{ facet: 'in', value: 'Campaigns', negated: false }], text: '' })
+        expect(shownIds(logic)).toEqual([workflow.id])
+        expect(projectTreeDataLogic.values.itemsByRef[`hog_flow::${workflow.id}`].id).toBe('original')
     })
 
     it('loads every page of workflows, newest first', async () => {

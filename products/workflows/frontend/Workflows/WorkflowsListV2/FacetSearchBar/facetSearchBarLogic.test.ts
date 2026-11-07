@@ -45,6 +45,13 @@ const FACETS: FacetDefinition<Item>[] = [
         getValues: () => [],
         emptyLabel: 'Health shows once run metrics load',
     },
+    {
+        key: 'folder',
+        label: 'Folder',
+        description: 'Exact folder name',
+        caseSensitive: true,
+        getValues: (item) => [item.name],
+    },
 ]
 
 const ITEMS: Item[] = [
@@ -173,6 +180,12 @@ describe('facetSearchBarLogic', () => {
             [{ facet: 'status', value: 'active', negated: true }],
             'wel ',
         ],
+        [
+            'a case-sensitive value in its own case',
+            'folder:Sync',
+            [{ facet: 'folder', value: 'Sync', negated: false }],
+            '',
+        ],
     ])('commits %s that names exactly one option without Space', (_, typed, filters, input) => {
         mountWith({ filters: [], text: '' })
         logic.actions.setInput(typed)
@@ -184,6 +197,7 @@ describe('facetSearchBarLogic', () => {
         ['the start of several values', [], 'status:a'],
         ['a value another value starts with', [], 'sends:deals'],
         ['a value in an open quote', [], 'sends:"Deals for you'],
+        ['a case-sensitive value in another case', [], 'folder:sync'],
         ['a value that is already a pill', [{ facet: 'status', value: 'draft', negated: false }], 'status:draft'],
         [
             'a value a pill already resolves to',
