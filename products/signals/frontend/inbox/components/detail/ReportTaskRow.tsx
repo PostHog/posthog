@@ -1,20 +1,14 @@
-import { combineUrl } from 'kea-router'
-import { useCallback } from 'react'
-
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
 
-import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
-import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
-import { captureInboxRunSummaryViewed } from '../../inboxAnalytics'
 import type { ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { resolveRunVariant, RunStatusIndicator } from '../cards/runStatusVariant'
 import { RunLogContainer } from './RunLogContainer'
+import { useReportTaskRow } from './useReportTaskRow'
 
 /**
  * One row of a report's Runs list: the run's status, its purpose label, and — on hover or keyboard
@@ -35,21 +29,8 @@ export function ReportTaskRow({
     expanded: boolean
     onToggle: () => void
 }): JSX.Element {
-    const { task, purpose, purposeLabel } = entry
-
-    const status = task.latest_run?.status ?? TaskRunStatus.NOT_STARTED
-    const runId = task.latest_run?.id ?? null
-    const replayOnly = isTerminalRunStatus(task.latest_run?.status)
-    const summary = task.latest_run?.task_summary?.trim() || null
-
-    const captureSummaryViewed = useCallback(
-        () => captureInboxRunSummaryViewed({ purpose, status, summaryLength: summary?.length ?? 0 }),
-        [purpose, status, summary]
-    )
-
-    // Deep link to the run's own page in Tasks — the inline transcript is a preview, this is the
-    // full surface (run history, composer). Falls back to the task when no run has started yet.
-    const taskUrl = runId ? combineUrl(urls.taskDetail(task.id), { runId }).url : urls.taskDetail(task.id)
+    const { task, purposeLabel } = entry
+    const { status, runId, replayOnly, summary, taskUrl, captureSummaryViewed } = useReportTaskRow(entry)
 
     const expandButton = (
         <button

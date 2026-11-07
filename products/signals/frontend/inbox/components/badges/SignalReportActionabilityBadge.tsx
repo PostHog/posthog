@@ -1,35 +1,15 @@
 import { IconQuestion } from '@posthog/icons'
-import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { SignalReportActionability } from '../../types'
+import { ACTIONABILITY_PRESENTATION } from './actionabilityPresentation'
 
-// `textColor` mirrors the LemonTag text color for each `type` (see LemonTag.scss; for these outlined
-// types the text and border share the same var), so the overlaid help icon matches the tag's text.
-const ACTIONABILITY_STYLE: Record<
-    SignalReportActionability,
-    { type: LemonTagType; label: string; tooltip: string; textColor: string }
-> = {
-    immediately_actionable: {
-        type: 'success',
-        label: 'Actionable',
-        tooltip:
-            "The report can be solved with code. If there isn't a pull request yet, it fell below your auto-PR priority threshold. You can still start one from this report.",
-        textColor: 'var(--success)',
-    },
-    requires_human_input: {
-        type: 'caution',
-        label: 'Needs input',
-        tooltip:
-            'Actionable, but it needs your input first to decide how to resolve it: business context, trade-offs, or a choice between several valid approaches.',
-        textColor: 'var(--danger-lighter)',
-    },
-    not_actionable: {
-        type: 'muted',
-        label: 'Not actionable',
-        tooltip:
-            'No useful code change can be derived because the report is too vague, lacks supporting evidence, or describes expected behavior.',
-        textColor: 'var(--color-text-secondary)',
-    },
+// Mirrors the LemonTag text color for each `type` (see LemonTag.scss; for these outlined types the
+// text and border share the same var), so the overlaid help icon matches the tag's text.
+const ACTIONABILITY_TEXT_COLOR: Record<SignalReportActionability, string> = {
+    immediately_actionable: 'var(--success)',
+    requires_human_input: 'var(--danger-lighter)',
+    not_actionable: 'var(--color-text-secondary)',
 }
 
 export function SignalReportActionabilityBadge({
@@ -47,8 +27,8 @@ export function SignalReportActionabilityBadge({
         return null
     }
 
-    const style = ACTIONABILITY_STYLE[actionability]
-    if (!style) {
+    const presentation = ACTIONABILITY_PRESENTATION[actionability]
+    if (!presentation) {
         return null
     }
 
@@ -57,16 +37,16 @@ export function SignalReportActionabilityBadge({
     // LemonTag to Base UI as the trigger. When a rationale exists the help icon overlays the (rounded)
     // top-right corner and the tooltip carries the rationale; otherwise it's the generic category blurb.
     return (
-        <Tooltip title={hasWhy ? explanation : style.tooltip}>
+        <Tooltip title={hasWhy ? explanation : presentation.tooltip}>
             <span className="relative inline-flex cursor-help">
-                <LemonTag size="small" type={style.type} className="select-none">
-                    {style.label}
+                <LemonTag size="small" type={presentation.type} className="select-none">
+                    {presentation.label}
                 </LemonTag>
                 {hasWhy && (
                     <IconQuestion
                         className="absolute right-0 top-0 size-3 -translate-y-1/2 translate-x-1/2 rounded-full bg-surface-primary"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ color: style.textColor }}
+                        style={{ color: ACTIONABILITY_TEXT_COLOR[actionability] }}
                     />
                 )}
             </span>

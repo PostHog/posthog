@@ -5,7 +5,7 @@ import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
 import { DetailSection } from './DetailSection'
-import { ReviewerClaim } from './SuggestedReviewerClaimControls'
+import { ReviewerClaim } from './suggestedReviewers'
 import { SuggestedReviewersList } from './SuggestedReviewersList'
 
 export function SuggestedReviewersSectionView({

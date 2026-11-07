@@ -6,8 +6,8 @@ import userEvent from '@testing-library/user-event'
 import { initKeaTests } from '~/test/init'
 
 import { EnrichedReviewer } from '../../types'
-import { ReviewerClaim, reviewerClaimRemoveDisabledReason } from './SuggestedReviewerClaimControls'
 import { SuggestedReviewerPerson } from './SuggestedReviewerPerson'
+import { ReviewerClaim, reviewerClaimRemoveDisabledReason } from './suggestedReviewers'
 import { SuggestedReviewersSectionMockup } from './SuggestedReviewersSectionMockup'
 
 describe('Suggested reviewer presentation', () => {
