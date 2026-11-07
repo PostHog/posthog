@@ -10,7 +10,6 @@ import {
     ComboboxGroup,
     ComboboxInput,
     ComboboxItem,
-    ComboboxLabel,
     ComboboxList,
     ComboboxSeparator,
     ComboboxTrigger,
@@ -156,11 +155,7 @@ export function TodayPulseEditor(): JSX.Element {
                 <ComboboxList>
                     {(group: EditorGroup) => (
                         <ComboboxGroup key={group.pinned ? 'pinned' : 'others'} items={group.items}>
-                            {group.pinned ? (
-                                <ComboboxLabel>Pinned</ComboboxLabel>
-                            ) : groups.length > 1 ? (
-                                <ComboboxSeparator />
-                            ) : null}
+                            {!group.pinned && groups.length > 1 ? <ComboboxSeparator /> : null}
                             <ComboboxCollection>
                                 {(key: string) => {
                                     const row = rowByKey.get(key)
