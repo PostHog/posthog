@@ -10,13 +10,17 @@ from posthog.models.event_filter_config import (
     MAX_TREE_DEPTH,
     EventFilterConfig,
     EventFilterMode,
+    add_event_name_drop,
     evaluate_filter_tree,
     prune_filter_tree,
     run_test_cases,
+    tree_drops_event_name,
     tree_has_conditions,
     validate_filter_tree,
     validate_test_cases,
+    with_event_name_drop,
 )
+from posthog.models.team.team import Team
 
 
 def _cond(field: str = "event_name", operator: str = "exact", value: str = "pageview") -> dict:
@@ -460,3 +464,141 @@ class TestEventFilterConfigModel(BaseTest):
     def test_str(self):
         config = EventFilterConfig.objects.create(team=self.team, mode=EventFilterMode.DRY_RUN)
         self.assertEqual(str(config), f"EventFilterConfig(team={self.team.id}, mode=dry_run)")
+
+
+class TestEventNameDropTree(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no tree", None, _or(_cond(value="spam"))),
+            ("empty group", _or(), _or(_cond(value="spam"))),
+            (
+                "or root gets a new child",
+                _or(_cond(value="a"), _cond(value="b")),
+                _or(_cond(value="a"), _cond(value="b"), _cond(value="spam")),
+            ),
+            (
+                "and root is wrapped",
+                _and(_cond(value="a"), _cond("distinct_id", "exact", "u1")),
+                _or(_and(_cond(value="a"), _cond("distinct_id", "exact", "u1")), _cond(value="spam")),
+            ),
+            ("not root is wrapped", _not(_cond(value="a")), _or(_not(_cond(value="a")), _cond(value="spam"))),
+        ]
+    )
+    def test_with_event_name_drop(self, _name: str, tree: dict | None, expected: dict):
+        self.assertEqual(with_event_name_drop(tree, "spam"), expected)
+
+    @parameterized.expand(
+        [
+            ("root or child", _or(_cond(value="a"), _cond(value="spam")), True),
+            ("bare condition root", _cond(value="spam"), True),
+            ("other name", _or(_cond(value="a")), False),
+            ("contains operator", _or(_cond(operator="contains", value="spam")), False),
+            ("only for some distinct_ids", _or(_and(_cond(value="spam"), _cond("distinct_id", "exact", "u1"))), False),
+            ("negated", _or(_not(_cond(value="spam"))), False),
+            ("no tree", None, False),
+        ]
+    )
+    def test_tree_drops_event_name(self, _name: str, tree: object, expected: bool):
+        self.assertEqual(tree_drops_event_name(tree, "spam"), expected)
+
+
+class TestAddEventNameDrop(BaseTest):
+    def _config(self, team: Team | None = None) -> EventFilterConfig:
+        return EventFilterConfig.objects.get(team=team or self.team)
+
+    def test_creates_a_live_config_when_the_team_has_none(self):
+        add_event_name_drop([self.team], "spam", self.user)
+
+        config = self._config()
+        self.assertEqual(config.mode, EventFilterMode.LIVE)
+        self.assertEqual(config.filter_tree, _or(_cond(value="spam")))
+        self.assertEqual(config.created_by, self.user)
+
+    @parameterized.expand([(EventFilterMode.DISABLED,), (EventFilterMode.DRY_RUN,)])
+    def test_makes_a_filter_without_conditions_live(self, mode: str):
+        EventFilterConfig.objects.create(team=self.team, mode=mode, filter_tree=None)
+
+        add_event_name_drop([self.team], "spam")
+
+        config = self._config()
+        self.assertEqual(config.mode, EventFilterMode.LIVE)
+        self.assertEqual(config.filter_tree, _or(_cond(value="spam")))
+
+    def test_adds_to_a_live_filter(self):
+        tree = _and(_cond(value="a"), _cond("distinct_id", "exact", "u1"))
+        EventFilterConfig.objects.create(team=self.team, mode=EventFilterMode.LIVE, filter_tree=tree)
+
+        add_event_name_drop([self.team], "spam")
+
+        self.assertEqual(self._config().filter_tree, _or(tree, _cond(value="spam")))
+
+    def test_does_not_add_the_condition_twice(self):
+        EventFilterConfig.objects.create(
+            team=self.team, mode=EventFilterMode.LIVE, filter_tree=_or(_cond(value="a"), _cond(value="spam"))
+        )
+
+        add_event_name_drop([self.team], "spam")
+
+        self.assertEqual(self._config().filter_tree, _or(_cond(value="a"), _cond(value="spam")))
+
+    @parameterized.expand(
+        [
+            (EventFilterMode.DRY_RUN, "in dry run"),
+            (EventFilterMode.DISABLED, "turned off"),
+        ]
+    )
+    def test_refuses_to_make_the_team_conditions_live(self, mode: str, expected_message: str):
+        EventFilterConfig.objects.create(team=self.team, mode=mode, filter_tree=_or(_cond(value="a")))
+
+        with self.assertRaisesMessage(ValidationError, expected_message):
+            add_event_name_drop([self.team], "spam")
+
+        config = self._config()
+        self.assertEqual(config.mode, mode)
+        self.assertEqual(config.filter_tree, _or(_cond(value="a")))
+
+    def test_refuses_more_than_the_maximum_conditions(self):
+        tree = _or(*[_cond(value=f"event_{i}") for i in range(MAX_CONDITIONS)])
+        EventFilterConfig.objects.create(team=self.team, mode=EventFilterMode.LIVE, filter_tree=tree)
+
+        with self.assertRaisesMessage(ValidationError, f"maximum of {MAX_CONDITIONS} conditions"):
+            add_event_name_drop([self.team], "spam")
+
+        self.assertEqual(self._config().filter_tree, tree)
+
+    def test_refuses_a_tree_that_is_too_deep(self):
+        # An AND root at the maximum depth: wrapping it in an OR adds one more level
+        tree: dict = _cond("distinct_id", "exact", "u1")
+        for i in range(MAX_TREE_DEPTH):
+            tree = _and(tree, _cond(value=f"event_{i}")) if i % 2 == 0 else _or(tree, _cond(value=f"event_{i}"))
+        EventFilterConfig.objects.create(team=self.team, mode=EventFilterMode.LIVE, filter_tree=tree)
+
+        with self.assertRaisesMessage(ValidationError, f"more than {MAX_TREE_DEPTH} levels deep"):
+            add_event_name_drop([self.team], "spam")
+
+        self.assertEqual(self._config().filter_tree, tree)
+
+    def test_refuses_when_a_test_case_expects_the_event_to_be_ingested(self):
+        EventFilterConfig.objects.create(
+            team=self.team,
+            mode=EventFilterMode.LIVE,
+            filter_tree=_or(_cond(value="a")),
+            test_cases=[{"event_name": "spam", "expected_result": "ingest"}],
+        )
+
+        with self.assertRaisesMessage(ValidationError, "A test case in the event filter expects this event"):
+            add_event_name_drop([self.team], "spam")
+
+        self.assertEqual(self._config().filter_tree, _or(_cond(value="a")))
+
+    def test_changes_no_environment_when_one_refuses(self):
+        other_team = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        EventFilterConfig.objects.create(
+            team=other_team, mode=EventFilterMode.DRY_RUN, filter_tree=_or(_cond(value="a"))
+        )
+
+        with self.assertRaisesMessage(ValidationError, 'in the "Staging" environment is in dry run'):
+            add_event_name_drop([self.team, other_team], "spam")
+
+        self.assertFalse(EventFilterConfig.objects.filter(team=self.team).exists())
+        self.assertEqual(self._config(other_team).mode, EventFilterMode.DRY_RUN)

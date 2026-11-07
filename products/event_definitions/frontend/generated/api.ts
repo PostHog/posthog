@@ -165,6 +165,29 @@ export const eventDefinitionsMetricsRetrieve = async (
     })
 }
 
+export const getEventDefinitionsStopIngestingCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/event_definitions/${id}/stop_ingesting/`
+}
+
+/**
+ * Drop new events with this name at ingestion, and hide the event definition.
+ *
+ * Adds an exact event name condition to the live event filter of each environment in the
+ * project, because the definition is shared by all of them. This never makes a team's own
+ * filter conditions live: if a filter is in dry run or turned off, or can't take one more
+ * condition, the request fails and nothing changes. Dropped events can't be recovered.
+ */
+export const eventDefinitionsStopIngestingCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EventDefinitionRecordApi> => {
+    return apiMutator<EventDefinitionRecordApi>(getEventDefinitionsStopIngestingCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getEventDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/bulk_update_tags/`
 }

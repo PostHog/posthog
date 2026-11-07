@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
-import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -19,6 +19,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
@@ -51,6 +53,8 @@ import {
 } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
+
+const DEFINITIONS_DOCS_URL = 'https://posthog.com/docs/data/events#managing-event-definitions'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionView,
@@ -135,7 +139,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     const logic = definitionLogic(props)
     const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
         useValues(logic)
-    const { deleteDefinition } = useActions(logic)
+    const { deleteDefinition, stopIngestingEvent } = useActions(logic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const memoizedQuery = useMemo(() => {
@@ -195,31 +199,54 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
         }
     }
 
+    // `hidden` is only on the enterprise definition, which the drop also needs. Dropping a PostHog
+    // event such as $pageview breaks other products, so the API refuses those too.
+    const canStopIngesting = isEvent && 'hidden' in definition && !definition.name.startsWith('$')
+
+    const recreatedNote = `The definition will be re-created if the ${singular} is seen again.`
+
     const openDeleteDialog = (): void =>
-        LemonDialog.open({
-            title: `Delete this ${singular} definition?`,
+        LemonDialog.openForm({
+            title: `Delete ${singular} definition ${formattedName}?`,
             description: (
                 <>
                     <p>
-                        <strong>
-                            {getFilterLabel(
-                                definition.name,
-                                isEvent ? TaxonomicFilterGroupType.Events : TaxonomicFilterGroupType.EventProperties
-                            )}
-                        </strong>{' '}
-                        will no longer appear in selectors. Associated data will remain in the database.
+                        The {singular} definition will disappear from selectors. Existing event data will not be
+                        deleted, see <Link to={DEFINITIONS_DOCS_URL}>docs</Link>.
                     </p>
-                    <p>This definition will be recreated if the {singular} is ever seen again in the event stream.</p>
+                    {!canStopIngesting && <p>{recreatedNote}</p>}
                 </>
             ),
-            primaryButton: {
+            initialValues: { deleteMode: 'definition_only' },
+            content: canStopIngesting ? (
+                <LemonField name="deleteMode">
+                    {({ value, onChange }) => (
+                        <LemonRadio
+                            value={value}
+                            onChange={onChange}
+                            options={[
+                                {
+                                    value: 'definition_only',
+                                    label: 'Delete definition only',
+                                    description: recreatedNote,
+                                },
+                                {
+                                    value: 'stop_ingesting',
+                                    label: 'Delete and stop ingesting',
+                                    description:
+                                        "New events are dropped before they enter the database and can't be recovered.",
+                                    'data-attr': 'event-definition-delete-stop-ingesting',
+                                },
+                            ]}
+                        />
+                    )}
+                </LemonField>
+            ) : undefined,
+            getPrimaryButtonProps: ({ deleteMode }) => ({
                 status: 'danger',
-                children: 'Delete definition',
-                onClick: () => deleteDefinition(),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
+                children: deleteMode === 'stop_ingesting' ? 'Delete and drop events' : 'Delete definition',
+            }),
+            onSubmit: ({ deleteMode }) => (deleteMode === 'stop_ingesting' ? stopIngestingEvent() : deleteDefinition()),
             width: 448,
         })
 
