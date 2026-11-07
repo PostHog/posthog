@@ -18,7 +18,7 @@ import {
     Text,
 } from '@posthog/quill'
 
-import type { PulsePinApi } from 'products/today/frontend/generated/api.schemas'
+import type { PulsePinApi, PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
 import { PULSE_TILES, pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
 
@@ -29,6 +29,42 @@ interface EditorGroup {
 
 function withoutKeys(rows: PulsePinApi[], keys: Set<string>): PulsePinApi[] {
     return rows.filter((row) => !keys.has(row.key))
+}
+
+function searchResults(search: string, listed: PulsePinApi[], insights: PulsePinApi[]): PulsePinApi[] {
+    const query = search.trim().toLowerCase()
+    const matches = listed.filter((row) => row.name.toLowerCase().includes(query))
+    return [...matches, ...withoutKeys(insights, new Set(matches.map((row) => row.key)))]
+}
+
+function suggestionsOnHome(slots: PulseSlotApi[], pinnedKeys: Set<string>, suggestions: PulsePinApi[]): PulsePinApi[] {
+    return slots
+        .filter((slot) => !pinnedKeys.has(slot.key))
+        .map((slot) => ({
+            key: slot.key,
+            name: slot.name,
+            dashboard_id: suggestions.find((row) => row.key === slot.key)?.dashboard_id ?? null,
+        }))
+}
+
+function editorNotes(
+    searching: boolean,
+    resultCount: number,
+    loading: boolean,
+    failed: boolean
+): { searchNote: string | null; emptyNote: string } {
+    if (!searching) {
+        return { searchNote: null, emptyNote: 'No trend insights to pin yet' }
+    }
+    const emptyNote = 'No insights you can pin match your search'
+    if (resultCount > 0 || !(loading || failed)) {
+        return { searchNote: null, emptyNote }
+    }
+    return { searchNote: loading ? 'Searching…' : "Couldn't search your insights. Try again.", emptyNote }
+}
+
+function changedKey(before: Set<string>, after: Set<string>): string | undefined {
+    return [...after].find((key) => !before.has(key)) ?? [...before].find((key) => !after.has(key))
 }
 
 export function TodayPulseEditor(): JSX.Element {
@@ -57,15 +93,11 @@ export function TodayPulseEditor(): JSX.Element {
         ...withoutKeys(pulseSuggestions, new Set([...pinnedOnOpenKeys, ...othersOnOpen.map((row) => row.key)])),
     ]
     const recent = withoutKeys(pulseRecentInsights, new Set([...pinnedOnOpenKeys, ...others.map((row) => row.key)]))
-    const query = search.trim().toLowerCase()
-    const localMatches = [...pinnedOnOpen, ...others].filter((row) => row.name.toLowerCase().includes(query))
-    const results = [
-        ...localMatches,
-        ...withoutKeys(
-            pulseInsightResultsLoading || pulseInsightSearchFailed ? [] : pulseInsightResults,
-            new Set(localMatches.map((row) => row.key))
-        ),
-    ]
+    const results = searchResults(
+        search,
+        [...pinnedOnOpen, ...others],
+        pulseInsightResultsLoading || pulseInsightSearchFailed ? [] : pulseInsightResults
+    )
     const rowByKey = new Map<string, PulsePinApi>(
         [...pulsePins, ...pinnedOnOpen, ...others, ...recent, ...results].map((row) => [row.key, row])
     )
@@ -77,6 +109,13 @@ export function TodayPulseEditor(): JSX.Element {
                   { pinned: false, items: [...others, ...recent].map((row) => row.key) },
               ]
     ).filter((group) => group.items.length > 0)
+
+    const { searchNote, emptyNote } = editorNotes(
+        searching,
+        results.length,
+        pulseInsightResultsLoading,
+        pulseInsightSearchFailed
+    )
 
     return (
         <Combobox
@@ -99,26 +138,13 @@ export function TodayPulseEditor(): JSX.Element {
                 if (next) {
                     pulseEditorOpened()
                     setPinnedOnOpen(pulsePins)
-                    setOthersOnOpen(
-                        pulseSlots
-                            .filter((slot) => !pinnedKeys.has(slot.key))
-                            .map((slot) => ({
-                                key: slot.key,
-                                name: slot.name,
-                                dashboard_id:
-                                    pulseSuggestions.find((row) => row.key === slot.key)?.dashboard_id ?? null,
-                            }))
-                    )
+                    setOthersOnOpen(suggestionsOnHome(pulseSlots, pinnedKeys, pulseSuggestions))
                 } else {
                     setSearch('')
                 }
             }}
             onValueChange={(next: string[]) => {
-                const nextKeys = new Set(next)
-                const changed =
-                    [...nextKeys].find((key) => !pinnedKeys.has(key)) ??
-                    [...pinnedKeys].find((key) => !nextKeys.has(key))
-                const row = changed ? rowByKey.get(changed) : undefined
+                const row = rowByKey.get(changedKey(pinnedKeys, new Set(next)) ?? '')
                 if (row) {
                     togglePulsePin(row, 'editor')
                 }
@@ -180,14 +206,12 @@ export function TodayPulseEditor(): JSX.Element {
                         </ComboboxGroup>
                     )}
                 </ComboboxList>
-                {searching && results.length === 0 && (pulseInsightResultsLoading || pulseInsightSearchFailed) ? (
+                {searchNote ? (
                     <Text size="xs" variant="muted" render={<p />} className="m-0 px-2.5 py-1.5">
-                        {pulseInsightResultsLoading ? 'Searching…' : "Couldn't search your insights. Try again."}
+                        {searchNote}
                     </Text>
                 ) : (
-                    <ComboboxEmpty>
-                        {searching ? 'No insights you can pin match your search' : 'No trend insights to pin yet'}
-                    </ComboboxEmpty>
+                    <ComboboxEmpty>{emptyNote}</ComboboxEmpty>
                 )}
                 {pulsePins.length >= PULSE_TILES ? (
                     <Text size="xs" variant="muted" render={<p />} className="m-0 border-t px-2.5 py-1.5">

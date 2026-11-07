@@ -85,6 +85,14 @@ export interface homePinsLogicActions {
 
 export type homePinsLogicType = MakeLogicType<homePinsLogicValues, homePinsLogicActions>
 
+function nextHomePins(pins: PulsePinApi[], insight: HomePinInsight, pinned: boolean): PulsePinApi[] {
+    const key = homePinKey(insight)
+    if (pinned) {
+        return pins.filter((pin) => pin.key !== key)
+    }
+    return [...pins, { key, name: insight.name || insight.derived_name || 'Untitled insight', dashboard_id: null }]
+}
+
 export const homePinsLogic = kea<homePinsLogicType>([
     path(['lib', 'components', 'AddToHome', 'homePinsLogic']),
     connect(() => ({
@@ -140,13 +148,7 @@ export const homePinsLogic = kea<homePinsLogicType>([
             if (!pins || disabledReason) {
                 return
             }
-            const key = homePinKey(insight)
-            const next = pinned
-                ? pins.filter((pin) => pin.key !== key)
-                : [
-                      ...pins,
-                      { key, name: insight.name || insight.derived_name || 'Untitled insight', dashboard_id: null },
-                  ]
+            const next = nextHomePins(pins, insight, pinned)
             actions.setHomePinsSaving(true)
             let saved: PulsePinApi[]
             try {
