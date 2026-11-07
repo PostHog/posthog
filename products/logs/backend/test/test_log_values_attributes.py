@@ -402,6 +402,49 @@ class TestLogValuesAttributesQueryErrors(APIBaseTest):
 
     @parameterized.expand(
         [
+            (endpoint, runner_name, params, leaf, label)
+            for endpoint, runner_name, params in (
+                ("values", "LogValuesQueryRunner", {"key": "service.name", "attribute_type": "resource"}),
+                ("attributes", "LogAttributesQueryRunner", {"attribute_type": "resource"}),
+            )
+            for leaf, label in (
+                (
+                    {"type": "log", "key": "message", "operator": "exact", "value": "no log has this message 7f3c"},
+                    "message (log)",
+                ),
+                ({"type": "log", "key": "trace_id", "operator": "exact", "value": "abc"}, "trace_id (log)"),
+                (
+                    {"type": "log_attribute", "key": "http.route", "operator": "exact", "value": "/x"},
+                    "http.route (log_attribute)",
+                ),
+            )
+        ]
+    )
+    def test_flat_filter_group_rejects_filters_the_rollup_cannot_apply(
+        self, endpoint, runner_name, params, leaf, label
+    ):
+        supported = {"type": "log", "key": "service_name", "operator": "exact", "value": ["api"]}
+        with patch(f"products.logs.backend.presentation.views.api.{runner_name}") as runner_class:
+            runner_class.return_value.calculate.return_value = SimpleNamespace(results=[], count=0)
+
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/logs/{endpoint}",
+                {**params, "filterGroup": json.dumps([supported, leaf])},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+            self.assertIn(label, response.json()["error"])
+            self.assertNotIn("service_name (log)", response.json()["error"])
+            runner_class.assert_not_called()
+
+            nested = {"type": "AND", "values": [{"type": "AND", "values": [supported, leaf]}]}
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/logs/{endpoint}", {**params, "filterGroup": json.dumps(nested)}
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            runner_class.assert_called_once()
+
+    @parameterized.expand(
+        [
             ("empty_string", ""),
             ("empty_object", "{}"),
             ("empty_list", "[]"),
