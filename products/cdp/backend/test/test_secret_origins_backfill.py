@@ -18,7 +18,8 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.services.secret_origins_backfill import (
     SecretOutcome,
     backfill_secret_origins,
-    commit_secret_origins,
+    commit_backfill_row,
+    hog_function_backfill_source,
 )
 
 LIVE_HOG = "fetch('https://api.example.com/track', {'headers': {'Authorization': inputs.api_key}})"
@@ -264,7 +265,7 @@ class TestSecretOriginsBackfill(BaseTest):
         rows = HogFunction.objects.filter(pk=hog_function.pk)
         change(rows)
 
-        plan = commit_secret_origins(hog_function.pk, self.team.pk)
+        plan = commit_backfill_row(hog_function_backfill_source(self.team.pk), hog_function.pk)
 
         assert (plan is None) == (expected_origins is None)
         assert rows.get().encrypted_inputs["api_key"].get("allowed_origins") == expected_origins

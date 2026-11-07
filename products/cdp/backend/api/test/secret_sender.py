@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from prometheus_client import REGISTRY
 
-from products.cdp.backend.api.hog_function import SecretBindingMetric
+from products.cdp.backend.secret_binding import SecretBindingMetric
 
 SENDER_URL = "https://hooks.example.com/a"
 MOVED_URL = "https://evil.example.com/a"
@@ -30,7 +30,7 @@ def sender_inputs(url: str, token: Optional[dict] = None) -> dict:
 
 def secret_host_binding_flag(enabled: bool) -> AbstractContextManager[Any]:
     return patch(
-        "products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled",
+        "products.cdp.backend.secret_binding.posthoganalytics.feature_enabled",
         side_effect=lambda flag, *args, **kwargs: enabled and flag == "cdp-secret-host-binding",
     )
 

@@ -1212,3 +1212,11 @@ class PushTokenImportRecord:
     error: str
     created_at: datetime
     finished_at: datetime | None
+
+
+@frozen
+class FlowSecretBinding:
+    # Secret keys by step id.
+    refused: dict[str, list[str]]
+    outcomes: list[str]
+    rewrites_secrets: bool

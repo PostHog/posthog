@@ -275,13 +275,20 @@ from products.workflows.backend.facade.schedules import (
     validate_rrule,
 )
 from products.workflows.backend.facade.secrets import (
+    FlowSecretBinding,
     TemplateCache,
+    bind_flow_secret_origins,
+    entered_secret_keys,
     mask_workflow_fields,
     merge_secret_maps,
     plaintext_secret_map,
     recover_or_drop_masked_inputs,
     rehydrate_flow_secrets,
+    secret_binding_enforced,
     secret_keys_for_action,
+    secret_reentry_errors,
+    secrets_sent_by_supplied_variables,
+    settle_secret_bindings,
     strip_content_secrets,
 )
 from products.workflows.backend.facade.send_calendar import SEND_CALENDAR_MAX_RANGE_DAYS, list_send_calendar_flows
@@ -602,6 +609,17 @@ def existing_secret_map(instance: WorkflowEditState, template_cache: Optional[Te
     result = merge_secret_maps(result, plaintext_secret_map((instance.draft or {}).get("actions"), template_cache))
     result = merge_secret_maps(result, instance.encrypted_inputs)
     return merge_secret_maps(result, instance.draft_encrypted_inputs)
+
+
+def settle_flow_secret_bindings(context: dict, binding: FlowSecretBinding) -> None:
+    refused = {step_id: {"inputs": secret_reentry_errors(keys)} for step_id, keys in binding.refused.items()}
+    surface = f"workflow_{getattr(context.get('view'), 'action', None) or 'internal'}"
+    settle_secret_bindings(
+        binding.outcomes,
+        surface,
+        {"actions": refused},
+        enforce=bool(refused) and secret_binding_enforced(context),
+    )
 
 
 def snapshot_flow_content(flow: WorkflowEditState) -> dict:
@@ -3677,6 +3695,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
+        # Read before validation, which recovers masked secrets into these same dicts.
+        entered = self.context.get("entered_secret_keys")
+        if entered is None:
+            entered = entered_secret_keys(data.get("actions") if isinstance(data, dict) else None)
+        self._entered_secret_keys = entered
         return super().to_internal_value(data)
 
     class Meta:
@@ -3943,7 +3966,41 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                         event_serializer.is_valid(raise_exception=True)
                         event_config["filters"] = event_serializer.validated_data
 
+        self._bind_secret_origins(data)
         return data
+
+    def _bind_secret_origins(self, data: dict) -> None:
+        stored = cast(Optional[WorkflowEditState], self.instance) or self.context.get("instance")
+        template_cache = self.context.setdefault("_hogflow_template_cache", {})
+        live_secrets_only = bool(self.context.get("live_secrets_only"))
+        writes_draft = bool(self.context.get("routes_to_draft"))
+        if "actions" in data:
+            actions = data["actions"]
+            entered = getattr(self, "_entered_secret_keys", {})
+        elif "variables" in data and stored is not None:
+            # The save keeps the stored steps, and a secret whose address reads a variable follows it.
+            to_draft = bool(self.context.get("routes_to_draft") and stored.draft)
+            kept = (stored.draft or {}).get("actions") if to_draft else stored.actions
+            secrets = (
+                existing_secret_map(stored, template_cache) if to_draft else live_secret_map(stored, template_cache)
+            )
+            actions = rehydrate_flow_secrets(kept if isinstance(kept, list) else [], secrets)
+            live_secrets_only, entered = not to_draft, {}
+        else:
+            return
+        binding = bind_flow_secret_origins(
+            actions,
+            stored=stored,
+            variables=(data["variables"] or []) if "variables" in data else None,
+            entered=entered,
+            live_secrets_only=live_secrets_only,
+            writes_draft=writes_draft,
+            template_cache=template_cache,
+        )
+        settle_flow_secret_bindings(self.context, binding)
+        if "actions" not in data and binding.rewrites_secrets:
+            # Write the kept steps back, so their secrets are stored as an edit of the steps would store them.
+            data["actions"] = actions
 
 
 class HogFlowUpdateSerializer(HogFlowSerializer):
@@ -3999,6 +4056,23 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
             validated_data = dict(serializer.validated_data)
         save_validated_workflow(team_id=team_id, hog_flow_id=hog_flow.id, validated_data=validated_data)
     return str(target)
+
+
+def _actions_sent_by_graph_operations(operations: list[dict]) -> list[dict]:
+    sent: dict[str, dict] = {}
+    for operation in operations:
+        if operation["op"] == "update_action":
+            step_id, step = operation.get("id"), operation.get("patch")
+        elif operation["op"] == "add_action":
+            step = operation.get("action")
+            step_id = step.get("id") if isinstance(step, dict) else None
+        else:
+            continue
+        config = step.get("config") if isinstance(step, dict) else None
+        inputs = config.get("inputs") if isinstance(config, dict) else None
+        if step_id and isinstance(inputs, dict):
+            sent.setdefault(str(step_id), {}).update(inputs)
+    return [{"id": step_id, "config": {"inputs": inputs}} for step_id, inputs in sent.items()]
 
 
 GRAPH_OPERATION_TYPES = [
@@ -5649,7 +5723,6 @@ class HogFlowViewSet(
         # unaffected). We check the raw request payload, not serializer.validated_data — HogFlowSerializer.validate
         # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise make every
         # status-only PATCH look like a mixed edit.
-        route_to_draft = False
         if self._is_mcp_request(self.request):
             keys = set(self.request.data.keys())
             has_status = "status" in keys
@@ -5672,16 +5745,7 @@ class HogFlowViewSet(
                     "drops every step it omits. Edit the graph with workflows-patch-graph instead; it "
                     "changes steps by id and leaves the rest of the graph untouched."
                 )
-
-            # Content edits on an active workflow stage a draft rather than landing live. Status-only
-            # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
-            if serializer.instance.status == HogFlowState.ACTIVE and has_non_status:
-                route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
-        elif serializer.instance.status == HogFlowState.ACTIVE and self.request.data.get("stage_draft"):
-            # The web builder opts into the same draft routing per request ("stage_draft" rides the
-            # raw body like "base_updated_at"). Callers that don't send it keep deploy-on-save, so
-            # existing raw-API automation is unaffected.
-            route_to_draft = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
+        route_to_draft = self._routes_to_draft(serializer.instance)
 
         try:
             result = update_workflow(
@@ -5729,9 +5793,28 @@ class HogFlowViewSet(
                 },
             )
 
+    def _routes_to_draft(self, instance: WorkflowEditState) -> bool:
+        if instance.status != HogFlowState.ACTIVE:
+            return False
+        keys = set(self.request.data.keys())
+        if self._is_mcp_request(self.request):
+            # Content edits on an active workflow stage a draft rather than landing live. Status-only
+            # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
+            return bool(keys - {"status"}) and bool(keys & set(DRAFT_CONTENT_FIELDS))
+        # The web builder opts into the same draft routing per request ("stage_draft" rides the
+        # raw body like "base_updated_at"). Callers that don't send it keep deploy-on-save, so
+        # existing raw-API automation is unaffected.
+        return bool(self.request.data.get("stage_draft")) and bool(keys & set(DRAFT_CONTENT_FIELDS))
+
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
-        serializer = self.get_serializer(self._edit_state(), data=request.data, partial=partial)
+        state = self._edit_state()
+        serializer = self.get_serializer(
+            state,
+            data=request.data,
+            partial=partial,
+            context={**self.get_serializer_context(), "routes_to_draft": self._routes_to_draft(state)},
+        )
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
         return Response(serializer.data)
@@ -5794,10 +5877,18 @@ class HogFlowViewSet(
             )
 
     def _validate_locked_content(
-        self, state: WorkflowEditState, data: dict, enforce_graph_structure: bool = False
+        self,
+        state: WorkflowEditState,
+        data: dict,
+        enforce_graph_structure: bool = False,
+        entered_secrets: Optional[dict[str, set[str]]] = None,
+        routes_to_draft: bool = False,
     ) -> dict:
         # Runs inside the write's row lock, against the locked row the service passes in.
         serializer = self.get_serializer(state, data=data, partial=True)
+        # The content is built from the stored row, so a secret counts as entered only when the caller says so.
+        serializer.context["entered_secret_keys"] = entered_secrets or {}
+        serializer.context["routes_to_draft"] = routes_to_draft
         if enforce_graph_structure:
             # The surgical endpoints are the paths where structural corruption would be newly introduced,
             # so they enforce graph validation as a hard error (unlike the lenient full-save path).
@@ -5821,7 +5912,11 @@ class HogFlowViewSet(
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
             new_actions, new_edges = apply_graph_operations(base_actions, base_edges, operations)
             return self._validate_locked_content(
-                state, {"actions": new_actions, "edges": new_edges}, enforce_graph_structure=True
+                state,
+                {"actions": new_actions, "edges": new_edges},
+                enforce_graph_structure=True,
+                entered_secrets=entered_secret_keys(_actions_sent_by_graph_operations(operations), new_actions),
+                routes_to_draft=self._is_mcp_request(request) and state.status == HogFlowState.ACTIVE,
             )
 
         try:
@@ -5889,7 +5984,12 @@ class HogFlowViewSet(
 
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
             new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
-            return self._validate_locked_content(state, {"actions": new_actions}, enforce_graph_structure=True)
+            return self._validate_locked_content(
+                state,
+                {"actions": new_actions},
+                enforce_graph_structure=True,
+                routes_to_draft=self._is_mcp_request(request) and state.status == HogFlowState.ACTIVE,
+            )
 
         # Same staleness and draft contract as /graph, but no action-redirect refresh or timing
         # reschedule: an email edit can't delete steps or change timing config.
@@ -6258,7 +6358,12 @@ class HogFlowViewSet(
             # Publish revalidates the draft with the workflow serializer; run it here, where the producer can fix what it refuses.
             # Validation recovers stored secrets into the inputs it is given, and the merge shares
             # the dicts of steps the proposal adds, so a shallow copy would leak a draft secret.
-            draft_serializer = self.get_serializer(instance, data=deepcopy(merged), partial=True)
+            draft_serializer = self.get_serializer(
+                instance,
+                data=deepcopy(merged),
+                partial=True,
+                context={**self.get_serializer_context(), "entered_secret_keys": {}},
+            )
             if not draft_serializer.is_valid():
                 raise exceptions.ValidationError(
                     {
@@ -6601,6 +6706,30 @@ class HogFlowViewSet(
             if error is not None:
                 raise exceptions.PermissionDenied(error)
 
+    def _refuse_secrets_sent_by_supplied_variables(
+        self,
+        hog_flow: Optional[WorkflowEditState],
+        configuration: Optional[dict],
+        supplied: dict,
+        entered: dict[str, set[str]],
+    ) -> None:
+        # A test run's variables replace the defaults, so a secret whose address reads one goes where
+        # the caller says. The run gets the check a save gets for a new default.
+        template_cache: TemplateCache = {}
+        if configuration and isinstance(configuration.get("actions"), list):
+            actions = configuration["actions"]
+            variables = configuration.get("variables", hog_flow.variables if hog_flow else [])
+        elif hog_flow is not None:
+            live_actions = hog_flow.actions if isinstance(hog_flow.actions, list) else []
+            actions = rehydrate_flow_secrets(live_actions, live_secret_map(hog_flow, template_cache))
+            variables = hog_flow.variables
+        else:
+            return
+        binding = secrets_sent_by_supplied_variables(
+            actions, supplied=supplied, variables=variables, entered=entered, template_cache=template_cache
+        )
+        settle_flow_secret_bindings(self.get_serializer_context(), binding)
+
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
@@ -6614,6 +6743,11 @@ class HogFlowViewSet(
             # PermissionDenied from the lookup is deliberately not caught, so it surfaces as a 403.
             hog_flow = None
 
+        sent_configuration = request.data.get("configuration")
+        # Read before validation, which folds the stored secrets back into the sent steps.
+        entered = entered_secret_keys(
+            sent_configuration.get("actions") if isinstance(sent_configuration, dict) else None
+        )
         serializer = HogFlowInvocationSerializer(
             data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
         )
@@ -6642,7 +6776,24 @@ class HogFlowViewSet(
             draft_secrets = merge_secret_maps(hog_flow.encrypted_inputs, hog_flow.draft_encrypted_inputs)
             if isinstance(draft.get("actions"), list):
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
+                # A restored version or an approved suggestion stages no secrets, so the live ones run
+                # with the draft's steps. The test run sends them, so it gets the check publish makes.
+                context = self.get_serializer_context()
+                binding = bind_flow_secret_origins(
+                    draft["actions"],
+                    stored=hog_flow,
+                    variables=draft.get("variables", hog_flow.variables) or [],
+                    entered={},
+                    live_secrets_only=False,
+                    writes_draft=False,
+                    template_cache={},
+                )
+                settle_flow_secret_bindings(context, binding)
             payload["configuration"] = draft
+
+        supplied = (payload.get("globals") or {}).get("variables")
+        if isinstance(supplied, dict) and supplied:
+            self._refuse_secrets_sent_by_supplied_variables(hog_flow, payload.get("configuration"), supplied, entered)
 
         test_run_row = None
         if not payload.get("mock_async_functions", True):
@@ -6801,6 +6952,7 @@ class HogFlowViewSet(
                 context={
                     **self.get_serializer_context(),
                     "live_secrets_only": True,
+                    "entered_secret_keys": {},
                     "utm_defaults_apply": True,
                     "_hogflow_template_cache": template_cache,
                 },
