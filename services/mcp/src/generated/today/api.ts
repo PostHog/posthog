@@ -43,7 +43,7 @@ export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneToT
 )
 
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneToFourShortIdRegExp = new RegExp(
-    '^[A-Za-z0-9]{8}$'
+    '^[A-Za-z0-9]{1,12}$'
 )
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneMax = 60
 
@@ -52,7 +52,7 @@ export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoToT
 )
 
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoToFourShortIdRegExp = new RegExp(
-    '^[A-Za-z0-9]{8}$'
+    '^[A-Za-z0-9]{1,12}$'
 )
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelMax = 60
 

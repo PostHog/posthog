@@ -335,6 +335,7 @@ class HighlightSource:
 # so every value is from a closed set: no URLs, no HTML, no colors, only PostHog pages and objects of the project.
 
 SIDEBAR_SHORT_ID_PATTERN = r"^[A-Za-z0-9]{8}$"
+SIDEBAR_NOTEBOOK_SHORT_ID_PATTERN = r"^[A-Za-z0-9]{1,12}$"
 SIDEBAR_SECTION_ID_PATTERN = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 MAX_SIDEBAR_SECTIONS = 10
 MAX_SIDEBAR_SECTION_ITEMS = 12
@@ -369,7 +370,7 @@ class SidebarDashboardTarget(_SidebarModel):
 class SidebarNotebookTarget(_SidebarModel):
     kind: Literal["notebook"]
     short_id: str = Field(
-        pattern=SIDEBAR_SHORT_ID_PATTERN, description="The notebook's short ID, as in /notebooks/<short_id>."
+        pattern=SIDEBAR_NOTEBOOK_SHORT_ID_PATTERN, description="The notebook's short ID, as in /notebooks/<short_id>."
     )
 
 

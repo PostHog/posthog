@@ -76,7 +76,7 @@ export interface SidebarNotebookTargetApi {
     kind: 'notebook'
     /**
      * The notebook's short ID, as in /notebooks/<short_id>.
-     * @pattern ^[A-Za-z0-9]{8}$
+     * @pattern ^[A-Za-z0-9]{1,12}$
      */
     short_id: string
 }

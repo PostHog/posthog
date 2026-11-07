@@ -172,7 +172,7 @@
                                                                 },
                                                                 "short_id": {
                                                                     "description": "The notebook's short ID, as in /notebooks/<short_id>.",
-                                                                    "pattern": "^[A-Za-z0-9]{8}$",
+                                                                    "pattern": "^[A-Za-z0-9]{1,12}$",
                                                                     "type": "string"
                                                                 }
                                                             },
@@ -300,7 +300,7 @@
                                                                 },
                                                                 "short_id": {
                                                                     "description": "The notebook's short ID, as in /notebooks/<short_id>.",
-                                                                    "pattern": "^[A-Za-z0-9]{8}$",
+                                                                    "pattern": "^[A-Za-z0-9]{1,12}$",
                                                                     "type": "string"
                                                                 }
                                                             },

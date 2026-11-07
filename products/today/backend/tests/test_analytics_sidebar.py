@@ -47,10 +47,12 @@ def _item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 class TestAnalyticsSidebarLayout(SimpleTestCase):
-    def test_a_layout_with_every_kind_of_item_round_trips(self) -> None:
+    @parameterized.expand([("Zx9Yw8Vu",), ("scratchpad",), ("aB3dE5fG7hIj",), ("a",)])
+    def test_a_layout_with_every_kind_of_item_round_trips(self, notebook_short_id: str) -> None:
         field = AnalyticsSidebarLayoutField()
+        layout = _with(["sections", 0, "items", 2, "to", "short_id"], notebook_short_id)
 
-        assert field.to_representation(field.to_internal_value(GROWTH_LAYOUT)) == GROWTH_LAYOUT
+        assert field.to_representation(field.to_internal_value(layout)) == layout
 
     @parameterized.expand(
         [
@@ -88,6 +90,21 @@ class TestAnalyticsSidebarLayout(SimpleTestCase):
                 "a metric without a label",
                 _item({"type": "metric", "insight": "aB3dE5fG"}),
                 "sections.0.items.0.metric.label",
+            ),
+            (
+                "a notebook id that is too long",
+                _with(["sections", 0, "items", 2, "to", "short_id"], "a" * 13),
+                "sections.0.items.2.link.to.notebook.short_id",
+            ),
+            (
+                "a notebook id that is a path",
+                _with(["sections", 0, "items", 2, "to", "short_id"], "../notes"),
+                "sections.0.items.2.link.to.notebook.short_id",
+            ),
+            (
+                "an empty notebook id",
+                _with(["sections", 0, "items", 2, "to", "short_id"], ""),
+                "sections.0.items.2.link.to.notebook.short_id",
             ),
             ("a color in place of an icon", _with(["sections", 0, "icon"], "#ff0000"), "sections.0.icon"),
             ("a section id with spaces", _with(["sections", 0, "id"], "Growth team"), "sections.0.id"),
