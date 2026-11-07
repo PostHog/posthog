@@ -22,6 +22,7 @@ class DevToken:
     created_at: datetime
     expires_at: datetime | None
     revoked_at: datetime | None
+    spent_usd: Decimal | None
     status: DevTokenStatus
     # None when the token is not live or the gateway did not answer.
     remaining_usd: Decimal | None = None
@@ -42,6 +43,7 @@ class DevTokenUsage:
     daily_cap_usd: Decimal
     used_usd: Decimal
     token_cap_usd: Decimal
+    token_cap_min_usd: Decimal
     ttl_seconds: int
     tokens: list[DevToken]
 
