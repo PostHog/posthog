@@ -302,6 +302,7 @@ def fetch_app_metric_totals_by_source(
     before: Optional[datetime] = None,
     name: Optional[list[str]] = None,
     hour_aligned: bool = False,
+    instance_id: Optional[str] = None,
 ) -> dict[str, dict[str, int]]:
     """Per-`app_source_id` metric totals for a whole team in one grouped query.
 
@@ -326,6 +327,7 @@ def fetch_app_metric_totals_by_source(
         "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
         "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
         "name": name,
+        "instance_id": instance_id,
     }
 
     clickhouse_query = f"""
@@ -339,6 +341,7 @@ def fetch_app_metric_totals_by_source(
         {f"AND {bound_expr} >= toDateTime64(%(after)s, 6)" if after else ""}
         {f"AND {bound_expr} {before_op} toDateTime64(%(before)s, 6)" if before else ""}
         AND metric_name IN %(name)s
+        {"AND instance_id = %(instance_id)s" if instance_id is not None else ""}
         GROUP BY app_source_id, metric_name
     """
 
