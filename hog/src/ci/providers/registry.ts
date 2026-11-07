@@ -1,6 +1,5 @@
 import type { Env, Runtime } from '@/core/runtime'
 import type { Host } from '@/posthog/host'
-import type { ProjectId } from '@/posthog/ids'
 import type { ProviderIdToken } from '@/posthog/tokens'
 
 import { DEPOT_CI } from './depot/depot-ci'
@@ -23,16 +22,11 @@ export interface WorkloadProvider {
     // The rest is for `hog ci setup`. Config paths are relative to the repository root.
     readonly configPaths: readonly string[]
     nameFromRemote(remote: string): string | undefined
-    branchConditions(branch: string): WorkloadConditions
-    // Undefined for a provider whose token names no environment.
-    environmentConditions?(environment: string): WorkloadConditions
-    readonly requiredConditions?: readonly { claim: string; label: string; defaultValue?: string }[]
-    // False when PostHog's subject lookup can't serve these conditions, so the person passes --subject-id.
-    canLookUpSubject?(conditions: WorkloadConditions): boolean
-    snippet(target: { host: Host; projectId: ProjectId }): string
 }
 
-export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [GITHUB_ACTIONS, GITLAB, DEPOT_CI]
+// Detection takes the first match, so a provider that runs other providers' jobs, like Depot CI running
+// GitHub Actions workflows, comes before them.
+export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [DEPOT_CI, GITHUB_ACTIONS, GITLAB]
 
 export function detectWorkloadProvider(
     env: Env,

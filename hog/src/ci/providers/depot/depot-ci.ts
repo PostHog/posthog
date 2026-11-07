@@ -17,12 +17,4 @@ export const DEPOT_CI: WorkloadProvider = {
         'Add `permissions: id-token: write` to the job, so Depot CI issues it an OIDC token. Run `hog ci setup` on your machine for the full snippet.',
     configPaths: ['.depot/workflows'],
     nameFromRemote: GITHUB_ACTIONS.nameFromRemote,
-    branchConditions: GITHUB_ACTIONS.branchConditions,
-    requiredConditions: [
-        { claim: 'org_id', label: 'Depot organization ID' },
-        { claim: 'forge', label: 'forge', defaultValue: 'github' },
-    ],
-    // PostHog looks the repository up on GitHub, which knows nothing about another forge's IDs.
-    canLookUpSubject: (conditions) => conditions.forge === 'github',
-    snippet: GITHUB_ACTIONS.snippet,
 }

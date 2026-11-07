@@ -23,18 +23,10 @@ export const GITLAB: WorkloadProvider = {
     },
     missingTokenHint: `Add an \`id_tokens\` entry named ${GITLAB_ID_TOKEN_VARIABLE} to the job, with the PostHog address as its \`aud\`. Run \`hog ci setup\` on your machine for the snippet.`,
     configPaths: ['.gitlab-ci.yml'],
-    nameFromRemote: (remote) => remote.match(/(?:^|[@/])gitlab\.com[:/](.+?)(?:\.git)?\/?$/)?.[1],
-    branchConditions: (branch) => ({ ref: branch, ref_protected: 'true', ref_type: 'branch' }),
-    environmentConditions: (environment) => ({
-        environment,
-        environment_action: 'start',
-        environment_protected: 'true',
-    }),
-    snippet: ({ host }) =>
-        [
-            'your-job:',
-            '  id_tokens:',
-            `    ${GITLAB_ID_TOKEN_VARIABLE}: # lets hog get a PostHog token`,
-            `      aud: ${host}`,
-        ].join('\n'),
+    nameFromRemote: (remote) =>
+        remote
+            .match(
+                /^(?:[a-z+]+:\/\/(?:[^@/]*@)?gitlab\.com(?::\d+)?\/|(?:[^@:/]+@)?gitlab\.com:)([\w.-]+(?:\/[\w.-]+)+)\/?$/i
+            )?.[1]
+            ?.replace(/\.git$/, ''),
 }

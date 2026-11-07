@@ -93,6 +93,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
         target = team or self.team
         fields: dict[str, Any] = {
             "name": "Production deploys",
+            "provider": FAKE_WORKLOAD_PROVIDER.key,
             "issuer": FAKE_WORKLOAD_ISSUER,
             "subject_name": "acme/web",
             "subject": "1234",
@@ -184,7 +185,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
     @parameterized.expand(
         [
             ("unknown_issuer", {"iss": "https://token.ci.example.org"}, {}, "workload_issuer_not_allowed"),
-            ("wrong_audience", {"aud": "https://other.example.com"}, {}, "workload_token_invalid"),
+            ("wrong_audience", {"aud": "https://other.example.com"}, {}, "workload_audience_mismatch"),
             ("expired", {"exp": int(time.time()) - 120, "iat": int(time.time()) - 600}, {}, "workload_token_invalid"),
             ("recreated_repository", {"repository_id": "5678"}, {}, "workload_no_matching_policy"),
             ("renamed_repository", {"repository": "acme/other"}, {}, "workload_no_matching_policy"),
@@ -281,7 +282,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
     def test_exchange_refuses_a_job_that_runs_outside_the_subject(
         self, _name: str, job_repository_id: str | None, accepted: bool
     ) -> None:
-        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, claims_equal_to_subject=("job_repository_id",))
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, subject_also_in_claim="job_repository_id")
 
         with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
             response = self._exchange(_oidc_token(job_repository_id=job_repository_id))
@@ -315,6 +316,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
         pending = WorkloadTrustPolicyRequest.objects.for_team(self.team.id).create(
             team=self.team,
             name="Production deploys",
+            provider=FAKE_WORKLOAD_PROVIDER.key,
             issuer=FAKE_WORKLOAD_ISSUER,
             subject_name="acme/web",
             subject="1234",
@@ -363,6 +365,14 @@ class TestWorkloadTokenExchange(APIBaseTest):
         body = self._exchange(_oidc_token(**claim_overrides)).json()
 
         assert body["scope"] == expected_scope, body
+
+    def test_a_policy_for_a_provider_outside_the_registry_never_matches(self) -> None:
+        self.policy.provider = "retired_ci"
+        self.policy.save()
+
+        body = self._exchange().json()
+
+        assert body["error_code"] == "workload_no_matching_policy", body
 
     def test_token_never_outlives_the_oidc_token(self) -> None:
         body = self._exchange(_oidc_token(exp=int(time.time()) + 90)).json()

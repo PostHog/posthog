@@ -51,8 +51,8 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
     }
     const { key, source } = credentials
     const { host, projectId } = key
-    const { kind, scopes, expiresAt, rejected, provider } = key.status()
-    const api = await ctx.posthog()
+    const { kind, scopes, expiresAt, rejected, fix, provider } = key.status()
+    const api = (await ctx.posthog()).withoutStepUp()
     const UserSchema = z.looseObject({ email: z.string(), first_name: z.string().nullish() })
     const [user, project] = await Promise.allSettled([
         key.identifiesPerson ? api.get('/api/users/@me/', UserSchema) : Promise.resolve(null),
@@ -66,7 +66,7 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
             projectId,
             source,
             error: rejected,
-            next: kind === 'workload' ? 'hog ci setup' : 'hog auth login',
+            next: fix,
         }
     }
     // A 403 means the key lacks the scope for that detail, not that it doesn't work.

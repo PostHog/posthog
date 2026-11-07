@@ -34,6 +34,9 @@ logger = structlog.get_logger(__name__)
 EGRESS_SOURCE = "workload_identity"
 GITHUB_REPOSITORY_ENDPOINT = "/repos/{owner}/{repo}"
 GITHUB_UNAVAILABLE = "GitHub didn't answer. Try again in a minute, or enter the repository ID by hand."
+# The whole lookup runs inside one API request, so it gets one deadline however many integrations it asks.
+LOOKUP_DEADLINE_SECONDS = 15
+REQUEST_TIMEOUT_SECONDS = 10
 
 
 def _github_subject(body: Any, found_via: str) -> ResolvedWorkloadSubject:
@@ -49,14 +52,45 @@ def _repository_json(response: requests.Response) -> Any:
         raise WorkloadSubjectLookupUnavailable(GITHUB_UNAVAILABLE)
 
 
-def _through_integration(team_id: int, repository: str) -> tuple[ResolvedWorkloadSubject | None, bool]:
+def _seconds_left(deadline: float) -> int:
+    return min(REQUEST_TIMEOUT_SECONDS, int(deadline - time.monotonic()))
+
+
+def _cached_repository(integrations: list[GitHubIntegration], repository: str) -> ResolvedWorkloadSubject | None:
+    """A repository the integrations already listed. A repository ID never changes, so a stale list is safe."""
+    wanted = repository.lower()
+    for github in integrations:
+        for cached in github.list_all_cached_repositories(allow_refresh=False):
+            if cached["full_name"].lower() == wanted:
+                return ResolvedWorkloadSubject(
+                    subject=str(cached["id"]), subject_name=cached["full_name"], found_via="your GitHub integration"
+                )
+    return None
+
+
+def _through_integration(team_id: int, repository: str, deadline: float) -> tuple[ResolvedWorkloadSubject | None, bool]:
     """Ask GitHub through the team's GitHub integrations, which also see the private repositories they were
     installed on. Also says whether an installation couldn't answer, because then a miss proves nothing."""
+    integrations = [
+        GitHubIntegration(integration, source=EGRESS_SOURCE, priority=Priority.NORMAL)
+        for integration in IntegrationManager.github.oauth.list(team_id)
+    ]
+    cached = _cached_repository(integrations, repository)
+    if cached is not None:
+        return cached, False
     unavailable = False
-    for integration in IntegrationManager.github.oauth.list(team_id):
-        github = GitHubIntegration(integration, source=EGRESS_SOURCE, priority=Priority.NORMAL)
+    for github in integrations:
+        timeout = _seconds_left(deadline)
+        if timeout <= 0:
+            return None, True
         try:
-            response = github.api_request("GET", f"/repos/{repository}", endpoint=GITHUB_REPOSITORY_ENDPOINT)
+            response = github.api_request(
+                "GET",
+                f"/repos/{repository}",
+                endpoint=GITHUB_REPOSITORY_ENDPOINT,
+                timeout=timeout,
+                retry_transient=False,
+            )
         except (EgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError):
             unavailable = True
             continue
@@ -66,10 +100,13 @@ def _through_integration(team_id: int, repository: str) -> tuple[ResolvedWorkloa
     return None, unavailable
 
 
-def _public(repository: str) -> ResolvedWorkloadSubject:
+def _public(repository: str, deadline: float) -> ResolvedWorkloadSubject:
     """Ask GitHub for a public repository, with PostHog's own token when the deployment has one. Without a
     token GitHub allows few requests per IP, so the lookup can fail and the person enters the ID by hand."""
     headers = {"Authorization": f"Bearer {settings.GITHUB_TOKEN}"} if settings.GITHUB_TOKEN else {}
+    timeout = _seconds_left(deadline)
+    if timeout <= 0:
+        raise WorkloadSubjectLookupUnavailable(GITHUB_UNAVAILABLE)
     try:
         response = github_request(
             "GET",
@@ -78,7 +115,7 @@ def _public(repository: str) -> ResolvedWorkloadSubject:
             headers=headers,
             priority=Priority.NORMAL,
             endpoint=GITHUB_REPOSITORY_ENDPOINT,
-            timeout=10,
+            timeout=timeout,
         )
     except requests.RequestException:
         raise WorkloadSubjectLookupUnavailable(GITHUB_UNAVAILABLE)
@@ -107,11 +144,12 @@ def resolve_github_repository(team_id: int, name: str) -> ResolvedWorkloadSubjec
     # The name goes into an authenticated GitHub URL, so anything but owner/repo could reach another endpoint.
     if not _is_safe_github_repo_path(repository):
         raise WorkloadSubjectNotFound("Enter the repository as owner/repo, like posthog/posthog.")
-    found, integration_unavailable = _through_integration(team_id, repository)
+    deadline = time.monotonic() + LOOKUP_DEADLINE_SECONDS
+    found, integration_unavailable = _through_integration(team_id, repository, deadline)
     if found:
         return found
     try:
-        return _public(repository)
+        return _public(repository, deadline)
     except WorkloadSubjectNotFound:
         # A private repository an installation would have seen looks missing while that installation is down.
         if integration_unavailable:
@@ -123,12 +161,10 @@ GITLAB_COM = "https://gitlab.com"
 GITLAB_PROJECT_ENDPOINT = "/api/v4/projects/{id}"
 GITLAB_UNAVAILABLE = "GitLab didn't answer. Try again in a minute, or enter the project ID by hand."
 _GITLAB_PROJECT_PATH = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$")
-# The lookup holds a web worker, so slow integrations get this long in total.
-GITLAB_LOOKUP_DEADLINE_SECONDS = 15
 _GITLAB_REMOTE_PREFIX = re.compile(r"^(?:(?:https?://|ssh://git@|git@)?gitlab\.com[:/])", re.IGNORECASE)
 
 
-def _gitlab_project(token: str | None, path: str, timeout: float = 10) -> requests.Response:
+def _gitlab_project(token: str | None, path: str, timeout: float) -> requests.Response:
     return gitlab_request(
         "GET",
         f"{GITLAB_COM}/api/v4/projects/{quote(path, safe='')}",
@@ -157,12 +193,13 @@ def _gitlab_subject(
     return ResolvedWorkloadSubject(subject=str(body["id"]), subject_name=path, found_via=found_via)
 
 
-def _gitlab_through_integration(team_id: int, path: str) -> tuple[ResolvedWorkloadSubject | None, bool]:
+def _gitlab_through_integration(
+    team_id: int, path: str, deadline: float
+) -> tuple[ResolvedWorkloadSubject | None, bool]:
     unavailable = False
-    deadline = time.monotonic() + GITLAB_LOOKUP_DEADLINE_SECONDS
     for integration in IntegrationManager.gitlab.token.list(team_id):
-        remaining = deadline - time.monotonic()
-        if remaining <= 1:
+        timeout = _seconds_left(deadline)
+        if timeout <= 0:
             return None, True
         hostname = urlsplit(str(integration.config.get("hostname") or "")).hostname or ""
         token = integration.sensitive_config.get("access_token")
@@ -170,7 +207,7 @@ def _gitlab_through_integration(team_id: int, path: str) -> tuple[ResolvedWorklo
         if hostname.lower() != "gitlab.com" or not token:
             continue
         try:
-            response = _gitlab_project(token, path, timeout=min(10, remaining))
+            response = _gitlab_project(token, path, timeout=timeout)
         except requests.RequestException:
             unavailable = True
             continue
@@ -186,14 +223,17 @@ def resolve_gitlab_project(team_id: int, name: str) -> ResolvedWorkloadSubject:
     path = _GITLAB_REMOTE_PREFIX.sub("", name.strip()).split("/-/")[0].removesuffix(".git").strip("/")
     if ".." in path or not _GITLAB_PROJECT_PATH.fullmatch(path):
         raise WorkloadSubjectNotFound("Enter the project path, like group/project or group/subgroup/project.")
-    found, unavailable = _gitlab_through_integration(team_id, path)
+    deadline = time.monotonic() + LOOKUP_DEADLINE_SECONDS
+    found, unavailable = _gitlab_through_integration(team_id, path, deadline)
     if found:
         return found
     try:
-        response = _gitlab_project(settings.GITLAB_TOKEN or None, path)
-        if response.status_code == 401 and settings.GITLAB_TOKEN:
+        if _seconds_left(deadline) <= 0:
+            raise WorkloadSubjectLookupUnavailable(GITLAB_UNAVAILABLE)
+        response = _gitlab_project(settings.GITLAB_TOKEN or None, path, timeout=_seconds_left(deadline))
+        if response.status_code == 401 and settings.GITLAB_TOKEN and _seconds_left(deadline) > 0:
             # GitLab answers 401 for every project once the shared token expires, even a public one.
-            response = _gitlab_project(None, path)
+            response = _gitlab_project(None, path, timeout=_seconds_left(deadline))
     except requests.RequestException:
         raise WorkloadSubjectLookupUnavailable(GITLAB_UNAVAILABLE)
     if response.status_code == 200 and (found := _gitlab_subject(response, "GitLab", require_public=True)):

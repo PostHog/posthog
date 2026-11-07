@@ -66,9 +66,14 @@ export async function resolveSubject(
     api: PostHogApi,
     projectId: ProjectId,
     provider: WorkloadProvider,
-    subjectName: string
+    subjectName: string,
+    conditions: WorkloadConditions
 ): Promise<ResolvedSubject> {
     const query = new URLSearchParams({ issuer: provider.issuer, subject_name: subjectName })
+    // PostHog refuses a lookup the policy's conditions rule out, like a repository on another forge.
+    for (const [claim, value] of Object.entries(conditions)) {
+        query.append('condition', `${claim}=${value}`)
+    }
     try {
         return await api.get(`${requestsPath(projectId)}resolve_subject/?${query}`, ResolvedSubject)
     } catch (error) {
@@ -135,8 +140,8 @@ export function policyRequestFlow(
                     return undefined
             }
         },
-        approver: (pending) => (pending.canApprove ? undefined : 'an organization admin'),
-        approverNames: (pending) => pending.approvers,
+        approver: (pending) =>
+            pending.canApprove ? undefined : { who: 'an organization admin', names: pending.approvers },
     }
 }
 

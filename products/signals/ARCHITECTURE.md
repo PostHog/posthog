@@ -1392,7 +1392,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 
 **Task creation:**
 
-1. `Task.create_and_run(origin_product=SIGNAL_REPORT, ...)`
+1. `Task.create_and_run(profile=<signals.implementation>, ...)`
 2. `record_implementation_task` writes the legacy `SignalReportTask` implementation gate row (in the same transaction) and appends an `implementation` `task_run` artefact
 3. Errors are caught and logged but do not fail the report workflow
 

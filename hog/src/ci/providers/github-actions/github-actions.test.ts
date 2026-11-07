@@ -52,7 +52,6 @@ describe('GitHub Actions', () => {
     test.each([
         ['a GitHub Actions job', { GITHUB_ACTIONS: 'true' }, true],
         // Depot CI also sets GITHUB_ACTIONS, but its tokens come from Depot's issuer.
-        ['a Depot CI job', { GITHUB_ACTIONS: 'true', DEPOT_JOB_URL: 'https://depot.dev/orgs/x/jobs/y' }, false],
         ['a local shell', {}, false],
     ])('detects %s', (_name, env, expected) => {
         expect(GITHUB_ACTIONS.detect(env)).toBe(expected)
@@ -64,6 +63,8 @@ describe('GitHub Actions', () => {
         ['ssh://git@github.com/PostHog/posthog.git', 'PostHog/posthog'],
         ['git@gitlab.com:PostHog/posthog.git', undefined],
         ['https://notgithub.com/PostHog/posthog.git', undefined],
+        ['https://evil.example.com/github.com/PostHog/posthog', undefined],
+        ['https://github.com/PostHog/posthog\x1b]0;x\x07', undefined],
     ])('reads the repository from the remote %s', (remote, expected) => {
         expect(GITHUB_ACTIONS.nameFromRemote(remote)).toBe(expected)
     })

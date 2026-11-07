@@ -23,7 +23,6 @@ import {
 import type {
     ResolvedWorkloadSubjectApi,
     WorkloadProviderApi,
-    WorkloadJobSettingsApi,
     WorkloadProvidersResponseApi,
     WorkloadTrustPolicyApi,
 } from '~/generated/core/api.schemas'
@@ -94,12 +93,6 @@ export interface workloadTrustPoliciesLogicValues {
     scopeLevels: Record<string, ScopeAccessLevel>
     scopeRows: WorkloadTrustPolicyScopeRow[]
     scopeSearchTerm: string
-    setupSnippet: {
-        docsUrl: string
-        jobSettings: WorkloadJobSettingsApi
-        providerName: string
-        snippet: string
-    } | null
     showEditingPolicyErrors: boolean
     showingSetup: boolean
     subjectLookup: ResolvedWorkloadSubjectApi | null
@@ -262,16 +255,6 @@ export interface workloadTrustPoliciesLogicMeta {
             conditionRows: WorkloadConditionRow[],
             editingProvider: WorkloadProviderApi | null
         ) => string | undefined
-        setupSnippet: (
-            showingSetup: boolean,
-            editingProvider: WorkloadProviderApi | null,
-            providers: WorkloadProvidersResponseApi | null
-        ) => {
-            docsUrl: string
-            jobSettings: WorkloadJobSettingsApi
-            providerName: string
-            snippet: string
-        } | null
         claimLabels: (editingProvider: WorkloadProviderApi | null) => {
             subject: string
             subjectName: string
@@ -395,6 +378,9 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                         return await workloadTrustPolicyRequestsResolveSubjectRetrieve(String(values.currentTeamId), {
                             issuer: values.editingPolicy.issuer,
                             subject_name: cache.lookedUpName,
+                            condition: Object.entries(values.editingPolicy.conditions).map(
+                                ([claim, value]) => `${claim}=${value}`
+                            ),
                         })
                     } catch (error) {
                         throw new Error(
@@ -505,22 +491,6 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
             (s) => [s.conditionRows, s.editingProvider],
             (rows: WorkloadConditionRow[], editingProvider: WorkloadProviderApi | null): string | undefined =>
                 conditionsFromRows(rows, editingProvider).conflict,
-        ],
-        setupSnippet: [
-            (s) => [s.showingSetup, s.editingProvider, s.providers],
-            (
-                showingSetup: boolean,
-                provider: WorkloadProviderApi | null,
-                providers: WorkloadProvidersResponseApi | null
-            ): { snippet: string; providerName: string; docsUrl: string; jobSettings: WorkloadJobSettingsApi } | null =>
-                showingSetup && provider?.setup_snippet && providers
-                    ? {
-                          snippet: provider.setup_snippet,
-                          providerName: provider.name,
-                          docsUrl: provider.docs_url,
-                          jobSettings: providers.job_settings,
-                      }
-                    : null,
         ],
         claimLabels: [
             (s) => [s.editingProvider],

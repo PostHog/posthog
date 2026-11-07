@@ -53,7 +53,7 @@ const PROVIDER = {
     required_condition_claims: [],
     account_condition_claims: [],
     subject_lookup_conditions: {},
-    setup_snippet: 'HOG_HOST: {host}\nHOG_PROJECT_ID: "{project_id}"',
+    setup_snippet: 'HOG_HOST: {host}',
 } as WorkloadProviderApi
 
 describe('workload condition presets', () => {

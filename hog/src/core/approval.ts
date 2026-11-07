@@ -40,6 +40,9 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
     command: string
     // What the person approves, in copy and in error codes, like `login`.
     noun: string
+    // The command to start over after a rejection or expiry, when `command` alone can't ask for the
+    // same thing again. Agents run it as written.
+    restart?: (pending: Pending) => string
     // Reads the pending item back from its file. An item hog can't read counts as none.
     pending: Schema<Pending>
     start: () => Promise<Pending>
@@ -49,9 +52,8 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
     // Rechecks a reused item someone may have resolved in the browser. Undefined starts a new one.
     refresh?: (existing: Pending) => Promise<Pending | undefined>
     // Who approves when the person at the terminal can't, so hog hands over the link instead of waiting.
-    approver?: (pending: Pending) => string | undefined
-    // Admins set their own names, so the names never go into the instructions an agent follows.
-    approverNames?: (pending: Pending) => string[]
+    // Admins set their own names, so `names` never go into the instructions an agent follows.
+    approver?: (pending: Pending) => { who: string; names: string[] } | undefined
     // `timeoutMs` is how long the poll request may take before the request expires.
     poll: (pending: Pending, timeoutMs: number) => Promise<PollOutcome<Value>>
     // Caps one wait for a request that stays open for days, so an agent never blocks on a person for long.
@@ -62,7 +64,7 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
 // What resuming a pending item needs. It can't start a new one.
 export type ApprovalWait<Pending extends PendingApproval, Value> = Pick<
     ApprovalFlow<Pending, Value>,
-    'command' | 'noun' | 'pending' | 'poll' | 'maxWaitMs' | 'checkResumable'
+    'command' | 'noun' | 'pending' | 'poll' | 'maxWaitMs' | 'checkResumable' | 'restart'
 >
 
 export type ApprovalResult<Value> =
@@ -166,12 +168,15 @@ async function waitFor<Pending extends PendingApproval, Value>(
         try {
             outcome = await flow.poll(pending, Math.min(REQUEST_TIMEOUT_MS, remaining))
         } catch (error) {
+            if (!(error instanceof HogError)) {
+                throw error
+            }
             if (!isTransient(error)) {
                 // A lapsed login says nothing about the request, so it stays for `--wait` after `hog auth login`.
-                if ((error as HogError).code === 'session_expired') {
+                if (error.code === 'session_expired') {
                     throw error
                 }
-                return fail(error as HogError)
+                return fail(error)
             }
             outcome = { state: 'retry', reason: error.message }
         }
@@ -196,11 +201,11 @@ async function waitFor<Pending extends PendingApproval, Value>(
                     new HogError(
                         `${errorCode(flow.noun)}_rejected`,
                         `The ${flow.noun} was rejected in the browser.`,
-                        `Run \`${flow.command}\` to start again.`
+                        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start again.`
                     )
                 )
             case 'expired':
-                return fail(expired(flow))
+                return fail(expired(flow, pending))
         }
     }
     // PostHog keeps an approval given before the deadline.
@@ -210,17 +215,17 @@ async function waitFor<Pending extends PendingApproval, Value>(
             return last.value
         }
     } catch (error) {
+        if (!(error instanceof HogError)) {
+            throw error
+        }
         if (isTransient(error)) {
             throw interrupted(error.message)
         }
     }
-    return fail(expired(flow))
+    return fail(expired(flow, pending))
 }
 
-function isTransient(error: unknown): error is HogError {
-    if (!(error instanceof HogError)) {
-        throw error
-    }
+function isTransient(error: HogError): boolean {
     return (
         error.code === 'network_error' ||
         error.code === 'refresh_failed' ||
@@ -228,22 +233,25 @@ function isTransient(error: unknown): error is HogError {
     )
 }
 
-function expired(flow: { noun: string; command: string }): HogError {
+function expired<Pending extends PendingApproval>(
+    flow: Pick<ApprovalWait<Pending, unknown>, 'noun' | 'command' | 'restart'>,
+    pending: Pending
+): HogError {
     return new HogError(
         `${errorCode(flow.noun)}_expired`,
         `The ${flow.noun} request expired before it was approved.`,
-        `Run \`${flow.command}\` to start a new one.`
+        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start a new one.`
     )
 }
 
 function pendingResult<Pending extends PendingApproval>(
-    flow: Pick<ApprovalFlow<Pending, unknown>, 'command' | 'approver' | 'approverNames'>,
+    flow: Pick<ApprovalFlow<Pending, unknown>, 'command' | 'approver'>,
     pending: Pending
 ): Extract<ApprovalResult<never>, { status: 'pending' }> {
     const code = pending.userCode ?? null
     const approver = flow.approver?.(pending)
     const approve = approver
-        ? `send ${pending.url} to ${approver} to approve`
+        ? `send ${pending.url} to ${approver.who} to approve`
         : code
           ? `open ${pending.url} and approve the code ${code}`
           : `open ${pending.url} and approve it`
@@ -254,7 +262,7 @@ function pendingResult<Pending extends PendingApproval>(
         expiresAt: new Date(pending.expiresAt).toISOString(),
         instructions: `Ask the user to ${approve}. Then run \`${flow.command} --wait\`, which returns once they approve. If it times out, run it again.`,
         next: `${flow.command} --wait`,
-        ...(approver ? { approver, approverNames: flow.approverNames?.(pending) ?? [] } : {}),
+        ...(approver ? { approver: approver.who, approverNames: approver.names } : {}),
     }
 }
 
@@ -268,6 +276,19 @@ async function withSpinner<Value>(spinner: Spinner | undefined, noun: string, wa
         throw error
     }
 }
+
+// Nobody approves anything in CI. Agents pass, because they hand the link to a person.
+export function refuseInCi(ctx: Context, command: string, hint: string): void {
+    if (!ctx.prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
+        throw new HogError(
+            'login_needs_a_person',
+            `${command} needs a person to approve it in a browser, so it does not run in CI.`,
+            hint
+        )
+    }
+}
+
+export type PendingResult = Extract<ApprovalResult<never>, { status: 'pending' }>
 
 // Starts a command that waits for a person. At a terminal it shows the link, opens the browser when it
 // can, and waits; Ctrl-C keeps the pending item for `--wait`. Agents and scripts get the link and the
@@ -312,7 +333,7 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
 }
 
 // What a person sees when an agent or a script started the request.
-export function printPending(out: Output, result: Extract<ApprovalResult<unknown>, { status: 'pending' }>): void {
+export function printPending(out: Output, result: PendingResult): void {
     out.line(
         result.approver
             ? `Only ${escapeControls(result.approver)}${result.approverNames?.length ? ` (${escapeControls(result.approverNames.join(', '))})` : ''} can approve it. Send them this link:`

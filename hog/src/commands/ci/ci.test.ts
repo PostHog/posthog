@@ -4,21 +4,7 @@ import { z } from 'zod'
 import * as providers from '@/ci/providers/registry'
 import { FAKE_WORKLOAD_PROVIDER, readJson, runHog, TEST_CREDENTIALS, type FakeRuntimeOptions } from '@/testing'
 
-const FAKE_ORG_PROVIDER = {
-    ...FAKE_WORKLOAD_PROVIDER,
-    key: 'fake_org_ci',
-    configPaths: ['.fake-org-ci.yml'],
-    requiredConditions: [
-        { claim: 'org_id', label: 'organization ID' },
-        { claim: 'forge', label: 'forge', defaultValue: 'github' },
-    ],
-    canLookUpSubject: (conditions: Record<string, string>) => conditions.forge === 'github',
-}
-
-mock.module('@/ci/providers/registry', () => ({
-    ...providers,
-    WORKLOAD_PROVIDERS: [FAKE_WORKLOAD_PROVIDER, FAKE_ORG_PROVIDER],
-}))
+mock.module('@/ci/providers/registry', () => ({ ...providers, WORKLOAD_PROVIDERS: [FAKE_WORKLOAD_PROVIDER] }))
 afterAll(() => {
     mock.module('@/ci/providers/registry', () => providers)
 })
@@ -40,11 +26,69 @@ const CREATED = {
     policy_id: null,
 }
 
-// The request API: a lookup, a new request, then `pendingPolls` answers of "still pending" before `final`.
-function policyApi(options: { canApprove?: boolean; pendingPolls?: number; final?: string } = {}) {
+const PROVIDERS = {
+    supported: [
+        {
+            key: 'fake_ci',
+            name: 'Fake CI',
+            docs_url: 'https://example.com/docs/fake-ci',
+            condition_presets: [
+                {
+                    key: 'branch_push',
+                    label: 'Pushes to a branch',
+                    help_text: 'Runs for commits pushed to this branch.',
+                    conditions: { event_name: 'push', ref: 'refs/heads/{value}' },
+                    takes_value: true,
+                    placeholder: 'main',
+                    default_value: 'main',
+                },
+                {
+                    key: 'environment',
+                    label: 'A deployment environment',
+                    help_text: 'Jobs that deploy to this environment.',
+                    conditions: { environment: '{value}' },
+                    takes_value: true,
+                    placeholder: 'production',
+                    default_value: '',
+                },
+            ],
+            can_resolve_subject: true,
+            setup_snippet: 'fake-ci:\n  oidc: true',
+        },
+    ],
+}
+
+// Like Depot CI: every policy pins an organization, and the lookup only knows one forge.
+const ORG_PROVIDERS = {
+    supported: [
+        {
+            ...PROVIDERS.supported[0],
+            condition_presets: [
+                {
+                    key: 'organization',
+                    label: 'Your organization',
+                    help_text: 'Every policy pins your organization.',
+                    conditions: { org_id: '{value}', forge: 'github' },
+                    takes_value: true,
+                    placeholder: 'org123',
+                    default_value: '',
+                },
+                ...PROVIDERS.supported[0]!.condition_presets,
+            ],
+            required_condition_claims: ['org_id', 'forge'],
+            subject_lookup_conditions: { forge: 'github' },
+        },
+    ],
+}
+
+// The request API: providers, a lookup, a new request, then `pendingPolls` answers of "still pending" before `final`.
+function policyApi(options: { canApprove?: boolean; pendingPolls?: number; final?: string; providers?: unknown } = {}) {
     let polls = 0
     const created = { ...CREATED, can_approve: options.canApprove ?? false }
     return (url: string): { status: number; body: unknown } => {
+        if (url === `${REQUESTS}providers/`) {
+            return { status: 200, body: options.providers ?? PROVIDERS }
+        }
         if (url.startsWith(`${REQUESTS}resolve_subject/`)) {
             return { status: 200, body: { subject: '123', subject_name: 'Acme/Web', found_via: 'Fake CI' } }
         }
@@ -66,7 +110,7 @@ function setup(args: string[], options: FakeRuntimeOptions): ReturnType<typeof r
 describe('hog ci setup', () => {
     test('asks for a policy for the repository it runs in, and hands an agent the link and the snippet', async () => {
         const run = await setup(
-            ['--branch', 'main', '--scope', 'query:read,error_tracking:write', '--scope', 'query:read'],
+            ['--preset', 'branch_push=main', '--scope', 'query:read,error_tracking:write', '--scope', 'query:read'],
             {
                 respond: policyApi(),
             }
@@ -89,7 +133,7 @@ describe('hog ci setup', () => {
             instructions: expect.not.stringContaining('Olive'),
             next: 'hog ci setup --wait',
             posthogJson: { projectId: 7 },
-            env: { HOG_HOST: HOST, HOG_PROJECT_ID: '7' },
+            host: HOST,
         })
         expect(readJson(run.files[PENDING_FILE] ?? '{}')).toMatchObject({ requestId: 'req-1', provider: 'fake_ci' })
     })
@@ -103,7 +147,7 @@ describe('hog ci setup', () => {
             0,
         ],
     ])('%s', async (_name, canApprove, shown, polls) => {
-        const run = await setup(['--environment', 'production', '--scope', 'query:read'], {
+        const run = await setup(['--preset', 'environment=production', '--scope', 'query:read'], {
             stdoutIsTTY: true,
             respond: policyApi({ canApprove, pendingPolls: 1 }),
         })
@@ -116,7 +160,7 @@ describe('hog ci setup', () => {
     })
 
     test('--wait resumes the request an earlier run started and prints the snippet once approved', async () => {
-        const first = await setup(['--branch', 'main', '--scope', 'query:read'], { respond: policyApi() })
+        const first = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], { respond: policyApi() })
         const run = await runHog(['ci', 'setup', '--wait'], {
             env: TEST_CREDENTIALS,
             files: first.files,
@@ -136,7 +180,7 @@ describe('hog ci setup', () => {
         ['starts a new request once an admin rejected the last one', 'rejected', 2],
         ['picks up the policy once an admin approved the last one', 'approved', 1],
     ])('running it again %s', async (_name, lastStatus, created) => {
-        const args = ['--branch', 'main', '--scope', 'query:read']
+        const args = ['--preset', 'branch_push=main', '--scope', 'query:read']
         const first = await setup(args, { respond: policyApi() })
         const api = policyApi({ final: lastStatus })
         const run = await setup(args, { files: first.files, respond: api })
@@ -148,7 +192,7 @@ describe('hog ci setup', () => {
     })
 
     test('--wait after the deadline still picks up an approval that came in before it', async () => {
-        const first = await setup(['--branch', 'main', '--scope', 'query:read'], { respond: policyApi() })
+        const first = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], { respond: policyApi() })
         const pending = readJson(first.files[PENDING_FILE] ?? '{}', z.object({}).loose())
         const files = { ...first.files, [PENDING_FILE]: JSON.stringify({ ...pending, expiresAt: 0 }) }
 
@@ -159,7 +203,7 @@ describe('hog ci setup', () => {
     })
 
     test('--wait keeps the request when a gateway answers with an HTML error page', async () => {
-        const first = await setup(['--branch', 'main', '--scope', 'query:read'], { respond: policyApi() })
+        const first = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], { respond: policyApi() })
         const run = await runHog(['ci', 'setup', '--wait'], {
             env: TEST_CREDENTIALS,
             files: first.files,
@@ -171,7 +215,7 @@ describe('hog ci setup', () => {
     })
 
     test('--wait gives up after a while and keeps the request for the next --wait', async () => {
-        const first = await setup(['--branch', 'main', '--scope', 'query:read'], { respond: policyApi() })
+        const first = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], { respond: policyApi() })
         const run = await runHog(['ci', 'setup', '--wait'], {
             env: TEST_CREDENTIALS,
             files: first.files,
@@ -183,11 +227,29 @@ describe('hog ci setup', () => {
     })
 
     test.each([
-        ['no scope', ['--branch', 'main'], REPOSITORY, 'missing_scopes'],
-        ['no branch or environment', ['--scope', 'query:read'], REPOSITORY, 'missing_conditions'],
+        ['no scope', ['--preset', 'branch_push=main'], REPOSITORY, 'missing_scopes'],
+        ['an unknown preset', ['--preset', 'tag=v1', '--scope', 'query:read'], REPOSITORY, 'unknown_preset'],
+        [
+            'a preset passed twice',
+            ['--preset', 'branch_push=main', '--preset', 'branch_push=dev', '--scope', 'query:read'],
+            REPOSITORY,
+            'invalid_preset',
+        ],
+        [
+            'a control character in a value',
+            ['--preset', 'environment=prod\u001b', '--scope', 'query:read'],
+            REPOSITORY,
+            'invalid_preset',
+        ],
+        [
+            'no origin remote',
+            ['--provider', 'fake_ci', '--preset', 'branch_push=main', '--scope', 'query:read'],
+            { ...REPOSITORY, '/work/.git/config': '[remote "upstream"]\n\turl = git@ci.example.com:acme/web.git\n' },
+            'missing_repository',
+        ],
         [
             'no CI config in the repository',
-            ['--branch', 'main', '--scope', 'query:read'],
+            ['--preset', 'branch_push=main', '--scope', 'query:read'],
             { '/work/.git/config': REPOSITORY['/work/.git/config'] },
             'provider_not_detected',
         ],
@@ -199,46 +261,108 @@ describe('hog ci setup', () => {
         expect(run.requests.some((request) => request.url === REQUESTS)).toBe(false)
     })
 
-    test.each([
-        ['without the organization stops before asking PostHog', [], 'missing_condition', undefined],
-        [
-            'pins the organization and the default forge',
-            ['--condition', 'org_id=org123'],
-            undefined,
-            { event_name: 'push', forge: 'github', org_id: 'org123', ref: 'refs/heads/main' },
-        ],
-        [
-            'refuses an empty value',
-            ['--condition', 'org_id=org123', '--condition', 'forge='],
-            'invalid_condition',
-            undefined,
-        ],
-        [
-            'refuses a condition that --branch contradicts',
-            ['--condition', 'org_id=org123', '--condition', 'event_name=workflow_dispatch'],
-            'conflicting_condition',
-            undefined,
-        ],
-        [
-            'asks for the repository ID on a forge PostHog can not look up',
-            ['--condition', 'org_id=org123', '--condition', 'forge=other'],
-            'missing_subject_id',
-            undefined,
-        ],
-    ])('a provider with required conditions %s', async (_name, extra, code, conditions) => {
-        const run = await setup(['--provider', 'fake_org_ci', '--branch', 'main', '--scope', 'query:read', ...extra], {
+    test("without a preset, an agent gets the choices with PostHog's explanations and nothing is requested", async () => {
+        const run = await setup(['--scope', 'query:read'], { respond: policyApi() })
+
+        expect(run.exitCode).toBe(0)
+        expect(run.json()).toEqual({
+            status: 'input_required',
+            provider: 'Fake CI',
+            values: [],
+            presets: [
+                {
+                    option: '--preset branch_push=<value>',
+                    label: 'Pushes to a branch',
+                    help: 'Runs for commits pushed to this branch.',
+                    example: 'main',
+                },
+                {
+                    option: '--preset environment=<value>',
+                    label: 'A deployment environment',
+                    help: 'Jobs that deploy to this environment.',
+                    example: 'production',
+                },
+            ],
+            docsUrl: 'https://example.com/docs/fake-ci',
+        })
+        expect(run.requests.some((request) => request.url === REQUESTS)).toBe(false)
+    })
+
+    test('a person at the terminal picks a preset and types its value', async () => {
+        const run = await setup(['--scope', 'query:read'], {
+            stdoutIsTTY: true,
+            answers: ['environment', 'production'],
             respond: policyApi(),
         })
 
-        expect(run.exitCode === 0 ? undefined : run.error().code).toBe(code)
+        expect(run.exitCode).toBe(0)
+        expect(
+            (run.requests.find((request) => request.url === REQUESTS)?.body as { conditions?: unknown } | undefined)
+                ?.conditions
+        ).toEqual({ environment: 'production' })
+    })
+
+    test('a preset value goes into the condition exactly as typed', async () => {
+        const run = await setup(['--preset', "branch_push=v$&1$'", '--scope', 'query:read'], { respond: policyApi() })
+
+        expect(
+            (run.requests.find((request) => request.url === REQUESTS)?.body as { conditions?: unknown } | undefined)
+                ?.conditions
+        ).toEqual({ event_name: 'push', ref: "refs/heads/v$&1$'" })
+    })
+
+    test.each([
+        [
+            'asks an agent for the organization every policy needs',
+            ['--preset', 'branch_push=main'],
+            {
+                status: 'input_required',
+                values: [expect.objectContaining({ option: '--preset organization=<value>' })],
+            },
+            undefined,
+        ],
+        [
+            'pins the organization next to the run preset and looks the subject up with the conditions',
+            ['--preset', 'branch_push=main', '--preset', 'organization=org123'],
+            { status: 'pending' },
+            { org_id: 'org123', forge: 'github', event_name: 'push', ref: 'refs/heads/main' },
+        ],
+    ])('a provider with required claims %s', async (_name, args, result, conditions) => {
+        const run = await setup([...args, '--scope', 'query:read'], {
+            respond: policyApi({ providers: ORG_PROVIDERS }),
+        })
+
+        expect(run.json()).toMatchObject(result)
         expect(
             (run.requests.find((request) => request.url === REQUESTS)?.body as { conditions?: unknown } | undefined)
                 ?.conditions
         ).toEqual(conditions)
+        if (conditions) {
+            expect(run.requests.find((request) => request.url.includes('resolve_subject'))?.url).toContain(
+                'condition=forge%3Dgithub'
+            )
+        }
+    })
+
+    test('a token in the origin remote never reaches PostHog', async () => {
+        const run = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], {
+            files: {
+                ...REPOSITORY,
+                '/work/.git/config':
+                    '[remote "origin"]\n\turl = https://bot:secret@ci.example.com/acme/web.git?token=secret\n',
+            },
+            respond: policyApi(),
+        })
+
+        expect(run.exitCode).toBe(0)
+        expect(JSON.stringify(run.requests)).not.toContain('secret')
+        expect(run.requests.find((request) => request.url.includes('resolve_subject'))?.url).toContain(
+            'subject_name=acme%2Fweb'
+        )
     })
 
     test('a repository PostHog can not look up points to --subject-id', async () => {
-        const run = await setup(['--branch', 'main', '--scope', 'query:read'], {
+        const run = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], {
             respond: (url) =>
                 url.startsWith(`${REQUESTS}resolve_subject/`)
                     ? { status: 404, body: { detail: 'No repository acme/web that PostHog can see.' } }

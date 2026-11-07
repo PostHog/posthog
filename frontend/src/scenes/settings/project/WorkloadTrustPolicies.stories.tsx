@@ -163,7 +163,6 @@ const providers = {
         host: 'https://us.posthog.com',
         project_id: 997,
         host_in_posthog_json: true,
-        posthog_json: '{\n    "host": "https://us.posthog.com",\n    "projectId": 997\n}',
     },
     grantable_scopes: [
         'annotation:read',

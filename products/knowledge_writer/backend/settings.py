@@ -9,6 +9,12 @@ class WriterSettings:
     team_id: int
     user_id: int
     docs_repository: str
+    source_repositories: tuple[str, ...]
+
+
+def source_repositories() -> tuple[str, ...]:
+    listed = get_from_env("KNOWLEDGE_WRITER_SOURCE_REPOSITORIES", "")
+    return tuple(name.strip() for name in listed.split(",") if name.strip())
 
 
 def writer_settings() -> WriterSettings | None:
@@ -19,4 +25,9 @@ def writer_settings() -> WriterSettings | None:
         return None
     if not is_writer_enabled(team_id):
         return None
-    return WriterSettings(team_id=team_id, user_id=user_id, docs_repository=docs_repository)
+    return WriterSettings(
+        team_id=team_id,
+        user_id=user_id,
+        docs_repository=docs_repository,
+        source_repositories=source_repositories(),
+    )
