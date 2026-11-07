@@ -1,8 +1,31 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 import { LiquidRenderBudget, LiquidRenderer } from './liquid'
+
+type PostmarkRenderCase = {
+    name: string
+    part: 'html' | 'subject' | 'text'
+    liquid: string
+    model: Record<string, unknown>
+    expected: string
+    posthog_renders?: string
+}
+
+// Written by the Python importer and checked there against its Mustachio input, so both engines read one list.
+const POSTMARK_RENDER_CASES: PostmarkRenderCase[] = parseJSON(
+    fs.readFileSync(
+        path.join(__dirname, '../../../../products/messaging/backend/tests/fixtures/postmark_render_cases.json'),
+        'utf8'
+    )
+)
+
+// .NET and LiquidJS write the same character with different HTML entities.
+const decodeEntityForms = (html: string): string =>
+    html.replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code))).replace(/&quot;/g, '"')
 
 describe('LiquidRenderer', () => {
     let globals: HogFunctionInvocationGlobalsWithInputs
@@ -378,6 +401,18 @@ describe('LiquidRenderer', () => {
             expect(LiquidRenderer.renderWithHogFunctionGlobals('Hello {{ person.name }}!', globals)).toBe(
                 'Hello test_person!'
             )
+        })
+    })
+
+    describe('templates imported from Postmark', () => {
+        it.each(POSTMARK_RENDER_CASES.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+            const rendered = LiquidRenderer.renderWithHogFunctionGlobals(
+                c.liquid,
+                { variables: c.model } as unknown as HogFunctionInvocationGlobalsWithInputs,
+                undefined,
+                { escapeHtml: c.part === 'html' }
+            )
+            expect(decodeEntityForms(rendered)).toEqual(decodeEntityForms(c.posthog_renders ?? c.expected))
         })
     })
 
