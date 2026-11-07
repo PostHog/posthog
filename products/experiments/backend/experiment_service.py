@@ -887,7 +887,9 @@ class ExperimentService:
             return
 
         if not isinstance(metrics, list):
-            raise ValidationError("Metrics must be a list")
+            # Specific code for MCP telemetry, which strips the free-text detail —
+            # see the note in products/experiments/backend/metric_validation.py.
+            raise ValidationError("Metrics must be a list", code="metrics_not_list")
 
         for i, metric in enumerate(metrics):
             parse_and_validate_metric(metric, error_prefix=f"Invalid metric at index {i}: ")

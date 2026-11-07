@@ -58,6 +58,7 @@ from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
     is_events_node_actions_node_confusion,
     logger as metric_validation_logger,
+    validate_saved_metric_link_overrides,
 )
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -1146,6 +1147,45 @@ class TestExperimentService(APIBaseTest):
             ExperimentService.validate_experiment_metrics(metrics)  # type: ignore[arg-type]
         assert expected_fragment in str(ctx.exception), (
             f"Expected fragment {expected_fragment!r} in error: {ctx.exception}"
+        )
+
+    # MCP telemetry records only the error code and field, never the free-text detail
+    # (see describeToolError in services/mcp/src/hono/tool-executor.ts), so every
+    # rejection needs its own code or they all collapse into one `invalid_input` bucket.
+    @parameterized.expand(
+        [
+            ("not_a_list", "not-a-list", "metrics_not_list"),
+            ("metric_not_a_dict", ["not-a-dict"], "metric_not_dict"),
+            ("legacy_kind", [{"kind": "ExperimentTrendsQuery"}], "legacy_metric_kind"),
+            ("wrong_kind", [{"kind": "FunnelsQuery"}], "metric_kind_invalid"),
+            ("missing_metric_type", [{"kind": "ExperimentMetric"}], "metric_type_missing"),
+            ("bad_metric_type", [{"kind": "ExperimentMetric", "metric_type": "nope"}], "metric_type_invalid"),
+            (
+                "schema_error",
+                [{"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "id": 1}}],
+                "metric_schema_invalid",
+            ),
+            (
+                "semantic_error",
+                [{"kind": "ExperimentMetric", "metric_type": "funnel", "series": []}],
+                "metric_semantic_invalid",
+            ),
+        ]
+    )
+    def test_validate_experiment_metrics_raises_specific_codes(
+        self, _: str, metrics: object, expected_code: str
+    ) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(metrics)  # type: ignore[arg-type]
+        assert ctx.exception.get_codes() == [expected_code], (
+            f"Expected code {expected_code!r}, got: {ctx.exception.get_codes()}"
+        )
+
+    def test_validate_saved_metric_link_overrides_raises_specific_code(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            validate_saved_metric_link_overrides({"breakdown_limit": "not-an-int"}, error_prefix="Invalid metadata: ")
+        assert ctx.exception.get_codes() == ["saved_metric_override_invalid"], (
+            f"Expected code 'saved_metric_override_invalid', got: {ctx.exception.get_codes()}"
         )
 
     # ------------------------------------------------------------------
