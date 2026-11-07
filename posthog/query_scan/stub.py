@@ -11,7 +11,9 @@ see ``EventFilterOutcome.hidden_from_plan`` and ``TreeFacts.start_date_hidden_fr
 
 A subquery that is a query source is kept, because the plan needs it: the root query, a ``FROM`` or
 ``JOIN`` table, a ``UNION`` member, and a subquery ``WITH`` body (``WITH a AS (SELECT ...)``). The
-value subqueries taken out of the tree are collected so each can be explained on its own.
+value subqueries taken out of the tree are collected so each can be explained on its own. Each keeps
+the CTEs it can see from the query around it. Printed without them, a subquery names a CTE that has
+no definition, and ClickHouse resolves that name against its own tables.
 
 A warehouse table is swapped for a stand-in with its columns and no rows. The real one prints as
 ``s3(url, key, secret, ...)``, which puts the source's credentials in the printed values, and
@@ -71,47 +73,81 @@ def _stand_in_table_type(table_type: ast.TableType | ast.LazyTableType) -> ast.T
 
 
 @frozen
+class ExtractedSubquery:
+    """A value subquery taken out of the tree. ``outer_ctes`` holds the CTEs that the query around it
+    defines, keyed by name, because the subquery can read them."""
+
+    query: ast.SelectQuery | ast.SelectSetQuery
+    outer_ctes: dict[str, ast.CTE]
+
+
+@frozen
 class StubResult:
     """The stubbed tree and the subqueries taken out of it, in the order they were visited."""
 
     stubbed: ast.Expr
-    subqueries: tuple[ast.SelectQuery | ast.SelectSetQuery, ...]
+    subqueries: tuple[ExtractedSubquery, ...]
 
 
-def stub_in_subqueries(node: ast.Expr) -> StubResult:
-    visitor = _StubVisitor()
+def stub_in_subqueries(node: ast.Expr, outer_ctes: dict[str, ast.CTE] | None = None) -> StubResult:
+    """Stub ``node``. Pass an extracted subquery's ``outer_ctes`` to print that subquery on its own:
+    the stubbed tree then defines those CTEs itself."""
+    visitor = _StubVisitor(outer_ctes or {})
     visitor.mark_source(node)
     stubbed = visitor.visit(node)
+    if outer_ctes:
+        assert isinstance(stubbed, (ast.SelectQuery, ast.SelectSetQuery))
+        stubbed_ctes = {name: visitor.visit(cte) for name, cte in outer_ctes.items()}
+        # The resolver lets every UNION member read the CTEs of the leading select, so they go there.
+        leading = _leading_select(stubbed)
+        leading.ctes = {**stubbed_ctes, **(leading.ctes or {})}
     return StubResult(stubbed=stubbed, subqueries=tuple(visitor.subqueries))
 
 
+def _leading_select(node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+    while isinstance(node, ast.SelectSetQuery):
+        node = node.initial_select_query
+    return node
+
+
 class _StubVisitor(CloningVisitor):
-    def __init__(self) -> None:
+    def __init__(self, outer_ctes: dict[str, ast.CTE]) -> None:
         # The stubbed tree is printed as ClickHouse SQL, and the printer refuses a FROM clause
         # whose types were cleared, so the clone keeps the resolved types.
         super().__init__(clear_types=False)
-        self.subqueries: list[ast.SelectQuery | ast.SelectSetQuery] = []
+        self.subqueries: list[ExtractedSubquery] = []
         # ``id()`` of each subquery that is a query source. A parent marks its source children before
         # ``super()`` recurses into them.
         self._source_ids: set[int] = set()
+        self._cte_scopes: list[dict[str, ast.CTE]] = [outer_ctes]
 
     def mark_source(self, node: ast.Expr) -> None:
         self._source_ids.add(id(node))
 
+    def _extract(self, node: ast.SelectQuery | ast.SelectSetQuery) -> ast.Expr:
+        ctes = {name: cte for scope in self._cte_scopes for name, cte in scope.items()}
+        self.subqueries.append(ExtractedSubquery(query=node, outer_ctes=ctes))
+        return _stubbed_value()
+
     def visit_select_query(self, node: ast.SelectQuery) -> ast.Expr:
         if id(node) not in self._source_ids:
-            self.subqueries.append(node)
-            return _stubbed_value()
-        return super().visit_select_query(node)
+            return self._extract(node)
+        self._cte_scopes.append(node.ctes or {})
+        cloned = super().visit_select_query(node)
+        self._cte_scopes.pop()
+        return cloned
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.Expr:
         if id(node) not in self._source_ids:
-            self.subqueries.append(node)
-            return _stubbed_value()
+            return self._extract(node)
         self.mark_source(node.initial_select_query)
         for member in node.subsequent_select_queries:
             self.mark_source(member.select_query)
-        return super().visit_select_set_query(node)
+        initial = node.initial_select_query
+        self._cte_scopes.append((initial.ctes if isinstance(initial, ast.SelectQuery) else None) or {})
+        cloned = super().visit_select_set_query(node)
+        self._cte_scopes.pop()
+        return cloned
 
     def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
         # ``super()`` passes this same table node to ``self.visit``, so marking it here is enough.
