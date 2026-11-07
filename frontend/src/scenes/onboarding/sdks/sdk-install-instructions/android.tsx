@@ -12,7 +12,7 @@ function AndroidInstallSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Kotlin}>
             {`dependencies {
-    implementation("com.posthog:posthog-android:3.+")
+    implementation("com.posthog:posthog-android:4.+")
 }`}
         </CodeSnippet>
     )
@@ -35,7 +35,7 @@ function AndroidSetupSnippet({ includeReplay }: AndroidSetupProps): JSX.Element 
 
         // Create a PostHog Config with the given project token and host
         val config = PostHogAndroidConfig(
-            apiKey = POSTHOG_PROJECT_TOKEN,
+            projectToken = POSTHOG_PROJECT_TOKEN,
             host = POSTHOG_HOST
         )
         ${
@@ -47,10 +47,7 @@ function AndroidSetupSnippet({ includeReplay }: AndroidSetupProps): JSX.Element 
         config.sessionReplay = true
         // choose whether to mask images or text
         config.sessionReplayConfig.maskAllImages = false
-        config.sessionReplayConfig.maskAllTextInputs = true
-        // screenshot is disabled by default
-        // The screenshot may contain sensitive information, use with caution
-        config.sessionReplayConfig.screenshot = true`
+        config.sessionReplayConfig.maskAllTextInputs = true`
                 : ''
         }
 
