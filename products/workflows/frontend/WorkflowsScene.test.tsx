@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
@@ -13,7 +13,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import type { HogFlowListSummaryApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowListSummaryApi, WorkflowViewUpdateApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
 import {
@@ -23,6 +23,7 @@ import {
     paginated,
 } from './Workflows/WorkflowsListV2/workflowsListV2Fixtures'
 import { workflowsListV2Logic } from './Workflows/WorkflowsListV2/workflowsListV2Logic'
+import { workflowsSavedViewsLogic } from './Workflows/WorkflowsListV2/workflowsSavedViewsLogic'
 import { workflowsLogic } from './Workflows/workflowsLogic'
 import { WorkflowsScene } from './WorkflowsScene'
 
@@ -54,6 +55,204 @@ describe('WorkflowsScene', () => {
     })
 
     afterEach(() => cleanup())
+
+    it('distinguishes view filters from additions and explains why a built-in view cannot be updated', async () => {
+        useMocks({
+            get: { '/api/projects/:team_id/workflow_views/': () => [200, paginated([])] },
+            post: { '/api/projects/:team_id/workflow_views/initialize/': () => [403, {}] },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: true,
+        })
+        router.actions.push(urls.workflows(), { view: 'drafts', q: 'status:draft trigger:event' })
+        const user = userEvent.setup()
+        render(
+            <Provider>
+                <WorkflowsScene />
+            </Provider>
+        )
+        await waitFor(() =>
+            expect(document.querySelector('[data-attr="workflows-combined-reset-view"]')).not.toBeNull()
+        )
+        const update = screen.getByText('Update view').closest('button')!
+        expect(update).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByText('Status: Draft').closest('.inline-flex')).toHaveClass(
+            'bg-fill-secondary',
+            'text-secondary'
+        )
+        expect(screen.getByText('Trigger: Event').closest('.inline-flex')).toHaveClass('bg-accent-highlight-secondary')
+        await user.hover(update)
+        expect(
+            await screen.findByText("Built-in views can't be changed. Save as a new view instead.")
+        ).toBeInTheDocument()
+        await user.click(document.querySelector('[aria-label="Remove filter Status: Draft"]')!)
+        expect(document.querySelector('[data-attr="workflows-combined-view-modified"]')).not.toBeNull()
+        await user.click(
+            Array.from(document.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent?.startsWith('All'))!
+        )
+        expect(screen.getByText('Trigger: Event').closest('.inline-flex')).toHaveClass('bg-accent-highlight-secondary')
+        expect(screen.queryByText('Status: Draft')).not.toBeInTheDocument()
+        await user.click(document.querySelector('[data-attr="workflows-combined-reset-view"]')!)
+        expect(screen.queryByText('Trigger: Event')).not.toBeInTheDocument()
+    })
+
+    it.each([200, 500])(
+        'updates the active saved view and releases its loading state after HTTP %s',
+        async (status) => {
+            const saved = {
+                id: '00000000-0000-4000-8000-000000000009',
+                name: 'Event drafts',
+                version: 1,
+                default_key: null,
+                deleted: false,
+                created_at: '',
+                updated_at: '',
+                state: {
+                    filters: [{ facet: 'status' as const, value: 'draft', negated: false }],
+                    text: '',
+                    columns: ['owner'],
+                },
+            }
+            let release: () => void = () => {}
+            const pending = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            const writes: unknown[] = []
+            useMocks({
+                get: { '/api/projects/:team_id/workflow_views/': () => [200, paginated([saved])] },
+                post: { '/api/projects/:team_id/workflow_views/initialize/': () => [403, {}] },
+                patch: {
+                    '/api/projects/:team_id/workflow_views/:id/': async ({ request }) => {
+                        const body = (await request.json()) as WorkflowViewUpdateApi
+                        writes.push(body)
+                        await pending
+                        return status === 200 ? [200, { ...saved, ...body, version: 2 }] : [500, {}]
+                    },
+                },
+            })
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT!,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT!.resource_access_control!,
+                    hog_flow: AccessControlLevel.Editor,
+                },
+            }
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+                [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: true,
+            })
+            router.actions.push(urls.workflows(), {
+                view: saved.id,
+                q: 'status:draft trigger:event',
+                columns: 'trigger',
+            })
+            const user = userEvent.setup()
+            render(
+                <Provider>
+                    <WorkflowsScene />
+                </Provider>
+            )
+            const update = (await screen.findByText('Update view')).closest('button')!
+            await user.click(update)
+            await waitFor(() => expect(writes).toHaveLength(1))
+            expect(update).toHaveAttribute('aria-disabled', 'true')
+            expect(update).toHaveClass('LemonButton--loading')
+            await user.click(update)
+            expect(writes).toHaveLength(1)
+            await act(async () => {
+                release()
+            })
+            await waitFor(() => expect(workflowsSavedViewsLogic.values.saving).toBe(false))
+            expect(writes).toEqual([
+                {
+                    version: 1,
+                    state: {
+                        filters: [
+                            { facet: 'status', value: 'draft', negated: false },
+                            { facet: 'trigger', value: 'event', negated: false },
+                        ],
+                        text: '',
+                        columns: ['trigger'],
+                    },
+                },
+            ])
+            const updated = status === 200
+            expect(document.querySelector('[data-attr="workflows-combined-view-modified"]') !== null).toBe(!updated)
+            expect(document.querySelector('[data-attr="workflows-combined-reset-view"]') !== null).toBe(!updated)
+            expect(
+                screen.getByText('Trigger: Event').closest('.inline-flex')!.classList.contains('bg-fill-secondary')
+            ).toBe(updated)
+            const updateAfterSave = document.querySelector('[data-attr="workflows-combined-update-view"]')
+            expect(
+                updateAfterSave && {
+                    disabled: updateAfterSave.getAttribute('aria-disabled'),
+                    loading: updateAfterSave.classList.contains('LemonButton--loading'),
+                }
+            ).toEqual(updated ? null : { disabled: 'false', loading: false })
+        }
+    )
+
+    it.each([
+        [400, true],
+        [201, false],
+    ])(
+        'keeps the save as dialog open with the typed name only while saving fails, after HTTP %s',
+        async (status, keepsOpen) => {
+            useMocks({
+                get: { '/api/projects/:team_id/workflow_views/': () => [200, paginated([])] },
+                post: {
+                    '/api/projects/:team_id/workflow_views/initialize/': () => [403, {}],
+                    '/api/projects/:team_id/workflow_views/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        return status === 201
+                            ? [
+                                  201,
+                                  {
+                                      ...body,
+                                      id: '00000000-0000-4000-8000-00000000000a',
+                                      version: 1,
+                                      default_key: null,
+                                  },
+                              ]
+                            : [400, { detail: 'Name unavailable' }]
+                    },
+                },
+            })
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT!,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT!.resource_access_control!,
+                    hog_flow: AccessControlLevel.Editor,
+                },
+            }
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+                [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: true,
+            })
+            router.actions.push(urls.workflows(), { view: 'drafts', q: 'status:draft trigger:event' })
+            const user = userEvent.setup()
+            render(
+                <Provider>
+                    <WorkflowsScene />
+                </Provider>
+            )
+            await waitFor(() =>
+                expect(document.querySelector('[data-attr="workflows-combined-save-as-new"]')).not.toBeNull()
+            )
+            await user.click(document.querySelector('[data-attr="workflows-combined-save-as-new"]')!)
+            const name = await screen.findByPlaceholderText('For example: Webinar emails')
+            await user.type(name, 'Event drafts{Enter}')
+
+            await waitFor(() => expect(workflowsSavedViewsLogic.values.saving).toBe(false))
+            if (keepsOpen) {
+                expect(name).toBeInTheDocument()
+                expect(name).toHaveValue('Event drafts')
+                await user.click(screen.getByText('Cancel'))
+            }
+            await waitFor(() => expect(name).not.toBeInTheDocument())
+        }
+    )
 
     it('offers a metrics retry instead of an empty health result when metrics fail', async () => {
         useMocks({

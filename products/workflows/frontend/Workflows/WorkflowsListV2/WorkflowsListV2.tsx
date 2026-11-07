@@ -11,12 +11,15 @@ import { MessagingSetupReminderBanner } from '../../setupGuide/MessagingSetupRem
 import { workflowLogic } from '../workflowLogic'
 import { serializeFacetQuery } from './FacetSearchBar/facetQuery'
 import { FacetSearchBar } from './FacetSearchBar/FacetSearchBar'
+import { WorkflowSavedViewTabs } from './WorkflowSavedViewTabs'
 import { buildWorkflowsListV2Columns } from './workflowsListV2Columns'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
+import { workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
 
 const PAGE_SIZE = 100
 
 export function WorkflowsListV2(): JSX.Element {
+    const { viewFilters } = useValues(workflowsSavedViewsLogic)
     const {
         rows,
         filteredRows,
@@ -115,15 +118,19 @@ export function WorkflowsListV2(): JSX.Element {
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="workflows-list-v2">
             <MessagingSetupReminderBanner />
-            <FacetSearchBar
-                facets={facets}
-                items={rows}
-                value={value}
-                onChange={setValue}
-                matchesText={matchesText}
-                placeholder="Search workflows, or filter with status:, owner:, health: and more"
-                dataAttr="workflows-search"
-            />
+            <div>
+                <WorkflowSavedViewTabs />
+                <FacetSearchBar
+                    facets={facets}
+                    items={rows}
+                    value={value}
+                    viewFilters={viewFilters}
+                    onChange={setValue}
+                    matchesText={matchesText}
+                    placeholder="Search workflows, or filter with status:, owner:, health: and more"
+                    dataAttr="workflows-search"
+                />
+            </div>
             {serverSearchStatus === 'failed' && (
                 <div className="text-xs text-secondary" data-attr="workflows-list-v2-search-failed">
                     Couldn't search step names and email content. Showing matches on name and description only.

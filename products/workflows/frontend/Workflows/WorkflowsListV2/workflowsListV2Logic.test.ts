@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import type { WorkflowStatsRowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { customerioImportLogic } from '../import/customerioImportLogic'
+import { serializeFacetQuery } from './FacetSearchBar/facetQuery'
 import type { WorkflowListRow } from './workflowListRows'
 import {
     FIXTURE_METRICS,
@@ -123,7 +124,7 @@ describe('workflowsListV2Logic', () => {
         ['Author:me', 'createdBy:me'],
         ['user:me', 'createdBy:me'],
         ['type:messaging createdBy:me', 'createdBy:me'],
-    ])('reads %s as the signed-in user and links to %s', async (q, canonical) => {
+    ])('reads %s as the signed-in user and keeps it as %s', async (q, canonical) => {
         userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: FIXTURE_USERS.lin.uuid, first_name: 'Lin' })
         router.actions.push(urls.workflows(), { q })
         logic = workflowsListV2Logic()
@@ -131,7 +132,7 @@ describe('workflowsListV2Logic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
         expect(shownIds(logic)).toEqual(['wf-sync'])
-        expect(router.values.searchParams).toEqual({ q: canonical })
+        expect(serializeFacetQuery(logic.values.value.filters)).toEqual(canonical)
         expect(logic.values.facets.find((facet) => facet.key === 'createdBy')?.formatValue?.('me')).toEqual('Lin')
     })
 
