@@ -17,7 +17,7 @@ import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { myClaim } from './__mocks__/inboxMocks'
-import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
+import { inboxSceneLogic, mergeSignalRuns, REPORT_READ_ACTIVE_MS } from './inboxSceneLogic'
 import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
 import { SignalReport, SignalReportStatus, SignalScoutRunSummary } from './types'
@@ -553,6 +553,59 @@ describe('inboxSceneLogic routing', () => {
         expect(inboxCalls[0][2]).toMatchObject({ send_instantly: true })
         expect(inboxCalls[1][2]).toEqual({ send_instantly: true })
         captureSpy.mockRestore()
+    })
+
+    // A report left open in a background tab, or opened and never scrolled, is not a read. The read
+    // fires during the open, so a tab close that drops the close event does not lose it.
+    it('sends `Inbox report read` once, after a scroll and enough visible time', () => {
+        const originalVisibilityState = document.visibilityState
+        const setTabVisibility = (state: 'visible' | 'hidden'): void => {
+            Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        const eventsNamed = (name: string): Record<string, any>[] =>
+            captureSpy.mock.calls.filter(([event]) => event === name).map((call) => call[1] as Record<string, any>)
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        jest.useFakeTimers()
+        try {
+            mountLogic()
+            setTabVisibility('visible')
+            logic.actions.setSelectedReportId('r1')
+            logic.actions.loadSelectedReportSuccess({ id: 'r1', title: 'Crash on login' } as SignalReport)
+
+            jest.advanceTimersByTime(2000)
+            logic.actions.reportDetailScrolled()
+            setTabVisibility('hidden')
+            jest.advanceTimersByTime(60_000)
+            setTabVisibility('visible')
+            jest.advanceTimersByTime(REPORT_READ_ACTIVE_MS - 2001)
+            expect(eventsNamed('Inbox report read')).toHaveLength(0)
+
+            jest.advanceTimersByTime(1)
+            logic.actions.reportDetailScrolled()
+            jest.advanceTimersByTime(30_000)
+            expect(eventsNamed('Inbox report read')).toEqual([
+                expect.objectContaining({
+                    report_id: 'r1',
+                    active_time_ms: REPORT_READ_ACTIVE_MS,
+                    time_since_open_ms: REPORT_READ_ACTIVE_MS + 60_000,
+                }),
+            ])
+
+            logic.actions.setSelectedReportId('r2')
+            logic.actions.loadSelectedReportSuccess({ id: 'r2', title: 'Checkout times out' } as SignalReport)
+            jest.advanceTimersByTime(30_000)
+            expect(eventsNamed('Inbox report read')).toHaveLength(1)
+            expect(eventsNamed('Inbox report closed')[0]).toMatchObject({
+                report_id: 'r1',
+                time_spent_ms: REPORT_READ_ACTIVE_MS + 90_000,
+                active_time_ms: REPORT_READ_ACTIVE_MS + 30_000,
+            })
+        } finally {
+            jest.useRealTimers()
+            Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true })
+            captureSpy.mockRestore()
+        }
     })
 
     it('stops the runs poll when opening another surface closes the panel', () => {
