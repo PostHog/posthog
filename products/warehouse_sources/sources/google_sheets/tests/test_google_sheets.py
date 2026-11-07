@@ -363,10 +363,11 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
     assert mock_worksheet.get.call_count == 2
 
 
-def _read_sheet(header_row: list[str], data_rows: list[list[str]]) -> list[Any]:
+def _read_sheet(header_row: list[str], data_rows: list[list[str]], locale: str = "en_US") -> list[Any]:
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
     mock_worksheet = mock.MagicMock()
+    mock_worksheet.spreadsheet.locale = locale
     mock_worksheet.get_all_values.return_value = [header_row]
     mock_worksheet.get.return_value = [header_row, *data_rows]
 
@@ -398,6 +399,23 @@ def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_tex
         {"id": 3, "code": None},
         {"id": 4, "code": "42"},
     ]
+
+
+@pytest.mark.parametrize(
+    "locale,cells,expected",
+    [
+        pytest.param("de_DE", ["0,5", "1.200", "1.234,5"], [0.5, 1200, 1234.5], id="decimal_comma"),
+        pytest.param("de_DE", ["1.5", "2,5"], ["1.5", "2,5"], id="ambiguous_text_keeps_the_column_as_text"),
+        pytest.param("de_DE", ["15.01.2024"], ["15.01.2024"], id="date_stays_text"),
+        pytest.param("de_DE", ["50 %", "1.234,50 €"], ["50 %", "1.234,50 €"], id="percent_and_currency_stay_text"),
+        pytest.param("en_US", ["1,200", "1.5"], [1200, 1.5], id="decimal_point_drops_group_commas"),
+        pytest.param("xx_UNKNOWN", ["1,200"], [1200], id="unknown_locale_parses_as_decimal_point"),
+    ],
+)
+def test_google_sheets_source_parses_cell_text_in_the_spreadsheet_locale(locale, cells, expected):
+    tables = _read_sheet(["value"], [[cell] for cell in cells], locale=locale)
+
+    assert tables[0].column("value").to_pylist() == expected
 
 
 @pytest.mark.parametrize(

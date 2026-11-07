@@ -8,11 +8,13 @@ from urllib.parse import quote
 
 import gspread
 import requests
+from babel.core import Locale, UnknownLocaleError
+from babel.numbers import NumberFormatError, get_decimal_symbol, parse_decimal
 from cachetools import Cache, TTLCache, cached
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
-from gspread.utils import absolute_range_name, fill_gaps, numericise_all
+from gspread.utils import absolute_range_name, fill_gaps, numericise
 
 from products.warehouse_sources.sources.google_sheets._config import GoogleSheetsSourceConfig
 from products.warehouse_sources.sources.sdk import (
@@ -197,15 +199,38 @@ def _resolve_column_names(headers: list[str]) -> list[str]:
     return resolved
 
 
-def _records_from_grid(grid: list[list[str]]) -> list[dict[str, Any]]:
+def _spreadsheet_locale(worksheet: gspread.Worksheet) -> Locale | None:
+    try:
+        return Locale.parse(worksheet.spreadsheet.locale)
+    except (KeyError, UnknownLocaleError, ValueError, TypeError):
+        return None
+
+
+def _parse_number_text(text: str, locale: Locale | None) -> int | float | str | None:
+    if locale is None or get_decimal_symbol(locale) == ".":
+        # default_blank defaults to "", which turns empty cells into strings and breaks numeric
+        # columns that legitimately have gaps. None lets blank cells import as null instead.
+        return numericise(text, default_blank=None)
+    if text == "":
+        return None
+    # `strict` rejects text the locale would not write, so "1.5" in de_DE stays text instead of
+    # becoming 15, while "1.200" reads as 1200.
+    try:
+        number = parse_decimal(text, locale, strict=True)
+    except NumberFormatError:
+        return text
+    if get_decimal_symbol(locale) not in text and number == number.to_integral_value():
+        return int(number)
+    return float(number)
+
+
+def _records_from_grid(grid: list[list[str]], locale: Locale | None) -> list[dict[str, Any]]:
     if not grid or grid == [[]]:
         return []
 
     column_names = _resolve_column_names(list(grid[0]))
 
-    # default_blank defaults to "", which turns empty cells into strings and breaks numeric
-    # columns that legitimately have gaps. None lets blank cells import as null instead.
-    records = [dict(zip(column_names, numericise_all(row, default_blank=None))) for row in grid[1:]]
+    records = [dict(zip(column_names, [_parse_number_text(cell, locale) for cell in row])) for row in grid[1:]]
 
     # A column that holds both numbers and text must stay text. The pipeline JSON-encodes a column
     # of mixed Python types, which stores each text cell wrapped in double quotes.
@@ -552,6 +577,8 @@ def google_sheets_source(
         # Read the raw grid and build the records ourselves rather than calling
         # `get_all_records`, which can't cope with a blank header cell. `pad_values=True` mirrors
         # what `get_all_records` asks for, so every row is the same width as the widest one.
+        # Cells stay formatted so that percent and currency cells keep the text the sheet shows.
+        # The number text is then parsed in the spreadsheet locale, because it uses that locale's separators.
         try:
             grid = cast(list[list[str]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True)))
         except gspread.exceptions.APIError as e:
@@ -563,7 +590,7 @@ def google_sheets_source(
                 grid = []
             else:
                 raise
-        values = _records_from_grid(grid)
+        values = _records_from_grid(grid, _spreadsheet_locale(worksheet))
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
