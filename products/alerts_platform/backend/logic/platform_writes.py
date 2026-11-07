@@ -181,6 +181,9 @@ def update_configuration(
         if found is None:
             return None
         source_kind, legacy_configuration_id = found
+        if snooze_changed and legacy_configuration_id is not None:
+            # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
+            raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
         spec = source_configs.spec(SourceKind(source_kind))
         mirror = spec.mirror if spec is not None else None
         write_source = (
