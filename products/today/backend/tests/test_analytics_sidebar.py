@@ -47,6 +47,30 @@ def _item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 class TestAnalyticsSidebarLayout(SimpleTestCase):
+    @parameterized.expand([(30, True), (31, False)])
+    def test_total_item_limit_across_sections(self, item_count: int, accepted: bool) -> None:
+        layout = {
+            "version": 1,
+            "sections": [
+                {
+                    "id": f"section-{start}",
+                    "items": [
+                        {"type": "button", "to": {"kind": "page", "page": "new_insight"}, "label": "New insight"}
+                        for _ in range(min(12, item_count - start))
+                    ],
+                }
+                for start in range(0, item_count, 12)
+            ],
+        }
+        field = AnalyticsSidebarLayoutField()
+        if accepted:
+            result = field.to_representation(field.to_internal_value(layout))
+            assert sum(len(section["items"]) for section in result["sections"]) == item_count
+        else:
+            with self.assertRaises(serializers.ValidationError) as raised:
+                field.to_internal_value(layout)
+            assert "Show at most 30 items across all sections" in str(raised.exception.detail)
+
     @parameterized.expand([("aB3dE5fG",), ("99999999999",), ("aB3dE5fG7hIj",), ("a",)])
     def test_current_and_legacy_insight_ids_round_trip_in_links_and_metrics(self, short_id: str) -> None:
         layout = _with(["sections", 0, "items", 0, "insight"], short_id)

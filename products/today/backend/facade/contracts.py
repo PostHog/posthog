@@ -339,6 +339,7 @@ SIDEBAR_NOTEBOOK_SHORT_ID_PATTERN = r"^[A-Za-z0-9]{1,12}$"
 SIDEBAR_SECTION_ID_PATTERN = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 MAX_SIDEBAR_SECTIONS = 10
 MAX_SIDEBAR_SECTION_ITEMS = 12
+MAX_SIDEBAR_ITEMS = 30
 MAX_SIDEBAR_METRICS = 4
 
 SidebarLabel = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
@@ -455,6 +456,10 @@ class AnalyticsSidebarLayout(_SidebarModel):
         if len(set(ids)) != len(ids):
             raise ValueError("Each section needs its own id.")
         items = [item for section in self.sections for item in section.items]
+        if len(items) > MAX_SIDEBAR_ITEMS:
+            raise ValueError(
+                f"Show at most {MAX_SIDEBAR_ITEMS} items across all sections. Remove some items and try again."
+            )
         sources = [item.source for item in items if isinstance(item, SidebarList)]
         if len(set(sources)) != len(sources):
             raise ValueError("Each list source can show once.")
