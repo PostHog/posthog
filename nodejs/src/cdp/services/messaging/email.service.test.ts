@@ -396,8 +396,8 @@ describe('EmailService', () => {
                     new OrganizationMembersService(membersPostgres)
                 )
                 sendEmailSpy = jest.fn().mockResolvedValue({ MessageId: 'sandbox-message-id' })
-                jest.spyOn(sandboxService.sesV2Client!, 'send').mockImplementation(sendEmailSpy)
-                jest.spyOn(sandboxService.sandboxSesV2Client!, 'send').mockImplementation(sendEmailSpy)
+                jest.spyOn(sandboxService.sesV2Client!, 'send').mockImplementation(sendEmailSpy as any)
+                jest.spyOn(sandboxService.sandboxSesV2Client!, 'send').mockImplementation(sendEmailSpy as any)
                 return sandboxService
             }
             const expectSkipped = (result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>): void => {
