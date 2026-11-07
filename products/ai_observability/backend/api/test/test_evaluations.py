@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import Mock, patch
 
+from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -17,7 +18,9 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
-from posthog.models import Organization, OrganizationMembership, Project, Team, User
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Project, Team, User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.temporal.ai_observability.evaluation_llm_judge import BooleanEvalResult
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluations import (
@@ -27,6 +30,7 @@ from products.ai_observability.backend.api.evaluations import (
     TestHogRequestSerializer as HogRequestSerializer,
     _TargetConfigField,
 )
+from products.ai_observability.backend.llm.errors import AuthenticationError, RetryableRateLimitError
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_configs import validate_target_config
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
@@ -2136,6 +2140,221 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertIn("traces", response.json()["message"])
 
 
+class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
+    """The create page's previews against real ai_events rows: which units they pick and how they run."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Two hours back, so every target's default settle window has elapsed.
+        timestamp = timezone.now() - timedelta(hours=2)
+        self.units = {
+            name: {
+                "generation": _create_event(
+                    team=self.team,
+                    event="$ai_generation",
+                    distinct_id="user-1",
+                    timestamp=timestamp,
+                    properties={
+                        "$ai_model": f"model-{name}",
+                        "$ai_trace_id": f"trace-{name}",
+                        "$ai_session_id": f"session-{name}",
+                        "$ai_input": [{"role": "user", "content": f"Question {name}"}],
+                        "$ai_output_choices": [{"role": "assistant", "content": f"Answer {name}"}],
+                    },
+                ),
+                "trace": f"trace-{name}",
+                "session": f"session-{name}",
+            }
+            for name in ("a", "b")
+        }
+        # At-least-once ingestion can store a generation twice; every preview must still count it once.
+        _create_event(
+            team=self.team,
+            event="$ai_generation",
+            event_uuid=self.units["a"]["generation"],
+            distinct_id="user-1",
+            timestamp=timestamp,
+            properties={
+                "$ai_model": "model-a",
+                "$ai_trace_id": "trace-a",
+                "$ai_session_id": "session-a",
+                "$ai_input": [{"role": "user", "content": "Question a"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "Answer a"}],
+            },
+        )
+        flush_persons_and_events()
+
+    @staticmethod
+    def _conditions(model: str, rollout_percentage: float = 100) -> list[dict[str, Any]]:
+        # No id: previews accept condition sets that were never saved.
+        return [
+            {
+                "rollout_percentage": rollout_percentage,
+                "properties": [{"key": "$ai_model", "value": model, "operator": "exact", "type": "event"}],
+            }
+        ]
+
+    @parameterized.expand(
+        [(target, rollout) for target in ("generation", "trace", "session") for rollout in (100, 0)],
+    )
+    def test_sample_traffic_returns_only_units_the_scheduler_would_run(self, target: str, rollout: int) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/sample_traffic/",
+            {"target": target, "conditions": self._conditions("model-a", rollout)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        results = response.json()["results"]
+        if rollout == 0:
+            self.assertEqual(results, [])
+            return
+        self.assertEqual([result["sample_id"] for result in results], [self.units["a"][target]])
+        self.assertEqual(results[0]["trace_id"], "trace-a")
+        self.assertEqual(results[0]["input_preview"], "Question a")
+        self.assertEqual(results[0]["output_preview"], "Answer a")
+
+    @parameterized.expand(
+        [(endpoint, rollout) for endpoint in ("sample_traffic", "test_on_sample") for rollout in ("invalid", 150)]
+    )
+    def test_previews_reject_a_malformed_rollout(self, endpoint: str, rollout: str | int) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/{endpoint}/",
+            {
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Is the answer correct?"},
+                "conditions": [{"id": "set-1", "rollout_percentage": rollout, "properties": []}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(["generation", "trace", "session"])
+    def test_test_hog_runs_pinned_units_even_outside_the_conditions(self, target: str) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {
+                "source": "return true",
+                "target": target,
+                "conditions": self._conditions("model-b"),
+                "sample_ids": [self.units["a"][target], "unknown-unit"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        results = response.json()["results"]
+        self.assertEqual([result["sample_id"] for result in results], [self.units["a"][target]])
+        self.assertTrue(results[0]["result"])
+
+    @parameterized.expand(
+        [
+            ("verdict", None, True, None),
+            ("bad_key", AuthenticationError("401"), None, "API key is invalid or has been deleted."),
+            ("rate_limited", RetryableRateLimitError("Rate limit exceeded"), None, "Rate limit exceeded"),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.evaluations.report_user_action")
+    @patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client")
+    def test_test_on_sample_runs_the_judge_on_the_team_key(
+        self,
+        _name: str,
+        provider_error: Exception | None,
+        expected_result: bool | None,
+        expected_error: str | None,
+        mock_client_class: Mock,
+        mock_report: Mock,
+    ) -> None:
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="team key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+        )
+        complete = mock_client_class.return_value.complete
+        if provider_error is None:
+            complete.return_value = Mock(
+                parsed=BooleanEvalResult(verdict=True, reasoning="Answered the question"),
+                usage=Mock(input_tokens=10, output_tokens=5, total_tokens=15),
+            )
+        else:
+            complete.side_effect = provider_error
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_on_sample/",
+            {
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Is the answer correct?"},
+                "model_configuration": {"provider": "openai", "model": "gpt-5-mini", "provider_key_id": str(key.id)},
+                "sample_ids": [self.units["a"]["generation"]],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        [row] = response.json()["results"]
+        self.assertEqual(row["sample_id"], self.units["a"]["generation"])
+        self.assertEqual(row["input_preview"], "Question a")
+        self.assertEqual(row["result"], expected_result)
+        self.assertEqual(row["error"], expected_error)
+        self.assertIn("Question a", complete.call_args.args[0].messages[0]["content"])
+        self.assertEqual(mock_report.call_args.args[1], "llma evaluation tested on sample")
+        self.assertEqual(mock_report.call_args.args[2]["error_count"], 0 if provider_error is None else 1)
+        self.assertFalse(Evaluation.objects.filter(team=self.team).exists())
+
+    @patch("products.ai_observability.backend.api.evaluations.execute_generation_llm_judge")
+    def test_test_on_sample_refuses_a_second_test_while_one_runs(self, mock_judge: Mock) -> None:
+        key = LLMProviderKey.objects.create(
+            team=self.team, provider="openai", name="team key", state=LLMProviderKey.State.OK, encrypted_config={}
+        )
+        cache.set(f"llma_eval_judge_test_running:{self.user.pk}", True)
+        self.addCleanup(cache.delete, f"llma_eval_judge_test_running:{self.user.pk}")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_on_sample/",
+            {
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Is the answer correct?"},
+                "model_configuration": {"provider": "openai", "model": "gpt-5-mini", "provider_key_id": str(key.id)},
+                "sample_ids": [self.units["a"]["generation"]],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.json())
+        mock_judge.assert_not_called()
+
+    @patch("products.ai_observability.backend.api.evaluations.execute_generation_llm_judge")
+    def test_test_on_sample_rejects_a_key_from_another_provider(self, mock_judge: Mock) -> None:
+        anthropic_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="anthropic",
+            name="anthropic key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-ant-test"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_on_sample/",
+            {
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Is the answer correct?"},
+                "model_configuration": {
+                    "provider": "openai",
+                    "model": "gpt-5-mini",
+                    "provider_key_id": str(anthropic_key.id),
+                },
+                "sample_ids": [self.units["a"]["generation"]],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        mock_judge.assert_not_called()
+
+
 class TestEnableBlockingWhenKeyRequired(APIBaseTest):
     """Enabling a keyless llm_judge eval must mirror the runtime provider-key gate: a config with
     no pinned key falls back to the team's active key for the same provider, else the eval needs a
@@ -2646,6 +2865,13 @@ class TestEvaluationsAccessControl(_EvaluationAccessControlCase):
         evaluation.refresh_from_db()
         assert evaluation.name == "Existing Evaluation"
 
+        judge_test_response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_on_sample/",
+            {"evaluation_type": "llm_judge"},
+            format="json",
+        )
+        assert judge_test_response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_editor_user_can_create_and_edit_evaluations(self):
         self.client.force_login(self.editor_user)
 
@@ -2696,20 +2922,57 @@ class TestEvaluationsAccessControl(_EvaluationAccessControlCase):
         results = response.json()["results"]
         assert [result["name"] for result in results] == ["Visible"]
 
+    @parameterized.expand(
+        [
+            ("test_hog", {"source": "return true"}),
+            ("sample_traffic", {}),
+            (
+                "test_on_sample",
+                {
+                    "evaluation_type": "llm_judge",
+                    "evaluation_config": {"prompt": "Is it correct?"},
+                    "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
+                },
+            ),
+        ]
+    )
     @patch("products.ai_observability.backend.api.evaluations.query_ai_events")
-    def test_object_level_grant_does_not_authorize_team_wide_hog_preview(self, mock_query) -> None:
+    def test_object_level_grant_does_not_authorize_team_wide_preview(
+        self, endpoint: str, payload: dict, mock_query: Mock
+    ) -> None:
         visible = self._create_evaluation("Visible")
         self._grant(self.no_access_user, "viewer", resource_id=str(visible.id))
         self.client.force_login(self.no_access_user)
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/evaluations/test_hog/",
-            {"source": "return true"},
-            format="json",
-        )
+        response = self.client.post(f"/api/environments/{self.team.id}/evaluations/{endpoint}/", payload, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_query.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("sample_traffic", "evaluation:read", status.HTTP_200_OK),
+            ("test_on_sample", "evaluation:read", status.HTTP_403_FORBIDDEN),
+            # Past the scope check the body is validated, so a payload without a config is a 400, not a 403.
+            ("test_on_sample", "evaluation:write", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_preview_scopes_for_api_keys(self, endpoint: str, scope: str, expected_status: int) -> None:
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="preview", user=self.user, secure_value=hash_key_value(raw_key), scopes=[scope]
+        )
+        payload = {"evaluation_type": "sentiment"} if endpoint == "test_on_sample" else {}
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/{endpoint}/",
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {raw_key}"},
+        )
+
+        assert response.status_code == expected_status, response.json()
 
     def test_llm_analytics_grant_no_longer_implies_evaluation_access(self):
         # Regression guard for removing "evaluation" from RESOURCE_INHERITANCE_MAP.

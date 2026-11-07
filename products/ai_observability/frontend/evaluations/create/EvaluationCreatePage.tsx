@@ -109,7 +109,7 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
                         {template ? `New ${template.name.toLowerCase()} evaluation` : 'New evaluation'}
                     </h1>
                 </SceneStickyBar>
-                <div className="w-full max-w-4xl mx-auto">
+                <div className="w-full max-w-6xl mx-auto">
                     <EvaluationFormSteps checklist={checklist} onCreate={handleCreate} onCancel={handleCancel} />
                 </div>
             </div>

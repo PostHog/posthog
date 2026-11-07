@@ -70,7 +70,7 @@ export function EvaluationVolumeEstimate(): JSX.Element | null {
         <div className="flex items-start gap-2 text-sm text-secondary" data-attr="llma-evaluation-create-volume">
             {countsLoading && <Spinner className="mt-0.5" />}
             <p className="mb-0">
-                {`In the last ${VOLUME_LOOKBACK_DAYS} days, ${matched}. At this sampling it would have run about ${humanFriendlyNumber(volume.runs)} times, ${runRate(volume.runs)}.`}
+                {`${matched} in the last ${VOLUME_LOOKBACK_DAYS} days. At this sampling it runs ${runRate(volume.runs)}.`}
             </p>
         </div>
     )

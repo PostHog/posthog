@@ -60,6 +60,9 @@ import type {
     EvaluationRunRequestApi,
     EvaluationRunResponseApi,
     EvaluationRunsApi,
+    EvaluationSampleTrafficRequestApi,
+    EvaluationSampleTrafficResponseApi,
+    EvaluationTestOnSampleRequestApi,
     EvaluationsBackfillsListParams,
     EvaluationsListParams,
     EvaluationsOverviewApi,
@@ -1959,6 +1962,26 @@ export const evaluationsOverviewRetrieve = async (
     })
 }
 
+export const getEvaluationsSampleTrafficCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluations/sample_traffic/`
+}
+
+/**
+ * The latest units an unsaved evaluation would run on, newest first.
+ */
+export const evaluationsSampleTrafficCreate = async (
+    projectId: string,
+    evaluationSampleTrafficRequestApi?: EvaluationSampleTrafficRequestApi,
+    options?: RequestInit
+): Promise<EvaluationSampleTrafficResponseApi> => {
+    return apiMutator<EvaluationSampleTrafficResponseApi>(getEvaluationsSampleTrafficCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationSampleTrafficRequestApi),
+    })
+}
+
 export const getEvaluationsTestHogCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/evaluations/test_hog/`
 }
@@ -1976,6 +1999,26 @@ export const evaluationsTestHogCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(testHogRequestApi),
+    })
+}
+
+export const getEvaluationsTestOnSampleCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluations/test_on_sample/`
+}
+
+/**
+ * Run an unsaved LLM judge on a few samples. Saves nothing and emits no results.
+ */
+export const evaluationsTestOnSampleCreate = async (
+    projectId: string,
+    evaluationTestOnSampleRequestApi: NonReadonly<EvaluationTestOnSampleRequestApi>,
+    options?: RequestInit
+): Promise<TestHogResponseApi> => {
+    return apiMutator<TestHogResponseApi>(getEvaluationsTestOnSampleCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationTestOnSampleRequestApi),
     })
 }
 
