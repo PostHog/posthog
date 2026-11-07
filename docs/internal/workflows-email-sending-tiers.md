@@ -121,6 +121,19 @@ A template whose HTML cannot keep the footer fails the send.
 The send also fails when the HTML and preview text exceed 75 KB, checked before and again after the footer is added, so every inbox shows the footer instead of clipping it.
 It fails as well when elements nest more than 256 deep, the template parses into more than 25,000 elements, a tag carries more than 64 attributes, or an Outlook conditional comment holds a condition over 100 characters or a nested directive.
 The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
+Right before delivery, every sandbox send, test sends included, claims a daily allowance per project (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`) and per recipient address across the organization (`WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP`).
+Both charge one token per copy: each To, CC and BCC entry counts, so an address listed twice takes two tokens.
+The allowances are token buckets that refill their capacity over 24 hours, not calendar-day counters.
+A reached allowance skips the send instead of delaying it.
+A limiter error, or a cap value that is not a positive whole number, skips every sandbox send.
+The worker reads each cap as a number like its other numeric settings, so it keeps the leading number of a value such as `25 per day` and reads `1,000` as 1.
+The `workflows sandbox email blocked` event names the outcome: `project_cap_reached`, `recipient_cap_reached`, or `cap_check_failed`.
+The worker checks members after the claim and gives the claim back when that check skips the send.
+An SES throttle response also gives the claim back before the delivery retry, and so does an SES rejection, which means SES did not accept the message.
+Sandbox sends make one SES attempt, so each throttle or rejection describes the only attempt.
+A failure that leaves open whether SES accepted the message, such as a timeout, an SES 5xx, or a reset connection, keeps the claim and fails the send without a retry.
+Returns are deduplicated, and Valkey ignores a return that arrives more than five minutes after it was issued.
+Test sends run inline in the CDP API, so a sandbox-enabled CDP API opens the SES Valkey pool (`SES_RATE_LIMITER_VALKEY_*`) for the allowances.
+Without it, every sandbox test send skips.
 Each delivered send emits a `workflows sandbox email sent` event.
 Live workflow sends record `email_sent`, so workflow reports count them; test sends do not.
-The worker has no daily sandbox caps yet, so only switch it on where Django provisions sandbox senders for a small set of projects.

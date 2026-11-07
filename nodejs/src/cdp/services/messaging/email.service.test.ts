@@ -395,8 +395,9 @@ describe('EmailService', () => {
                     ),
                     new OrganizationMembersService(membersPostgres)
                 )
-                sendEmailSpy = jest.spyOn(sandboxService.sesV2Client!, 'send') as jest.SpyInstance
-                sendEmailSpy.mockResolvedValue({ MessageId: 'sandbox-message-id' })
+                sendEmailSpy = jest.fn().mockResolvedValue({ MessageId: 'sandbox-message-id' })
+                jest.spyOn(sandboxService.sesV2Client!, 'send').mockImplementation(sendEmailSpy as any)
+                jest.spyOn(sandboxService.sandboxSesV2Client!, 'send').mockImplementation(sendEmailSpy as any)
                 return sandboxService
             }
             const expectSkipped = (result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>): void => {
@@ -916,6 +917,230 @@ describe('EmailService', () => {
                 await createSandboxService(false).executeSendEmail(invocation)
                 expect(capture).toHaveBeenCalledTimes(3)
                 expectBlockedEvent('switch_off', false, 0)
+            })
+
+            describe('daily caps', () => {
+                const TEAM_CAP_REACHED =
+                    "Skipping send: this email would go over the sandbox sender's daily limit for this project. Verify your own domain to send more."
+                const recipientCapReached = (addresses: string): string =>
+                    `Skipping send: these addresses reached the sandbox sender's daily limit per address: ${addresses}. Verify your own domain to send more.`
+                const CAP_CHECK_FAILED =
+                    "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more."
+
+                const send = async (
+                    isTest: boolean,
+                    params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
+                ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> => {
+                    invocation.state.vmState = { stack: [] } as any
+                    invocation.queueParameters = createSandboxParams(params)
+                    return await service.executeSendEmail(invocation, isTest)
+                }
+                const expectSent = (result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>): void => {
+                    expect(result.error).toBeUndefined()
+                    expect(result.skipped).not.toBe(true)
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
+                }
+                const expectCapSkip = (
+                    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+                    isTest: boolean,
+                    message: string,
+                    reason: 'project_cap_reached' | 'recipient_cap_reached' | 'cap_check_failed'
+                ): void => {
+                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [], messageAssets: [] })
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.queueScheduledAt).toBeUndefined()
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
+                    expect(result.logs).toContainEqual(expect.objectContaining({ level: 'info', message }))
+                    expect(capture).toHaveBeenCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email blocked',
+                        expect.objectContaining({ reason, is_test: isTest })
+                    )
+                }
+
+                it.each([false, true])(
+                    'holds the project to its daily cap without charging denied or own-sender sends (isTest=%s)',
+                    async (isTest) => {
+                        service = createSandboxService(true, {
+                            senderSettings: { dailyTeamCap: 3, dailyRecipientCap: 1 },
+                        })
+
+                        expectSent(await send(isTest, { from: { integrationId: 1 } }))
+                        expectSent(await send(isTest))
+                        expectCapSkip(
+                            await send(isTest, { cc: memberEmail('cc'), bcc: memberEmail('bcc') }),
+                            isTest,
+                            TEAM_CAP_REACHED,
+                            'project_cap_reached'
+                        )
+                        expectSent(await send(isTest, { to: { email: memberEmail('cc') } }))
+                        expectSent(await send(isTest, { to: { email: memberEmail('bcc') } }))
+                        expectCapSkip(await send(isTest), isTest, TEAM_CAP_REACHED, 'project_cap_reached')
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(4)
+                    }
+                )
+
+                it.each([false, true])(
+                    'skips a send with recipients at the daily cap and leaves the others their budget (isTest=%s)',
+                    async (isTest) => {
+                        service = createSandboxService(true, {
+                            senderSettings: { dailyTeamCap: 5, dailyRecipientCap: 1 },
+                        })
+
+                        expectSent(await send(isTest, { to: { email: memberEmail('cc') }, cc: memberEmail('bcc') }))
+                        expectCapSkip(
+                            await send(isTest, { cc: memberEmail('cc').toUpperCase(), bcc: memberEmail('bcc') }),
+                            isTest,
+                            recipientCapReached(`${memberEmail('cc').toUpperCase()}, ${memberEmail('bcc')}`),
+                            'recipient_cap_reached'
+                        )
+                        expectSent(await send(isTest))
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(2)
+                    }
+                )
+
+                it('charges both daily caps once per delivered copy of a repeated address', async () => {
+                    service = createSandboxService(true, {
+                        senderSettings: { dailyTeamCap: 4, dailyRecipientCap: 2 },
+                    })
+
+                    expectCapSkip(
+                        await send(false, { cc: memberEmail().toUpperCase(), bcc: ` ${memberEmail()} ` }),
+                        false,
+                        recipientCapReached(memberEmail()),
+                        'recipient_cap_reached'
+                    )
+                    expectSent(await send(false, { cc: memberEmail().toUpperCase() }))
+                    expectSent(await send(false, { to: { email: memberEmail('cc') }, cc: memberEmail('bcc') }))
+                    expectCapSkip(
+                        await send(false, { to: { email: memberEmail('bcc') } }),
+                        false,
+                        TEAM_CAP_REACHED,
+                        'project_cap_reached'
+                    )
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(2)
+                })
+
+                it.each([false, true])(
+                    'spends the daily caps once for a send that SES throttles before accepting it (isTest=%s)',
+                    async (isTest) => {
+                        service = createSandboxService(true, {
+                            senderSettings: { dailyTeamCap: 2, dailyRecipientCap: 1 },
+                        })
+                        sendEmailSpy.mockRejectedValueOnce(new ThrottlingException('Rate exceeded'))
+
+                        const throttled = await send(isTest, { cc: memberEmail('cc') })
+                        expect(throttled.finished).toBe(false)
+                        expectSent(await service.executeSendEmail(throttled.invocation, isTest))
+                        expectCapSkip(
+                            await send(isTest, { to: { email: memberEmail('bcc') } }),
+                            isTest,
+                            TEAM_CAP_REACHED,
+                            'project_cap_reached'
+                        )
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(2)
+                    }
+                )
+
+                it('sends through an SES client that makes one attempt per send', async () => {
+                    service = createSandboxService(true)
+
+                    expectSent(await send(false))
+                    expect(service.sandboxSesV2Client!.send).toHaveBeenCalledTimes(1)
+                    expect(service.sesV2Client!.send).not.toHaveBeenCalled()
+                    expect(await service.sandboxSesV2Client!.config.maxAttempts()).toBe(1)
+                })
+
+                it.each([
+                    [
+                        'gives the claim back when SES rejects the send',
+                        new MessageRejected({ $metadata: {}, message: 'Rejected' }),
+                        true,
+                    ],
+                    ['keeps the claim when SES may have accepted the send', new Error('socket hang up'), false],
+                ])('%s', async (_case, error, returned) => {
+                    service = createSandboxService(true, {
+                        senderSettings: { dailyTeamCap: 1, dailyRecipientCap: 1 },
+                    })
+                    sendEmailSpy.mockRejectedValueOnce(error)
+
+                    expect((await send(false)).error).toContain('Failed to send email via SES')
+                    const next = await send(false)
+
+                    if (returned) {
+                        expectSent(next)
+                    } else {
+                        expectCapSkip(next, false, TEAM_CAP_REACHED, 'project_cap_reached')
+                    }
+                })
+
+                it('checks members after a slow cap claim and gives the claim back when one loses verification', async () => {
+                    const now = Date.now()
+                    const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
+                    const dailyCapLimiter = new RateLimiterService(sandboxRedis, { name: 'sandbox-email' })
+                    const claim = dailyCapLimiter.claimRefundable.bind(dailyCapLimiter)
+                    jest.spyOn(dailyCapLimiter, 'claimRefundable').mockImplementationOnce(async (buckets) => {
+                        const grant = await claim(buckets)
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'UPDATE posthog_user SET is_email_verified = false WHERE id = $1',
+                            [memberId],
+                            'test:revoke-sandbox-verification-during-cap-claim'
+                        )
+                        clock.mockReturnValue(now + 61_000)
+                        return grant
+                    })
+                    try {
+                        service = createSandboxService(true, {
+                            dailyCapLimiter,
+                            senderSettings: { dailyTeamCap: 1, dailyRecipientCap: 1 },
+                        })
+
+                        const blocked = await send(false)
+                        expect(blocked).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                        expect(sendEmailSpy).not.toHaveBeenCalled()
+                        expectBlockedEvent('recipient_unverified', false, 1)
+
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'UPDATE posthog_user SET is_email_verified = true WHERE id = $1',
+                            [memberId],
+                            'test:restore-sandbox-verification'
+                        )
+                        clock.mockReturnValue(now + 122_000)
+                        expectSent(await send(false))
+                    } finally {
+                        clock.mockRestore()
+                    }
+                })
+
+                it.each([
+                    [
+                        'the limiter is unreachable',
+                        false,
+                        {
+                            dailyCapLimiter: new RateLimiterService(
+                                {
+                                    useClient: () => Promise.reject(new Error('Connection is closed.')),
+                                    usePipeline: () => Promise.reject(new Error('Connection is closed.')),
+                                },
+                                { name: 'sandbox-email' }
+                            ),
+                        },
+                    ],
+                    ['no limiter is configured', true, { dailyCapLimiter: null }],
+                    ['the project cap is zero', true, { senderSettings: { dailyTeamCap: 0 } }],
+                ] as const)('skips every send when %s (isTest=%s)', async (_name, isTest, options) => {
+                    service = createSandboxService(true, options)
+
+                    expectCapSkip(
+                        await send(isTest, { cc: memberEmail('cc') }),
+                        isTest,
+                        CAP_CHECK_FAILED,
+                        'cap_check_failed'
+                    )
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                })
             })
 
             it.each([
