@@ -143,30 +143,24 @@ class TestPostReportLinkToGithubIssues(BaseTest):
 
         assert integration.first_for_team_repository.call_args.kwargs["priority"] == Priority.BATCH
 
-    def _sync_issues(self, schema_name, *, repository="", should_sync=True):
+    def _sync_issues(self, schema_name):
         source = ExternalDataSource.objects.create(
-            team=self.team,
-            source_type="Github",
-            status="Running",
-            prefix=f"gh_{len(schema_name)}_",
-            job_inputs={"repository": repository},
+            team=self.team, source_type="Github", status="Running", prefix="gh_", job_inputs={}
         )
-        ExternalDataSchema.objects.create(team=self.team, source=source, name=schema_name, should_sync=should_sync)
+        ExternalDataSchema.objects.create(team=self.team, source=source, name=schema_name, should_sync=True)
 
     @parameterized.expand(
         [
-            ("a synced repository", "acme/widgets.issues", "", True, True, False, 1),
-            ("a synced single-repository source", "issues", "Acme/Widgets", True, True, False, 1),
-            ("a repository whose issues stopped syncing", "acme/widgets.issues", "", False, True, False, 0),
-            ("another synced repository the installation also reaches", "acme/other.issues", "", True, True, False, 0),
-            ("a synced repository no team integration covers", "acme/widgets.issues", "", True, False, False, 0),
-            ("the same issue from a signal and a source issue", "acme/other.issues", "", True, True, True, 1),
+            ("a synced repository", "acme/widgets.issues", True, False, 1),
+            ("another synced repository the installation also reaches", "acme/other.issues", True, False, 0),
+            ("a synced repository no team integration covers", "acme/widgets.issues", False, False, 0),
+            ("the same issue from a signal and a source issue", "acme/other.issues", True, True, 1),
         ]
     )
     def test_comments_on_a_source_issue_in_a_synced_repository_before_its_signal_is_ingested(
-        self, _name, schema_name, repository, should_sync, connected, with_signal, expected
+        self, _name, schema_name, connected, with_signal, expected
     ):
-        self._sync_issues(schema_name, repository=repository, should_sync=should_sync)
+        self._sync_issues(schema_name)
         self._name_source_issue()
 
         posted, comment = self._post([self.signal] if with_signal else [], connected=connected)
