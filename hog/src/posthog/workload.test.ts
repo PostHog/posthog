@@ -224,7 +224,8 @@ describe('workload credentials', () => {
     })
 
     test('a provider token fixed for the run is not exchanged again before the PostHog token expires', async () => {
-        const lifetimes = [120, 59, 20]
+        // Each answer arrives a little later than whole seconds, so it reads like a later expiry.
+        const lifetimes = [120, 60, 21]
         let exchangeCount = 0
         const runtime = runtimeWith({
             env: IN_CI,
