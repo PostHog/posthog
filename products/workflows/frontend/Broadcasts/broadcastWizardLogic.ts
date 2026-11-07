@@ -7,6 +7,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
@@ -156,7 +157,7 @@ export type BroadcastScheduleMode = 'now' | 'later' | 'recurring'
 // `template-email` hog function template's default input shape.
 export interface BroadcastEmailValue {
     to: { email: string; name?: string }
-    from: { integrationId?: number | null; integrationIds?: number[] }
+    from: { integrationId?: number | null; integrationIds?: number[]; email?: string; name?: string }
     replyTo?: string
     cc?: string
     bcc?: string
@@ -1624,9 +1625,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 } else {
                     if (!email.from?.integrationId) {
                         errors.content.push('Choose an email sender')
-                    } else if (integrations && getMissingSenderIds(email.from, integrations).length > 0) {
+                    } else {
                         // Shown on the content step, where the sender is picked, rather than first at launch.
-                        errors.content.push(DELETED_SENDER_ERROR)
+                        const senderError = getSenderSelectionError(email.from, integrations)
+                        if (senderError) {
+                            errors.content.push(senderError)
+                        }
                     }
                     if (!email.subject) {
                         errors.content.push('Add a subject line')
@@ -2861,6 +2865,8 @@ async function patchWithoutClobbering(
 
 export const SENDERS_LOAD_FAILED_ERROR = "Couldn't load your email senders. Reload them to launch."
 export const DELETED_SENDER_ERROR = 'The chosen sender was deleted. Choose another sender.'
+export const SANDBOX_SENDER_BROADCAST_ERROR =
+    "The sandbox sender can't send broadcasts. Choose a sender on your own domain."
 export const DELETED_PUSH_CHANNEL_ERROR = 'A chosen push channel was deleted. Choose another channel.'
 
 /** The email channel counts each address once and is held to the email sending limit. Push is not. */
@@ -2889,8 +2895,9 @@ export function getSenderLaunchError(
     if (!integrations) {
         return integrationsLoading ? 'Checking the email sender. Try again in a moment.' : SENDERS_LOAD_FAILED_ERROR
     }
-    if (getMissingSenderIds(from, integrations).length > 0) {
-        return DELETED_SENDER_ERROR
+    const senderError = getSenderSelectionError(from, integrations)
+    if (senderError) {
+        return senderError
     }
     const allVerified = senderIds.every(
         (id) =>
@@ -2898,6 +2905,65 @@ export function getSenderLaunchError(
                 ?.verified === true
     )
     return allVerified ? null : UNVERIFIED_SENDER_MESSAGE
+}
+
+/** Why the chosen sender can't be kept: it was deleted, or it is the sandbox sender. */
+export function getSenderSelectionError(
+    from: BroadcastEmailValue['from'] | undefined,
+    integrations: IntegrationType[] | null
+): string | null {
+    if (!integrations) {
+        return null
+    }
+    if (getMissingSenderIds(from, integrations).length > 0) {
+        return DELETED_SENDER_ERROR
+    }
+    if (getSandboxSenderIds(from, integrations).length > 0) {
+        return SANDBOX_SENDER_BROADCAST_ERROR
+    }
+    return null
+}
+
+export function getPickerSenderIds(
+    from: BroadcastEmailValue['from'] | undefined,
+    integrations: IntegrationType[] | null
+): number[] {
+    const senderIds = getSenderIds(from)
+    if (!integrations) {
+        return senderIds
+    }
+    if (getSandboxSenderIds(from, integrations).length > 0) {
+        return []
+    }
+    const missingSenderIds = getMissingSenderIds(from, integrations)
+    return senderIds.filter((id) => !missingSenderIds.includes(id))
+}
+
+export function keepSandboxSenderOnEdit(
+    stored: BroadcastEmailValue,
+    edited: BroadcastEmailValue,
+    integrations: IntegrationType[] | null
+): BroadcastEmailValue {
+    if (
+        !integrations ||
+        getSenderIds(edited.from).length > 0 ||
+        getSandboxSenderIds(stored.from, integrations).length === 0
+    ) {
+        return edited
+    }
+    return {
+        ...edited,
+        from: { ...edited.from, integrationId: stored.from.integrationId, integrationIds: stored.from.integrationIds },
+    }
+}
+
+export function getSandboxSenderIds(
+    from: BroadcastEmailValue['from'] | undefined,
+    integrations: IntegrationType[]
+): number[] {
+    return getSenderIds(from).filter((id) =>
+        integrations.some((integration) => integration.id === id && isSandboxEmailSender(integration))
+    )
 }
 
 export function getSenderIds(from: BroadcastEmailValue['from'] | undefined): number[] {

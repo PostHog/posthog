@@ -25,21 +25,22 @@ jest.mock('@posthog/lemon-ui', () => ({
 describe('NativeEmailIntegrationChoice', () => {
     afterEach(cleanup)
 
+    const ownSenders = [
+        { id: 1, kind: 'email', display_name: 'Alice <alice@example.com>' },
+        { id: 2, kind: 'email', display_name: 'Bob <bob@example.com>' },
+    ]
+    const sandboxSender = {
+        id: 3,
+        kind: 'email',
+        display_name: 'Sandbox <hello@sandbox.example.com>',
+        config: { provider: 'sandbox' },
+    }
+
     beforeEach(() => {
         jest.mocked(useValues).mockReturnValue({
             integrationsLoading: false,
-            integrations: [
-                {
-                    id: 1,
-                    kind: 'email',
-                    display_name: 'Alice <alice@example.com>',
-                },
-                {
-                    id: 2,
-                    kind: 'email',
-                    display_name: 'Bob <bob@example.com>',
-                },
-            ],
+            integrations: [...ownSenders, sandboxSender],
+            ownEmailIntegrations: ownSenders,
         })
     })
 
@@ -53,5 +54,17 @@ describe('NativeEmailIntegrationChoice', () => {
 
         expect(screen.getByTestId(expectedPicker)).toBeInTheDocument()
         expect(screen.getByText('Custom sender')).toBeInTheDocument()
+    })
+
+    it('offers no sender when the sandbox sender is the only one', () => {
+        jest.mocked(useValues).mockReturnValue({
+            integrationsLoading: false,
+            integrations: [sandboxSender],
+            ownEmailIntegrations: [],
+        })
+
+        render(<NativeEmailIntegrationChoice label="From" value={{}} onChange={jest.fn()} />)
+
+        expect(screen.getByText('No email senders configured yet')).toBeInTheDocument()
     })
 })

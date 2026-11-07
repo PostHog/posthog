@@ -1,17 +1,25 @@
 import type { IntegrationType } from '~/types'
 
-import { DELETED_SENDER_ERROR, SENDERS_LOAD_FAILED_ERROR, getSenderLaunchError } from './broadcastWizardLogic'
+import {
+    DEFAULT_BROADCAST_EMAIL,
+    DELETED_SENDER_ERROR,
+    SANDBOX_SENDER_BROADCAST_ERROR,
+    SENDERS_LOAD_FAILED_ERROR,
+    getPickerSenderIds,
+    getSenderLaunchError,
+    keepSandboxSenderOnEdit,
+} from './broadcastWizardLogic'
 
-const sender = (id: number, verified: boolean): IntegrationType => ({
+const sender = (id: number, verified: boolean, provider = 'ses'): IntegrationType => ({
     id,
     kind: 'email',
     display_name: `sender-${id}`,
     icon_url: '',
-    config: { verified },
+    config: { verified, provider },
     created_at: '2026-01-01T00:00:00Z',
 })
 
-describe('getSenderLaunchError', () => {
+describe('broadcast senders', () => {
     it.each([
         ['no sender chosen yet', undefined, [sender(1, true)], false, null],
         ['a verified sender', 1, [sender(1, true)], false, null],
@@ -28,8 +36,46 @@ describe('getSenderLaunchError', () => {
             "Verify the sender's domain before sending",
         ],
         ['a verified rotation', [1, 2], [sender(1, true), sender(2, true)], false, null],
+        ['the sandbox sender', 3, [sender(3, true, 'sandbox')], false, SANDBOX_SENDER_BROADCAST_ERROR],
+        [
+            'the sandbox sender in the rotation',
+            [1, 3],
+            [sender(1, true), sender(3, true, 'sandbox')],
+            false,
+            SANDBOX_SENDER_BROADCAST_ERROR,
+        ],
     ])('blocks launch for %s', (_, ids, integrations, integrationsLoading, expected) => {
         const from = Array.isArray(ids) ? { integrationId: ids[0], integrationIds: ids } : { integrationId: ids }
         expect(getSenderLaunchError(from, integrations, integrationsLoading)).toBe(expected)
+    })
+
+    it.each([
+        ['own senders', [1, 2], [sender(1, true), sender(2, true)], [1, 2]],
+        ['a deleted sender in the rotation', [1, 7], [sender(1, true)], [1]],
+        ['the sandbox sender', [3], [sender(3, true, 'sandbox')], []],
+        ['the sandbox sender in the rotation', [1, 3], [sender(1, true), sender(3, true, 'sandbox')], []],
+        ['senders not loaded yet', [1, 3], null, [1, 3]],
+    ])('shows the picker the right senders for %s', (_, ids, integrations, expected) => {
+        const from = { integrationId: ids[0], integrationIds: ids.length > 1 ? ids : undefined }
+        expect(getPickerSenderIds(from, integrations)).toEqual(expected)
+    })
+
+    it.each([
+        ['a subject edit keeps the sandbox rotation', [1, 3], {}, { integrationId: 1, integrationIds: [1, 3] }],
+        [
+            'a sender name edit keeps the sandbox rotation and the name',
+            [1, 3],
+            { name: 'Sales' },
+            { name: 'Sales', integrationId: 1, integrationIds: [1, 3] },
+        ],
+        ['a sender pick replaces the sandbox rotation', [1, 3], { integrationId: 1 }, { integrationId: 1 }],
+        ['a subject edit with own senders keeps the edit', [1, 2], {}, {}],
+    ])('%s', (_, storedIds, editedFrom, expectedFrom) => {
+        const integrations = [sender(1, true), sender(2, true), sender(3, true, 'sandbox')]
+        const stored = { ...DEFAULT_BROADCAST_EMAIL, from: { integrationId: storedIds[0], integrationIds: storedIds } }
+        const edited = { ...DEFAULT_BROADCAST_EMAIL, subject: 'Spring sale', from: editedFrom }
+        const result = keepSandboxSenderOnEdit(stored, edited, integrations)
+        expect(result.subject).toBe('Spring sale')
+        expect(result.from).toEqual(expectedFrom)
     })
 })

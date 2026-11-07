@@ -21,6 +21,7 @@ import {
     DEFAULT_BROADCAST_EMAIL,
     DEFAULT_BROADCAST_PUSH,
     DELETED_SENDER_ERROR,
+    SANDBOX_SENDER_BROADCAST_ERROR,
     broadcastWizardLogic,
     getBroadcastTemplatingErrors,
 } from './broadcastWizardLogic'
@@ -97,8 +98,11 @@ describe('broadcastWizardLogic', () => {
             get: {
                 '/api/projects/:team_id/hog_flows/:id/': () => [200, latest],
                 '/api/projects/:team_id/integrations/': {
-                    results: [{ id: 1, kind: 'email', config: { verified: true } }],
-                    count: 1,
+                    results: [
+                        { id: 1, kind: 'email', config: { verified: true } },
+                        { id: 3, kind: 'email', config: { verified: true, provider: 'sandbox' } },
+                    ],
+                    count: 2,
                 },
             },
             post: {
@@ -913,6 +917,18 @@ describe('broadcastWizardLogic', () => {
             integrationIds: [1, 7],
             expected: [DELETED_SENDER_ERROR],
         },
+        {
+            sender: 'the sandbox sender',
+            integrationId: 3,
+            integrationIds: undefined,
+            expected: [SANDBOX_SENDER_BROADCAST_ERROR],
+        },
+        {
+            sender: 'the sandbox sender in the rotation',
+            integrationId: 1,
+            integrationIds: [1, 3],
+            expected: [SANDBOX_SENDER_BROADCAST_ERROR],
+        },
     ])('flags $sender on the content step and once on review', async ({ integrationId, integrationIds, expected }) => {
         integrationsLogic.mount()
         await expectLogic(integrationsLogic, () => {
@@ -1026,7 +1042,7 @@ describe('broadcastWizardLogic', () => {
         expect(checkedFilters).toHaveLength(requestsBefore)
     })
 
-    it('starts a new broadcast with the only verified sender without creating a draft', async () => {
+    it('starts a new broadcast with the only verified own sender, not the sandbox sender, without creating a draft', async () => {
         const createDraft = jest.fn()
         useMocks({ post: { '/api/projects/:team_id/hog_flows/': () => createDraft() } })
         integrationsLogic.mount()

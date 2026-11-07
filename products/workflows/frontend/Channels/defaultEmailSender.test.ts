@@ -5,8 +5,18 @@ import { resolveDefaultEmailSender } from './defaultEmailSender'
 const sender = (id: number, verified: boolean, kind = 'email'): IntegrationType =>
     ({ id, kind, config: { verified } }) as unknown as IntegrationType
 
+const sandboxSender = { ...sender(7, true), config: { verified: true, provider: 'sandbox' } }
+
 describe('resolveDefaultEmailSender', () => {
     it.each([
+        { case: 'nothing when only sandbox exists', integrations: [sandboxSender], defaultId: null, expected: null },
+        {
+            case: 'the own sender beside sandbox',
+            integrations: [sandboxSender, sender(1, true)],
+            defaultId: null,
+            expected: 1,
+        },
+        { case: 'nothing for a sandbox default', integrations: [sandboxSender], defaultId: 7, expected: null },
         { case: 'the project default', integrations: [sender(1, true), sender(2, true)], defaultId: 2, expected: 2 },
         {
             case: 'the only verified sender',

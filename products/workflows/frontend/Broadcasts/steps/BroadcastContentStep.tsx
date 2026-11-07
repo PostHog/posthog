@@ -19,8 +19,9 @@ import {
     BroadcastEmailValue,
     DEFAULT_BROADCAST_EMAIL,
     broadcastWizardLogic,
-    getMissingSenderIds,
+    getPickerSenderIds,
     getSenderIds,
+    keepSandboxSenderOnEdit,
 } from '../broadcastWizardLogic'
 import { BroadcastChannelSwitch } from './BroadcastChannelSwitch'
 import { BroadcastPushComposer } from './BroadcastPushComposer'
@@ -38,27 +39,27 @@ export function BroadcastContentStep(): JSX.Element {
         channel,
     } = useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
-    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { integrations, integrationsLoading, ownEmailIntegrations } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
     const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
     // null: closed. 'new': set up a sender. An integration: finish verifying that one.
     const [senderSetup, setSenderSetup] = useState<'new' | IntegrationType | null>(null)
 
-    const hasSenders = !!integrations?.some((integration) => integration.kind === 'email')
+    const hasSenders = ownEmailIntegrations.length > 0
     const senderUnverified = !!selectedSender && selectedSender.config?.verified !== true
-    // A deleted sender would otherwise show as its bare id, so the picker leaves it out.
-    const missingSenderIds = integrations ? getMissingSenderIds(email.from, integrations) : []
-    const remainingSenderIds = getSenderIds(email.from).filter((id) => !missingSenderIds.includes(id))
-    const editorValue = missingSenderIds.length
-        ? {
-              ...email,
-              from: {
-                  ...email.from,
-                  integrationId: remainingSenderIds[0],
-                  integrationIds: remainingSenderIds.length > 1 ? remainingSenderIds : undefined,
-              },
-          }
-        : email
+    // A deleted sender would otherwise show as its bare id. A sandbox sender empties the picker, so any choice replaces it.
+    const remainingSenderIds = getPickerSenderIds(email.from, integrations)
+    const editorValue =
+        remainingSenderIds.length === getSenderIds(email.from).length
+            ? email
+            : {
+                  ...email,
+                  from: {
+                      ...email.from,
+                      integrationId: remainingSenderIds[0],
+                      integrationIds: remainingSenderIds.length > 1 ? remainingSenderIds : undefined,
+                  },
+              }
 
     // Closing the modal after Continue also keeps the sender it created or verified.
     const closeSenderSetup = (integrationId?: number): void => {
@@ -166,7 +167,9 @@ export function BroadcastContentStep(): JSX.Element {
                 liveChanges
                 value={editorValue as unknown as EmailTemplate}
                 defaultValue={DEFAULT_BROADCAST_EMAIL as unknown as EmailTemplate}
-                onChange={(value) => setEmail(value as unknown as BroadcastEmailValue)}
+                onChange={(value) =>
+                    setEmail(keepSandboxSenderOnEdit(email, value as unknown as BroadcastEmailValue, integrations))
+                }
                 variables={buildSampleGlobals({ type: 'batch' }, null)}
                 fieldErrors={fieldErrors}
             />

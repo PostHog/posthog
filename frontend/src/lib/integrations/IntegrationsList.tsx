@@ -23,14 +23,14 @@ export function IntegrationsList({
     /** Extra buttons for a row, shown before Disconnect. */
     renderActions?: (integration: IntegrationType) => JSX.Element | null
 }): JSX.Element {
-    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { userManagedIntegrations, integrationsLoading } = useValues(integrationsLogic)
     const { startPolling, stopPolling } = useActions(integrationsLogic)
 
     useOnMountEffect(() => {
         startPolling()
         return () => stopPolling()
     })
-    const filteredIntegrations = integrations?.filter((integration) => {
+    const filteredIntegrations = userManagedIntegrations?.filter((integration) => {
         if (onlyKinds && !onlyKinds.includes(integration.kind)) {
             return false
         }
@@ -53,7 +53,7 @@ export function IntegrationsList({
                             actions={renderActions?.(integration)}
                         />
                     ))
-                ) : integrationsLoading || integrations === null ? (
+                ) : integrationsLoading || userManagedIntegrations === null ? (
                     <LemonSkeleton className="h-10" />
                 ) : (
                     emptyState

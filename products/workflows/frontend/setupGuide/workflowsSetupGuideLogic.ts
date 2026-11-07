@@ -157,7 +157,7 @@ export const workflowsSetupGuideLogic = kea<workflowsSetupGuideLogicType>([
             projectLogic,
             ['currentProjectId'],
             integrationsLogic,
-            ['integrations'],
+            ['userManagedIntegrations as integrations'],
             optOutCategoriesLogic,
             ['categories', 'categoriesLoading'],
             messageTemplatesLogic,
