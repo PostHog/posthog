@@ -33,10 +33,39 @@ export interface BroadcastPerformanceStats {
     unsubscribed: number
     /** Sends with open and click tracking, the denominator for engagement rates. */
     trackedSends: number
+    /** False for sends from before people were counted, where opened and clicked count every event. */
+    engagementCountsPeople: boolean
     /** Recipients who met the broadcast's goal. */
     converted: number
     /** Push only: people with no device registered for the app. */
     skipped: number
+}
+
+// Runs that started before this date counted events. A late open on one adds a per-person count that covers only itself.
+const ENGAGEMENT_PEOPLE_COUNTED_SINCE = dayjs('2026-11-06T00:00:00Z')
+
+/** Whether opened and clicked count people for this run, rather than every event. */
+export function countsEngagedPeople(totals: Record<string, number>, runStartedAt: string | null | undefined): boolean {
+    if (!runStartedAt || dayjs(runStartedAt).isBefore(ENGAGEMENT_PEOPLE_COUNTED_SINCE)) {
+        return false
+    }
+    // Events with no per-person count mean Redis was unavailable, so the events are the better number.
+    return !!(
+        totals.email_opened_by_person ||
+        totals.email_clicked_by_person ||
+        (!totals.email_opened && !totals.email_link_clicked)
+    )
+}
+
+export function emailEngagement(
+    totals: Record<string, number>,
+    kind: 'opened' | 'clicked',
+    runStartedAt: string | null | undefined
+): number {
+    if (countsEngagedPeople(totals, runStartedAt)) {
+        return (kind === 'opened' ? totals.email_opened_by_person : totals.email_clicked_by_person) ?? 0
+    }
+    return (kind === 'opened' ? totals.email_opened : totals.email_link_clicked) ?? 0
 }
 
 const TOTALS_METRICS = [
@@ -44,6 +73,8 @@ const TOTALS_METRICS = [
     'email_delivered',
     'email_opened',
     'email_link_clicked',
+    'email_opened_by_person',
+    'email_clicked_by_person',
     'email_bounced',
     'email_blocked',
     'email_failed',
@@ -156,7 +187,8 @@ export interface broadcastPerformanceLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         stats: (
             totals: Record<string, number> | null,
-            arg: BroadcastChannel | undefined
+            arg: BroadcastChannel | undefined,
+            arg2: string
         ) => BroadcastPerformanceStats | null
         sendCounts: (
             totals: Record<string, number> | null,
@@ -276,10 +308,15 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
     }),
     selectors({
         stats: [
-            (s) => [s.totals, (_, props: BroadcastPerformanceLogicProps) => props.channel],
+            (s) => [
+                s.totals,
+                (_, props: BroadcastPerformanceLogicProps) => props.channel,
+                (_, props: BroadcastPerformanceLogicProps) => props.runStartedAt,
+            ],
             (
                 totals: Record<string, number> | null,
-                channel: BroadcastChannel | undefined
+                channel: BroadcastChannel | undefined,
+                runStartedAt: string
             ): BroadcastPerformanceStats | null => {
                 if (!totals) {
                     return null
@@ -296,6 +333,7 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                         markedAsSpam: 0,
                         failed: totals.push_failed ?? 0,
                         trackedSends: pushSent,
+                        engagementCountsPeople: true,
                         converted: totals.conversion ?? 0,
                         skipped: totals.push_skipped ?? 0,
                         unsubscribed: 0,
@@ -305,8 +343,9 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                 return {
                     sent,
                     delivered: totals.email_delivered ?? 0,
-                    opened: totals.email_opened ?? 0,
-                    clicked: totals.email_link_clicked ?? 0,
+                    opened: emailEngagement(totals, 'opened', runStartedAt),
+                    clicked: emailEngagement(totals, 'clicked', runStartedAt),
+                    engagementCountsPeople: countsEngagedPeople(totals, runStartedAt),
                     bounced: totals.email_bounced ?? 0,
                     // Spam complaints are stored under email_blocked.
                     markedAsSpam: totals.email_blocked ?? 0,

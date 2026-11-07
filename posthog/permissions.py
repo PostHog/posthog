@@ -1259,10 +1259,15 @@ class AccessControlPermission(ScopeBasePermission):
         if not required_level:
             return True
 
-        if isinstance(object, ObjectAccessRef):
-            has_access = uac.check_access_level_for_ref(object, required_level=required_level)
-        else:
+        if isinstance(object, Model):
             has_access = uac.check_access_level_for_object(object, required_level=required_level)
+        elif isinstance(object, ObjectAccessRef):
+            has_access = uac.check_access_level_for_ref(object, required_level=required_level)
+        elif not view.records_have_object_access_rules:
+            # has_permission already checked the resource-level rules, and no rule names one record.
+            return True
+        else:
+            has_access = uac.check_access_level_for_ref(view.object_access_ref(object), required_level=required_level)
 
         if not has_access:
             self.message = f"You do not have {required_level} access to this resource."

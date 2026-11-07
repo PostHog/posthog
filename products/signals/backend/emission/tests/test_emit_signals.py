@@ -1283,12 +1283,13 @@ class TestEmitActivityTableNameResolution:
         schema.table = table
         schema.source = source
 
-        fetch_mock = AsyncMock(return_value=(schema, MagicMock()))
+        fetch_mock = AsyncMock(return_value=(schema, MagicMock(organization=MagicMock(usage={}))))
 
         with (
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", fetch_mock),
+            patch(f"{ACTIVITY_MODULE_PATH}.is_team_signals_quota_limited", return_value=False),
             patch(f"{ACTIVITY_MODULE_PATH}.afetch_source_config", AsyncMock(return_value={})),
             patch(f"{ACTIVITY_MODULE_PATH}.run_signal_pipeline", new_callable=AsyncMock) as run_mock,
         ):
@@ -1318,7 +1319,7 @@ class TestEmitActivitySourceConfigThreading:
             return []
 
         config = _make_config(record_fetcher=capture_fetcher)
-        team = MagicMock(id=7)
+        team = MagicMock(id=7, organization=MagicMock(usage={}))
         schema = MagicMock()
         schema.table.name = "test_table"
 
@@ -1326,6 +1327,7 @@ class TestEmitActivitySourceConfigThreading:
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", AsyncMock(return_value=(schema, team))),
+            patch(f"{ACTIVITY_MODULE_PATH}.is_team_signals_quota_limited", return_value=False),
             patch(f"{ACTIVITY_MODULE_PATH}.get_data_warehouse_table_name", return_value="test.table"),
             patch(
                 f"{ACTIVITY_MODULE_PATH}.afetch_source_config",

@@ -23,7 +23,6 @@ import { InsightEventSource, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
-import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import {
     SEARCH_PARAM_FILTERS_KEY,
     dashboardSearchParamsFromOverrides,
@@ -44,7 +43,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DataVisualizationRenderer, InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
-import { isDataTableNode, isInsightVizNode } from '~/queries/schema/node-guards'
+import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import { checkLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DashboardFilter,
@@ -71,6 +70,7 @@ import {
 } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import { isDashboardFilterOverrideEmpty } from 'products/dashboards/frontend/dashboardFilterEmpty'
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -78,7 +78,7 @@ import type { QuerySchema } from '../../queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '../../types'
 import { insightDataLogic } from './insightDataLogic'
 import type { insightDataLogicType } from './insightDataLogic'
-import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
+import { getInsightIconTypeFromQuery, opensOutsideInsightScene, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
 let insightStartedTimeout: ReturnType<typeof setTimeout> | undefined
@@ -88,6 +88,23 @@ function normalizeItemId(itemId: string | undefined): number | null {
         return null
     }
     return Number(itemId) || null
+}
+
+// Hand-built links skip `urls.insightNew()`, and this scene cannot edit a new SQL query
+function newInsightUrlOutsideScene(q: unknown, dashboard: unknown, tileGroup: unknown): string | null {
+    const query = typeof q === 'string' ? parseDraftQueryFromURL(q) : (q as Node | undefined)
+    if (!opensOutsideInsightScene(query)) {
+        return null
+    }
+    // The SQL editor keeps only a visualization node's source, so carry table settings and filters inside one
+    const editorQuery = isHogQLQuery(query)
+        ? { kind: NodeKind.DataVisualizationNode, source: query }
+        : convertDataTableNodeToDataVisualizationNode(query as Node)
+    return urls.insightNew({
+        query: editorQuery as Node,
+        dashboardId: dashboard ? Number(dashboard) : undefined,
+        tileGroupKey: typeof tileGroup === 'string' ? tileGroup : undefined,
+    })
 }
 
 // Tag a new insight's query with the product_analytics productKey (on the executed source query) so
@@ -861,6 +878,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             // The :shortId pattern greedily matches it, so bail out before triggering a loadInsight
             // for a non-existent short_id.
             if (shortId === 'quick-start') {
+                return
+            }
+            const outsideSceneUrl =
+                shortId === 'new' ? newInsightUrlOutsideScene(q, dashboard, searchParams.tile_group) : null
+            if (outsideSceneUrl) {
+                router.actions.replace(outsideSceneUrl)
                 return
             }
             const insightMode =

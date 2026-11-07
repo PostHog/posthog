@@ -41,6 +41,16 @@ A complete pin list read forgets the prefs of that project's pins that are gone.
 Recent merges the last 20 views opened on this phone (`views-recent:v1`, per project) with the dashboards this user viewed on the web.
 Insights viewed on the web do not appear: no per-user source is open to OAuth without a new scope.
 
+**Home screen widget.** The Chart widget on iOS and Android shows a pin from this list, and the OS picker offers the same pins as the Views page (up to 100), in Views order.
+A new iOS widget shows the first supported pin automatically, including when its pins arrive after placement. Edit Widget lets you change it. Android preselects the first supported pin in its setup screen.
+The iOS picker keeps unsupported pins visible with a reason, so an unsupported list does not appear empty.
+After each complete pin list read, insight or dashboard update, and each change of a pin's mode or tile, `src/features/widgets/chartWidgetSync.ts` writes a pin catalog for the widget.
+When the signed-in project has no catalog and no cached pin list, after a sign in, a project switch or a launch, the sync reads the pin list itself with the same query key and lane as `usePins`, once per project per session. A failure leaves the catalog for the next Views read.
+All readable insight pins are available, including SQL numbers, text values, time series, tables, funnels, retention and breakdowns. Numbers retain their saved formatting and use a prominent centered layout. Charts show date and value labels, a formatted headline and the latest point; tables and other non-time-series displays use compact rows. A dashboard pin uses the tile chosen on this phone, or discovers a suitable tile using the same automatic preview rules as Views. This does not change the pin's display preference. The app shares its available Views snapshot with the widget, which refreshes independently using the same result semantics.
+The catalog uses metadata the list already read. Only pins selected on placed widgets receive result snapshots. For selected widgets, it reads uncached pin results with `refresh=force_cache`, at most once per second, and leaves half of each insights request budget available for foreground Views reads. Pending reads stop when the session or project changes.
+The widget reads its pin by itself on a timer with `refresh=force_cache`, so it never computes; see [the widget's README](../modules/chart-widget/README.md).
+The widget holds a copy of the access token only while a Chart widget is placed, and never refreshes it. Widget data is encrypted in shared storage. Without a placed widget, the app keeps encrypted picker metadata but sends no widget credentials or result snapshots and reads only pin metadata for the picker. Losing Views access clears the widget data. On launch or when the app returns to the foreground with an OAuth token that expires within 24 hours, it refreshes the token once (`FOREGROUND_REFRESH_MARGIN_MS` in `src/auth/authStore.ts`), so the copy stays valid between app opens. A token with at least one minute left refreshes after session restoration, without holding the launch screen.
+
 ## Automatic pin previews
 
 The Pinned section shows each real pin once. For up to three pins without a display choice on this phone,
@@ -114,9 +124,9 @@ A dashboard pin in Number or Chart mode shows one tile.
 The subtitle shows the tile's title.
 Picking Number or Chart on a dashboard pin without a tile opens "Choose tile" at once, with the first tile that can show that mode chosen.
 The sheet lists the dashboard's tiles from the cached dashboard, or one `force_cache` dashboard read when it has none or it is 5 minutes old.
-A Number pin needs one meaningful value. A Chart pin supports line and bar charts with multiple series or breakdowns. Funnels, pies, tables and text cards cannot be a Chart pin's tile (`capabilitiesOf`).
+A Number pin needs one meaningful value. A Chart pin supports Trends line and bar charts with multiple series or breakdowns, and SQL line, area, grouped bar and stacked bar charts with saved x/y columns. SQL category charts preserve result order and x-axis labels (including formatted months), series colors and number formats, and mixed bar/line series on separate left and right axes. Missing values remain gaps unless the saved chart asks for zero. Funnels, pies, tables and text cards cannot be a Chart pin's tile (`capabilitiesOf`).
 The sheet sends `mobile_pin_tile_sheet_opened` (`entry`: `show_as`, `menu` or `removed_tile`; `mode`) and, once per opening, `mobile_pin_tile_sheet_closed` (`entry`, `picked`, `tiles_usable`, `tiles_unusable`; the counts are null when it closed before the tiles loaded). `picked` is false for the automatic first choice. `mobile_pin_tile_chosen` still marks each choice.
-The tiles the mode can show come first, in dashboard order. The rest sit under "Can't show as a number" or "Can't show as a chart", disabled, each with its reason ("Has 3 series", "Has a breakdown", "Not a single number", "Not a chart over time", "Text card"; `tileEligibility.ts`). When no tile fits, the header says so.
+The tiles the mode can show come first, in dashboard order. The rest sit under "Can't show as a number" or "Can't show as a chart", disabled, each with its reason ("Has 3 series", "Has a breakdown", "Not a single number", "Saved as a big number", "SQL metric cards are not supported on mobile yet", "Text card"; `tileEligibility.ts`). When no tile fits, the header says so.
 A pin whose tile is gone (its insight answers 404, or the cached dashboard no longer has the tile) shows as a row with "The chosen tile was removed. Choose another."
 
 ### Pin actions
@@ -156,7 +166,8 @@ Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `
 | Full-screen chart | `/views/chart/{short_id}[?key={cache key}]`                    |
 | Browse lists      | `/views/browse/dashboards`, `/views/browse/insights`           |
 
-`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search` or `dashboard`) for `mobile_view_opened`; `mode` is the pin's display mode.
+`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search`, `dashboard` or `widget`) for `mobile_view_opened`; `mode` is the pin's display mode.
+A home screen widget opens a dashboard or insight with `from=widget&family=<small|medium|large>`, which also sends `mobile_widget_opened` (`kind`, `family`).
 Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `chartHref`), never by hand.
 An insight opened from a tile also carries `fromDashboard` and `insightId`: it reads with `from_dashboard` and shares the dashboard's session range.
 Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/insight/demo-ins-dau`, `posthog://views/web-analytics`.
@@ -235,27 +246,33 @@ A SQL insight is a `DataVisualizationNode` with a `HogQLQuery` source. Its respo
 - **Numbers.** `sqlCellNumber` reads a cell for the chart, the bar list, the big number and the table. A numeric string counts as a number, because the server's JSON writes a ClickHouse `Decimal` as a string. Other text is a gap in a chart and no row in a bar list. The table keeps an integer string past 2^53 as written when its column has no style or decimals.
 - **No display.** A query without a saved `display` is a table, as on the web (`display ?? ActionsTable`).
 - **Auto.** Only a saved `Auto` resolves from the result. With a date column, a number column and more than one row, a line chart. Else with two text columns and a number, a heatmap. Else one number column alone is a big number, any number column gives a bar chart, and anything else is a table. Before the result, Auto shows as a table.
-- **Axes.** Without saved axes, x is the first date column, else the first column that is not a number, and y is every number column. As on the web, a saved x column missing from the result, or a saved y column that is missing or not a number, drops both axes back to these defaults. The x column and the breakdown column are never a y series.
+- **Axes.** Without saved axes, x is the first date column, else the first column that is not a number, and y is every number column. A chart with a saved column missing from its result opens on the web instead of silently plotting a different column. Invalid axes in other displays retain the default-selection rules. The x column and the breakdown column are never a y series.
 - **Dates.** A datetime x value keeps the wall clock the server wrote: `2026-10-01T14:05:09.123456-04:00` is the bucket `2026-10-01 14:05:09` in local time, like a trends bucket and like the table shows it.
 
-| Saved display, or what Auto resolves to                                                                                                                | Phone display | Data                                                                             |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- | -------------------------------------------------------------------------------- |
-| `ActionsTable`                                                                                                                                         | `table`       | `sqlTable`                                                                       |
-| `ActionsLineGraph`, `ActionsLineGraphCumulative`, `ActionsAreaGraph`, `ActionsBar`, `ActionsStackedBar`, `ActionsUnstackedBar` over a date x axis      | `chart`       | `allSeries`, one per y column, or per y column and breakdown value               |
-| `ActionsBar`, `ActionsBarValue`, `ActionsPie`, `ActionsDonut`, `ActionsProportionBar` over any other x axis, with one y column and no breakdown column | `bars`        | `ranking`, one row per result row                                                |
-| The same displays with several y columns or a breakdown column: the web draws grouped bars or a slice per column                                       | `web`         | none                                                                             |
-| `BoldNumber`                                                                                                                                           | `number`      | `value`, the first cell of the first row. Other SQL displays have no big number. |
-| `Metric`: the web shows the latest, total or mean of the first y series by date, which the phone does not port                                         | `web`         | none                                                                             |
-| Anything else, and a transposed table                                                                                                                  | `web`         | none                                                                             |
+| Saved display, or what Auto resolves to                                                                                                                       | Phone display | Data                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------- |
+| `ActionsTable`                                                                                                                                                | `table`       | `sqlTable`                                                                       |
+| `ActionsLineGraph`, `ActionsLineGraphCumulative`, `ActionsAreaGraph`, `ActionsBar`, `ActionsStackedBar`, `ActionsUnstackedBar` over a date or category x axis | `chart`       | `allSeries`, one per y column, or per y column and breakdown value               |
+| Auto category bars, `ActionsBarValue`, `ActionsPie`, `ActionsDonut`, `ActionsProportionBar` over any other x axis, with one y column and no breakdown column  | `bars`        | `ranking`, one row per result row                                                |
+| The same displays with several y columns or a breakdown column: the web draws grouped bars or a slice per column                                              | `web`         | none                                                                             |
+| `BoldNumber`                                                                                                                                                  | `number`      | `value`, the first cell of the first row. Other SQL displays have no big number. |
+| `Metric`: the web shows the latest, total or mean of the first y series by date, which the phone does not port                                                | `web`         | none                                                                             |
+| Anything else, and a transposed table                                                                                                                         | `web`         | none                                                                             |
 
-- A chart's series share every date of the result, in date order. A date without a value is a gap, and rows with the same date and series add up. A cumulative display draws a running sum. The interval comes from the median gap between dates.
-- `ActionsBar*` displays, and a first y axis drawn as bars, draw bars from zero. Negative values extend below zero, positive values above it, and zero has no bar. Area draws as a line and stacked bars draw side by side.
+- A date chart's series share every date of the result, in date order. A date without a value is a gap, and rows with the same date and series add up. A cumulative display draws a running sum. The interval comes from the median gap between dates.
+- `ActionsBar*` displays, and a first y axis drawn as bars, draw bars from zero. Negative values extend below zero, positive values above it, and zero has no bar. Area charts fill under their lines, and stacked bars share a stack within each axis.
 - Bar rows keep the server's order, because the SQL orders them on purpose. The total is their sum.
-- Formatting comes from `insightFormatting.ts`, so a value reads the same in the table, the chart tooltip and the bar list. A table column takes its `tableSettings.columns` formatting, else its `chartSettings.yAxis` formatting. A chart and a bar list take the first saved y axis entry's formatting as `snapshot.format`, else the first y column's own format. As on the web, a percent column is a fraction scaled by 100 everywhere: 0.25 reads 25% in the table, on the chart and as a big number.
+- Formatting comes from `insightFormatting.ts`, so a value reads the same in the table, the chart tooltip and the bar list. A table column takes its `tableSettings.columns` formatting, else its `chartSettings.yAxis` formatting. Each chart series uses its saved y column formatting, or plain values when none is saved. A bar list takes the first saved y axis entry's formatting as `snapshot.format`, else the first y column's own format. As on the web, a percent column is a fraction scaled by 100 everywhere: 0.25 reads 25% in the table, on the chart and as a big number.
 - The table draws six rows on a tile and up to 500 rows (`SQL_TABLE_MAX_ROWS`) on the insight screen and full screen, because the rows are plain views, not a virtual list. Past that, the caption and the line under the rows say "First 500 of 5,000 rows". An empty result says "No rows", or "No rows for this range" when the result has a range.
 - Table columns widen to show complete formatted numbers and column names. Wider tables scroll horizontally. The first column stays pinned when it takes up no more than half the table's viewport; otherwise all columns scroll together.
-- `capabilities.number` is true for a big number, `capabilities.chart` for a chart over time with a y column and at least one date, whose first y column a pin draws. A SQL insight has no "View people".
-- `kindLabel` names the resolved display: "Table", "Line", "Bar", "Big number" or "Pie", else "SQL".
+- `capabilities.number` is true for a big number, `capabilities.chart` for a supported chart with valid x/y columns, including empty results. Pins draw every y series. A SQL insight has no "View people".
+- `kindLabel` names the resolved display: "Table", "Line", "Bar", "Big number", "Metric" or "Pie", else "SQL".
+
+### SQL chart labels and series
+
+Saved SQL line, area and bar charts preserve category labels and result order when the x column is not a date. Date columns retain date sorting and breakdown aggregation. Mixed bar/line series keep their saved colors, number formats and left/right value scales. Automatic series types follow the saved chart display, independently of other series overrides. Missing values stay gaps unless the saved chart requests zeros.
+
+The tile picker explains unsupported metric cards, logarithmic axes, 100% stacks, trend lines and category breakdowns. Saved columns that are missing do not silently select different data. These charts show an Open on web fallback. Native home-screen widgets keep category and mixed-axis SQL results as rows because their chart snapshot format cannot carry these labels and axes.
 
 ## Full screen
 
@@ -276,8 +293,8 @@ A SQL insight is a `DataVisualizationNode` with a `HogQLQuery` source. Its respo
 These show the "This chart opens on the web." card, on tiles and on the insight screen. The phone never computes them once it knows the kind: the item's `drawable()` is false, so open, focus, pull and "Try again" send no `blocking` or `force_*` read for them, on a dashboard and on the insight screen. A pull still sends cache-only reads (the dashboard read, or `force_cache` on the insight screen), and the tile has no refresh button. A cold open of an insight with nothing cached reads once with `blocking`, because the kind is unknown until that read.
 
 - Paths (`PathsQuery`), stickiness (`StickinessQuery`: its x axis is "Day N", not dates) and lifecycle (`LifecycleQuery`: stacked bars with negative dormant values).
-- SQL insights shown as a world map, a calendar or two-dimensional heatmap, a box plot, a slope graph or a scatter plot, and transposed SQL tables. A line chart over an x axis that is not a date, and a bar chart with a breakdown column over such an x axis, open on the web too.
-- SQL settings the phone ignores: conditional formatting, goal lines, pinned columns, a right y axis, per-breakdown colors and annotations. The table cannot sort or resize columns.
+- SQL insights shown as a world map, a calendar or two-dimensional heatmap, a box plot, a slope graph or a scatter plot, and transposed SQL tables. SQL category charts with a breakdown, logarithmic axes, 100% stacks or trend lines open on the web with a specific explanation.
+- SQL settings the phone ignores: conditional formatting, goal lines, pinned columns, per-breakdown colors and annotations. The table cannot sort or resize columns.
 - Trends world maps, calendar heatmaps and box plots.
 - Funnels in the trends or time-to-convert layout, and funnels broken down by cohort: one person can be in several cohorts, so a sum would count them twice.
 - Retention with a breakdown, or with a sum or average aggregation (amounts, not people).
