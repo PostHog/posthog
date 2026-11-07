@@ -39,6 +39,10 @@ def default_owner_fallback_enabled(team_id: int) -> bool:
     return _enabled("signals-default-owner-fallback", team_id)
 
 
+def unchosen_autostart_p1_enabled(team_id: int) -> bool:
+    return _enabled("signals-unchosen-autostart-p1", team_id)
+
+
 def assignment_side_effects_allowed(*, team_id: int, report_id: str) -> bool:
     # Keep the trial boundary after a writer flag is disabled, including for queued work.
     if not SignalReportArtefact.objects.filter(
