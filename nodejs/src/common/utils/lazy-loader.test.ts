@@ -275,59 +275,69 @@ describe('LazyLoader', () => {
         describe('a lookup still waiting when another lookup drops expired entries', () => {
             const setupSlowLoader = (): {
                 lazy: LazyLoader<string>
-                release: (loadIndex: number, values: Record<string, string>) => Promise<void>
+                loaderCalledWith: (key: string) => Promise<void>
+                release: (key: string, values: Record<string, string>) => Promise<void>
             } => {
-                const releases: ((values: Record<string, string>) => void)[] = []
+                const resolvers = new Map<string, (values: Record<string, string>) => void>()
+                const waiters = new Map<string, () => void>()
                 const lazy = new LazyLoader<string>({
                     name: 'test',
-                    loader: () => new Promise((resolve) => releases.push(resolve)),
+                    loader: (keys) =>
+                        new Promise((resolve) => {
+                            for (const key of keys) {
+                                resolvers.set(key, resolve)
+                                waiters.get(key)?.()
+                            }
+                        }),
                     refreshAgeMs: 30_000,
                     refreshJitterMs: 0,
                     bufferMs: 0,
                 })
-                const release = async (loadIndex: number, values: Record<string, string>): Promise<void> => {
-                    await delay(5)
-                    releases[loadIndex](values)
+                const loaderCalledWith = (key: string): Promise<void> =>
+                    resolvers.has(key) ? Promise.resolve() : new Promise((resolve) => waiters.set(key, resolve))
+                const release = async (key: string, values: Record<string, string>): Promise<void> => {
+                    await loaderCalledWith(key)
+                    resolvers.get(key)!(values)
                 }
-                return { lazy, release }
+                return { lazy, loaderCalledWith, release }
             }
 
             const dropExpiredEntries = async (
                 lazy: LazyLoader<string>,
-                release: (loadIndex: number, values: Record<string, string>) => Promise<void>,
-                loadIndex: number
+                release: (key: string, values: Record<string, string>) => Promise<void>
             ): Promise<void> => {
                 jest.spyOn(Date, 'now').mockReturnValue(start + 40_000)
                 const lookup = lazy.get('other')
-                await release(loadIndex, { other: 'OTHER' })
+                await release('other', { other: 'OTHER' })
                 await lookup
             }
 
             it('keeps a value it already had from the cache', async () => {
-                const { lazy, release } = setupSlowLoader()
+                const { lazy, loaderCalledWith, release } = setupSlowLoader()
                 const first = lazy.get('a')
-                await release(0, { a: 'A' })
+                await release('a', { a: 'A' })
                 await first
 
                 jest.spyOn(Date, 'now').mockReturnValue(start + 29_000)
                 const both = lazy.getMany(['a', 'b'])
-                await delay(5)
-                await dropExpiredEntries(lazy, release, 2)
-                await release(1, { b: 'B' })
+                await loaderCalledWith('b')
+                await dropExpiredEntries(lazy, release)
+                await release('b', { b: 'B' })
 
                 expect({ ...(await both) }).toEqual({ a: 'A', b: 'B' })
             })
 
             it('keeps a value that finished loading before its other keys', async () => {
-                const { lazy, release } = setupSlowLoader()
+                const { lazy, loaderCalledWith, release } = setupSlowLoader()
                 const first = lazy.get('a')
-                await delay(5)
+                await loaderCalledWith('a')
                 const both = lazy.getMany(['a', 'b'])
+                await loaderCalledWith('b')
 
-                await release(0, { a: 'A' })
+                await release('a', { a: 'A' })
                 await first
-                await dropExpiredEntries(lazy, release, 2)
-                await release(1, { b: 'B' })
+                await dropExpiredEntries(lazy, release)
+                await release('b', { b: 'B' })
 
                 expect({ ...(await both) }).toEqual({ a: 'A', b: 'B' })
             })

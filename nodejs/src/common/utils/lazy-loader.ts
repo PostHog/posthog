@@ -468,7 +468,6 @@ export class LazyLoader<T> {
             return
         }
         this.nextSweepAt = now + this.refreshAgeMs
-        const sizeBefore = this.cacheSize
         for (const key in this.cache) {
             const entry = this.cache[key]
             if (entry && entry.cacheUntil < now) {
@@ -476,9 +475,7 @@ export class LazyLoader<T> {
                 this.cacheSize--
             }
         }
-        if (this.cacheSize !== sizeBefore) {
-            this.updateCacheSizeMetric()
-        }
+        this.updateCacheSizeMetric()
     }
 
     private evictLRU(): void {
