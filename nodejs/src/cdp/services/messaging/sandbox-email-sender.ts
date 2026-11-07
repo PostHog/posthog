@@ -70,6 +70,8 @@ export type SandboxEmailBlockReason =
     | 'recipient_cap_reached'
     | 'project_cap_reached'
     | 'cap_check_failed'
+    | 'paused'
+    | 'pause_check_failed'
 
 const sandboxEmailBlockedTotal = new Counter({
     name: 'cdp_sandbox_email_blocked_total',

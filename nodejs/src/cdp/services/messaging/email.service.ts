@@ -492,13 +492,22 @@ const SANDBOX_BLOCKS: Record<
     },
     check_failed: {
         message: (addresses) =>
-            `Skipping send: could not check organization members for these addresses: ${addresses.join(', ')}. Try again, or verify your own domain to send to anyone.`,
+            `Skipping send: could not check organization members for these addresses: ${addresses.join(', ')}. Verify your own domain to send to anyone.`,
         statusReason: 'recipient_unreachable',
     },
     recipient_cap_reached: {
         message: (addresses) =>
             `Skipping send: these addresses reached the sandbox sender's daily limit per address: ${addresses.join(', ')}. Verify your own domain to send more.`,
         statusReason: 'frequency_capped',
+    },
+    paused: {
+        message: () => 'Skipping send: the sandbox sender is paused right now. Verify your own domain to keep sending.',
+        statusReason: 'sending_suspended',
+    },
+    pause_check_failed: {
+        message: () =>
+            'Skipping send: could not check whether the sandbox sender is paused. Verify your own domain to keep sending.',
+        statusReason: 'sending_suspended',
     },
     project_cap_reached: {
         message: () =>
@@ -507,7 +516,7 @@ const SANDBOX_BLOCKS: Record<
     },
     cap_check_failed: {
         message: () =>
-            "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more.",
+            "Skipping send: could not check the sandbox sender's daily limit. Verify your own domain to send more.",
         statusReason: 'recipient_unreachable',
     },
 }
@@ -700,6 +709,9 @@ export class EmailService {
                     'sending_suspended'
                 )
                 await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'not_workflow_step', 0)
+                return result
+            }
+            if (sandboxSender && !(await this.passesSandboxPauseGate(result, sandboxSender, isTest))) {
                 return result
             }
 
@@ -938,15 +950,13 @@ export class EmailService {
                     if (!capGrant) {
                         return result
                     }
-                    const deliverTo = await this.checkSandboxRecipients(
-                        result,
-                        sandboxSender,
-                        deliveryRecipients,
-                        isTest,
-                        {
-                            fresh: true,
-                        }
-                    )
+                    const deliverTo = (await this.passesSandboxPauseGate(result, sandboxSender, isTest, {
+                        fresh: true,
+                    }))
+                        ? await this.checkSandboxRecipients(result, sandboxSender, deliveryRecipients, isTest, {
+                              fresh: true,
+                          })
+                        : null
                     if (!deliverTo) {
                         await sandboxSender.returnDailyCaps(capGrant)
                         return result
@@ -1259,6 +1269,20 @@ export class EmailService {
         }
         await this.blockSandboxSend(result, sender, blockedRecipients, reason, isTest)
         return null
+    }
+
+    private async passesSandboxPauseGate(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        sender: SandboxEmailSender,
+        isTest: boolean,
+        { fresh = false }: { fresh?: boolean } = {}
+    ): Promise<boolean> {
+        const gate = await sender.pauseGate({ fresh })
+        if (gate === 'open') {
+            return true
+        }
+        await this.blockSandboxSend(result, sender, [], gate === 'check_failed' ? 'pause_check_failed' : gate, isTest)
+        return false
     }
 
     private async blockSandboxSend(
