@@ -1055,6 +1055,24 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert result is True
         _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
 
+    @patch(
+        "products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload",
+        return_value={"slack": "enforce"},
+    )
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_followup_to_a_done_task_is_refused_before_delivery(self, mock_slack_cls, mock_signal, _mock_payload):
+        self._create_mapping()
+        self.Task.objects.filter(pk=self.task.pk).update(profile="slack", status="done", status_reason="closed")
+        mock_slack_cls.return_value = MagicMock()
+
+        result = forward_posthog_code_followup_activity(
+            _make_inputs(self.integration.id, self.user.id), "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
+        )
+
+        assert result is True
+        mock_signal.assert_not_called()
+
     @parameterized.expand(
         [
             ("ordinary", None, False),

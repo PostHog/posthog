@@ -25,6 +25,7 @@ from products.tasks.backend.pr_urls import (
     read_head_branches,
     read_pr_urls,
 )
+from products.tasks.backend.task_done import record_pull_request_outcome
 from products.tasks.backend.task_run_sync import sync_task_pr_urls_on_commit
 from products.tasks.backend.webhooks import _run_repository_filter, _task_run_scope_team_ids, find_task_run
 
@@ -218,6 +219,14 @@ class PullRequestReconciler:
             # Output receivers must retry report linking after verification, even if the URL is unchanged.
             locked.save(update_fields=["state", "output", "updated_at"])
             sync_task_pr_urls_on_commit(locked.task_id)
+            task_id, pr_url = locked.task_id, self.pr_url
+            outcome: Literal["merged", "closed", "open"] = (
+                snapshot.state if snapshot.state in ("merged", "closed") else "open"
+            )
+            transaction.on_commit(
+                lambda: record_pull_request_outcome(task_id, pr_url, state=outcome),
+                robust=True,
+            )
             reconcile_pull_request_state(
                 team_id=self.team_id,
                 repository=parsed.repository,
