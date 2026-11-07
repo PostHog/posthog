@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
@@ -21,7 +21,10 @@ import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { MessagingSetup } from '../MessagingSetup'
 import { MessagingTabActions } from '../MessagingTabActions'
 import { MESSAGING_TAB_CONTENT, isMessagingSetupTab } from '../messagingTabs'
-import { SmtpComingSoonButton } from './comingSoon/SmtpComingSoonButton'
+import { comingSoonInterestLogic } from './comingSoon/comingSoonInterestLogic'
+import { ComingSoonInterestTag } from './comingSoon/ComingSoonInterestTag'
+import { SmtpInterestModal } from './comingSoon/SmtpInterestModal'
+import { SMTP_INTEREST_SURVEY } from './comingSoon/smtpInterestSurvey'
 import { TransactionalEmailLog } from './log/TransactionalEmailLog'
 import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
@@ -35,6 +38,8 @@ export const scene: SceneExport = {
 
 export function TransactionalScene(): JSX.Element {
     const { location } = useValues(router)
+    const { hasRecordedInterest } = useValues(comingSoonInterestLogic(SMTP_INTEREST_SURVEY))
+    const { registerInterest } = useActions(comingSoonInterestLogic(SMTP_INTEREST_SURVEY))
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     // Leaving for another scene changes the URL before that scene has loaded, so this one keeps showing its last view.
@@ -89,8 +94,14 @@ export function TransactionalScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            <LemonTabs<TransactionalTab | 'library' | 'messaging-setup'>
+            <LemonTabs<TransactionalTab | 'library' | 'messaging-setup' | 'smtp'>
                 activeKey={isTransactionalTab || currentTab === 'library' ? currentTab : 'messaging-setup'}
+                onChange={(key) => {
+                    // No SMTP page exists yet, so this tab asks for interest and the current tab stays selected.
+                    if (key === 'smtp') {
+                        registerInterest()
+                    }
+                }}
                 tabs={[
                     {
                         label: 'Transactional emails',
@@ -127,10 +138,23 @@ export function TransactionalScene(): JSX.Element {
                             />
                         ),
                     },
+                    {
+                        label: (
+                            <>
+                                SMTP
+                                <ComingSoonInterestTag hasRecordedInterest={hasRecordedInterest} />
+                            </>
+                        ),
+                        key: 'smtp',
+                        tooltip: hasRecordedInterest
+                            ? 'You told us you want SMTP. Click to add or change your note.'
+                            : 'Coming soon: send email through PostHog from any app or tool that supports SMTP, with no code changes. Click to tell us you want this.',
+                        'data-attr': 'transactional-smtp-coming-soon',
+                    },
                 ]}
                 sceneInset
-                rightSlot={<SmtpComingSoonButton />}
             />
+            <SmtpInterestModal />
         </SceneContent>
     )
 }
