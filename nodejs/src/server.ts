@@ -38,6 +38,7 @@ import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.co
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
+import { CdpSesWebhooksConsumer } from './cdp/consumers/cdp-ses-webhooks.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
 import { createCdpOutputsRegistry } from './cdp/outputs/registry'
@@ -98,6 +99,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpProcessedEvents ||
             capabilities.cdpDataWarehouseEvents ||
             capabilities.cdpInternalEvents ||
+            capabilities.cdpSesWebhooks ||
             capabilities.cdpPersonUpdates ||
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
@@ -315,6 +317,14 @@ export class PluginServer implements NodeServer {
                 const worker = new CdpCyclotronWorkerHogFlow(this.config, this.withEmailActionValkeys(cdpDeps!), queue)
                 await worker.start()
                 return worker.service
+            })
+        }
+
+        if (capabilities.cdpSesWebhooks) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpSesWebhooksConsumer(this.config, cdpDeps!)
+                await consumer.start()
+                return consumer.service
             })
         }
 

@@ -98,6 +98,7 @@ export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
 // those after a forward fix. One topic per consumer, so a replay never touches another consumer's
 // records. It carries full event payloads, so retention is bounded the way the source topic is.
 export const KAFKA_CDP_EVENTS_DLQ = `${prefix}cdp_events_dlq${suffix}`
+export const KAFKA_CDP_SES_WEBHOOKS = `${prefix}cdp_ses_webhooks${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickhouse_behavioral_cohorts_matches${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
 // One completion marker per processor partition, certifying that a reconcile run replayed a
