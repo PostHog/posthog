@@ -8,9 +8,11 @@ from unittest import mock
 
 import requests
 import structlog
+from botocore.credentials import Credentials
 from tenacity import wait_none
 
 from products.warehouse_sources.sources.aws_cost_explorer import aws_cost_explorer
+from products.warehouse_sources.sources.aws_cost_explorer._config import AwsCostExplorerSourceConfig
 from products.warehouse_sources.sources.aws_cost_explorer.aws_cost_explorer import (
     GENERIC_VALIDATION_ERROR,
     TRANSIENT_VALIDATION_ERROR,
@@ -26,7 +28,10 @@ from products.warehouse_sources.sources.aws_cost_explorer.aws_cost_explorer impo
     validate_credentials,
 )
 from products.warehouse_sources.sources.aws_cost_explorer.settings import AWS_COST_EXPLORER_ENDPOINTS
+from products.warehouse_sources.sources.aws_cost_explorer.source import AwsCostExplorerSource
 from products.warehouse_sources.sources.sdk import ResumableSourceManager
+
+CREDENTIALS = Credentials("key", "secret")
 
 LOGGER = structlog.get_logger()
 
@@ -176,17 +181,18 @@ class TestSendOperation:
 
 class TestValidateCredentials:
     def test_missing_credentials_short_circuit_without_a_billed_request(self) -> None:
+        config = AwsCostExplorerSourceConfig.from_dict({"aws_access_key_id": "", "aws_secret_access_key": "secret"})
         with mock.patch.object(aws_cost_explorer, "send_operation") as send:
-            assert validate_credentials("", "secret", None) == (
+            assert AwsCostExplorerSource().validate_credentials(config, team_id=1) == (
                 False,
-                "AWS access key ID and secret access key are required",
+                "Enter both an AWS access key ID and a secret access key.",
             )
 
         send.assert_not_called()
 
     def test_a_successful_probe_validates(self) -> None:
         with mock.patch.object(aws_cost_explorer, "send_operation", return_value={"ResultsByTime": []}) as send:
-            assert validate_credentials("key", "secret", None) == (True, None)
+            assert validate_credentials(CREDENTIALS) == (True, None)
 
         assert send.call_args[0][2] == "GetCostAndUsage"
 
@@ -208,11 +214,11 @@ class TestValidateCredentials:
         )
 
         with mock.patch.object(aws_cost_explorer, "send_operation", side_effect=AwsCostExplorerError(raw, code)):
-            assert validate_credentials("key", "secret", None) == (False, expected)
+            assert validate_credentials(CREDENTIALS) == (False, expected)
 
     def test_a_transport_failure_does_not_leak_internals(self) -> None:
         with mock.patch.object(aws_cost_explorer, "send_operation", side_effect=requests.ConnectionError("boom")):
-            assert validate_credentials("key", "secret", None) == (
+            assert validate_credentials(CREDENTIALS) == (
                 False,
                 "Could not reach the AWS Cost Explorer API",
             )
@@ -236,9 +242,7 @@ class TestGetRows:
         with mock.patch.object(aws_cost_explorer, "send_operation", side_effect=responses) as send:
             batches = list(
                 get_rows(
-                    aws_access_key_id="key",
-                    aws_secret_access_key="secret",
-                    aws_session_token=None,
+                    credentials=CREDENTIALS,
                     start_date=start_date,
                     endpoint=endpoint,
                     resumable_source_manager=manager,
