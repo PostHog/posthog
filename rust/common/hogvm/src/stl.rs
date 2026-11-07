@@ -52,7 +52,7 @@ pub fn hog_stl_map() -> HashMap<String, Module> {
     HOG_STL_MODULES.clone()
 }
 
-// NOTE - if you make changes to this, be sure to re-run `bin/dump_hogvmrs_stl`
+// NOTE - after adding or removing a function here, run `bin/dump_hogvmrs_stl`
 pub fn stl() -> Vec<(String, NativeFunction)> {
     [
         (

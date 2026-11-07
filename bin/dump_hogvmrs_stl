@@ -1,13 +1,7 @@
 #!/bin/bash
+set -e
 
-# Get the directory where the script is located
+# Rewrites products/error_tracking/backend/hogvm_stl.py from the Rust hogvm crate's STL.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
-
-# Change to the hogvm directory
-if ! cd "$SCRIPT_DIR/../rust/common/hogvm"; then
-    echo "Failed to change directory to ./rust/common/hogvm"
-    exit 1
-fi
-
-# Run cargo command with script location as parameter
-cargo run --bin stl_dump -- "$SCRIPT_DIR/../products/error_tracking/backend/hogvm_stl.py"
+cd "$SCRIPT_DIR/../rust/common/hogvm"
+UPDATE_STL_SNAPSHOT=1 cargo test --test stl_snapshot

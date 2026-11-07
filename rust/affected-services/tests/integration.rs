@@ -110,7 +110,6 @@ fn every_deployable_binary_has_an_image_entry() {
     let non_deployable: HashSet<&str> = [
         "affected-services",
         "debug_rule",
-        "stl_dump",
         "run", // hogvm dev/diff CLI, not a service
         "hermes",
         "logs-ingestion-bench",   // logs consumer benchmark CLI, not a service
