@@ -20,7 +20,6 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { BusinessModelConfig } from './BusinessModelConfig'
 import { TimezoneConfig } from './TimezoneConfig'
-import { ToolbarExtensionBanner } from './ToolbarExtensionBanner'
 import { WeekStartConfig } from './WeekStartConfig'
 
 export function WebSnippet(): JSX.Element {
@@ -164,15 +163,13 @@ export function TeamAuthorizedURLs(): JSX.Element {
             : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
 
     return (
-        <div className="flex flex-col gap-2">
-            <ToolbarExtensionBanner />
-            <AuthorizedUrlList
-                type={AuthorizedUrlListType.WEB_ANALYTICS}
-                allowWildCards={false}
-                allowAdd={canEdit}
-                allowDelete={canEdit}
-                displaySuggestions={canEdit}
-            />
-        </div>
+        <AuthorizedUrlList
+            type={AuthorizedUrlListType.WEB_ANALYTICS}
+            allowWildCards={false}
+            allowAdd={canEdit}
+            allowDelete={canEdit}
+            displaySuggestions={canEdit}
+            showLaunch={false}
+        />
     )
 }

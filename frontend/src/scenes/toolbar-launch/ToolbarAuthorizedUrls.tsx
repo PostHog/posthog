@@ -42,6 +42,8 @@ import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/Au
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { toolbarExtensionLogic } from './toolbarExtensionLogic'
+
 export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.Element {
     const logic = authorizedUrlListLogic({
         actionId: null,
@@ -61,6 +63,8 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
         urlsKeyed,
     } = useValues(logic)
     const { currentTeamLoading } = useValues(teamLogic)
+    const { extensionInstalled } = useValues(toolbarExtensionLogic)
+    const { openInExtension } = useActions(toolbarExtensionLogic)
     const {
         addUrl,
         cancelProposingUrl,
@@ -198,6 +202,16 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
                                                     />
                                                     <TooltipContent>Wildcard URLs cannot be launched</TooltipContent>
                                                 </Tooltip>
+                                            ) : extensionInstalled ? (
+                                                <Button
+                                                    variant="primary"
+                                                    size="sm"
+                                                    onClick={() => openInExtension(keyedURL.url)}
+                                                    data-attr="toolbar-open-in-extension"
+                                                >
+                                                    <IconExternal />
+                                                    Open in extension
+                                                </Button>
                                             ) : (
                                                 <Button
                                                     variant="primary"

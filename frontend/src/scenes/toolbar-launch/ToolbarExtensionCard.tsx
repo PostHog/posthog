@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import * as cursorPng from '@posthog/brand/hoggies/png/cursor'
@@ -8,10 +9,19 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { TOOLBAR_CHROME_EXTENSION_URL } from 'lib/constants'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { toolbarExtensionLogic } from './toolbarExtensionLogic'
+
 const HedgehogCursor = pngHoggie(cursorPng)
 
 /** Points people at the Chrome extension, which opens the toolbar in a side panel without a launch from this page. */
-export function ToolbarExtensionCard(): JSX.Element {
+export function ToolbarExtensionCard(): JSX.Element | null {
+    const { extensionInstalled } = useValues(toolbarExtensionLogic)
+
+    // Hidden until detection answers, so people who have the extension never see it flash.
+    if (extensionInstalled !== false) {
+        return null
+    }
+
     return (
         <Card size="sm">
             <CardContent className="flex flex-wrap items-center gap-4">

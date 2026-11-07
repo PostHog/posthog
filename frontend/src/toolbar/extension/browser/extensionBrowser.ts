@@ -1,3 +1,4 @@
+import { APP_MESSAGE_OPEN_URL, APP_MESSAGE_PING, OpenUrlResponse, PingResponse } from '../messaging/appMessages'
 import { PAGE_TOOLBAR_PORT, PageToolbarTokens } from '../messaging/pageToolbarBridge'
 
 // Chrome exposes the promise-based `chrome.*` namespace to Manifest V3 extensions.
@@ -11,6 +12,12 @@ interface ExtensionTab {
 type RuntimeMessageListener = (
     message: unknown,
     sender: unknown,
+    sendResponse: (response: unknown) => void
+) => boolean | void
+
+type ExternalMessageListener = (
+    message: unknown,
+    sender: { tab?: { windowId?: number } },
     sendResponse: (response: unknown) => void
 ) => boolean | void
 
@@ -81,6 +88,7 @@ interface ExtensionBrowserApi {
             addListener: (listener: RuntimeMessageListener) => void
         }
         onConnect: ExtensionEvent<(port: ExtensionPort) => void>
+        onMessageExternal: ExtensionEvent<ExternalMessageListener>
         getURL: (path: string) => string
     }
     permissions: {
@@ -92,6 +100,7 @@ interface ExtensionBrowserApi {
     }
     sidePanel: {
         setPanelBehavior: (behavior: { openPanelOnActionClick: boolean }) => Promise<void>
+        open: (options: { windowId: number }) => Promise<void>
     }
 }
 
@@ -107,6 +116,56 @@ const CONTENT_SCRIPT_FILE = 'content.js'
 
 export function openPanelFromToolbarButton(): void {
     void extensionBrowser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+}
+
+/** Answers the PostHog app, which the manifest lets message the extension through `externally_connectable`. */
+export function listenForAppMessages(): void {
+    extensionBrowser.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+        const response = respondToAppMessage(message, sender.tab?.windowId)
+        if (!response) {
+            return false
+        }
+        void response.then(sendResponse)
+        return true
+    })
+}
+
+/** `undefined` for a message this version doesn't know, so it ignores what a newer app build sends. */
+export function respondToAppMessage(
+    message: unknown,
+    windowId: number | undefined
+): Promise<PingResponse | OpenUrlResponse> | undefined {
+    if (typeof message !== 'object' || message === null) {
+        return undefined
+    }
+    const { type, url } = message as { type?: unknown; url?: unknown }
+    if (type === APP_MESSAGE_PING) {
+        return Promise.resolve({ installed: true })
+    }
+    if (type === APP_MESSAGE_OPEN_URL && typeof url === 'string' && isWebUrl(url)) {
+        // Called before any await, so Chrome can still count the click in the app as the user action it requires.
+        const panelOpened =
+            windowId === undefined
+                ? Promise.resolve(false)
+                : extensionBrowser.sidePanel.open({ windowId }).then(
+                      () => true,
+                      () => false
+                  )
+        return extensionBrowser.tabs.create({ url }).then(
+            async () => ({ opened: true, panelOpened: await panelOpened }),
+            async () => ({ opened: false, panelOpened: await panelOpened })
+        )
+    }
+    return undefined
+}
+
+function isWebUrl(url: string): boolean {
+    try {
+        const { protocol } = new URL(url)
+        return protocol === 'https:' || protocol === 'http:'
+    } catch {
+        return false
+    }
 }
 
 export async function getActiveTab(): Promise<ExtensionTab | null> {
