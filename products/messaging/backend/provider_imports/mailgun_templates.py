@@ -65,6 +65,13 @@ class _Block:
 
 
 @frozen
+class _Comparison:
+    # Liquid tags that must run before the `if`.
+    setup: str
+    condition: str
+
+
+@frozen
 class ConvertedText:
     text: str
     # Variables Mailgun fills from recipient-variables or the list member, so the app must pass them.
@@ -105,7 +112,8 @@ def convert_text(text: str | None, *, engine: Engine = "handlebars", is_html: bo
 def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
     """A version's subject and body in Liquid, with notes on anything to review."""
     engine = detect_engine(version)
-    headers = version.get("headers") if isinstance(version.get("headers"), dict) else {}
+    raw_headers = version.get("headers")
+    headers: Mapping[str, Any] = raw_headers if isinstance(raw_headers, dict) else {}
     subject_source = str(_header(headers, "Subject") or "")
     subject = convert_text(subject_source, engine=engine, is_html=False)
     body_source = version.get("template")
@@ -299,9 +307,8 @@ class _Converter:
         if helper == "equal" and len(args) == 2:
             comparison = self._equal(args[0], args[1])
             if comparison is not None:
-                prefix, condition = comparison
                 self.blocks.append(_Block(closer="equal"))
-                return f"{prefix}{{% if {condition} %}}"
+                return f"{comparison.setup}{{% if {comparison.condition} %}}"
         self.blocks.append(_Block(closer=helper, converted=False))
         return self._unsupported(token)
 
@@ -327,7 +334,7 @@ class _Converter:
                 return True
         return False
 
-    def _equal(self, left: str, right: str) -> tuple[str, str] | None:
+    def _equal(self, left: str, right: str) -> _Comparison | None:
         # Mailgun's `equal` compares both sides as strings, so 5 equals "5". Liquid can't filter inside an `if`.
         prefix = ""
         sides: list[str] = []
@@ -342,7 +349,7 @@ class _Converter:
             name = f"compared{self.compare_count}"
             prefix += f'{{% assign {name} = {path} | append: "" %}}'
             sides.append(name)
-        return prefix, f"{sides[0]} == {sides[1]}"
+        return _Comparison(setup=prefix, condition=f"{sides[0]} == {sides[1]}")
 
     def _close_handlebars(self, token: str, name: str) -> str:
         if self.blocks and self.blocks[-1].closer == name:

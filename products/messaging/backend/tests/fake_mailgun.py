@@ -39,7 +39,7 @@ DOCUMENTED_PATHS = (
 _DOCUMENTED = re.compile("^(?:" + "|".join(DOCUMENTED_PATHS) + ")$")
 
 
-@dataclass
+@dataclass(frozen=False)
 class Failure:
     pattern: str
     status: int
@@ -191,11 +191,11 @@ class FakeMailgun:
                 ordered = [row for row in ordered if row["name"] > query["p"]]
             page = ordered[:limit]
             last = page[-1]["name"] if page else query.get("p", "")
-            summary = [{key: value for key, value in row.items() if key != "versions"} for row in page]
+            listed_templates = [{key: value for key, value in row.items() if key != "versions"} for row in page]
             return (
                 200,
                 {
-                    "items": summary or None,
+                    "items": listed_templates or None,
                     "paging": self._paging(base_url, path, {"page": "next", "p": last, "limit": limit}),
                 },
                 {},
