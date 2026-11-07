@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import time
 import uuid
+import functools
 import dataclasses
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -49,6 +50,7 @@ from posthog.models import Team
 from posthog.models.event.new_events_schema import events_read_settings
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
+    DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER,
     INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     INSERT_PERSON_STATIC_COHORT,
@@ -869,19 +871,6 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
         feature=Feature.COHORT,
     )
 
-    # Use synchronous mutations in tests for deterministic behavior
-    if settings.TEST:
-        ch_settings = {
-            "mutations_sync": "2",
-            "lightweight_deletes_sync": "2",
-        }
-    else:
-        # Use async mutations in production to avoid replica sync issues
-        ch_settings = {
-            "mutations_sync": "0",
-            "lightweight_deletes_sync": "0",
-        }
-
     sync_execute(
         DELETE_PERSON_FROM_STATIC_COHORT,
         {
@@ -889,7 +878,7 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
-        settings=ch_settings,
+        settings=_static_cohort_delete_settings(),
     )
 
 
@@ -1636,6 +1625,147 @@ def clear_population_run_fields(cohort: Cohort, *, marker: datetime | None) -> N
         cohort.population_marker = None
 
 
+# ── Static population replace: prune ─────────────────────────────────
+
+# One prune page costs one member page, one person lookup per 250 ids, one ClickHouse check and at most
+# one delete call, so it must stay under the delete RPC's cap. The benchmark tunes the size.
+PRUNE_PAGE_SIZE = 5_000
+# The replica's cap on ids per GetPersons request.
+_GET_PERSONS_MAX_IDS = 250
+# A workflow add is not a quorum write, so its ClickHouse row can reach a replica after the prune read
+# it. The prune waits this long before re-checking what it removed. The repo has observed sub-second
+# lag between replicas; tests and local dev run one node.
+REPLACE_PRUNE_SETTLE_SECONDS = 0 if settings.TEST or settings.DEBUG else 1
+
+
+def _iter_cohort_member_id_pages(cohort_id: int, page_size: int):
+    """Yield the cohort's Postgres member ids a page at a time, read from the primary."""
+    from posthog.personhog_client import consistency_to_read_options
+    from posthog.personhog_client.client import get_personhog_client, personhog_call
+    from posthog.personhog_client.proto import ListCohortMemberIdsRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    cursor = 0
+    while True:
+        request = ListCohortMemberIdsRequest(
+            cohort_id=cohort_id, cursor=cursor, limit=page_size, read_options=consistency_to_read_options("strong")
+        )
+        resp = personhog_call("list_cohort_member_ids", functools.partial(client.list_cohort_member_ids, request))
+        if resp.person_ids:
+            yield list(resp.person_ids)
+        # The cursor is the last person id served, so deleting members behind it skips nobody.
+        if resp.next_cursor == 0:
+            return
+        cursor = resp.next_cursor
+
+
+def _resolve_person_uuids(team_id: int, person_ids: list[int]) -> dict[int, str]:
+    """Map person ids to uuids. An id that doesn't resolve is left out, and the prune keeps it.
+
+    The replica refuses strong person reads, so on this eventual read "not found" can mean a new person
+    that hasn't replicated yet, as well as a deleted one.
+    """
+    from posthog.personhog_client.client import get_personhog_client, personhog_call
+    from posthog.personhog_client.proto import GetPersonsRequest, ReadOptions
+
+    def fetch() -> dict[int, str]:
+        client = get_personhog_client()
+        if client is None:
+            raise RuntimeError("personhog client not configured")
+        resolved: dict[int, str] = {}
+        for start in range(0, len(person_ids), _GET_PERSONS_MAX_IDS):
+            resp = client.get_persons(
+                GetPersonsRequest(
+                    team_id=team_id,
+                    person_ids=person_ids[start : start + _GET_PERSONS_MAX_IDS],
+                    read_options=ReadOptions(field_mask=["id", "uuid", "team_id"]),
+                )
+            )
+            for person in resp.persons:
+                # id 0 is the server's "not found" sentinel.
+                if person.id:
+                    resolved[person.id] = str(uuid.UUID(person.uuid))
+        return resolved
+
+    return personhog_call("get_persons", fetch)
+
+
+def _uuids_present_at_marker(cohort_id: int, team_id: int, person_uuids: list[str], marker: datetime) -> set[str]:
+    if not person_uuids:
+        return set()
+    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+    rows = sync_execute(
+        f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND _timestamp >= %(marker)s AND person_id IN %(person_uuids)s",
+        {"team_id": team_id, "cohort_id": cohort_id, "marker": marker, "person_uuids": person_uuids},
+        settings=REPLACE_READ_SETTINGS,
+    )
+    return {str(row[0]) for row in rows}
+
+
+def prune_members_absent_from_replace(cohort: Cohort, *, team_id: int, marker: datetime) -> int:
+    """Remove every Postgres member the replace run didn't stamp, and return how many were removed.
+
+    A member is removed only when it resolves to a person and that person has no ClickHouse row at or
+    after the marker. Rows a newer edit wrote also sit at or after it, so those members stay. After
+    each page's delete, the members it removed are checked again once the settle time has passed, and
+    any whose row has arrived since are restored. The re-check only ever restores people this prune
+    removed, so it can't bring back a member a manual remove deleted while that remove's ClickHouse
+    mutation is still pending.
+    """
+    removed_total = 0
+    for page in _iter_cohort_member_id_pages(cohort.pk, PRUNE_PAGE_SIZE):
+        if not population_marker_is_current(cohort.pk, marker):
+            raise PopulationSuperseded(cohort.pk)
+        uuids_by_id = _resolve_person_uuids(team_id, page)
+        present = _uuids_present_at_marker(cohort.pk, team_id, list(uuids_by_id.values()), marker)
+        stale = {person_id: person_uuid for person_id, person_uuid in uuids_by_id.items() if person_uuid not in present}
+        if not stale:
+            continue
+        delete_cohort_members_by_person_ids(team_id, cohort.pk, list(stale))
+        removed_total += len(stale)
+
+        if REPLACE_PRUNE_SETTLE_SECONDS:
+            time.sleep(REPLACE_PRUNE_SETTLE_SECONDS)
+        arrived = _uuids_present_at_marker(cohort.pk, team_id, list(stale.values()), marker)
+        if arrived:
+            if not population_marker_is_current(cohort.pk, marker):
+                raise PopulationSuperseded(cohort.pk)
+            restored = [person_id for person_id, person_uuid in stale.items() if person_uuid in arrived]
+            insert_cohort_members(team_id, cohort.pk, restored, cohort.version)
+            removed_total -= len(restored)
+    return removed_total
+
+
+def _static_cohort_delete_settings() -> dict[str, str]:
+    # Tests delete synchronously for deterministic results. Production deletes asynchronously, to avoid
+    # waiting on replicas that are inactive.
+    if settings.TEST:
+        return {"mutations_sync": "2", "lightweight_deletes_sync": "2"}
+    return {"mutations_sync": "0", "lightweight_deletes_sync": "0"}
+
+
+def prune_static_cohort_rows_before_marker(cohort_id: int, *, team_id: int, marker: datetime) -> None:
+    """Delete the cohort's ClickHouse rows stamped before the replace marker, in one mutation.
+
+    Scoped by team and cohort, because two cohorts can mint the same marker second.
+    """
+    tag_queries(
+        product=ProductKey.COHORTS,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        name="prune_static_cohort_rows_before_marker",
+        feature=Feature.COHORT,
+    )
+    sync_execute(
+        DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER,
+        {"team_id": team_id, "cohort_id": cohort_id, "marker": marker},
+        settings=_static_cohort_delete_settings(),
+    )
+
+
 # ── Cohort membership operations (Postgres / personhog) ───────────────
 
 
@@ -1857,6 +1987,55 @@ def delete_cohort_members_bulk(
     return personhog_call(
         "delete_cohort_members_bulk",
         lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size, timeout),
+    )
+
+
+# The replica's cap on person ids per DeleteCohortMembersByPersonIds request.
+DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX = 10_000
+
+
+class CohortOwnershipMismatch(Exception):
+    """The cohort doesn't belong to the team the caller named."""
+
+
+def _delete_cohort_members_by_person_ids_via_personhog(cohort_id: int, person_ids: list[int]) -> int:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteCohortMembersByPersonIdsRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.delete_cohort_members_by_person_ids(
+        DeleteCohortMembersByPersonIdsRequest(cohort_id=cohort_id, person_ids=person_ids)
+    )
+    return resp.deleted_count
+
+
+def delete_cohort_members_by_person_ids(team_id: int, cohort_id: int, person_ids: list[int]) -> int:
+    """Remove the given persons from a static cohort's membership via personhog, in one call.
+
+    The RPC can't scope by team, because cohortpeople has no team_id, so this checks ownership once
+    and raises on a mismatch instead of returning quietly: a prune that silently deleted nothing would
+    report success. Returns the number of rows deleted. That count is for telemetry only, because
+    chunks commit separately and a retry counts only its own deletes.
+    """
+    from posthog.personhog_client.client import personhog_call
+
+    from products.cohorts.backend.models.cohort import Cohort
+
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        raise CohortOwnershipMismatch(f"Cohort {cohort_id} does not belong to team {team_id}")
+    if not person_ids:
+        return 0
+    if len(person_ids) > DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX:
+        raise ValueError(
+            f"At most {DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX} person IDs per call, got {len(person_ids)}"
+        )
+
+    return personhog_call(
+        "delete_cohort_members_by_person_ids",
+        lambda: _delete_cohort_members_by_person_ids_via_personhog(cohort_id, person_ids),
     )
 
 

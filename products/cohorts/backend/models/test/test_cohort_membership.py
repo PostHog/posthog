@@ -358,6 +358,48 @@ class TestDeleteCohortMember(BaseTest):
         get_active_fake().assert_not_called("delete_cohort_member")
 
 
+class TestDeleteCohortMembersByPersonIds(BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_deletes_only_the_listed_members(self):
+        from products.cohorts.backend.models.util import delete_cohort_members_by_person_ids, list_cohort_member_ids
+
+        stale, kept = (create_person(team=self.team, distinct_ids=[name]) for name in ("stale", "kept"))
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c")
+        add_cohort_members(cohort, [stale, kept])
+
+        delete_cohort_members_by_person_ids(self.team.id, cohort.id, [stale.id])
+
+        assert set(list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.id)) == {kept.id}
+
+    def test_raises_on_another_teams_cohort(self):
+        from products.cohorts.backend.models.util import CohortOwnershipMismatch, delete_cohort_members_by_person_ids
+
+        other_team = Team.objects.create(organization=self.organization)
+        person = create_person(team=other_team, distinct_ids=["d1"])
+        other_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
+        add_cohort_members(other_cohort, [person])
+
+        # Raising rather than returning 0 keeps a replace from reporting a prune that removed nobody.
+        with self.assertRaises(CohortOwnershipMismatch):
+            delete_cohort_members_by_person_ids(self.team.id, other_cohort.id, [person.id])
+        assert (other_cohort.id, person.id) in get_active_fake()._cohort_members
+        get_active_fake().assert_not_called("delete_cohort_members_by_person_ids")
+
+    def test_refuses_more_ids_than_the_service_accepts(self):
+        from products.cohorts.backend.models.util import (
+            DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX,
+            delete_cohort_members_by_person_ids,
+        )
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c")
+
+        with self.assertRaises(ValueError):
+            delete_cohort_members_by_person_ids(
+                self.team.id, cohort.id, list(range(1, DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX + 2))
+            )
+
+
 class TestDeleteCohortMembersBulk(BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 

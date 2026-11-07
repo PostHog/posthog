@@ -230,6 +230,14 @@ class TestFakePersonHogClientCohorts:
         other = self.client.list_cohort_member_ids(cohort_pb2.ListCohortMemberIdsRequest(cohort_id=6))
         assert set(other.person_ids) == {10, 11, 12}
 
+    def test_delete_cohort_members_by_person_ids_rejects_more_than_the_service_accepts(self):
+        # The service refuses the request, so a fake that accepted it would pass tests production fails.
+        with pytest.raises(grpc.RpcError) as excinfo:
+            self.client.delete_cohort_members_by_person_ids(
+                cohort_pb2.DeleteCohortMembersByPersonIdsRequest(cohort_id=5, person_ids=list(range(1, 10_002)))
+            )
+        assert excinfo.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+
 
 class TestCallTracking:
     def test_assert_called(self):
