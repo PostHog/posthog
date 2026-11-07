@@ -108,6 +108,7 @@ export const TRIGGER_NODE_ID = 'trigger_node'
 export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
+export type WorkflowDraftAction = 'publish' | 'discard'
 
 // A tile matches on the first event only, so each event of a linked trigger gets its own tile.
 function getEventTriggerTiles(config: TriggerAction['config']): string[] {
@@ -437,7 +438,7 @@ export interface workflowLogicValues {
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
     discardDisabledReason: string | undefined
-    draftActionPending: 'discard' | 'publish' | null
+    draftActionPending: WorkflowDraftAction | null
     edgesByActionId: Record<string, HogFlowEdge[]>
     emailSendingPauseRequiresSupport: boolean
     emailSendingPaused: boolean
@@ -2746,8 +2747,8 @@ export interface workflowLogicActions {
     setAutoSaveEnabled: (enabled: boolean) => {
         enabled: boolean
     }
-    setDraftActionPending: (pending: 'discard' | 'publish' | null) => {
-        pending: 'discard' | 'publish' | null
+    setDraftActionPending: (pending: WorkflowDraftAction | null) => {
+        pending: WorkflowDraftAction | null
     }
     setExternallyEdited: (externallyEdited: boolean) => {
         externallyEdited: boolean
@@ -3393,12 +3394,12 @@ export interface workflowLogicMeta {
         publishDisabledReason: (
             hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
-            draftActionPending: 'discard' | 'publish' | null
+            draftActionPending: WorkflowDraftAction | null
         ) => string | undefined
         discardDisabledReason: (
             hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
-            draftActionPending: 'discard' | 'publish' | null
+            draftActionPending: WorkflowDraftAction | null
         ) => string | undefined
         statusToggleDisabledReason: (workflow: HogFlow, hasUnsavedChanges: boolean) => string | undefined
         manualTriggerDisabledReason: (
@@ -3513,7 +3514,7 @@ export const workflowLogic = kea<workflowLogicType>([
         workflowCreated: (workflowId: string) => ({ workflowId }),
         leaveConfirmed: true,
         confirmDiscardDraft: true,
-        setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
+        setDraftActionPending: (pending: WorkflowDraftAction | null) => ({ pending }),
         replayDeferredResourceEdited: true,
         resumeEmailSending: true,
         confirmResumeEmailSending: true,
@@ -4034,7 +4035,7 @@ export const workflowLogic = kea<workflowLogicType>([
         // Which staged-draft action is in flight, driving the banner buttons' loading/disabled state
         // so publish and discard can't race each other or double-submit.
         draftActionPending: [
-            null as 'publish' | 'discard' | null,
+            null as WorkflowDraftAction | null,
             {
                 setDraftActionPending: (_, { pending }) => pending,
             },
@@ -4433,7 +4434,7 @@ export const workflowLogic = kea<workflowLogicType>([
             (
                 hasStagedDraft: boolean,
                 hasUnsavedChanges: boolean,
-                draftActionPending: 'publish' | 'discard' | null
+                draftActionPending: WorkflowDraftAction | null
             ): string | undefined => {
                 if (draftActionPending === 'discard') {
                     return 'Discarding is in progress'
@@ -4452,7 +4453,7 @@ export const workflowLogic = kea<workflowLogicType>([
             (
                 hasStagedDraft: boolean,
                 hasUnsavedChanges: boolean,
-                draftActionPending: 'publish' | 'discard' | null
+                draftActionPending: WorkflowDraftAction | null
             ): string | undefined => {
                 if (draftActionPending === 'publish') {
                     return 'Publishing is in progress'
