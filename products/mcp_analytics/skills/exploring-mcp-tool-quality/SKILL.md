@@ -51,8 +51,9 @@ writing queries.
   coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))
   ```
 
-- **Always read `$mcp_is_error` via `toBool(...)`** and cast
-  `$mcp_duration_ms` via `toFloat(...)`. The properties are strings.
+- **Count failures with the failure predicate, not `$mcp_is_error` alone**, and cast
+  `$mcp_duration_ms` via `toFloat(...)`. The properties are strings. In the queries below,
+  `<is_failure>` stands for the failure predicate `toString(properties.$mcp_is_error) IN ('true', '1') AND NOT coalesce(toString(properties.$mcp_error_expected) IN ('true', '1'), false)`: a failed call the server did not mark as an expected outcome (`$mcp_error_expected`). Substitute it before running.
 
 Always set a time range — these queries scan `events` otherwise.
 
@@ -66,8 +67,8 @@ posthog:execute-sql
 SELECT
     coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
     count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct
+    countIf(<is_failure>) AS errors,
+    round(countIf(<is_failure>) * 100.0 / count(), 1) AS error_rate_pct
 FROM events
 WHERE event = '$mcp_tool_call'
     AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) != ''
@@ -94,7 +95,7 @@ under "Tool-quality matrix".
 For one tool's top failure buckets (grouped by harness), call
 `posthog:query-mcp-tool-failures` with the `toolName` — it's the typed equivalent of the
 query below. Failures come from the **same source as the error rate**: errored
-`$mcp_tool_call` events (`$mcp_is_error`), scoped by the effective tool name. Failures are
+`$mcp_tool_call` events (`$mcp_is_error`, excluding calls marked `$mcp_error_expected`), scoped by the effective tool name. Failures are
 grouped by `$mcp_error_type` (a semantic bucket: `internal`, `validation`, `api_4xx`,
 `api_5xx`, `permission`, `timeout`, `rate_limited`, `missing_context`) and the HTTP
 `$mcp_error_status` when present. To see individual errored calls inside a bucket — with
@@ -113,7 +114,7 @@ SELECT
     count() AS n
 FROM events
 WHERE event = '$mcp_tool_call'
-    AND toBool(properties.$mcp_is_error)
+    AND <is_failure>
     AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) = '<tool>'
     AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY failure ORDER BY n DESC LIMIT 10

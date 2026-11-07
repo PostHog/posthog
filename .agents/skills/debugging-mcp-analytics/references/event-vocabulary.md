@@ -254,6 +254,10 @@ intentionally omitted, matching TS `instrument()`.
 - Take failures from `$mcp_is_error` (with `$mcp_error_type` / `$mcp_error_status` for the
   reason), never from `$exception`, which can be absent by design and so returns nothing
   rather than erroring.
+- A failure is `$mcp_is_error` true and `$mcp_error_expected` not true (`IS_FAILURE_SQL` in
+  `hogql_queries/base.py`, which compares both flags as lowercased text so every sender encoding matches).
+  `$mcp_error_expected` marks a failed call the server classified as an expected outcome (a rate limit, a not-found);
+  `$mcp_is_error` stays true on it.
 - Group clients by the resolved **harness** label, not raw `$mcp_client_name`. In SQL, select `properties.$virt_mcp_harness`: it is that label, including the team's custom harness names.
 - Zombie tools = `arrayJoin($mcp_listed_tool_names)` from `$mcp_tools_list`, minus the distinct
   effective tool names seen on `$mcp_tool_call`. `$mcp_exec_inner_tool_names` is the intended

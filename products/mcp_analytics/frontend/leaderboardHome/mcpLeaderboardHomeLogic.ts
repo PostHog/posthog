@@ -10,6 +10,7 @@ import { IntervalType } from '~/types'
 
 import { labSqlExpression, modelLab, modelRowLabelsByCalls } from '../aiLabs'
 import { summarizeModelBreakdown } from '../dashboard/modelBreakdown'
+import { MCP_IS_FAILURE_HOGQL } from '../failurePredicate'
 import { bucketExpr, mcpDashboardOverviewLogic, type ModelRow } from '../mcpDashboardOverviewLogic'
 import {
     type BucketedFacetRow,
@@ -76,10 +77,10 @@ SELECT
     ${label} AS label,
     count() AS calls,
     uniq(distinct_id) AS users,
-    countIf(toBool(properties.$mcp_is_error)) AS errors
+    countIf(${MCP_IS_FAILURE_HOGQL}) AS errors
 FROM events
 WHERE ${TOOL_CALL_WHERE}
-    ${onlyErrors ? 'AND toBool(properties.$mcp_is_error)' : ''}
+    ${onlyErrors ? `AND ${MCP_IS_FAILURE_HOGQL}` : ''}
 GROUP BY label
 ORDER BY calls DESC
 LIMIT ${WINDOW_ROW_LIMIT}
@@ -104,7 +105,7 @@ const reliabilityQuery = (interval: IntervalType): string => `
 SELECT
     ${bucketExpr(interval)} AS bucket,
     count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
+    countIf(${MCP_IS_FAILURE_HOGQL}) AS errors,
     round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
 FROM events

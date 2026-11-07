@@ -32,7 +32,7 @@ from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolQualityDailyStatsQueryRunner,
     MCPToolQualityRowsQueryRunner,
 )
-from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.tests import EXPECTED_ERROR_CASES, _MCPAnalyticsTeamScopedTestMixin
 
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
 
@@ -44,6 +44,7 @@ def _emit(
     exec_tool_name: str | None = None,
     category: str | None = None,
     is_error: bool = False,
+    extra_properties: dict[str, Any] | None = None,
     duration_ms: float | None = 100,
     session_id: str = "s1",
     mcp_session_id: str | None = None,
@@ -55,6 +56,7 @@ def _emit(
         "$mcp_source": NEW_SDK_SOURCE,
         "$mcp_is_error": is_error,
         "$session_id": session_id,
+        **(extra_properties or {}),
     }
     if mcp_session_id is not None:
         properties["$mcp_session_id"] = mcp_session_id
@@ -94,6 +96,17 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert rows[0].total_calls == 3
         assert rows[0].errors == 1
         assert rows[0].error_rate_pct == 33.3
+
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failures(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        _emit(self.team, is_error=True, extra_properties=extra_properties)
+        flush_persons_and_events()
+
+        rows = self._run().results
+
+        assert [(r.total_calls, r.errors) for r in rows] == [(1, int(is_failure))]
 
     def test_category_filter_narrows_the_rows(self) -> None:
         _emit(self.team, tool_name="query_run", category="Data")
@@ -351,6 +364,20 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
 
 
 class TestMCPToolQualityDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failures(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        _emit(self.team, is_error=True, extra_properties=extra_properties)
+        flush_persons_and_events()
+
+        runner = MCPToolQualityDailyStatsQueryRunner(
+            query=MCPToolQualityDailyStatsQuery(dateRange=DateRange(date_from="-1d")),
+            team=self.team,
+        )
+
+        assert [(r.calls, r.errors) for r in runner.calculate().results] == [(1, int(is_failure))]
+
     def test_buckets_by_hour_when_interval_is_hour(self) -> None:
         now = datetime.now(tz=UTC)
         _emit(self.team, timestamp=now - timedelta(hours=1, minutes=30))

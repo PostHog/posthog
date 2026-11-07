@@ -50,8 +50,9 @@ And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent
 | `$mcp_tool_name`                  | SDK    | Registered tool name.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `$mcp_exec_tool_call_name`        | exec   | Inner tool name when the call went through the new-SDK single-exec wrapper. See effective-tool-name note below.                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `$mcp_exec_tool_call_description` | exec   | Inner tool's description — the dispatcher's own `$mcp_tool_description` is static "exec" boilerplate on every call, so this is the useful one in single-exec mode.                                                                                                                                                                                                                                                                                                                                                               |
-| `$mcp_is_error`                   | SDK    | Whether the call failed. Always read via `toBool(properties.$mcp_is_error)`.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `$mcp_is_error`                   | SDK    | Whether the call failed. Failure rates and counts use `<is_failure>` (defined in the SQL section below), not this flag alone.                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `$mcp_error_type`                 | SDK    | Semantic failure bucket when `$mcp_is_error` is true (`internal`, `validation`, `api_4xx`, `api_5xx`, `permission`, `timeout`, `rate_limited`, `missing_context`). Only newer SDK/server paths set it.                                                                                                                                                                                                                                                                                                                           |
+| `$mcp_error_expected`             | SDK    | Boolean. The server marked this failed call as an expected outcome (a rate limit, a not-found) the agent is meant to handle. `$mcp_is_error` stays true on it, but failure rates exclude it. Absent means not expected.                                                                                                                                                                                                                                                                                                          |
 | `$mcp_error_status`               | server | HTTP status code for an errored call, when the failure came from an HTTP call. Stamped by PostHog's own server (`services/mcp/src/hono/tool-executor.ts`) — not part of the SDK's field set, so an externally-instrumented server on the SDK alone won't emit it.                                                                                                                                                                                                                                                                |
 | `$mcp_duration_ms`                | SDK    | Wall-clock duration; cast with `toFloat(...)`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `$session_id`                     | —      | Session id — the grouping key for a single agent run, and the same id as `$mcp_session_id` (`$session_id` is its materialised column). Use the bare `$session_id` field, not `properties.$session_id`: the `properties.` accessor renders null-wrapped in SELECT but as the raw column in HAVING/ORDER, so a search HAVING would mismatch the GROUP BY key. Some per-tool runners still read `coalesce(properties.$mcp_session_id, properties.$session_id)` — same id, just a defensive fallback. See "Three identifiers" below. |
@@ -102,6 +103,8 @@ The `coalesce(..., '[]')` is required: the property accessor is Nullable, and `J
 
 ## Example queries
 
+In the SQL below, `<is_failure>` stands for the failure predicate: `toString(properties.$mcp_is_error) IN ('true', '1') AND NOT coalesce(toString(properties.$mcp_error_expected) IN ('true', '1'), false)`. Substitute it before running. Compared as text because SDK versions stamp `$mcp_is_error` as a boolean, the string `'true'`, or `1`.
+
 The SQL below is the fallback for cross-tool rankings and custom cuts. For a single tool's numbers, call the typed tool from the table above instead of re-deriving these.
 
 **Error rate of one tool (noncanonical breakdown)** (single-tool numbers are `posthog:query-mcp-tool-stats`; use this for a custom predicate after the governed headline):
@@ -109,8 +112,8 @@ The SQL below is the fallback for cross-tool rankings and custom cuts. For a sin
 ```sql
 SELECT
     count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct
+    countIf(<is_failure>) AS errors,
+    round(countIf(<is_failure>) * 100.0 / count(), 1) AS error_rate_pct
 FROM events
 WHERE event = '$mcp_tool_call'
     -- effective tool name: new-SDK events put the real tool in $mcp_exec_tool_call_name
@@ -126,7 +129,7 @@ SELECT
     -- so grouping on raw $mcp_tool_name would collapse them under the single-exec wrapper
     coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
     count() AS total_calls,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
+    round(countIf(<is_failure>) * 100.0 / count(), 1) AS error_rate_pct,
     round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50_ms,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_ms,
     uniq(distinct_id) AS users,
@@ -143,8 +146,8 @@ ORDER BY total_calls DESC
 
 ```sql
 SELECT toDate(timestamp) AS day,
-    countIf(NOT toBool(properties.$mcp_is_error)) AS successes,
-    countIf(toBool(properties.$mcp_is_error)) AS errors
+    countIf(NOT (<is_failure>)) AS successes,
+    countIf(<is_failure>) AS errors
 FROM events
 WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY day ORDER BY day
