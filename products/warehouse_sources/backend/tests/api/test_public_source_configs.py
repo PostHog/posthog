@@ -1,27 +1,96 @@
+import json
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
 from rest_framework import status
 
 from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
-from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs, tracer
+from products.warehouse_sources.backend.presentation.views.public_source_configs import (
+    build_source_configs,
+    shared_catalog_cache_key,
+    tracer,
+)
+
+MODULE = "products.warehouse_sources.backend.presentation.views.public_source_configs"
 
 
-class TestPublicSourceConfigs(APIBaseTest):
-    def test_catalog_spans_only_cover_cache_misses(self):
+@override_settings(
+    DEBUG=False,
+    CACHES={
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "source-catalog-tests"}
+    },
+)
+class TestSourceConfigCache(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch(f"{MODULE}.get_git_commit_full", return_value="test-commit"))
+        self.addCleanup(build_source_configs.cache_clear)
+        self.addCleanup(cache.clear)
         build_source_configs.cache_clear()
-        try:
-            with patch.object(tracer, "start_as_current_span") as start_span:
-                cold = build_source_configs(include_tables=False)
-                assert build_source_configs(include_tables=False) is cold
+        cache.clear()
 
+    @parameterized.expand([(False,), (True,)])
+    def test_catalog_spans_only_cover_cache_misses(self, include_tables: bool) -> None:
+        with patch.object(tracer, "start_as_current_span") as start_span:
+            cold = build_source_configs(include_tables=include_tables)
+            assert build_source_configs(include_tables=include_tables) is cold
             assert [call.args[0] for call in start_span.call_args_list] == [
                 "warehouse_sources.catalog.registry",
                 "warehouse_sources.catalog.build",
             ]
-        finally:
-            build_source_configs.cache_clear()
 
+            build_source_configs.cache_clear()
+            start_span.reset_mock()
+            with patch(f"{MODULE}.SourceRegistry.get_all_sources", side_effect=AssertionError("registry was loaded")):
+                assert build_source_configs(include_tables=include_tables) == cold
+            start_span.assert_not_called()
+
+    @parameterized.expand([(False, None), (False, ""), (True, "test-commit")])
+    def test_shared_catalog_cache_is_skipped_without_a_deploy(self, debug: bool, commit: str | None) -> None:
+        with (
+            self.settings(DEBUG=debug),
+            patch(f"{MODULE}.get_git_commit_full", return_value=commit),
+            patch(f"{MODULE}.cache") as shared_cache,
+        ):
+            assert len(build_source_configs(include_tables=False)) > 0
+        shared_cache.get.assert_not_called()
+        shared_cache.set.assert_not_called()
+
+    @parameterized.expand([("get",), ("set",)])
+    def test_cache_failure_preserves_the_catalog(self, operation: str) -> None:
+        expected = build_source_configs(include_tables=False)
+        build_source_configs.cache_clear()
+        cache.clear()
+        with patch.object(cache, operation, side_effect=ConnectionError("cache unavailable")):
+            assert build_source_configs(include_tables=False) == expected
+
+    def test_invalid_cached_json_is_replaced(self) -> None:
+        expected = build_source_configs(include_tables=False)
+        build_source_configs.cache_clear()
+        shared_key = shared_catalog_cache_key(include_tables=False)
+        cache.set(shared_key, "invalid json")
+
+        assert build_source_configs(include_tables=False) == expected
+        assert json.loads(cache.get(shared_key)) == expected
+
+    def test_deploy_and_table_modes_use_separate_catalogs(self) -> None:
+        without_tables = build_source_configs(include_tables=False)
+        with_tables = build_source_configs(include_tables=True)
+        assert all("tables" not in config for config in without_tables.values())
+        assert all("tables" in config for config in with_tables.values())
+
+        build_source_configs.cache_clear()
+        cache.set(shared_catalog_cache_key(include_tables=False), "{}")
+        with patch(f"{MODULE}.get_git_commit_full", return_value="next-commit"):
+            assert build_source_configs(include_tables=False) == without_tables
+
+
+class TestPublicSourceConfigs(APIBaseTest):
     def test_list_returns_source_configs(self):
         response = self.client.get("/api/public_source_configs/")
         assert response.status_code == status.HTTP_200_OK
