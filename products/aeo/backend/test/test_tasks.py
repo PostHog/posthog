@@ -31,7 +31,7 @@ def test_one_run_per_team_at_a_time(team: Team, settings, run_in_progress: bool)
 
     with (
         patch.object(tasks, "feature_enabled_or_false", return_value=True),
-        patch.object(tasks, "run_citation_checks") as run,
+        patch.object(tasks, "run_citation_checks", return_value=(Mock(run_id=None), [])) as run,
     ):
         run_aeo_citation_checks_for_team_task(team.id)
 
@@ -44,8 +44,9 @@ def test_one_run_per_team_at_a_time(team: Team, settings, run_in_progress: bool)
 def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team, settings) -> None:
     settings.AEO_CITATION_TEAM_IDS = [str(team.id)]
 
-    def expire_lease(*args: object, **kwargs: object) -> None:
+    def expire_lease(*args: object, **kwargs: object) -> tuple[Mock, list]:
         get_client().delete(f"aeo_citation_run:{team.id}")
+        return Mock(run_id=None), []
 
     with (
         patch.object(tasks, "feature_enabled_or_false", return_value=True),
