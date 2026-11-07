@@ -375,7 +375,9 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
             response = self.client.get(url)
 
         assert response.status_code == 200
-        assert cache_round_trips() == 1
+        assert cache_round_trips("organization_access:") == 1
+        assert cache_round_trips("ip_restrictions:") == 2
+        assert cache_round_trips(None) == 3
         assert not [query for query in queries.captured_queries if AccessControl._meta.db_table in query["sql"]]
 
     @parameterized.expand(

@@ -13,6 +13,84 @@ export namespace Schemas {
     /**
      *
      */
+    /**
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown
+     */
+    export type BrandKindEnum = typeof BrandKindEnum[keyof typeof BrandKindEnum];
+
+
+    export const BrandKindEnum = {
+      Own: 'own',
+      Competitor: 'competitor',
+      Publisher: 'publisher',
+      Unknown: 'unknown',
+    } as const;
+
+    /**
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored
+     */
+    export type BrandStatusEnum = typeof BrandStatusEnum[keyof typeof BrandStatusEnum];
+
+
+    export const BrandStatusEnum = {
+      Suggested: 'suggested',
+      Confirmed: 'confirmed',
+      Ignored: 'ignored',
+    } as const;
+
+    /**
+     * * `citations` - Citations
+     * * `manual` - Manual
+     */
+    export type BrandSourceEnum = typeof BrandSourceEnum[keyof typeof BrandSourceEnum];
+
+
+    export const BrandSourceEnum = {
+      Citations: 'citations',
+      Manual: 'manual',
+    } as const;
+
+    export interface AEOBrand {
+      /** Brand id. */
+      id: string;
+      /** Brand name as people say it. Starts as a guess from the domain until someone edits it. */
+      name: string;
+      /** Registrable domain, for example 'amplitude.com'. Citations on its subdomains count for the brand. */
+      domain: string;
+      /** What the brand is to the project: 'own' (the project's site), 'competitor', 'publisher' (a review, community or media site) or 'unknown' (not labeled yet).
+       *
+       * * `own` - Own
+       * * `competitor` - Competitor
+       * * `publisher` - Publisher
+       * * `unknown` - Unknown */
+      kind: BrandKindEnum;
+      /** 'suggested' (added from citations, not reviewed), 'confirmed' or 'ignored'. Only people change it.
+       *
+       * * `suggested` - Suggested
+       * * `confirmed` - Confirmed
+       * * `ignored` - Ignored */
+      status: BrandStatusEnum;
+      /** How the brand entered the catalog: 'citations' or 'manual'.
+       *
+       * * `citations` - Citations
+       * * `manual` - Manual */
+      source: BrandSourceEnum;
+      /** Other names for the brand, used to find it in answer text. */
+      aliases: string[];
+      /** When the brand entered the catalog. */
+      created_at: string;
+      /**
+         * When a person last changed the brand.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
     export interface AEOPromptEngineCheck {
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
@@ -35687,9 +35765,9 @@ export namespace Schemas {
       is_verified: boolean;
       /** The scopes the token will carry if the person approves. */
       scopes: string[];
-      /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+      /** The requested scopes the person can't leave out: the client's required scopes, the scopes the client marked as required when it started the grant, such as the new scopes of a step-up, and identity scopes such as `openid`. */
       required_scopes: string[];
-      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones. */
       granted_scopes: GrantedScopes[];
       /** When the code expires. */
       expires_at: string;
@@ -65595,6 +65673,18 @@ export namespace Schemas {
       readonly error_type: string;
       /** HTTP status ($mcp_error_status) when the failure carried one, otherwise empty. */
       readonly error_status: string;
+      /** Command an exec-style server ran ($mcp_exec_verb), such as call, info, search or unrecognized. Empty for direct tool calls. */
+      readonly exec_verb: string;
+      /** Tool the exec command named ($mcp_exec_target_tool). Empty when the command named none. */
+      readonly exec_target_tool: string;
+      /** Argument names the client sent ($mcp_input_keys), without values. Empty when not captured. */
+      readonly input_keys: readonly string[];
+      /** Specific failure code ($mcp_error_code) when the server set one, otherwise empty. */
+      readonly error_code: string;
+      /** Argument the failure points at ($mcp_error_field), otherwise empty. */
+      readonly error_field: string;
+      /** Model that made the call ($mcp_llm_model), otherwise empty. */
+      readonly llm_model: string;
     }
 
     /**
@@ -71635,6 +71725,15 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface PaginatedAEOBrandList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AEOBrand[];
+    }
+
     export interface PaginatedAEOPromptCheckList {
       count: number;
       /** @nullable */
@@ -77105,6 +77204,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -80709,6 +80813,33 @@ export namespace Schemas {
          * @nullable
          */
       success_rate: number | null;
+    }
+
+    export interface PatchedAEOBrandUpdateRequest {
+      /**
+         * Brand name as people say it.
+         * @maxLength 200
+         */
+      name?: string;
+      /** What the brand is to the project: 'own', 'competitor', 'publisher' or 'unknown'.
+       *
+       * * `own` - Own
+       * * `competitor` - Competitor
+       * * `publisher` - Publisher
+       * * `unknown` - Unknown */
+      kind?: BrandKindEnum;
+      /** 'confirmed' to accept the brand, 'ignored' to hide it, 'suggested' to put it back for review.
+       *
+       * * `suggested` - Suggested
+       * * `confirmed` - Confirmed
+       * * `ignored` - Ignored */
+      status?: BrandStatusEnum;
+      /**
+         * Replaces the brand's other names. Names are trimmed, and repeated names are dropped.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      aliases?: string[];
     }
 
     export interface PatchedAEOPromptUpdateRequest {
@@ -89503,7 +89634,7 @@ export namespace Schemas {
        * * `external_survey` - external survey
        * * `api` - api */
       type?: SurveyTypeEnum;
-      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
        *
        * * `once` - once
        * * `recurring` - recurring
@@ -89668,7 +89799,7 @@ export namespace Schemas {
          */
       responses_limit?: number | null;
       /**
-         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
          * @minimum 1
          * @maximum 500
          * @nullable
@@ -89681,6 +89812,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -111199,6 +111335,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -111256,7 +111397,7 @@ export namespace Schemas {
        * * `external_survey` - external survey
        * * `api` - api */
       type: SurveyTypeEnum;
-      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
        *
        * * `once` - once
        * * `recurring` - recurring
@@ -111421,7 +111562,7 @@ export namespace Schemas {
          */
       responses_limit?: number | null;
       /**
-         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
          * @minimum 1
          * @maximum 500
          * @nullable
@@ -111434,6 +111575,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -123304,6 +123450,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -123426,6 +123573,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      OrganizationIPRestrictions: 'OrganizationIPRestrictions',
       IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
@@ -123534,6 +123682,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -123644,6 +123793,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      OrganizationIPRestrictions: 'OrganizationIPRestrictions',
       IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
@@ -123816,6 +123966,56 @@ export namespace Schemas {
 
     export const AdvancedActivityLogsListSchema = {
       Ocsf: 'ocsf',
+    } as const;
+
+    export type AeoBrandsListParams = {
+    /**
+     * Only list brands of this kind.
+     *
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown
+     * @minLength 1
+     */
+    kind?: AeoBrandsListKind;
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only list brands with this review status.
+     *
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored
+     * @minLength 1
+     */
+    status?: AeoBrandsListStatus;
+    };
+
+    export type AeoBrandsListKind = typeof AeoBrandsListKind[keyof typeof AeoBrandsListKind];
+
+
+    export const AeoBrandsListKind = {
+      Own: 'own',
+      Competitor: 'competitor',
+      Publisher: 'publisher',
+      Unknown: 'unknown',
+    } as const;
+
+    export type AeoBrandsListStatus = typeof AeoBrandsListStatus[keyof typeof AeoBrandsListStatus];
+
+
+    export const AeoBrandsListStatus = {
+      Suggested: 'suggested',
+      Confirmed: 'confirmed',
+      Ignored: 'ignored',
     } as const;
 
     export type AeoPromptsListParams = {

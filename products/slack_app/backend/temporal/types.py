@@ -168,6 +168,7 @@ class PostHogCodeSlackMentionWorkflowInputs:
     user_id: int
     # Event that dispatched the workflow
     slack_event_id: str | None = None
+    report_implementation_message_ts: str | None = None
     # True when the workflow was started for an untagged thread reply (event type
     # ``message``) rather than an explicit ``app_mention``. The routing layer
     # already verified a ``SlackThreadTaskMapping`` exists before dispatch, but
