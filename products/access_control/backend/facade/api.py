@@ -274,9 +274,10 @@ def group_property_names_with_access_rules(*, team_id: int, group_type_index: in
     """Group properties of one group type with any access rule on the team, for callers that share a result across users."""
     return frozenset(
         PropertyAccessControl.objects.filter(
+            Q(property_definition__group_type_index=group_type_index)
+            | Q(property_definition__group_type_index__isnull=True),
             team_id=team_id,
             property_definition__type=PropertyDefinition.Type.GROUP,
-            property_definition__group_type_index=group_type_index,
         ).values_list("property_definition__name", flat=True)
     )
 
