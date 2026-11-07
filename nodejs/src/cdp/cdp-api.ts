@@ -78,7 +78,7 @@ import { TeamWorkflowsConfigService } from './services/managers/team-workflows-c
 import { EmailAttachmentsService } from './services/messaging/email-attachments.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { EmailStatusService } from './services/messaging/email-status.service'
-import { EmailSuppressionService } from './services/messaging/email-suppression.service'
+import { EmailSuppressionService, SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
@@ -1444,8 +1444,16 @@ export class CdpApi {
         // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because
         // refusals are rare and the verdict is cached per domain.
         const suspension = this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)
+        // The email worker checks the list again and holds the email until it can read it.
         const suppressed = Promise.all(
-            recipients.map((email) => this.emailSuppressionService.isSuppressed(teamId, email, { transactional: true }))
+            recipients.map((email) =>
+                this.emailSuppressionService.isSuppressed(teamId, email, { transactional: true }).catch((error) => {
+                    if (error instanceof SuppressionLookupError) {
+                        return false
+                    }
+                    throw error
+                })
+            )
         )
         const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         // A DNS failure lets the send through.

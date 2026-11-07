@@ -174,7 +174,7 @@ export class RecipientPreferencesService {
             )
             return result.skip
         } catch (error) {
-            // Fail open — never block a send on a suppression-lookup error.
+            // EmailService checks the list again at send time and holds the email, so this never mails a suppressed address.
             logger.error(`Failed to check suppression list for team ${invocation.teamId}:`, error)
             return false
         }
