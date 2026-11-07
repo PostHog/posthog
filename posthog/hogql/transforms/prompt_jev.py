@@ -207,12 +207,17 @@ class PromptJevRunner:
                 await asyncio.sleep(wait)
         raise AssertionError("unreachable")
 
-    async def _batches(self, spec: PromptJevCall, batches: list[list[str]]) -> list[dict[str, object]]:
+    async def _batches(
+        self, spec: PromptJevCall, batches: list[list[str]], on_batch: Callable[[dict[str, object]], None] | None = None
+    ) -> list[dict[str, object]]:
         semaphore = asyncio.Semaphore(max(1, settings.HOGQL_JEV_CONCURRENCY))
 
         async def evaluate_batch(batch: list[str]) -> dict[str, object]:
             async with semaphore:
-                return await self._batch(spec, batch)
+                decisions = await self._batch(spec, batch)
+                if on_batch is not None:
+                    on_batch(decisions)
+                return decisions
 
         tasks: list[asyncio.Task[dict[str, object]]] = []
         try:
@@ -245,7 +250,9 @@ class PromptJevRunner:
             raise QueryError("jev exceeds the query budget. Select fewer or shorter inputs.")
         return missing
 
-    def evaluate(self, spec: PromptJevCall, values: list[object]) -> list[object]:
+    def evaluate(
+        self, spec: PromptJevCall, values: list[object], *, on_batch: Callable[[dict[str, object]], None] | None = None
+    ) -> list[object]:
         question_key = json.dumps(spec.question.to_json(), sort_keys=True)
         missing = [key.text for key in self.check_budget([(spec, values)])]
         self.input_bytes += sum(len(text.encode()) for text in missing)
@@ -273,7 +280,7 @@ class PromptJevRunner:
             batches[-1].append(text)
             batch_bytes += size
         if batches:
-            for decisions in async_to_sync(self._batches)(spec, batches):
+            for decisions in async_to_sync(self._batches)(spec, batches, on_batch):
                 for text, decision in decisions.items():
                     self.cache[_DecisionKey(model=spec.model, question=question_key, text=text)] = decision
         null: object = (None, [], None) if isinstance(spec.question, ChoiceQuestion) else None

@@ -47,12 +47,21 @@ export const DataQualityChecksCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Column the check applies to. Omit for table-scoped types like row_count.'),
         check_type: zod
-            .enum(['not_null', 'unique', 'accepted_values', 'relationships', 'row_count', 'freshness', 'custom_sql'])
+            .enum([
+                'not_null',
+                'unique',
+                'accepted_values',
+                'relationships',
+                'row_count',
+                'freshness',
+                'custom_sql',
+                'question',
+            ])
             .describe(
-                '\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql'
+                '\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql\n\* `question` - question'
             )
             .describe(
-                'Which assertion to make. Determines the shape of config; see \/check_types\/.\n\n\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql'
+                'Which assertion to make. Determines the shape of config; see \/check_types\/.\n\n\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql\n\* `question` - question'
             ),
         config: zod
             .record(zod.string(), zod.unknown())
@@ -120,12 +129,21 @@ export const DataQualityChecksUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Column the check applies to. Omit for table-scoped types like row_count.'),
         check_type: zod
-            .enum(['not_null', 'unique', 'accepted_values', 'relationships', 'row_count', 'freshness', 'custom_sql'])
+            .enum([
+                'not_null',
+                'unique',
+                'accepted_values',
+                'relationships',
+                'row_count',
+                'freshness',
+                'custom_sql',
+                'question',
+            ])
             .describe(
-                '\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql'
+                '\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql\n\* `question` - question'
             )
             .describe(
-                'Which assertion to make. Determines the shape of config; see \/check_types\/.\n\n\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql'
+                'Which assertion to make. Determines the shape of config; see \/check_types\/.\n\n\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql\n\* `question` - question'
             ),
         config: zod
             .record(zod.string(), zod.unknown())
@@ -198,13 +216,22 @@ export const DataQualityChecksPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Column the check applies to. Omit for table-scoped types like row_count.'),
         check_type: zod
-            .enum(['not_null', 'unique', 'accepted_values', 'relationships', 'row_count', 'freshness', 'custom_sql'])
+            .enum([
+                'not_null',
+                'unique',
+                'accepted_values',
+                'relationships',
+                'row_count',
+                'freshness',
+                'custom_sql',
+                'question',
+            ])
             .describe(
-                '\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql'
+                '\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql\n\* `question` - question'
             )
             .optional()
             .describe(
-                'Which assertion to make. Determines the shape of config; see \/check_types\/.\n\n\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql'
+                'Which assertion to make. Determines the shape of config; see \/check_types\/.\n\n\* `not_null` - not_null\n\* `unique` - unique\n\* `accepted_values` - accepted_values\n\* `relationships` - relationships\n\* `row_count` - row_count\n\* `freshness` - freshness\n\* `custom_sql` - custom_sql\n\* `question` - question'
             ),
         config: zod
             .record(zod.string(), zod.unknown())

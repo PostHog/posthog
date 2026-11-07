@@ -133,6 +133,12 @@ class QuestionChunkResult:
             raise ValueError("Question chunk counts are inconsistent.")
 
 
+class PartialQuestionDecisionsError(RuntimeError):
+    def __init__(self, decisions: dict[str, float]) -> None:
+        super().__init__("Question execution failed with incomplete coverage.")
+        self.decisions = decisions
+
+
 class QuestionChunkEvaluator:
     def __init__(
         self,
@@ -221,7 +227,17 @@ class QuestionChunkEvaluator:
                         )
                     self.inference_inputs += len(owned)
                     with self.cache.maintain([leases[key] for key in owned]):
-                        probabilities = self.evaluate([requests[key].input for key in owned])
+                        try:
+                            probabilities = self.evaluate([requests[key].input for key in owned])
+                        except PartialQuestionDecisionsError as error:
+                            self.cache.publish(
+                                [
+                                    (leases[key], requests[key], error.decisions[requests[key].input])
+                                    for key in owned
+                                    if requests[key].input in error.decisions
+                                ]
+                            )
+                            raise
                     if len(probabilities) != len(owned):
                         raise ValueError("Jev returned an incomplete decision batch.")
                     if self.clock() >= deadline:

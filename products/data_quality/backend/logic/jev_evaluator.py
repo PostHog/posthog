@@ -1,4 +1,7 @@
+import math
 from typing import TYPE_CHECKING, cast
+
+import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.functions.prompt_jev import PromptJevCall
@@ -7,8 +10,12 @@ from posthog.hogql.transforms.prompt_jev import PromptJevRunner, validate_prompt
 from posthog.llm.system_one import NoulQuestion
 from posthog.llm.system_one_client import GatewaySystemOneClient, build_system_one_client
 
+from .jev_question import PartialQuestionDecisionsError
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+LOGGER = structlog.get_logger(__name__)
 
 
 class QuestionGatewayEvaluator:
@@ -24,6 +31,8 @@ class QuestionGatewayEvaluator:
     ) -> None:
         validate_prompt_jev_access(team)
         self.team = team
+        self.check_id = check_id
+        self.run_id = run_id
         self.distinct_id = distinct_id
         self.spec = PromptJevCall(
             input=ast.Constant(value=None),
@@ -47,7 +56,30 @@ class QuestionGatewayEvaluator:
         # Each manifest chunk gets Jev's existing byte, concurrency, row-isolation and time budgets.
         runner = PromptJevRunner(team_id=self.team.pk, distinct_id=self.distinct_id)
         runner.clients[self.spec.model] = self.client
-        decisions = runner.evaluate(self.spec, list(inputs))
+        completed: dict[str, float] = {}
+
+        def retain_batch(batch: dict[str, object]) -> None:
+            for text, probability in batch.items():
+                if type(probability) not in (int, float):
+                    raise ValueError("Jev returned an invalid probability.")
+                value = float(cast(float, probability))
+                if not math.isfinite(value) or not 0 <= value <= 1:
+                    raise ValueError("Jev returned an invalid probability.")
+                completed[text] = value
+
+        try:
+            decisions = runner.evaluate(self.spec, list(inputs), on_batch=retain_batch)
+        except Exception as error:
+            # Log only the error type and identifiers: messages and inputs can hold warehouse data.
+            LOGGER.warning(
+                "question_evaluation_failed",
+                team_id=self.team.pk,
+                check_id=self.check_id,
+                run_id=self.run_id,
+                reason=type(error).__name__,
+                retained_decisions=len(completed),
+            )
+            raise PartialQuestionDecisionsError(completed) from None
         if any(type(decision) not in (int, float) for decision in decisions):
             raise ValueError("Jev returned an invalid probability.")
         return [float(cast(float, decision)) for decision in decisions]

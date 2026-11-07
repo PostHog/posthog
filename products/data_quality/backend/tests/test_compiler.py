@@ -191,8 +191,8 @@ class TestCheckCompiler:
         """Catches registry filtering custom SQL out of the metric check catalog."""
         assert {entry.check_type for entry in list_check_types("metric")} == {CheckType.CUSTOM_SQL}
         for kind in (SubjectType.TABLE, SubjectType.VIEW):
-            assert len(list_check_types(kind)) == 7
-            assert {entry.check_type for entry in list_check_types(kind)} == set(CheckType)
+            expected = set(CheckType) if kind == SubjectType.TABLE else set(CheckType) - {CheckType.QUESTION}
+            assert {entry.check_type for entry in list_check_types(kind)} == expected
         with pytest.raises(UnknownCheckTypeError, match="metric_value"):
             _compile("metric_value", "", {"min": 1})
 

@@ -31,6 +31,7 @@ class CheckType(StrEnum):
     ROW_COUNT = "row_count"
     FRESHNESS = "freshness"
     CUSTOM_SQL = "custom_sql"
+    QUESTION = "question"
 
 
 class CheckSeverity(StrEnum):
