@@ -137,7 +137,7 @@ export function toDate(input: string | number): HogDate | null {
     //
     // Null rather than a date of NaN fields: comparing a NaN date builds a DateTime from NaN, which
     // throws out of the date library instead of reading as no match.
-    const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : parseDateLike(input)
+    const dt = typeof input === 'number' ? DateTime.fromSeconds(input, { zone: 'UTC' }) : parseDateLike(input)
     if (!dt?.isValid) {
         return null
     }

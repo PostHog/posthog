@@ -701,15 +701,16 @@ function isIPAddressInRange(address, prefix) {
     ],
     "__toDate": [
         """function __toDate(input) { let date;
-    if (typeof input === 'number') { date = new Date(input * 1000); } else { date = new Date(input); }
-    if (isNaN(date.getTime())) { throw new Error('Invalid date input'); }
+    if (typeof input === 'number') { date = new Date(input * 1000); } else if (typeof input === 'string') { date = new Date(input); } else { return null; }
+    if (isNaN(date.getTime())) { return null; }
     return { __hogDate__: true, year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() }; }""",
         [],
     ],
     "__toDateTime": [
         """function __toDateTime(input, zone) { let dt;
     if (typeof input === 'number') { dt = input; }
-    else { const date = new Date(input); if (isNaN(date.getTime())) { throw new Error('Invalid date input'); } dt = date.getTime() / 1000; }
+    else if (typeof input !== 'string') { return null; }
+    else { const date = new Date(input); if (isNaN(date.getTime())) { return null; } dt = date.getTime() / 1000; }
     return { __hogDateTime__: true, dt: dt, zone: zone || 'UTC' }; }""",
         [],
     ],
@@ -1306,6 +1307,10 @@ function __setProperty(objectOrArray, key, value) {
     ],
     "lessOrEquals": [
         "function lessOrEquals(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a <= b }",
+        [],
+    ],
+    "max2": [
+        "function max2(a, b) { return a > b ? a : b }",
         [],
     ],
     "min2": [

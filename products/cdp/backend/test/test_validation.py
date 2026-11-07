@@ -1372,16 +1372,16 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             assert generate_template_bytecode(template, set(), function_type=function_type), (function_type, template)
 
     def test_destination_templates_refuse_a_python_only_callback(self):
-        # max2 is in the Python standard library and not in the Node VM, so a template that passes it
+        # sleep is in the Python standard library and not in the Node VM, so a template that passes it
         # as a callback fails on every event.
         with self.assertRaises(Exception) as ctx:
-            generate_template_bytecode("{arrayMap(max2, [1, 2])}", set(), function_type="destination")
-        assert "Variable not available in inputs: max2" in str(ctx.exception)
+            generate_template_bytecode("{arrayMap(sleep, [1, 2])}", set(), function_type="destination")
+        assert "Variable not available in inputs: sleep" in str(ctx.exception)
 
     @parameterized.expand(
         [
             ("unknown_everywhere", "{splitByChar(',', event.properties.domain)}", "splitByChar is not a function"),
-            ("python_only", "{max2(1, 2)}", "max2 is not a function"),
+            ("python_only", "{sleep(1)}", "sleep is not a function"),
             ("inside_a_branch", "{if(event.properties.x, intDiv(4, 2), 0)}", "intDiv is not a function"),
             ("wrong_argument_count", "{lower()}", "lower needs at least 1 argument(s), got 0"),
             ("core_async_function", "{fetch('https://example.com')}", "fetch is not a function"),

@@ -271,6 +271,18 @@ def base64Decode(args: list[Any], team: Optional["Team"], stdout: Optional[list[
     return base64.b64decode(args[0].encode()).decode()
 
 
+def tryBase64Decode(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    import base64
+
+    # Like the Rust VM: padding is optional, invalid UTF-8 becomes U+FFFD, and any other malformed
+    # input returns "". Node's `Buffer.from` also skips stray characters, which Rust and this do not.
+    try:
+        encoded = args[0].strip()
+        return base64.b64decode(encoded + "=" * (-len(encoded) % 4)).decode(errors="replace")
+    except Exception:
+        return ""
+
+
 def encodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
     import urllib.parse
 
@@ -1045,6 +1057,7 @@ STL: dict[str, STLFunction] = {
     "JSONExtractBool": STLFunction(fn=JSONExtractBool, minArgs=1, maxArgs=None),
     "base64Encode": STLFunction(fn=base64Encode, minArgs=1, maxArgs=1),
     "base64Decode": STLFunction(fn=base64Decode, minArgs=1, maxArgs=1),
+    "tryBase64Decode": STLFunction(fn=tryBase64Decode, minArgs=1, maxArgs=1),
     "encodeURLComponent": STLFunction(fn=encodeURLComponent, minArgs=1, maxArgs=1),
     "decodeURLComponent": STLFunction(fn=decodeURLComponent, minArgs=1, maxArgs=1),
     "tryDecodeURLComponent": STLFunction(fn=tryDecodeURLComponent, minArgs=1, maxArgs=1),

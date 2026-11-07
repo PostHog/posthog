@@ -93,7 +93,7 @@ DATE_LIKE = re.compile(
 )
 
 
-def _parse_date_like(input: str, timezone: Optional[str] = None) -> Optional[datetime.datetime]:
+def _parse_date_like(input: object, timezone: Optional[str] = None) -> Optional[datetime.datetime]:
     """An aware ``datetime`` for a string matching the shared date-like grammar, else None.
 
     The canonical copy of the grammar lives above ``parse_datetime_to_seconds`` in
@@ -110,6 +110,8 @@ def _parse_date_like(input: str, timezone: Optional[str] = None) -> Optional[dat
     ``timezone`` applies only to input carrying no zone of its own; an explicit offset or ``Z`` pins
     the absolute instant regardless.
     """
+    if not isinstance(input, str):
+        return None
     match = DATE_LIKE.match(input.strip())
     if not match:
         return None
@@ -149,13 +151,21 @@ def _parse_date_like(input: str, timezone: Optional[str] = None) -> Optional[dat
     return localize(naive, is_dst=True) if localize else naive.replace(tzinfo=tzinfo)
 
 
+def _is_number(input) -> bool:
+    # bool is an int subclass in Python, but Hog's true and false are not numbers in the other VMs.
+    return isinstance(input, int | float) and not isinstance(input, bool)
+
+
 def toDate(input):
-    if isinstance(input, int) or isinstance(input, float):
-        dt = datetime.datetime.fromtimestamp(input)
+    if _is_number(input):
+        try:
+            dt = datetime.datetime.fromtimestamp(input, datetime.UTC)
+        except (OverflowError, OSError, ValueError):
+            return None
     else:
         parsed = _parse_date_like(input)
         if parsed is None:
-            raise ValueError(f"Could not parse date: {input}")
+            return None
         dt = parsed
     return {
         "__hogDate__": True,
@@ -166,12 +176,12 @@ def toDate(input):
 
 
 def toDateTime(input):
-    if isinstance(input, int) or isinstance(input, float):
+    if _is_number(input):
         dt = float(input)
     else:
         parsed = _parse_date_like(input)
         if parsed is None:
-            raise ValueError(f"Could not parse date: {input}")
+            return None
         dt = parsed.timestamp()
     return {
         "__hogDateTime__": True,
