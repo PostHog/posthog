@@ -12,7 +12,7 @@ from django.utils import timezone as django_timezone
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models.team.team import Team
+from posthog.models.team.team import DEPRECATED_ATTRS, Team
 
 from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableUnresolved
 from products.cohorts.backend.backfill.pinning import (
@@ -39,7 +39,8 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
-from products.cohorts.backend.parity.eligibility import structural_exclusion
+from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit, structural_exclusion
+from products.cohorts.backend.parity.tzdates import day_of_instant, resolve_zoneinfo
 from products.cohorts.backend.realtime_teams import is_processing_team
 
 logger = structlog.get_logger(__name__)
@@ -163,6 +164,12 @@ def behavioral_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
     # leaf. A stamp on an unclassified cohort makes it read as ready while flags match nobody.
     if cohort.condition_type is None:
         return "has a null condition_type"
+    # The save already keeps such a cohort off realtime. This catches one typed through the ORM, and one
+    # whose absolute start date has since passed the limit, before the seeder truncates its history.
+    limit_days = settings.REALTIME_COHORT_MAX_HISTORY_DAYS
+    today = day_of_instant(django_timezone.now(), resolve_zoneinfo(cohort.team.timezone))
+    if behavioral_history_over_limit(properties, limit_days=limit_days, today=today):
+        return f"looks back more than {limit_days} days"
     return _catalog_refusal_reason(cohort)
 
 
@@ -177,7 +184,11 @@ def judge_team_cohorts(
     away before they lock: a dry run exists to name *why* each cohort was refused, and it takes no
     locks. Both sides decide with the same predicate.
     """
-    queryset = Cohort.objects.filter(team_id=team_id)
+    queryset = (
+        Cohort.objects.filter(team_id=team_id)
+        .select_related("team")
+        .defer(*(f"team__{attr}" for attr in DEPRECATED_ATTRS))
+    )
     if cohort_ids is not None:
         queryset = queryset.filter(id__in=cohort_ids)
     return [(cohort, ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]

@@ -9,7 +9,7 @@ import structlog
 
 from posthog.cohort_resave import CohortResaveStats, resave_team_cohorts, termination_unwinds
 from posthog.dataclasses import frozen
-from posthog.models.team.team import Team
+from posthog.models.team.team import DEPRECATED_ATTRS, Team
 
 from products.cohorts.backend.backfill.pinning import pin_behavioral_run
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
@@ -188,9 +188,10 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
 
 def _realtime_cohorts(team_id: int) -> list[Cohort]:
     return list(
-        Cohort.objects.filter(
-            team_id=team_id, cohort_type=CohortType.REALTIME, is_static=False, deleted=False
-        ).order_by("id")
+        Cohort.objects.filter(team_id=team_id, cohort_type=CohortType.REALTIME, is_static=False, deleted=False)
+        .select_related("team")
+        .defer(*(f"team__{attr}" for attr in DEPRECATED_ATTRS))
+        .order_by("id")
     )
 
 
