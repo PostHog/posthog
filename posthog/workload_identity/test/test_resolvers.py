@@ -11,6 +11,7 @@ from posthog.redis import get_client
 from posthog.token_bucket import BucketDecision
 from posthog.workload_identity.resolvers import (
     GITHUB_PUBLIC_LOOKUP_BUCKET,
+    GITLAB_PUBLIC_LOOKUP_BUCKET,
     resolve_github_repository,
     resolve_gitlab_project,
 )
@@ -152,6 +153,9 @@ GITLAB_COM_INTEGRATION = {"hostname": "https://gitlab.com"}
 
 
 class TestResolveGitLabProject(SimpleTestCase):
+    def setUp(self) -> None:
+        get_client().delete(GITLAB_PUBLIC_LOOKUP_BUCKET)
+
     @parameterized.expand(
         [
             (
@@ -256,6 +260,20 @@ class TestResolveGitLabProject(SimpleTestCase):
 
         assert request.call_args.args[1] == "https://gitlab.com/api/v4/projects/acme%2Ftools%2Fweb"
         assert request.call_args.kwargs["token"] is None
+
+    def test_public_lookups_stop_once_the_shared_budget_is_used_up(self) -> None:
+        with (
+            patch("posthog.workload_identity.resolvers.IntegrationManager.gitlab.token.list", return_value=[]),
+            patch(
+                "posthog.workload_identity.resolvers.consume",
+                return_value=BucketDecision(allowed=False, remaining=0, limit=10, retry_after=60, reset=60),
+            ),
+            patch("posthog.workload_identity.resolvers.gitlab_request") as public,
+        ):
+            with self.assertRaises(WorkloadSubjectLookupUnavailable):
+                resolve_gitlab_project(1, "acme/tools/web")
+
+        assert not public.called
 
     def test_refuses_a_path_that_could_reach_another_gitlab_endpoint(self) -> None:
         with patch("posthog.workload_identity.resolvers.gitlab_request") as request:

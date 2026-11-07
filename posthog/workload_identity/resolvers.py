@@ -40,6 +40,11 @@ GITHUB_PUBLIC_LOOKUPS_BUSY = (
     "repository ID by hand."
 )
 GITHUB_PUBLIC_LOOKUP_BUCKET = "workload_identity:github_public_lookup"
+GITLAB_PUBLIC_LOOKUPS_BUSY = (
+    "PostHog looked up many public GitLab projects just now. Try again in a few minutes, or enter the project "
+    "ID by hand."
+)
+GITLAB_PUBLIC_LOOKUP_BUCKET = "workload_identity:gitlab_public_lookup"
 # The whole lookup runs inside one API request, so it gets one deadline however many integrations it asks.
 LOOKUP_DEADLINE_SECONDS = 15
 REQUEST_TIMEOUT_SECONDS = 10
@@ -56,6 +61,14 @@ def _repository_json(response: requests.Response) -> Any:
         return response.json()
     except ValueError:
         raise WorkloadSubjectLookupUnavailable(GITHUB_UNAVAILABLE)
+
+
+def _spend_public_lookup(bucket: str, per_hour: int, busy: str) -> None:
+    """Public lookups share PostHog's token, or the server's IP when there is none, so the egress transport
+    can't budget them per installation. One bucket caps them for every team, so no member uses up the quota."""
+    decision = consume(bucket, Budget(burst=10, per_hour=per_hour))
+    if isinstance(decision, BucketDecision) and not decision.allowed:
+        raise WorkloadSubjectLookupUnavailable(busy)
 
 
 def _seconds_left(deadline: float) -> int:
@@ -98,12 +111,7 @@ def _public(repository: str, deadline: float) -> ResolvedWorkloadSubject:
     timeout = _seconds_left(deadline)
     if timeout <= 0:
         raise WorkloadSubjectLookupUnavailable(GITHUB_UNAVAILABLE)
-    # Every team shares PostHog's token, or the server's IP when there is none, so the egress
-    # transport can't budget these calls per installation. One member mustn't use up the quota.
-    budget = Budget(burst=10, per_hour=1000 if settings.GITHUB_TOKEN else 50)
-    decision = consume(GITHUB_PUBLIC_LOOKUP_BUCKET, budget)
-    if isinstance(decision, BucketDecision) and not decision.allowed:
-        raise WorkloadSubjectLookupUnavailable(GITHUB_PUBLIC_LOOKUPS_BUSY)
+    _spend_public_lookup(GITHUB_PUBLIC_LOOKUP_BUCKET, 1000 if settings.GITHUB_TOKEN else 50, GITHUB_PUBLIC_LOOKUPS_BUSY)
     try:
         response = github_request(
             "GET",
@@ -227,9 +235,12 @@ def resolve_gitlab_project(team_id: int, name: str) -> ResolvedWorkloadSubject:
     try:
         if _seconds_left(deadline) <= 0:
             raise WorkloadSubjectLookupUnavailable(GITLAB_UNAVAILABLE)
+        per_hour = 1000 if settings.GITLAB_TOKEN else 300
+        _spend_public_lookup(GITLAB_PUBLIC_LOOKUP_BUCKET, per_hour, GITLAB_PUBLIC_LOOKUPS_BUSY)
         response = _gitlab_project(settings.GITLAB_TOKEN or None, path, timeout=_seconds_left(deadline))
         if response.status_code == 401 and settings.GITLAB_TOKEN and _seconds_left(deadline) > 0:
             # GitLab answers 401 for every project once the shared token expires, even a public one.
+            _spend_public_lookup(GITLAB_PUBLIC_LOOKUP_BUCKET, per_hour, GITLAB_PUBLIC_LOOKUPS_BUSY)
             response = _gitlab_project(None, path, timeout=_seconds_left(deadline))
     except requests.RequestException:
         raise WorkloadSubjectLookupUnavailable(GITLAB_UNAVAILABLE)
