@@ -264,7 +264,7 @@ def _apple_ads_account_name(accounts: list[dict[str, Any]]) -> str:
     return str(first.get("name") or f"Apple Ads account {first['id']}")
 
 
-def _salesforce_instance_host(instance_url: str | None) -> str | None:
+def salesforce_instance_host(instance_url: str | None) -> str | None:
     # Every Salesforce-issued instance_url host ends in .salesforce.com: login/test, the
     # pod hosts (na1.salesforce.com, ...), and My Domain variants like
     # acme.my.salesforce.com and acme--sandbox.sandbox.my.salesforce.com. Validating at
@@ -1573,7 +1573,7 @@ class OauthIntegration:
         # at the validated instance host so a stray write to config can't redirect the token to
         # an attacker origin.
         if self.integration.kind in SALESFORCE_OAUTH_KINDS:
-            allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
+            allowed_host = salesforce_instance_host(self.integration.config.get("instance_url"))
             if allowed_host:
                 revoke_url = f"{allowed_host}/services/oauth2/revoke"
 
@@ -1719,7 +1719,7 @@ class OauthIntegration:
             # refresh_token so a stray write to config can't exfiltrate the fleet-wide
             # Salesforce app secret; fall back to the hardcoded prod URL on rejection.
             if kind in SALESFORCE_OAUTH_KINDS:
-                allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
+                allowed_host = salesforce_instance_host(self.integration.config.get("instance_url"))
                 if allowed_host:
                     token_url = f"{allowed_host}/services/oauth2/token"
 

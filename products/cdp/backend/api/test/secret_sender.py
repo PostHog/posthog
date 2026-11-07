@@ -38,7 +38,7 @@ def secret_host_binding_flag(enabled: bool) -> AbstractContextManager[Any]:
 def _binding_counts(surface: str) -> dict[str, float]:
     return {
         outcome.value: REGISTRY.get_sample_value(
-            "posthog_cdp_secret_host_binding_total", {"outcome": outcome.value, "surface": surface}
+            "posthog_cdp_secret_host_binding_total", {"outcome": outcome.value, "surface": surface, "kind": ""}
         )
         or 0.0
         for outcome in SecretBindingMetric

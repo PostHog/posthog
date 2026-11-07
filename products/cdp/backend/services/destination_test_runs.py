@@ -29,6 +29,7 @@ from posthog.models.activity_logging.activity_log import (
     update_activity_context,
 )
 
+from products.cdp.backend.integration_origins import integration_inputs
 from products.cdp.backend.validation import collect_inputs
 
 if TYPE_CHECKING:
@@ -83,28 +84,6 @@ def integration_ids_in_value(value: Any) -> Iterable[int]:
     for candidate in value if isinstance(value, list) else [value]:
         if isinstance(candidate, int) and not isinstance(candidate, bool):
             yield candidate
-
-
-def _integration_ids(effective: dict[str, Any], mappings: list[dict[str, Any]]) -> set[int]:
-    # Mirrors `loadIntegrationInputs` in nodejs/src/cdp/services/hog-inputs.service.ts. The worker merges
-    # the inputs of each mapping, in order, over the top-level inputs, and reads every schema against that
-    # merged set. A mapping input can therefore replace the integration that a top-level input names.
-    schemas: list[Any] = []
-    merged: dict[str, Any] = {}
-    for scope in (effective, *mappings):
-        if isinstance(scope.get("inputs_schema"), list):
-            schemas.extend(scope["inputs_schema"])
-        if isinstance(scope.get("inputs"), dict):
-            merged.update(scope["inputs"])
-    ids: set[int] = set()
-    for schema in schemas:
-        if not isinstance(schema, dict) or schema.get("type") not in ("integration", "integration_multi"):
-            continue
-        key = schema.get("key")
-        entry = merged.get(key) if isinstance(key, str) else None
-        if isinstance(entry, dict):
-            ids.update(integration_ids_in_value(entry.get("value")))
-    return ids
 
 
 def _referenced_input_keys(value: Any, templating: Any) -> set[str]:
@@ -169,7 +148,13 @@ def destination_test_run_context(
 
     return HogFunctionTestRunContext(
         mock_async_functions=mock_async_functions,
-        integration_ids=sorted(_integration_ids(effective, mappings)),
+        integration_ids=sorted(
+            {
+                integration_id
+                for item in integration_inputs(effective.get("inputs_schema"), effective.get("inputs"), mappings)
+                for integration_id in item.integration_ids
+            }
+        ),
         input_keys=sorted(inputs.keys()) if isinstance(inputs, dict) else [],
         mapping_input_keys=sorted(mapping_input_keys),
         input_references={key: sorted(keys) for key, keys in sorted(_input_references(inputs).items())},
