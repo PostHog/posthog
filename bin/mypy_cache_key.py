@@ -1,5 +1,5 @@
+import os
 import sys
-import stat
 import hashlib
 from collections.abc import Iterator
 from pathlib import Path
@@ -7,15 +7,18 @@ from pathlib import Path
 
 def config_files(root: Path) -> Iterator[Path]:
     def walk(directory: Path, matched_directory: bool = False) -> Iterator[Path]:
-        for child in sorted(directory.iterdir(), key=lambda entry: entry.name):
+        with os.scandir(directory) as entries:
+            children = sorted(entries, key=lambda entry: entry.name)
+        for entry in children:
             try:
-                child_stat = child.lstat()
+                is_directory = entry.is_dir(follow_symlinks=False)
             except FileNotFoundError:
                 continue
+            child = Path(entry.path)
             matched = matched_directory or child.name in {"pyproject.toml", "mypy.ini"} or child == root / "uv.lock"
-            if stat.S_ISDIR(child_stat.st_mode):
+            if is_directory:
                 yield from walk(child, matched)
-            elif matched and not child.is_dir():
+            elif matched and not entry.is_dir():
                 yield child
 
     yield from walk(root)
