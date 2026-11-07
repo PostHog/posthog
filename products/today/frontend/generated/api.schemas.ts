@@ -112,6 +112,7 @@ export interface SidebarButtonApi {
     /**
      * @minLength 1
      * @maxLength 60
+     * @pattern ^[^\x00]*$
      */
     label: string
     icon?: SidebarIconApi | null
@@ -132,6 +133,7 @@ export interface SidebarMetricApi {
      * Short name of the number, such as Signups.
      * @minLength 1
      * @maxLength 60
+     * @pattern ^[^\x00]*$
      */
     label: string
 }

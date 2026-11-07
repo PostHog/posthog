@@ -19,6 +19,7 @@ export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemIdMax = 32
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemIdRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)\*$')
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemTitleOneMax = 60
 
+export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemTitleOneRegExp = new RegExp('^[^\\x00]\*$')
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneToTwoShortIdRegExp = new RegExp(
     '^[A-Za-z0-9]{1,12}$'
 )
@@ -28,6 +29,7 @@ export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneToF
 )
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneMax = 60
 
+export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneRegExp = new RegExp('^[^\\x00]\*$')
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoToTwoShortIdRegExp = new RegExp(
     '^[A-Za-z0-9]{1,12}$'
 )
@@ -37,12 +39,14 @@ export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoToF
 )
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelMax = 60
 
+export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelRegExp = new RegExp('^[^\\x00]\*$')
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoVariantDefault = `outline`
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeInsightRegExp = new RegExp(
     '^[A-Za-z0-9]{1,12}$'
 )
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelMax = 60
 
+export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelRegExp = new RegExp('^[^\\x00]\*$')
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsMax = 12
 
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsMax = 10
@@ -67,7 +71,8 @@ export const TodayAnalyticsSidebarUpdateBody = /* @__PURE__ */ zod.object({
                                 zod
                                     .string()
                                     .min(1)
-                                    .max(todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemTitleOneMax),
+                                    .max(todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemTitleOneMax)
+                                    .regex(todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemTitleOneRegExp),
                                 zod.null(),
                             ])
                             .optional()
@@ -163,6 +168,9 @@ export const TodayAnalyticsSidebarUpdateBody = /* @__PURE__ */ zod.object({
                                                         .min(1)
                                                         .max(
                                                             todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneMax
+                                                        )
+                                                        .regex(
+                                                            todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneRegExp
                                                         ),
                                                     zod.null(),
                                                 ])
@@ -256,6 +264,9 @@ export const TodayAnalyticsSidebarUpdateBody = /* @__PURE__ */ zod.object({
                                                 .min(1)
                                                 .max(
                                                     todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelMax
+                                                )
+                                                .regex(
+                                                    todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoLabelRegExp
                                                 ),
                                             icon: zod
                                                 .union([
@@ -307,6 +318,9 @@ export const TodayAnalyticsSidebarUpdateBody = /* @__PURE__ */ zod.object({
                                                 .min(1)
                                                 .max(
                                                     todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelMax
+                                                )
+                                                .regex(
+                                                    todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelRegExp
                                                 )
                                                 .describe('Short name of the number, such as Signups.'),
                                         })

@@ -14097,6 +14097,7 @@ export namespace Schemas {
       /**
          * @minLength 1
          * @maxLength 60
+         * @pattern ^[^\x00]*$
          */
       label: string;
       icon?: SidebarIcon | null;
@@ -14117,6 +14118,7 @@ export namespace Schemas {
          * Short name of the number, such as Signups.
          * @minLength 1
          * @maxLength 60
+         * @pattern ^[^\x00]*$
          */
       label: string;
     }

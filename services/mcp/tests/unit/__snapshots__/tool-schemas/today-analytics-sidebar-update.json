@@ -95,6 +95,7 @@
                                                         {
                                                             "maxLength": 60,
                                                             "minLength": 1,
+                                                            "pattern": "^[^\\x00]*$",
                                                             "type": "string"
                                                         },
                                                         {
@@ -229,6 +230,7 @@
                                                 "label": {
                                                     "maxLength": 60,
                                                     "minLength": 1,
+                                                    "pattern": "^[^\\x00]*$",
                                                     "type": "string"
                                                 },
                                                 "to": {
@@ -336,6 +338,7 @@
                                                     "description": "Short name of the number, such as Signups.",
                                                     "maxLength": 60,
                                                     "minLength": 1,
+                                                    "pattern": "^[^\\x00]*$",
                                                     "type": "string"
                                                 },
                                                 "type": {
@@ -373,6 +376,7 @@
                                     {
                                         "maxLength": 60,
                                         "minLength": 1,
+                                        "pattern": "^[^\\x00]*$",
                                         "type": "string"
                                     },
                                     {

@@ -342,7 +342,9 @@ MAX_SIDEBAR_SECTION_ITEMS = 12
 MAX_SIDEBAR_ITEMS = 30
 MAX_SIDEBAR_METRICS = 4
 
-SidebarLabel = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
+SidebarLabel = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60, pattern=r"^[^\x00]*$")
+]
 
 
 class _SidebarModel(BaseModel):

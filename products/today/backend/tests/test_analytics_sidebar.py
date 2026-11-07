@@ -155,6 +155,22 @@ class TestAnalyticsSidebarLayout(SimpleTestCase):
             ("a color in place of an icon", _with(["sections", 0, "icon"], "#ff0000"), "sections.0.icon"),
             ("a section id with spaces", _with(["sections", 0, "id"], "Growth team"), "sections.0.id"),
             ("a label that is too long", _with(["sections", 0, "title"], "x" * 61), "sections.0.title"),
+            ("a title with NUL", _with(["sections", 0, "title"], "Growth\x00"), "sections.0.title"),
+            (
+                "a metric label with NUL",
+                _with(["sections", 0, "items", 0, "label"], "Signups\x00"),
+                "sections.0.items.0.metric.label",
+            ),
+            (
+                "a link label with NUL",
+                _with(["sections", 0, "items", 1, "label"], "Growth\x00board"),
+                "sections.0.items.1.link.label",
+            ),
+            (
+                "a button label with NUL",
+                _with(["sections", 0, "items", 4, "label"], "\x00New insight"),
+                "sections.0.items.4.button.label",
+            ),
             ("a section with no items", _with(["sections", 0, "items"], []), "sections.0.items"),
             ("no sections", _with(["sections"], []), "sections"),
             ("two sections with one id", _with(["sections", 1, "id"], "growth"), "layout"),
