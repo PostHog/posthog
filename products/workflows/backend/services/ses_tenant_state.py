@@ -115,9 +115,9 @@ def sync_sandbox_tenant_state() -> None:
     tenant_name = settings.SES_SANDBOX_TENANT_NAME
     if not tenant_name:
         return
-    SandboxSenderTenantState.objects.get_or_create(tenant_name=tenant_name)
     with transaction.atomic():
         try:
+            SandboxSenderTenantState.objects.get_or_create(tenant_name=tenant_name)
             # The lock serializes SES reads, so a stale sweep cannot overwrite a newer pause. NOWAIT
             # makes an overlapping sync fail at once, and its task retries with backoff. A waiting
             # sync would hold a Celery worker and a database connection while the holder waits on SES.
