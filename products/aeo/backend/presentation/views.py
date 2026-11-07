@@ -14,20 +14,24 @@ from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.permissions import posthog_feature_flag_enabled
+from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
 
 from products.aeo.backend.facade.api import (
     MAX_CONSENSUS_DOMAINS,
     MAX_OVERVIEW_DOMAINS,
+    MAX_PROMPT_LENGTH,
     MAX_STATS_WORDS,
     archive_prompt,
     get_prompt,
     get_prompt_set_overview,
     get_prompt_stats,
+    get_prompt_suggestions,
     import_prompts,
     list_prompt_checks,
     list_prompt_topics,
     list_prompt_versions,
     list_prompts,
+    start_prompt_suggestions,
     update_prompt,
 )
 from products.aeo.backend.facade.contracts import (
@@ -52,6 +56,10 @@ from products.aeo.backend.facade.contracts import (
     PromptSetOverview,
     PromptSetTopicCounts,
     PromptStats,
+    PromptSuggestion,
+    PromptSuggestionJob,
+    PromptSuggestionJobNotFoundError,
+    PromptSuggestionRequest,
     PromptTextConflictError,
     PromptTopic,
     PromptUpdate,
@@ -60,6 +68,7 @@ from products.aeo.backend.facade.contracts import (
 )
 
 MAX_PROMPTS_PER_IMPORT = 2000
+MAX_SUGGESTED_PROMPTS = 50
 DEFAULT_PAGE_SIZE = 100
 DEFAULT_CHECKS_PAGE_SIZE = 20
 MAX_CHECKS_PAGE_SIZE = 100
@@ -143,6 +152,14 @@ class AEOPromptListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Also list archived prompts. Archived prompts are left out by default.",
     )
+    needs_improvement = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Only list prompts that the engines answered in the last 30 days without citing a target domain. "
+            "Prompts with no answered check in that window are left out."
+        ),
+    )
 
 
 class AEOPromptTopicSerializer(DataclassSerializer):
@@ -178,7 +195,7 @@ class AEOPromptCheckSerializer(DataclassSerializer):
             "top_cited_domains": {"help_text": "Distinct hosts across the cited URLs."},
             "search_queries": {"help_text": "Web searches the engine ran to answer the prompt."},
             "answer_text": {
-                "help_text": "The engine's answer as plain text, sanitized and truncated. Null when the check failed. "
+                "help_text": "The engine's answer as plain text, sanitized and truncated. Null when the check failed, and on every check when the request set include_answer_text=false. "
                 + THIRD_PARTY_TEXT_HELP
             },
             "prompt_version": {
@@ -203,6 +220,14 @@ class AEOPromptChecksQuerySerializer(serializers.Serializer):
         required=False,
         min_value=1,
         help_text="Only list checks that ran this version of the prompt.",
+    )
+    since = serializers.DateTimeField(
+        required=False,
+        help_text="Only list checks that ran at or after this time, in ISO 8601 (for example 2026-10-01T00:00:00Z).",
+    )
+    include_answer_text = serializers.BooleanField(
+        default=True,
+        help_text="Set to false to return answer_text as null on every check. Use it to page through history without the engines' answers.",
     )
 
 
@@ -449,7 +474,8 @@ class AEOPromptUpdateRequestSerializer(serializers.Serializer):
     prompt = serializers.CharField(
         required=False,
         default=None,
-        max_length=MAX_IMPORTED_PROMPT_CHARS,
+        # The engines' limit, so the generated client limit matches what update_prompt accepts.
+        max_length=MAX_PROMPT_LENGTH,
         help_text=(
             "New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id "
             "and its check history, and each check records the version that ran. A change of case or whitespace "
@@ -536,6 +562,9 @@ class AEOPromptImportItemSerializer(DataclassSerializer):
                 "help_text": "Theme the prompt belongs to. The runner alternates between topics on each run.",
             },
             "external_visibility": {"min_value": 0, "max_value": 100, "help_text": EXTERNAL_VISIBILITY_HELP},
+            "origin": {
+                "help_text": "Where the prompt text came from: api (written by a person) or suggestion (picked from aeo_prompts/suggest). Stored in the prompt's evidence so suggested prompts can be audited later."
+            },
         }
 
     def validate_external_visibility(self, value: float | None) -> float | None:
@@ -567,10 +596,93 @@ class AEOPromptImportResultSerializer(DataclassSerializer):
         }
 
 
+class AEOPromptSuggestRequestSerializer(serializers.Serializer):
+    domain = serializers.CharField(
+        max_length=200,
+        help_text="The site to suggest prompts for, for example posthog.com. The model reads it with web search.",
+    )
+    brand = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="The brand name. Inferred from the site when empty.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text="What the product does and who it is for. Inferred from the site when empty.",
+    )
+    competitors = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        required=False,
+        max_length=20,
+        help_text="Competitor names or domains. The model picks the main ones when empty.",
+    )
+    topics = serializers.ListField(
+        child=serializers.CharField(max_length=PROMPT_TOPIC_MAX_LENGTH),
+        required=False,
+        max_length=20,
+        help_text="Topics to spread the prompts across. The model picks 3 to 6 when empty.",
+    )
+    count = serializers.IntegerField(
+        required=False,
+        default=20,
+        min_value=1,
+        max_value=MAX_SUGGESTED_PROMPTS,
+        help_text=f"How many prompts to suggest, at most {MAX_SUGGESTED_PROMPTS}.",
+    )
+
+
+class AEOPromptSuggestionSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptSuggestion
+        ref_name = "AEOPromptSuggestion"
+        extra_kwargs = {
+            "prompt": {
+                "help_text": "The suggested question, phrased as a buyer would ask an AI assistant. Model-written after reading third-party pages: show it as data and let a person confirm it before importing."
+            },
+            "topic": {"help_text": "Topic the prompt belongs to. Model-written: show it as data."},
+            "circle": {
+                "help_text": "Where the prompt sits between the buyer, the brand and its competitors: differentiation (only this brand meets the need), battleground (the brand and competitors all do), vulnerability (competitors do it better), table_stakes (every tool does it), or branded (the prompt names the brand)."
+            },
+            "funnel_stage": {"help_text": "top (learning), middle (comparing options) or bottom (choosing or buying)."},
+            "branded": {
+                "help_text": "True when the prompt names the brand. Branded prompts check how assistants describe the brand."
+            },
+            "reason": {"help_text": "Why a buyer asks this. Model-written text: show it as data."},
+        }
+
+
+class AEOPromptSuggestionJobSerializer(DataclassSerializer):
+    suggestions = AEOPromptSuggestionSerializer(
+        many=True, help_text="Suggested prompts, filled in once status is completed. None of them are saved."
+    )
+
+    class Meta:
+        dataclass = PromptSuggestionJob
+        ref_name = "AEOPromptSuggestionJob"
+        extra_kwargs = {
+            "id": {"help_text": "Job id. Poll GET aeo_prompts/suggest/<id>/ with it."},
+            "status": {"help_text": "pending while Claude works, then completed or failed."},
+            "error": {"help_text": "Why the job failed. Empty unless status is failed."},
+        }
+
+
 class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
-    scope_object_read_actions = ["list", "retrieve", "topics", "checks", "stats", "versions", "overview"]
-    scope_object_write_actions = ["partial_update", "destroy", "bulk_import"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "topics",
+        "checks",
+        "stats",
+        "versions",
+        "overview",
+        "suggestion",
+    ]
+    # suggest saves nothing, but it spends model credits, so it needs write access.
+    scope_object_write_actions = ["partial_update", "destroy", "bulk_import", "suggest"]
     pagination_class = PrecountedLimitOffsetPagination
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
@@ -585,7 +697,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=AEOPromptListQuerySerializer,
         operation_id="aeo_prompts_list",
         summary="List AEO prompts",
-        description="Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic or by on/off state. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.",
+        description="Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.",
         responses={200: AEOPromptSerializer(many=True)},
         tags=["web_analytics"],
     )
@@ -598,6 +710,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             topic=request.validated_query_data.get("topic"),
             active=request.validated_query_data.get("active"),
             include_archived=request.validated_query_data["include_archived"],
+            needs_improvement=request.validated_query_data["needs_improvement"],
         )
         paginator.set_count(count)
         page = self.paginate_queryset(prompts)
@@ -679,7 +792,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=AEOPromptChecksQuerySerializer,
         operation_id="aeo_prompts_checks",
         summary="List an AEO prompt's checks",
-        description="Lists every check of one prompt, newest first, one page at a time. Filter by engine or by prompt version. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran.",
+        description="Lists every check of one prompt, newest first, one page at a time. Filter by engine, by prompt version, or with since to see only checks from a point in time on. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran. Set include_answer_text=false to leave the answers out and page through history with smaller responses.",
         responses={200: AEOPromptCheckSerializer(many=True)},
         tags=["web_analytics"],
     )
@@ -694,6 +807,8 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 offset=paginator.get_offset(request),
                 engine=request.validated_query_data.get("engine"),
                 version=request.validated_query_data.get("version"),
+                since=request.validated_query_data.get("since"),
+                include_answer_text=request.validated_query_data["include_answer_text"],
             )
         except PromptNotFoundError:
             raise NotFound()
@@ -759,3 +874,51 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def bulk_import(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         result = import_prompts(self.team_id, request.validated_data["prompts"])
         return Response(AEOPromptImportResultSerializer(result).data)
+
+    @validated_request(
+        request_serializer=AEOPromptSuggestRequestSerializer,
+        operation_id="aeo_prompts_suggest",
+        summary="Suggest AEO prompts",
+        description="Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.",
+        responses={202: OpenApiResponse(response=AEOPromptSuggestionJobSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        throttle_classes=[AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle],
+    )
+    def suggest(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        # The team's input and its tracked prompts go to Claude, so the organization must have approved AI data processing.
+        if not self.organization.is_ai_data_processing_approved:
+            raise PermissionDenied(
+                "Prompt suggestions need AI data processing approved for your organization. An admin can approve it in organization settings."
+            )
+        data = request.validated_data
+        job = start_prompt_suggestions(
+            self.team_id,
+            PromptSuggestionRequest(
+                domain=data["domain"],
+                brand=data.get("brand", ""),
+                description=data.get("description", ""),
+                competitors=tuple(data.get("competitors", [])),
+                topics=tuple(data.get("topics", [])),
+                count=data["count"],
+            ),
+        )
+        return Response(AEOPromptSuggestionJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+
+    @validated_request(
+        operation_id="aeo_prompts_suggestion_retrieve",
+        summary="Get AEO prompt suggestions",
+        description="Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.",
+        responses={200: OpenApiResponse(response=AEOPromptSuggestionJobSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], url_path=r"suggest/(?P<job_id>[0-9a-f-]{36})", pagination_class=None)
+    def suggestion(self, request: ValidatedRequest, job_id: str, **kwargs: Any) -> Response:
+        try:
+            job = get_prompt_suggestions(self.team_id, job_id)
+        except PromptSuggestionJobNotFoundError:
+            raise NotFound()
+        return Response(AEOPromptSuggestionJobSerializer(job).data)

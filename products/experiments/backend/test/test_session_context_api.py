@@ -17,7 +17,7 @@ from posthog.hogql.database.models import Table, TableNode
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition, Team, User
+from posthog.models import Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.rate_limit import SessionContextsBurstRateThrottle
@@ -30,6 +30,7 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.session_context import (
     MAX_SESSION_CONTEXT_BATCH,

@@ -73,13 +73,38 @@ describe('ImplementButton', () => {
         return user
     }
 
-    it('offers implementation choices before starting a PostHog agent', async () => {
+    it('starts a PostHog agent from the main button without opening the options', async () => {
         const user = userEvent.setup()
         render(<ImplementButton report={makeReport()} />)
 
         await user.click(screen.getByTestId('inbox-report-create-pr'))
 
+        expect(screen.queryByTestId('inbox-report-create-pr-submit')).not.toBeInTheDocument()
+        await waitFor(() =>
+            expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
+        )
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: false,
+            claim_step: 'start',
+            opened_from_link: false,
+        })
+    })
+
+    it('opens the implementation choices when a link asks for them', async () => {
+        const user = userEvent.setup()
+        const onChoicesOpenedFromLink = jest.fn()
+        render(
+            <ImplementButton
+                report={makeReport()}
+                openChoicesFromLink
+                onChoicesOpenedFromLink={onChoicesOpenedFromLink}
+            />
+        )
+
+        await waitFor(() => expect(screen.getByText('Implement with PostHog')).toBeInTheDocument())
+        expect(onChoicesOpenedFromLink).toHaveBeenCalled()
         expect(createPrFromReport).not.toHaveBeenCalled()
+
         await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
 
         await waitFor(() =>
@@ -88,15 +113,17 @@ describe('ImplementButton', () => {
         expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
             has_feedback: false,
             claim_step: 'start',
+            opened_from_link: true,
         })
     })
 
     // Starting on a teammate's claim without the takeover would fail the run, or move their work without telling
     // them. A takeover the server refuses must reload the claim, or a retry submits the same stale takeover.
     it.each([
-        { name: 'starts the run after the takeover', claimStatus: 200, starts: true },
-        { name: 'reloads the claim after a refused takeover', claimStatus: 409, starts: false },
-    ])("teammate's claim: $name", async ({ claimStatus, starts }) => {
+        { name: 'starts the run after the takeover', claimStatus: 200, starts: true, openedFromLink: false },
+        { name: 'keeps link attribution after the takeover', claimStatus: 200, starts: true, openedFromLink: true },
+        { name: 'reloads the claim after a refused takeover', claimStatus: 409, starts: false, openedFromLink: false },
+    ])("teammate's claim: $name", async ({ claimStatus, starts, openedFromLink }) => {
         const claimBodies: unknown[] = []
         useMocks({
             post: {
@@ -111,11 +138,18 @@ describe('ImplementButton', () => {
         const bulkActions = inboxBulkActionsLogic()
         bulkActions.mount()
         const user = userEvent.setup()
-        render(<ImplementButton report={makeReport({ assignee: { ...teammateClaim, claim_id: 'claim-robin' } })} />)
+        render(
+            <ImplementButton
+                report={makeReport({ assignee: { ...teammateClaim, claim_id: 'claim-robin' } })}
+                openChoicesFromLink={openedFromLink}
+            />
+        )
 
         await expectLogic(bulkActions, async () => {
-            await user.click(screen.getByTestId('inbox-report-create-pr'))
-            await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+            await user.click(
+                screen.getByTestId(openedFromLink ? 'inbox-report-create-pr-submit' : 'inbox-report-create-pr')
+            )
+            expect(createPrFromReport).not.toHaveBeenCalled()
             await user.click(await screen.findByText('Take over and implement'))
         }).toDispatchActions([starts ? 'reportClaimChanged' : 'reportWriteFailed'])
 
@@ -130,6 +164,22 @@ describe('ImplementButton', () => {
         } else {
             expect(createPrFromReport).not.toHaveBeenCalled()
         }
+        expect(
+            jest
+                .mocked(captureInboxReportAction)
+                .mock.calls.filter(([event]) => event.actionType === 'create_pr')
+                .map(([event]) => event.extra)
+        ).toEqual(
+            starts
+                ? [
+                      {
+                          has_feedback: false,
+                          claim_step: 'take_over',
+                          opened_from_link: openedFromLink,
+                      },
+                  ]
+                : []
+        )
     })
 
     // Without the dialog outcome, a run someone thought about and cancelled cannot be told apart from one never offered.
@@ -138,10 +188,10 @@ describe('ImplementButton', () => {
         { button: 'Cancel', confirmed: false },
     ])('records whether the own-agent dialog was confirmed ($button)', async ({ button, confirmed }) => {
         const user = userEvent.setup()
-        render(<ImplementButton report={makeReport({ assignee: myAgentClaim })} />)
+        render(<ImplementButton report={makeReport({ assignee: myAgentClaim })} openChoicesFromLink />)
 
-        await user.click(screen.getByTestId('inbox-report-create-pr'))
         await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+        expect(createPrFromReport).not.toHaveBeenCalled()
         await user.click(await screen.findByText(button))
 
         await waitFor(() =>
@@ -153,6 +203,22 @@ describe('ImplementButton', () => {
             )
         )
         expect(createPrFromReport).toHaveBeenCalledTimes(confirmed ? 1 : 0)
+        expect(
+            jest
+                .mocked(captureInboxReportAction)
+                .mock.calls.filter(([event]) => event.actionType === 'create_pr')
+                .map(([event]) => event.extra)
+        ).toEqual(
+            confirmed
+                ? [
+                      {
+                          has_feedback: false,
+                          claim_step: 'confirm_own_agent',
+                          opened_from_link: true,
+                      },
+                  ]
+                : []
+        )
     })
 
     // A second press while the first one still loads would start two runs.
@@ -224,7 +290,7 @@ describe('ImplementButton', () => {
         render(<ImplementButton report={report} />)
         const access = reportGithubAccessLogic({ report })
         await waitFor(() => expect(access.values[status === 503 ? 'failed' : 'repairNeeded']).toBe(true))
-        await user.click(screen.getByTestId('inbox-report-create-pr'))
+        await user.click(screen.getByTestId('inbox-report-create-pr-steer'))
         await user.click(screen.getByTestId('inbox-report-copy-implementation-prompt'))
         expect(copyToClipboard).toHaveBeenCalledWith(
             expect.stringContaining('report ID: report-1'),
@@ -267,6 +333,7 @@ describe('ImplementButton', () => {
         expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
             has_feedback: true,
             claim_step: 'start',
+            opened_from_link: false,
         })
     })
 
