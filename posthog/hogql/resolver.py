@@ -1641,6 +1641,21 @@ class Resolver(CloningVisitor):
                 assert isinstance(database_table, ast.Table)
                 node_table_type = ast.TableType(table=database_table)
 
+            for scope_alias, scope_type in scope.tables.items():
+                # An unaliased scan of a non-lazy table prints as its bare table name. `FROM posthog.events JOIN
+                # events` would print both scans as `events`. ClickHouse then
+                # cannot tell them apart.
+                if (
+                    isinstance(scope_type, ast.TableType)
+                    and scope_type == node_table_type
+                    and scope_alias != table_alias
+                    and database_table.to_printed_clickhouse(self.context) == table_alias
+                ):
+                    raise QueryError(
+                        f'"{self._get_scope_table_names(scope)[scope_alias]}" and "{".".join(table_name_chain)}" '
+                        "read the same table. Give one of them an alias."
+                    )
+
             if isinstance(database_table, HogQLDataWarehouseTable) and database_table.table_id is not None:
                 self._record_warehouse_sync_warnings(database_table.table_id)
 
@@ -1675,8 +1690,9 @@ class Resolver(CloningVisitor):
             elif (
                 table_alias != table_name_alias
                 or isinstance(database_table, FunctionCallTable)
-                # `persons` and `posthog.persons` resolve to the same table, and their types compare equal. Later
-                # passes find a scan by comparing types. Without an alias, they read the second scan as the first.
+                # `persons` and `posthog.persons` resolve to the same table, and their types compare equal.
+                # `get_alias_for_table_type` returns the first scope entry with an equal type. Without an alias,
+                # the second scan prints with the first scan's name.
                 or node_table_type in scope.tables.values()
             ):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)

@@ -2582,6 +2582,8 @@ class Database(BaseModel):
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
 
+            _share_root_tables_with_posthog_namespace(database)
+
             if not database._is_direct_query() and database.has_table(["posthog", "flag_evaluations"]):
                 # The events session resolvers ignore from_field and read $session_id and $session_id_uuid from the
                 # source table. Copying the events join keeps the sessions table version that the team's modifiers chose.
@@ -3148,7 +3150,6 @@ class Database(BaseModel):
                 except Exception as e:
                     capture_exception(e)
 
-        _share_root_tables_with_posthog_namespace(database)
         database.apply_schema_scope()
 
         # Arm the deferred foreign-key build only once the schema scope is final, so the trigger set
@@ -3545,8 +3546,9 @@ def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> li
 
 
 def _share_root_tables_with_posthog_namespace(database: Database) -> None:
-    # The sessions modifier replaces the root `sessions` table with another object. `posthog.sessions` has to
-    # point at the replacement too.
+    # The session table version replaces the root `sessions` and `raw_sessions` tables with other objects.
+    # `posthog.<name>` has to point at the replacement too. Joins and saved expressions written to
+    # `posthog.<name>` land on that table, so this runs before they are applied.
     posthog_node = database.tables.children.get("posthog")
     if posthog_node is None:
         return

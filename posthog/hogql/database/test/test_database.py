@@ -4493,6 +4493,18 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 f"Table {qualified_name} should be the same table as {table_name}"
             )
 
+    def test_saved_expression_on_posthog_qualified_sessions_survives_the_session_table_version(self):
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team, table_name="posthog.sessions", field_name="qualified_expr", expression="1 + 1"
+            )
+
+        database = Database.create_for(
+            team=self.team, modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        )
+
+        assert "qualified_expr" in database.get_table("posthog.sessions").fields
+
     def test_posthog_qualified_table_names_resolve_in_select(self):
         database = Database.create_for(team=self.team)
         context = HogQLContext(
@@ -4518,15 +4530,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert str(database.get_table("events.summary").query) == "SELECT 1 AS value"
         assert str(database.get_table("posthog.events.summary").query) == "SELECT 2 AS value"
 
-    @parameterized.expand(
-        [
-            ("events", "uuid"),
-            ("persons", "id"),
-            ("groups", "key"),
-            ("sessions", "session_id"),
-        ]
-    )
-    def test_join_of_a_table_to_its_posthog_qualified_name_compares_both_sides(self, table_name, column):
+    def _print_with_v2_sessions(self, query: str) -> str:
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
         context = HogQLContext(
             team_id=self.team.pk,
@@ -4534,17 +4538,38 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=Database.create_for(team=self.team, modifiers=modifiers),
             modifiers=modifiers,
         )
+        sql, _ = prepare_and_print_ast(parse_select(query), context, dialect="clickhouse")
+        return sql
 
-        sql, _ = prepare_and_print_ast(
-            parse_select(
-                f"SELECT count() FROM {table_name} JOIN posthog.{table_name} "
-                f"ON {table_name}.{column} = posthog.{table_name}.{column}"
-            ),
-            context,
-            dialect="clickhouse",
+    @parameterized.expand(
+        [
+            ("events", "uuid", False),
+            ("persons", "id", False),
+            ("persons", "id", True),
+            ("groups", "key", False),
+            ("groups", "key", True),
+            ("sessions", "session_id", False),
+            ("sessions", "session_id", True),
+        ]
+    )
+    def test_join_of_a_table_to_its_posthog_qualified_name_compares_both_sides(
+        self, table_name, column, qualified_first
+    ):
+        first, second = (
+            (f"posthog.{table_name}", table_name) if qualified_first else (table_name, f"posthog.{table_name}")
+        )
+
+        sql = self._print_with_v2_sessions(
+            f"SELECT count() FROM {first} JOIN {second} ON {table_name}.{column} = posthog.{table_name}.{column}"
         )
 
         assert f"ON equals({table_name}.{column}, posthog__{table_name}.{column})" in sql
+
+    def test_join_of_posthog_qualified_events_to_events_asks_for_an_alias(self):
+        with pytest.raises(QueryError, match="Give one of them an alias"):
+            self._print_with_v2_sessions(
+                "SELECT count() FROM posthog.events JOIN events ON events.uuid = posthog.events.uuid"
+            )
 
     def test_database_serialization_handles_invalid_sources_gracefully(self):
         """Test that serialization continues even with sources that have invalid prefixes."""
