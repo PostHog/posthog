@@ -15,13 +15,13 @@ import { initKeaTests } from '~/test/init'
 
 import * as sidebarApi from 'products/ui_customization/frontend/generated/api'
 import type { AnalyticsSidebarApi } from 'products/ui_customization/frontend/generated/api.schemas'
-
 import {
-    DEFAULT_ANALYTICS_SIDEBAR,
-    DEFAULT_COLLAPSED_SECTIONS,
+    sidebarCustomizationLogic,
     selectShownSidebar,
-    todayAnalyticsLogic,
-} from './todayAnalyticsLogic'
+} from 'products/ui_customization/frontend/sidebarCustomizationLogic'
+
+import { DEFAULT_ANALYTICS_SIDEBAR, analyticsSidebarProps } from './analyticsSidebarConfiguration'
+import { DEFAULT_COLLAPSED_SECTIONS, todayAnalyticsLogic } from './todayAnalyticsLogic'
 
 const CUSTOM_SIDEBAR: AnalyticsSidebarApi = {
     customized: true,
@@ -65,6 +65,7 @@ describe('todayAnalyticsLogic', () => {
             put: { '/api/projects/:team_id/ui_customization/analytics_sidebar/': CUSTOM_SIDEBAR },
             delete: { '/api/projects/:team_id/ui_customization/analytics_sidebar/': DEFAULT_SIDEBAR },
         })
+        localStorage.clear()
         initKeaTests()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.UI_CUSTOMIZATION]: true })
         recentItemsModel.mount()
@@ -75,7 +76,7 @@ describe('todayAnalyticsLogic', () => {
         const read = jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarRetrieve')
         const reset = jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarDestroy')
         const restore = jest.spyOn(sidebarApi, 'uiCustomizationAnalyticsSidebarUpdate')
-        const logic = todayAnalyticsLogic()
+        const logic = sidebarCustomizationLogic(analyticsSidebarProps())
         logic.mount()
         logic.actions.requestSidebarSuccess(CUSTOM_SIDEBAR)
         await logic.asyncActions.loadSidebar()
@@ -91,7 +92,7 @@ describe('todayAnalyticsLogic', () => {
 
     it('loads customization when feature flags arrive after mount', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
-        const logic = todayAnalyticsLogic()
+        const logic = sidebarCustomizationLogic(analyticsSidebarProps())
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.shownSidebar).toEqual(DEFAULT_ANALYTICS_SIDEBAR)
@@ -105,7 +106,7 @@ describe('todayAnalyticsLogic', () => {
     it.each([false, true])(
         'discards an in-flight response after disabling customization, failure=%s',
         async (fails) => {
-            const logic = todayAnalyticsLogic()
+            const logic = sidebarCustomizationLogic(analyticsSidebarProps())
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             const read = deferred<AnalyticsSidebarApi>()
@@ -122,7 +123,7 @@ describe('todayAnalyticsLogic', () => {
     )
 
     it('skips queued writes when disabled and recovers after re-enabling', async () => {
-        const logic = todayAnalyticsLogic()
+        const logic = sidebarCustomizationLogic(analyticsSidebarProps())
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         const reset = deferred<AnalyticsSidebarApi>()
@@ -161,7 +162,7 @@ describe('todayAnalyticsLogic', () => {
                 },
             },
         })
-        const logic = todayAnalyticsLogic()
+        const logic = sidebarCustomizationLogic(analyticsSidebarProps())
         logic.mount()
         await requestStarted
 
@@ -182,7 +183,7 @@ describe('todayAnalyticsLogic', () => {
         ['restore', false],
         ['restore', true],
     ] as const)('keeps %s and its cache when an older GET finishes, failure=%s', async (operation, fails) => {
-        const logic = todayAnalyticsLogic()
+        const logic = sidebarCustomizationLogic(analyticsSidebarProps())
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         const expected = operation === 'reset' ? DEFAULT_SIDEBAR : CUSTOM_SIDEBAR
@@ -205,7 +206,7 @@ describe('todayAnalyticsLogic', () => {
     })
 
     it.each(['reset', 'restore'] as const)('waits for %s before reloading during the write', async (operation) => {
-        const logic = todayAnalyticsLogic()
+        const logic = sidebarCustomizationLogic(analyticsSidebarProps())
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         const expected = operation === 'reset' ? DEFAULT_SIDEBAR : CUSTOM_SIDEBAR
@@ -247,7 +248,7 @@ describe('todayAnalyticsLogic', () => {
     })
 
     it.each([false, true])('finishes queued writes in order after an older reset, failure=%s', async (fails) => {
-        const logic = todayAnalyticsLogic()
+        const logic = sidebarCustomizationLogic(analyticsSidebarProps())
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         const reset = deferred<AnalyticsSidebarApi>()
@@ -274,7 +275,7 @@ describe('todayAnalyticsLogic', () => {
     })
 
     it.each(['reset', 'restore'] as const)('reloads server state after the current %s fails', async (operation) => {
-        const logic = todayAnalyticsLogic()
+        const logic = sidebarCustomizationLogic(analyticsSidebarProps())
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         const write = deferred<AnalyticsSidebarApi>()
@@ -301,7 +302,7 @@ describe('todayAnalyticsLogic', () => {
     })
 
     it('shows a completed reset when the queued restore fails', async () => {
-        const logic = todayAnalyticsLogic()
+        const logic = sidebarCustomizationLogic(analyticsSidebarProps())
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         const reset = deferred<AnalyticsSidebarApi>()
@@ -325,9 +326,9 @@ describe('todayAnalyticsLogic', () => {
     })
 
     it('prefers a server layout over a saved layout, and a saved layout over the default', () => {
-        expect(selectShownSidebar(null, null)).toEqual(DEFAULT_ANALYTICS_SIDEBAR)
-        expect(selectShownSidebar(null, CUSTOM_SIDEBAR)).toEqual(CUSTOM_SIDEBAR)
-        expect(selectShownSidebar(DEFAULT_SIDEBAR, CUSTOM_SIDEBAR)).toEqual(DEFAULT_SIDEBAR)
+        expect(selectShownSidebar(null, null, DEFAULT_ANALYTICS_SIDEBAR)).toEqual(DEFAULT_ANALYTICS_SIDEBAR)
+        expect(selectShownSidebar(null, CUSTOM_SIDEBAR, DEFAULT_ANALYTICS_SIDEBAR)).toEqual(CUSTOM_SIDEBAR)
+        expect(selectShownSidebar(DEFAULT_SIDEBAR, CUSTOM_SIDEBAR, DEFAULT_ANALYTICS_SIDEBAR)).toEqual(DEFAULT_SIDEBAR)
     })
 
     it('starts with every section open, and remembers a toggled section', () => {
@@ -382,7 +383,7 @@ describe('todayAnalyticsLogic', () => {
 
     it.each([false, true])('restores the saved layout through Undo, left pane=%s', async (leftPane) => {
         const successToast = jest.spyOn(toast, 'success')
-        let logic = todayAnalyticsLogic()
+        let logic = sidebarCustomizationLogic(analyticsSidebarProps())
         logic.mount()
         const shown = (): [boolean, string[] | undefined] => [
             logic.values.sidebarCustomized,
@@ -407,13 +408,11 @@ describe('todayAnalyticsLogic', () => {
             logic.unmount()
         }
         await undo?.onClick()
-        if (!leftPane) {
-            await expectLogic(logic).toFinishAllListeners()
-        }
+        await expectLogic(logic).toFinishAllListeners()
         expect(restore).toHaveBeenCalledWith(projectId, { layout: CUSTOM_SIDEBAR.layout })
-        expect(todayAnalyticsLogic.isMounted()).toBe(!leftPane)
+        expect(logic.isMounted()).toBe(!leftPane)
         if (leftPane) {
-            logic = todayAnalyticsLogic()
+            logic = sidebarCustomizationLogic(analyticsSidebarProps())
             logic.mount()
         }
         await expectLogic(logic).toFinishAllListeners()

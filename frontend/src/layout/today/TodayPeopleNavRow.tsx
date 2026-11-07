@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 
 import { SidebarProductMeta } from '~/layout/panel-layout/sidebarProductMeta'
 
-import { TodayPaneRow } from './TodayPaneRow'
+import { SidebarRow } from 'products/ui_customization/frontend/primitives/SidebarRow'
+
 import { TodayPeopleRow } from './todayPeopleLogic'
 import { TODAY_PEOPLE_GROUP_ICON, TODAY_PEOPLE_ROWS, todayPeopleRowIcon } from './todayPeopleRows'
 import { TodayExplainerPreview } from './todayPreviewCards'
@@ -40,7 +41,7 @@ export function TodayPeopleNavRow({
     )
     return (
         <TodayPreviewTrigger payload={preview}>
-            <TodayPaneRow
+            <SidebarRow
                 value={`browse:${row.key}`}
                 label={row.label}
                 meta={meta}

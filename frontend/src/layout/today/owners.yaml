@@ -1,8 +1,0 @@
-version: 1
-owners: []
-rules:
-    - match:
-          - '/TodayAnalyticsSidebarItems.test.tsx'
-          - '/todayAnalyticsLogic.test.ts'
-          - '/todayAnalyticsMetricLogic.test.ts'
-      owners: team-surfaces

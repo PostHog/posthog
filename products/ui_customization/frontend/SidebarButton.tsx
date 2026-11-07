@@ -2,20 +2,19 @@ import { AutocompleteItem, Button } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import type { SidebarButtonApi } from 'products/ui_customization/frontend/generated/api.schemas'
+import type { SidebarButtonApi } from './generated/api.schemas'
 
-import { resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
-
-export function TodayAnalyticsSidebarButton({
+export function SidebarButton({
     value,
     target,
-    sectionId,
+    resolved,
+    dataAttr,
 }: {
     value: string
     target: SidebarButtonApi
-    sectionId: string
+    resolved: { to: string; label: string; icon?: JSX.Element | null } | null
+    dataAttr: string
 }): JSX.Element | null {
-    const resolved = resolveSidebarTarget(target.to, target.label, target.icon)
     if (!resolved) {
         return null
     }
@@ -31,7 +30,7 @@ export function TodayAnalyticsSidebarButton({
                     className="my-1 w-full justify-start data-highlighted:ring-2"
                 />
             }
-            data-attr={`analytics-sidebar-${sectionId}-button`}
+            data-attr={dataAttr}
         >
             {resolved.icon}
             <span className="truncate">{resolved.label}</span>

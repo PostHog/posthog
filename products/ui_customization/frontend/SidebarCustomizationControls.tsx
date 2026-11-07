@@ -7,22 +7,24 @@ import { Button } from '@posthog/quill'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { urls } from 'scenes/urls'
 
-import { todayAnalyticsLogic } from './todayAnalyticsLogic'
+import { SidebarCustomizationProps, sidebarCustomizationLogic } from './sidebarCustomizationLogic'
 
-const CUSTOMIZE_PROMPT =
-    'Help me customize my Analytics sidebar. Show me what is in it now, then ask me what I want to see there.'
+export interface SidebarCustomizationControlsProps extends SidebarCustomizationProps {
+    customizeUrl: string
+    customizeEvent: string
+    dataAttrPrefix: string
+}
 
-/** The way to change the sidebar: PostHog AI builds a layout, and a customized one can go back to the default. */
-export function TodayAnalyticsSidebarCustomize(): JSX.Element | null {
-    const { sidebarLayout, sidebarCustomized, sidebarLoading } = useValues(todayAnalyticsLogic)
-    const { resetSidebar } = useActions(todayAnalyticsLogic)
+export function SidebarCustomizationControls(props: SidebarCustomizationControlsProps): JSX.Element | null {
+    const logic = sidebarCustomizationLogic(props)
+    const { sidebarCustomizationEnabled, sidebarLayout, sidebarCustomized, sidebarLoading } = useValues(logic)
+    const { resetSidebar } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     // Only the PostHog AI that runs in a sandbox has the tools that save a layout.
     const canCustomize = !!featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]
 
-    if (!canCustomize && !sidebarCustomized) {
+    if (!sidebarCustomizationEnabled || (!canCustomize && !sidebarCustomized)) {
         return null
     }
     return (
@@ -32,12 +34,9 @@ export function TodayAnalyticsSidebarCustomize(): JSX.Element | null {
                     size="sm"
                     variant="link-muted"
                     nativeButton={false}
-                    render={<LinkPrimitive to={urls.ai(undefined, CUSTOMIZE_PROMPT)} />}
-                    onClick={() =>
-                        // pinned: analytics event name and property. Renaming them breaks dashboards.
-                        posthog.capture('analytics sidebar customize clicked', { customized: sidebarCustomized })
-                    }
-                    data-attr="analytics-sidebar-customize"
+                    render={<LinkPrimitive to={props.customizeUrl} />}
+                    onClick={() => posthog.capture(props.customizeEvent, { customized: sidebarCustomized })}
+                    data-attr={`${props.dataAttrPrefix}-customize`}
                 >
                     <IconSparkles />
                     Customize with PostHog AI
@@ -49,7 +48,7 @@ export function TodayAnalyticsSidebarCustomize(): JSX.Element | null {
                     variant="link-muted"
                     loading={sidebarLoading}
                     onClick={() => resetSidebar(sidebarLayout)}
-                    data-attr="analytics-sidebar-reset"
+                    data-attr={`${props.dataAttrPrefix}-reset`}
                 >
                     Reset to default
                 </Button>

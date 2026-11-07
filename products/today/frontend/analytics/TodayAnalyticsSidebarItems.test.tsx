@@ -5,21 +5,24 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { AnalyticsSidebarAgentListener } from 'scenes/analytics/AnalyticsSidebarAgentListener'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { todayAnalyticsLogic } from './todayAnalyticsLogic'
+import { SidebarSearchList } from 'products/ui_customization/frontend/primitives/SidebarSearchList'
+import { SidebarAgentListener } from 'products/ui_customization/frontend/SidebarAgentListener'
+import { SidebarButton } from 'products/ui_customization/frontend/SidebarButton'
+import { sidebarCustomizationLogic } from 'products/ui_customization/frontend/sidebarCustomizationLogic'
+
+import { analyticsSidebarProps } from './analyticsSidebarConfiguration'
 import { TodayAnalyticsMetric } from './TodayAnalyticsMetric'
 import { TodayAnalyticsSidebar } from './TodayAnalyticsSidebar'
-import { TodayAnalyticsSidebarButton } from './TodayAnalyticsSidebarButton'
-import { TodayPaneSearchList } from './TodayPaneSearchList'
+import { resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
 
-jest.mock('scenes/analytics/AnalyticsSidebarAgentListener', () => ({
-    AnalyticsSidebarAgentListener: jest.fn(() => null),
+jest.mock('products/ui_customization/frontend/SidebarAgentListener', () => ({
+    SidebarAgentListener: jest.fn(() => null),
 }))
 
 describe('Analytics sidebar options', () => {
@@ -31,8 +34,8 @@ describe('Analytics sidebar options', () => {
 
     it('hides customization and the AI listener when disabled, even with a cached custom layout', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
-        todayAnalyticsLogic.mount()
-        todayAnalyticsLogic.actions.requestSidebarSuccess({
+        sidebarCustomizationLogic(analyticsSidebarProps()).mount()
+        sidebarCustomizationLogic(analyticsSidebarProps()).actions.requestSidebarSuccess({
             customized: true,
             layout: {
                 version: 1,
@@ -51,20 +54,20 @@ describe('Analytics sidebar options', () => {
         expect(container.querySelector('[data-attr="analytics-sidebar-customize"]')).toBeNull()
         expect(container.querySelector('[data-attr="analytics-sidebar-reset"]')).toBeNull()
         expect(container.querySelector('[data-attr="analytics-sidebar-retry"]')).toBeNull()
-        expect(AnalyticsSidebarAgentListener).not.toHaveBeenCalled()
+        expect(SidebarAgentListener).not.toHaveBeenCalled()
     })
 
     it('keeps a pending metric insight available as a link and keyboard option', () => {
         useMocks({ get: { '/api/projects/:team_id/insights/': async () => await new Promise<never>(() => {}) } })
 
         const { container } = render(
-            <TodayPaneSearchList query="" onQueryChange={jest.fn()} searchLabel="Search analytics" dataAttr="search">
+            <SidebarSearchList query="" onQueryChange={jest.fn()} searchLabel="Search analytics" dataAttr="search">
                 <TodayAnalyticsMetric
                     item={{ type: 'metric', insight: 'aB3dE5fG', label: 'Signups this week' }}
                     value="growth:0"
                     active={false}
                 />
-            </TodayPaneSearchList>
+            </SidebarSearchList>
         )
 
         const link = container.querySelector('[data-attr="analytics-sidebar-metric"]')
@@ -96,13 +99,13 @@ describe('Analytics sidebar options', () => {
         })
 
         const { container } = render(
-            <TodayPaneSearchList query="" onQueryChange={jest.fn()} searchLabel="Search analytics" dataAttr="search">
+            <SidebarSearchList query="" onQueryChange={jest.fn()} searchLabel="Search analytics" dataAttr="search">
                 <TodayAnalyticsMetric
                     item={{ type: 'metric', insight: 'aB3dE5fG', label: 'Revenue' }}
                     value="growth:0"
                     active={false}
                 />
-            </TodayPaneSearchList>
+            </SidebarSearchList>
         )
 
         expect(await screen.findByText(/€125/)).toBeTruthy()
@@ -111,10 +114,11 @@ describe('Analytics sidebar options', () => {
 
     it.each(['primary', 'outline'] as const)('includes a %s custom button in arrow navigation', (variant) => {
         const { container } = render(
-            <TodayPaneSearchList query="" onQueryChange={jest.fn()} searchLabel="Search analytics" dataAttr="search">
-                <TodayAnalyticsSidebarButton
+            <SidebarSearchList query="" onQueryChange={jest.fn()} searchLabel="Search analytics" dataAttr="search">
+                <SidebarButton
                     value="growth:0"
-                    sectionId="growth"
+                    dataAttr="analytics-sidebar-growth-button"
+                    resolved={resolveSidebarTarget({ kind: 'page', page: 'new_insight' }, 'New insight')}
                     target={{
                         type: 'button',
                         to: { kind: 'page', page: 'new_insight' },
@@ -122,7 +126,7 @@ describe('Analytics sidebar options', () => {
                         variant,
                     }}
                 />
-            </TodayPaneSearchList>
+            </SidebarSearchList>
         )
 
         const input = container.querySelector('[data-attr="search"]') as HTMLInputElement

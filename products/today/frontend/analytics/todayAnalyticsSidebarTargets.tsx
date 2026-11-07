@@ -1,30 +1,20 @@
 import {
     IconBell,
-    IconBolt,
     IconBox,
     IconDashboard,
     IconDatabase,
-    IconFlag,
-    IconGlobe,
     IconGraph,
     IconList,
     IconNotebook,
     IconNotification,
-    IconPeople,
     IconPerson,
     IconPieChart,
     IconPlus,
-    IconRocket,
-    IconSparkles,
-    IconStar,
-    IconTarget,
-    IconTrending,
-    IconWarning,
 } from '@posthog/icons'
 
-import { Logomark } from 'lib/brand'
 import { urls } from 'scenes/urls'
 
+import type { TodayExplainerPreview } from '~/layout/today/todayPreviewCards'
 import { InsightShortId } from '~/types'
 
 import type {
@@ -35,37 +25,13 @@ import type {
     SidebarPageApi,
     SidebarPageTargetApi,
 } from 'products/ui_customization/frontend/generated/api.schemas'
-
-import type { TodayExplainerPreview } from './todayPreviewCards'
+import { SIDEBAR_ICONS } from 'products/ui_customization/frontend/sidebarIcons'
 
 export type SidebarTarget =
     | SidebarPageTargetApi
     | SidebarInsightTargetApi
     | SidebarDashboardTargetApi
     | SidebarNotebookTargetApi
-
-export const SIDEBAR_ICONS: Record<SidebarIconApi, JSX.Element> = {
-    list: <IconList />,
-    person: <IconPerson />,
-    people: <IconPeople />,
-    box: <IconBox />,
-    bell: <IconBell />,
-    notification: <IconNotification />,
-    posthog: <Logomark className="h-auto w-3.5" />,
-    chart: <IconGraph />,
-    dashboard: <IconDashboard />,
-    notebook: <IconNotebook />,
-    sql: <IconDatabase />,
-    star: <IconStar />,
-    rocket: <IconRocket />,
-    target: <IconTarget />,
-    trending: <IconTrending />,
-    globe: <IconGlobe />,
-    sparkle: <IconSparkles />,
-    bolt: <IconBolt />,
-    flag: <IconFlag />,
-    warning: <IconWarning />,
-}
 
 export interface ResolvedSidebarTarget {
     label: string

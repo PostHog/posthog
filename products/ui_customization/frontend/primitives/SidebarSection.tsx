@@ -3,9 +3,9 @@ import { ReactNode, RefCallback, useId } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 import { AutocompleteItem, Button, cn } from '@posthog/quill'
 
-import { TodayPaneSectionResizeHandle } from './TodayPaneSectionResizeHandle'
-import { SECTION_TOGGLE_ATTR } from './todayPaneTreeKeys'
-import { TodaySectionResizer } from './useTodaySectionLayout'
+import { SidebarSectionResizeHandle } from './SidebarSectionResizeHandle'
+import { SECTION_TOGGLE_ATTR } from './sidebarTreeKeys'
+import { SidebarSectionResizer } from './types'
 
 // The heading is a small button: it shows a hover and keyboard highlight like the rows, in the section label's type.
 const TRIGGER_CLASS_NAME =
@@ -14,7 +14,7 @@ const TRIGGER_CLASS_NAME =
     // An open section is the usual state, so it does not take the expanded fill of a menu trigger.
     '[&[aria-expanded=true]:not(:hover,[data-highlighted])]:bg-transparent [&[aria-expanded=true]:not(:hover,[data-highlighted])]:text-muted-foreground'
 
-export interface TodayPaneSectionProps {
+export interface SidebarSectionProps {
     label: string
     /** Shows before the label, for a section whose source matters, such as the PostHog mark. */
     icon?: JSX.Element | null
@@ -30,13 +30,13 @@ export interface TodayPaneSectionProps {
     dataAttr: string
     height?: number
     animate?: boolean
-    resizer?: TodaySectionResizer
+    resizer?: SidebarSectionResizer
     resizing?: boolean
     contentRef?: RefCallback<HTMLElement>
     children: ReactNode
 }
 
-export function TodayPaneSection({
+export function SidebarSection({
     label,
     icon,
     open,
@@ -53,7 +53,7 @@ export function TodayPaneSection({
     resizing = false,
     contentRef,
     children,
-}: TodayPaneSectionProps): JSX.Element {
+}: SidebarSectionProps): JSX.Element {
     const contentId = useId()
     const triggerProps = {
         'aria-expanded': open,
@@ -80,7 +80,7 @@ export function TodayPaneSection({
     return (
         <section aria-label={label} className="flex shrink-0 flex-col">
             <div className={cn('relative flex h-7 shrink-0 items-center gap-1', divider && 'border-t border-border')}>
-                {resizer && <TodayPaneSectionResizeHandle label={label} active={resizing} resizer={resizer} />}
+                {resizer && <SidebarSectionResizeHandle label={label} active={resizing} resizer={resizer} />}
                 {heading ?? (
                     // The heading is a list option, so the arrow keys reach it with the rows.
                     <AutocompleteItem value={`section:${dataAttr}`} {...triggerProps} render={trigger}>
