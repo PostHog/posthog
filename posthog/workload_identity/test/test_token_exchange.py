@@ -103,7 +103,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
         }
         return WorkloadTrustPolicy.objects.for_team(target.id).create(team=target, **fields)
 
-    def _exchange(self, subject_token: str | None = None, **overrides: str) -> Any:
+    def _exchange(self, subject_token: str | None = None, meta: dict[str, str] | None = None, **overrides: str) -> Any:
         self.client.logout()
         data = {
             "grant_type": TOKEN_EXCHANGE_GRANT_TYPE,
@@ -112,7 +112,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
             "resource": f"{_SITE_URL}/api/projects/{self.team.id}",
             **overrides,
         }
-        return self.client.post("/oauth/token/", data)
+        return self.client.post("/oauth/token/", data, **(meta or {}))
 
     def _access_token(self) -> str:
         response = self._exchange()
@@ -259,6 +259,26 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert trusted.json()["error_code"] == "workload_rate_limited"
         assert trusted["Retry-After"] == str(trusted.json()["retry_after"])
         assert verify.call_count == 1
+
+    @parameterized.expand(
+        [
+            # Left-most forwarded addresses from a peer that isn't a trusted proxy say nothing about the caller.
+            ("untrusted_peer", "203.0.113.9", status.HTTP_429_TOO_MANY_REQUESTS),
+            ("trusted_proxy", "10.0.0.1", status.HTTP_200_OK),
+        ]
+    )
+    def test_exchange_attempts_count_forwarded_addresses_only_through_trusted_proxies(
+        self, _name: str, peer: str, second_status: int
+    ) -> None:
+        with (
+            override_settings(USE_X_FORWARDED_HOST=True, TRUSTED_PROXIES="10.0.0.1", TRUST_ALL_PROXIES=False),
+            patch.object(WorkloadExchangeBurstThrottle, "rate", "1/minute"),
+        ):
+            first = self._exchange(meta={"REMOTE_ADDR": peer, "HTTP_X_FORWARDED_FOR": "198.51.100.1"})
+            second = self._exchange(meta={"REMOTE_ADDR": peer, "HTTP_X_FORWARDED_FOR": "198.51.100.2"})
+
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.status_code == second_status, second.json()
 
     def test_exchange_refuses_a_token_signed_by_another_key(self) -> None:
         response = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))
