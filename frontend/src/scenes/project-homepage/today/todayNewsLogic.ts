@@ -178,6 +178,16 @@ export const todayNewsLogic = kea<todayNewsLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         loadNewsSuccess: ({ news }) => {
+            const edition = news?.edition
+            if (edition && cache.shownEditionId !== edition.id) {
+                cache.shownEditionId = edition.id
+                posthog.capture('today news shown', {
+                    edition_id: edition.id,
+                    unread: values.hasUnreadNews,
+                    stories: 1 + edition.stories.length,
+                    briefs: edition.briefs.length,
+                })
+            }
             if (news?.status === 'computing') {
                 cache.disposables.add(() => {
                     const poll = window.setTimeout(() => actions.loadNews(), NEWS_POLL_MS)

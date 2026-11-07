@@ -2,6 +2,7 @@ import { Text } from '@posthog/quill'
 
 import type { NewsStoryApi } from 'products/today/frontend/generated/api.schemas'
 
+import { TodayNewsChart } from './TodayNewsChart'
 import { TodayNewsKicker } from './TodayNewsKicker'
 
 export function TodayNewsStoryRow({ story, onDiveIn }: { story: NewsStoryApi; onDiveIn: () => void }): JSX.Element {
@@ -21,6 +22,15 @@ export function TodayNewsStoryRow({ story, onDiveIn }: { story: NewsStoryApi; on
                 <Text size="xs" variant="muted" render={<span />} className="text-pretty">
                     {story.summary}
                 </Text>
+                {story.series.length > 1 ? (
+                    <TodayNewsChart
+                        values={story.series}
+                        labels={story.series_labels}
+                        tone={story.tone}
+                        emphasizeLast={3}
+                        className="mt-auto h-12 pt-1"
+                    />
+                ) : null}
             </button>
         </li>
     )

@@ -1,17 +1,10 @@
-import { Suspense, lazy } from 'react'
-
 import { IconArrowRight } from '@posthog/icons'
-import { Heading, Skeleton, Text } from '@posthog/quill'
-
-import { retryImport } from 'lib/utils/retryImport'
+import { Heading, Text, cn } from '@posthog/quill'
 
 import type { NewsLeadStoryApi } from 'products/today/frontend/generated/api.schemas'
 
+import { TodayNewsChart } from './TodayNewsChart'
 import { TodayNewsKicker } from './TodayNewsKicker'
-
-const TodaySparkline = lazy(() =>
-    retryImport(() => import('./TodaySparkline').then((m) => ({ default: m.TodaySparkline })))
-)
 
 export function TodayNewsLead({ story, onDiveIn }: { story: NewsLeadStoryApi; onDiveIn: () => void }): JSX.Element {
     const hasChart = story.series.length > 1
@@ -21,7 +14,10 @@ export function TodayNewsLead({ story, onDiveIn }: { story: NewsLeadStoryApi; on
             type="button"
             onClick={onDiveIn}
             aria-label={`Dive in: ${story.title}`}
-            className="group/story -m-3 grid cursor-pointer gap-6 rounded-lg p-3 text-start hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 @3xl:grid-cols-2"
+            className={cn(
+                'group/story -m-3 grid cursor-pointer gap-6 rounded-lg p-3 text-start hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+                hasChart && '@3xl:grid-cols-2'
+            )}
             data-attr="today-news-dive-in"
         >
             <span className="flex flex-col gap-2">
@@ -50,17 +46,13 @@ export function TodayNewsLead({ story, onDiveIn }: { story: NewsLeadStoryApi; on
                             </>
                         ) : null}
                     </Text>
-                    <span className="min-h-28 flex-1">
-                        <Suspense fallback={<Skeleton className="h-full w-full" />}>
-                            <TodaySparkline
-                                values={story.series}
-                                labels={story.series_labels}
-                                tone={story.tone}
-                                emphasizeLast={5}
-                                fromZero
-                            />
-                        </Suspense>
-                    </span>
+                    <TodayNewsChart
+                        values={story.series}
+                        labels={story.series_labels}
+                        tone={story.tone}
+                        emphasizeLast={5}
+                        className="min-h-28 flex-1"
+                    />
                 </span>
             ) : null}
         </button>

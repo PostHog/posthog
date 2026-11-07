@@ -144,18 +144,6 @@ class FiringAlert:
 
 
 @frozen
-class ProjectFiringAlert:
-    id: UUID
-    name: str
-    insight_id: int
-    insight_name: str | None
-    insight_short_id: str
-    subscriber_count: int
-    last_notified_at: datetime | None
-    firing_since: datetime | None = None
-
-
-@frozen
 class AlertInternalEvent:
     """One internal event that makes an alert's HogFunction destinations fire."""
 

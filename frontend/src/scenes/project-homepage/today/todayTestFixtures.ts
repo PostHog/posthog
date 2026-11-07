@@ -78,6 +78,7 @@ export function makeHighlights(overrides: Partial<HighlightsApi> = {}): Highligh
 }
 
 const NEWS_SERIES = [41, 40.4, 41.8, 41.2, 40.6, 41.1, 41.6, 40.8, 41.3, 36.2, 33.4, 32.1, 31.6, 31.4]
+const NEWS_LABELS = NEWS_SERIES.map((_, index) => `Sep ${15 + index}`)
 
 export const NEWS_EDITION: NewsEditionApi = {
     id: 'edition-1',
@@ -95,7 +96,7 @@ export const NEWS_EDITION: NewsEditionApi = {
         metric_label: 'Last 14 days',
         metric_value: '31.4%',
         series: NEWS_SERIES,
-        series_labels: NEWS_SERIES.map((_, index) => `Sep ${15 + index}`),
+        series_labels: NEWS_LABELS,
     },
     stories: [
         {
@@ -107,6 +108,8 @@ export const NEWS_EDITION: NewsEditionApi = {
             change: null,
             tone: 'risk',
             dive_prompt: 'Three alerts are firing. Which one should we look at first, and what is the likely cause?',
+            series: [2, 3, 2, 4, 3, 2, 3, 4, 3, 5, 6, 8, 9, 11],
+            series_labels: NEWS_LABELS,
         },
         {
             id: 'pricing-experiment',
@@ -117,6 +120,8 @@ export const NEWS_EDITION: NewsEditionApi = {
             change: 8,
             tone: 'good',
             dive_prompt: 'Variant B of the pricing page layout won. What should we do to roll it out safely?',
+            series: [120, 118, 125, 131, 128, 135, 140, 138, 142, 150, 149, 155, 158, 161],
+            series_labels: NEWS_LABELS,
         },
         {
             id: 'checkout-error',
@@ -127,7 +132,30 @@ export const NEWS_EDITION: NewsEditionApi = {
             change: null,
             tone: 'risk',
             dive_prompt: 'A new checkout error reached 214 users. What causes it, and how do we fix it?',
+            series: [0, 0, 0, 0, 0, 0, 0, 0, 12, 48, 96, 150, 188, 214],
+            series_labels: NEWS_LABELS,
         },
     ],
-    briefs: ['2 experiments started', '12 new feature flags', '41 deploys to production'],
+    briefs: [
+        {
+            id: 'error:slow-search',
+            value: 1900,
+            text: 'waited on slow search results',
+            change: 28,
+            is_new: false,
+            tone: 'risk',
+            series: [1200, 1300, 1250, 1400, 1350, 1300, 1450, 1500, 1480, 1600, 1700, 1750, 1820, 1900],
+            series_labels: NEWS_LABELS,
+        },
+        {
+            id: 'error:missing-docs',
+            value: 310,
+            text: 'hit a missing docs page',
+            change: null,
+            is_new: true,
+            tone: 'risk',
+            series: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40, 120, 260, 310],
+            series_labels: NEWS_LABELS,
+        },
+    ],
 }

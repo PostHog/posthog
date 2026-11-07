@@ -408,9 +408,9 @@ export const NewsToneEnumApi = {
 } as const
 
 export interface NewsLeadStoryApi {
-    /** Stable id of the fact behind the story, for example alert:<id>. */
+    /** Stable id of the item behind the story, for example error:<issue id>. */
     id: string
-    /** Product the story is about, for example feature_flags. */
+    /** Product the story is about, for example error_tracking. */
     product: string
     /** Display name of the product. */
     product_label: string
@@ -436,20 +436,20 @@ export interface NewsLeadStoryApi {
      * @nullable
      */
     url?: string | null
-    /** Label of the number on the lead chart. Empty when the lead fact has no number. */
-    metric_label: string
-    /** Formatted number on the lead chart. Empty when the lead fact has no number. */
-    metric_value: string
     /** Values for the lead chart, oldest first. Empty when there is no chart. */
     series: number[]
     /** One label per value in `series`, oldest first. */
     series_labels: string[]
+    /** Label of the number on the lead chart. Empty when the lead fact has no number. */
+    metric_label: string
+    /** Formatted number on the lead chart. Empty when the lead fact has no number. */
+    metric_value: string
 }
 
 export interface NewsStoryApi {
-    /** Stable id of the fact behind the story, for example alert:<id>. */
+    /** Stable id of the item behind the story, for example error:<issue id>. */
     id: string
-    /** Product the story is about, for example feature_flags. */
+    /** Product the story is about, for example error_tracking. */
     product: string
     /** Display name of the product. */
     product_label: string
@@ -475,6 +475,36 @@ export interface NewsStoryApi {
      * @nullable
      */
     url?: string | null
+    /** Daily values for the story chart over the last 14 days, oldest first. Empty when there is no chart. */
+    series: number[]
+    /** One date label per value in `series`, oldest first. */
+    series_labels: string[]
+}
+
+export interface NewsBriefApi {
+    /** Stable id of the item behind the brief, for example error:<issue id>. */
+    id: string
+    /** The number the brief is about, usually people affected in the last 24 hours. */
+    value: number
+    /** Short words that follow the number, for example `couldn't open recordings`. */
+    text: string
+    /**
+     * Change in percent vs the median of the same 24 hours in the last 4 weeks. Null when the item is new or grouped.
+     * @nullable
+     */
+    change: number | null
+    /** True when nothing like this happened in the last 4 weeks. */
+    is_new: boolean
+    /** `risk` when something got worse, `good` when it got better, `neutral` otherwise.
+     *
+     * * `risk` - Risk
+     * * `good` - Good
+     * * `neutral` - Neutral */
+    tone: NewsToneEnumApi
+    /** Daily values over the last 14 days, oldest first. Empty when there is no chart. */
+    series: number[]
+    /** One date label per value in `series`, oldest first. */
+    series_labels: string[]
 }
 
 export interface NewsEditionApi {
@@ -488,8 +518,8 @@ export interface NewsEditionApi {
     lead: NewsLeadStoryApi
     /** Up to 3 more stories, most important first. */
     stories: NewsStoryApi[]
-    /** Up to 4 one-sentence notes about smaller changes. */
-    briefs: string[]
+    /** Up to 3 smaller items, each a number, a short label and a chart. */
+    briefs: NewsBriefApi[]
 }
 
 export interface TodayNewsApi {

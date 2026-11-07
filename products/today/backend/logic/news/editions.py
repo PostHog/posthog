@@ -1,7 +1,10 @@
+import time
 import asyncio
-from collections.abc import Callable, Mapping
+from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import asdict
 from datetime import date, datetime, timedelta
-from typing import cast
+from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
@@ -9,26 +12,31 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from pydantic import TypeAdapter
 from temporalio.common import WorkflowIDReusePolicy
 
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.scopes import APIScopeObject
 from posthog.temporal.common.client import sync_connect
 from posthog.token_bucket import BucketDecision, Budget, consume, refund
 
-from ...facade.contracts import NewsEdition, NewsFact, TodayNews
+from ...facade.contracts import NewsEdition, TodayNews
 from ...facade.enums import NewsSkipReason, NewsStatus
 from ...feature_flags import news_may_use_ai
 from ...models import NewsPeriod, TodayHighlights, TodayNewsEdition
 from ...temporal.inputs import NEWS_WORKFLOW_NAME, FailNewsInputs, GenerateNewsInputs, news_workflow_id
-from ..highlight_registry import load_sources
 from ..highlight_types import Context
 from . import (
-    facts as news_facts,
+    assemble,
+    candidates as news_candidates,
+    plan as news_plan,
+    queries,
     writer,
 )
+from .assemble import StoredEdition
+from .candidates import Candidate
 
 logger = structlog.get_logger(__name__)
 
@@ -42,7 +50,9 @@ BUDGET = Budget(burst=DAILY_CAP // 4, per_hour=DAILY_CAP // 24)
 BUDGET_KEY = "today_news_rate:global"
 MAX_ERROR_LENGTH = 2000
 
-STORED_EDITION = TypeAdapter(writer.StoredEdition)
+STORED_EDITION = TypeAdapter(StoredEdition)
+CANDIDATES = TypeAdapter(list[Candidate])
+GENERATED_EVENT = "today news edition generated"
 
 
 class NewsWriteFailed(Exception):
@@ -154,53 +164,32 @@ def get_news(*, team: Team, user: User, scopes: frozenset[str] | None) -> TodayN
     viewer = Context(team, user, now.astimezone(team.timezone_info).date(), scopes)
     edition = visible_edition(
         STORED_EDITION.validate_python(row.content),
-        {item.fact.key: item.fact for item in news_facts.SCORED_FACTS.validate_python(row.facts)},
-        lambda fact: viewer_may_see(viewer, fact),
-        edition_id=str(row.id),
-        start=row.period_start,
+        lambda required: viewer.allows(*required),
+        str(row.id),
+        row.period_start,
     )
     if edition is None:
         return TodayNews(status=NewsStatus.SKIPPED, skip_reason=NewsSkipReason.NO_ACCESS, edition=None)
     return TodayNews(status=NewsStatus.READY, skip_reason=None, edition=edition)
 
 
-def viewer_may_see(viewer: Context, fact: NewsFact) -> bool:
-    if not viewer.allows(*fact.scopes):
-        return False
-    if fact.object_id is None:
-        return True
-    resource = cast(APIScopeObject, fact.resource)
-    allowlisted = viewer.access.allowlisted_resource_ids_by_scope
-    if resource in allowlisted:
-        return fact.object_id in allowlisted[resource]
-    return fact.object_id not in viewer.access.blocked_resource_ids_by_scope.get(resource, frozenset())
-
-
 def visible_edition(
-    stored: writer.StoredEdition,
-    facts: Mapping[str, NewsFact],
-    may_see: Callable[[NewsFact], bool],
-    *,
-    edition_id: str,
-    start: date,
+    stored: StoredEdition, allows: Callable[[tuple[str, ...]], bool], edition_id: str, start: date
 ) -> NewsEdition | None:
-    def visible(key: str) -> bool:
-        return key in facts and may_see(facts[key])
-
-    stories = [story for story in stored.stories if visible(story.id)]
-    lead = stored.lead
-    if not visible(lead.id):
+    stories = [item.story for item in stored.stories if allows(item.scopes)]
+    lead = stored.lead.story if allows(stored.lead.scopes) else None
+    if lead is None:
         if not stories:
             return None
         promoted, *stories = stories
-        lead = writer.lead_story(promoted, facts[promoted.id])
+        lead = assemble.lead_story(promoted)
     return NewsEdition(
         id=edition_id,
         is_sample=False,
         period_start=start,
         lead=lead,
         stories=stories,
-        briefs=[brief.text for brief in stored.briefs if all(visible(ref) for ref in brief.refs)],
+        briefs=[item.brief for item in stored.briefs if allows(item.scopes)],
     )
 
 
@@ -208,22 +197,69 @@ def _computing_row(team_id: int, edition_id: str) -> TodayNewsEdition | None:
     return TodayNewsEdition.objects.for_team(team_id).filter(id=edition_id, status=NewsStatus.COMPUTING).first()
 
 
+def _anchor(row: TodayNewsEdition) -> datetime:
+    return row.created_at.replace(minute=0, second=0, microsecond=0)
+
+
+def _skip_quiet(row: TodayNewsEdition, fields: list[str]) -> None:
+    row.status = NewsStatus.SKIPPED
+    row.skip_reason = NewsSkipReason.QUIET
+    row.ready_at = timezone.now()
+    row.save(update_fields=[*fields, "status", "skip_reason", "ready_at"])
+    refund(BUDGET_KEY, BUDGET)
+
+
+def _track(team: Team, edition_id: str, outcome: str, **properties: Any) -> None:
+    posthoganalytics.capture(
+        distinct_id=f"team_{team.id}",
+        event=GENERATED_EVENT,
+        groups=groups(team.organization, team),
+        properties={"edition_id": edition_id, "outcome": outcome, **properties},
+    )
+
+
+def gather(team: Team, anchor: datetime) -> list[Candidate]:
+    def run(statement: str, name: str, **values: Any) -> list[tuple[Any, ...]]:
+        return queries.run(team, statement, anchor, name, **values)
+
+    actions = list(news_candidates.from_actions(run(queries.ACTIONS, "actions")))
+    acted = {candidate.key for candidate in actions}
+    found = [
+        *news_candidates.from_errors(run(queries.ERRORS, "errors")),
+        *(c for c in news_candidates.from_key_events(run(queries.KEY_EVENTS, "key_events")) if c.key not in acted),
+        *news_candidates.from_surveys(run(queries.SURVEYS, "surveys")),
+        *actions,
+        *news_candidates.from_traffic(run(queries.TRAFFIC, "traffic")),
+    ]
+    return news_candidates.number(found)
+
+
 def collect_facts(inputs: GenerateNewsInputs) -> bool:
     row = _computing_row(inputs.team_id, inputs.edition_id)
     if row is None:
         return False
     team = Team.objects.get(id=inputs.team_id)
-    scored = news_facts.collect(team, timezone.now(), load_sources())
-    row.facts = news_facts.SCORED_FACTS.dump_python(scored, mode="json")
-    if news_facts.enough(scored):
-        row.save(update_fields=["facts"])
-        return True
-    row.status = NewsStatus.SKIPPED
-    row.skip_reason = NewsSkipReason.QUIET
-    row.ready_at = timezone.now()
-    row.save(update_fields=["facts", "status", "skip_reason", "ready_at"])
-    refund(BUDGET_KEY, BUDGET)
-    return False
+    started = time.monotonic()
+    found = gather(team, _anchor(row))
+    seconds = round(time.monotonic() - started, 1)
+    row.facts = {"candidates": CANDIDATES.dump_python(found, mode="json"), "gather_seconds": seconds}
+    if not found:
+        _skip_quiet(row, ["facts"])
+        _track(team, inputs.edition_id, "quiet", candidates=0, gather_seconds=seconds)
+        return False
+    row.save(update_fields=["facts"])
+    return True
+
+
+def _series(team: Team, anchor: datetime, picked: list[Candidate]) -> dict[tuple[str, str], dict[int, float]]:
+    keys: dict[str, set[str]] = defaultdict(set)
+    for candidate in picked:
+        keys[candidate.source].add(candidate.key)
+    series: dict[tuple[str, str], dict[int, float]] = defaultdict(dict)
+    for source, wanted in keys.items():
+        for key, days_ago, value in queries.run(team, queries.SERIES[source], anchor, "series", keys=sorted(wanted)):
+            series[(source, str(key))][int(days_ago)] = float(value)
+    return series
 
 
 def write_edition(inputs: GenerateNewsInputs) -> None:
@@ -231,25 +267,43 @@ def write_edition(inputs: GenerateNewsInputs) -> None:
     if row is None:
         return
     team = Team.objects.get(id=inputs.team_id)
-    scored = news_facts.SCORED_FACTS.validate_python(row.facts)[: news_facts.MAX_PROMPT_FACTS]
-    end = row.created_at.astimezone(team.timezone_info).date()
-    completion = writer.complete(
-        team_id=team.id,
-        edition_id=str(row.id),
-        project_name=team.name,
-        period=writer.period_label(end - timedelta(days=news_facts.WINDOW_DAYS), end),
-        facts=scored,
+    started = time.monotonic()
+    found = {candidate.id: candidate for candidate in CANDIDATES.validate_python(row.facts["candidates"])}
+    reply, analyst = writer.analyze(
+        team_id=team.id, edition_id=str(row.id), candidates=[asdict(candidate) for candidate in found.values()]
     )
-    stored = writer.build_edition(completion.reply, scored)
-    if stored is None:
-        raise NewsWriteFailed("The model reply named no known fact")
+    plan = news_plan.build(news_plan.parse_facts(reply, found))
+    usage = {"analyst_tokens_in": analyst.input_tokens, "analyst_tokens_out": analyst.output_tokens}
+    if plan is None:
+        _skip_quiet(row, [])
+        _track(team, inputs.edition_id, "quiet", candidates=len(found), **usage)
+        return
+    draft, editor = writer.write(team_id=team.id, edition_id=str(row.id), plan=news_plan.writer_input(plan, team.name))
+    if draft is None:
+        raise NewsWriteFailed("The writer reply did not match the plan")
+    anchor = _anchor(row)
+    stored = assemble.edition(plan, draft, _series(team, anchor, assemble.picked(plan)), anchor)
     TodayNewsEdition.objects.for_team(inputs.team_id).filter(id=inputs.edition_id, status=NewsStatus.COMPUTING).update(
         status=NewsStatus.READY,
         content=STORED_EDITION.dump_python(stored, mode="json"),
-        model=completion.model[:64],
-        input_tokens=completion.input_tokens,
-        output_tokens=completion.output_tokens,
+        model=editor.model[:64],
+        input_tokens=analyst.input_tokens + editor.input_tokens,
+        output_tokens=analyst.output_tokens + editor.output_tokens,
         ready_at=timezone.now(),
+    )
+    _track(
+        team,
+        inputs.edition_id,
+        "ready",
+        candidates=len(found),
+        stories=1 + len(stored.stories),
+        briefs=len(stored.briefs),
+        writer_calls=editor.calls,
+        writer_tokens_in=editor.input_tokens,
+        writer_tokens_out=editor.output_tokens,
+        gather_seconds=row.facts.get("gather_seconds"),
+        write_seconds=round(time.monotonic() - started, 1),
+        **usage,
     )
 
 

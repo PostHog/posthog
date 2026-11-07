@@ -13,8 +13,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef, Q, Subquery
-from django.db.models.functions import Coalesce
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 import structlog
@@ -254,44 +253,6 @@ def list_firing_alerts_created_by(
             insight_short_id=alert.insight.short_id,
         )
         for alert in islice(viewable, limit)
-    ]
-
-
-def list_firing_alerts_for_project(
-    *, team_id: int, withheld_insight_ids: Collection[str], limit: int
-) -> list[contracts.ProjectFiringAlert]:
-    alerts = (
-        AlertConfiguration.objects.filter(
-            team_id=team_id, enabled=True, state=AlertState.FIRING, insight__deleted=False
-        )
-        .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=timezone.now()))
-        .exclude(insight_id__in=[int(insight_id) for insight_id in withheld_insight_ids if insight_id.isdigit()])
-    )
-    alerts = alerts.exclude(id__in=alerts.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
-    last_calm_check = (
-        AlertCheck.objects.filter(alert_configuration=OuterRef("pk"))
-        .exclude(state=AlertState.FIRING)
-        .order_by("-created_at")
-        .values("created_at")[:1]
-    )
-    candidates = (
-        alerts.select_related("insight").annotate(
-            subscriber_count=Count("subscribed_users", distinct=True),
-            firing_since=Coalesce(Subquery(last_calm_check), "created_at"),
-        )
-    ).order_by("-firing_since")[:limit]
-    return [
-        contracts.ProjectFiringAlert(
-            id=alert.id,
-            name=alert.name,
-            insight_id=alert.insight_id,
-            insight_name=alert.insight.name or alert.insight.derived_name,
-            insight_short_id=alert.insight.short_id,
-            subscriber_count=alert.subscriber_count,
-            last_notified_at=alert.last_notified_at,
-            firing_since=alert.firing_since,
-        )
-        for alert in candidates
     ]
 
 

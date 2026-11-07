@@ -35,8 +35,8 @@ HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=180)
 HIGHLIGHT_SOURCE_TOTAL_TIMEOUT = timedelta(seconds=240)
 FINALIZE_HIGHLIGHTS_TIMEOUT = timedelta(seconds=30)
 PINNED_NUMBERS_PATCH = "today-pinned-numbers"
-COLLECT_NEWS_TIMEOUT = timedelta(seconds=180)
-WRITE_NEWS_TIMEOUT = timedelta(minutes=2)
+COLLECT_NEWS_TIMEOUT = timedelta(minutes=5)
+WRITE_NEWS_TIMEOUT = timedelta(minutes=5)
 FAIL_NEWS_TIMEOUT = timedelta(seconds=30)
 MAX_NEWS_ERROR_LENGTH = 2000
 

@@ -326,7 +326,8 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
 }
 
-.TodayPulseCard .TodayChange {
+.TodayPulseCard .TodayChange,
+.TodayNewsBriefs .TodayChange {
     font-size: inherit;
     color: inherit;
 }

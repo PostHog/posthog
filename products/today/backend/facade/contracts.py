@@ -314,41 +314,6 @@ class HighlightContext(Protocol):
 
 
 @frozen
-class NewsFact:
-    key: str
-    kind: str
-    title: str
-    importance: float
-    magnitude: float
-    breadth: float
-    at: datetime
-    tone: NewsTone
-    resource: str
-    scopes: tuple[str, ...]
-    object_id: str | None = None
-    numbers: dict[str, float | int | str] = field(default_factory=dict)
-    change: float | None = None
-    metric_label: str | None = None
-    metric_value: str | None = None
-    series: tuple[float, ...] = ()
-    series_labels: tuple[str, ...] = ()
-    url: str | None = None
-    product: str = ""
-
-
-class NewsContext(Protocol):
-    team: "Team"
-    start: datetime
-    end: datetime
-
-    def shared(self, resource: str) -> bool: ...
-
-    def withheld(self, resource: str) -> frozenset[str]: ...
-
-    def guard(self, name: str, provider: Callable[[], T], default: T) -> T: ...
-
-
-@frozen
 class HighlightSource:
     """A product's contribution to "For you today".
 
@@ -362,7 +327,6 @@ class HighlightSource:
     # Today skips the source when the viewer's API scopes or access controls do not cover these.
     scopes: tuple[str, ...] = ()
     pulse_order: int = 0
-    news: Callable[[NewsContext], tuple[NewsFact, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -376,6 +340,8 @@ class NewsStory:
     tone: NewsTone
     dive_prompt: str
     url: str | None = None
+    series: list[float] = field(default_factory=list)
+    series_labels: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -396,13 +362,25 @@ class NewsLeadStory:
 
 
 @dataclass(frozen=True)
+class NewsBrief:
+    id: str
+    value: int
+    text: str
+    change: float | None
+    is_new: bool
+    tone: NewsTone
+    series: list[float]
+    series_labels: list[str]
+
+
+@dataclass(frozen=True)
 class NewsEdition:
     id: str
     is_sample: bool
     period_start: date
     lead: NewsLeadStory
     stories: list[NewsStory]
-    briefs: list[str]
+    briefs: list[NewsBrief]
 
 
 @dataclass(frozen=True)
