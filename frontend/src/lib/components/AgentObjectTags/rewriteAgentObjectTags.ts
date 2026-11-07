@@ -118,6 +118,9 @@ function scanCode(text: string): Span[] {
     let offset = 0
     for (const line of text.split('\n')) {
         const fence = RE_FENCE_LINE.exec(line)
+        // A backtick fence cannot carry a backtick in its info string. This is not a lookahead in
+        // RE_FENCE_LINE, because the regex would then scan the rest of the line again for each shorter run.
+        const opensFence = fence !== null && !(fence[1][0] === '`' && line.includes('`', fence[0].length))
         if (fenceChar) {
             const closes =
                 fence !== null &&
@@ -128,7 +131,7 @@ function scanCode(text: string): Span[] {
                 spans.push({ start: fenceStart, end: offset + line.length })
                 fenceChar = ''
             }
-        } else if (fence) {
+        } else if (opensFence) {
             fenceChar = fence[1][0]
             fenceLength = fence[1].length
             fenceStart = offset
@@ -459,8 +462,15 @@ function heldSuffixStart(text: string, spans: Span[], searchFrom: number): numbe
  * `projectBase` is the app path every object link hangs off, e.g. `/project/2`.
  * Text with no tags passes through unchanged, so the transform is safe to run
  * on every render, including on text it already rewrote.
+ *
+ * A trailing tag that may still be streaming in is held back from the output.
+ * Pass `streaming: false` for text that is complete, so that text is kept whole.
  */
-export function rewriteAgentObjectTags(text: string, projectBase: string): string {
+export function rewriteAgentObjectTags(
+    text: string,
+    projectBase: string,
+    { streaming = true }: { streaming?: boolean } = {}
+): string {
     text = expandStandaloneSqlLinks(text)
     if (!text.includes('<')) {
         return text
@@ -470,7 +480,7 @@ export function rewriteAgentObjectTags(text: string, projectBase: string): strin
     // Complete tags all end before the held region starts, so the slice below
     // cannot invalidate them.
     const searchFrom = tags.length > 0 ? tags[tags.length - 1].end : 0
-    const held = heldSuffixStart(text, spans, searchFrom)
+    const held = streaming ? heldSuffixStart(text, spans, searchFrom) : null
     if (held !== null && text.length - held <= MAX_HELD_SUFFIX) {
         text = text.slice(0, held)
     }

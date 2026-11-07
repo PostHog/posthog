@@ -134,4 +134,15 @@ describe('rewriteAgentObjectTags', () => {
     it('links project-relative when no project base is known', () => {
         expect(rewriteAgentObjectTags('<insight id="a">x</insight>', '')).toBe('[x](/insights/a)')
     })
+
+    it('rewrites a tag after a line that only looks like a fence opener', () => {
+        expect(rewriteAgentObjectTags('```js`\n<insight id="a">x</insight>', BASE)).toBe(
+            '```js`\n[x](/project/2/insights/a)'
+        )
+    })
+
+    it('keeps a trailing partial tag in complete text', () => {
+        expect(rewriteAgentObjectTags('keep <insight', BASE)).toBe('keep ')
+        expect(rewriteAgentObjectTags('keep <insight', BASE, { streaming: false })).toBe('keep <insight')
+    })
 })
