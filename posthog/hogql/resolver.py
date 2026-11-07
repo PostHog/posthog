@@ -1643,8 +1643,7 @@ class Resolver(CloningVisitor):
 
             for scope_alias, scope_type in scope.tables.items():
                 # An unaliased scan of a non-lazy table prints as its bare table name. `FROM posthog.events JOIN
-                # events` would print both scans as `events`. ClickHouse then
-                # cannot tell them apart.
+                # events` would print both scans as `events`. ClickHouse then cannot tell them apart.
                 if (
                     isinstance(scope_type, ast.TableType)
                     and scope_type == node_table_type
