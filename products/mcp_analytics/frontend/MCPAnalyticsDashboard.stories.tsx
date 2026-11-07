@@ -56,7 +56,7 @@ const DAILY_TOTALS: [string, number, number][] = [
     ['2026-06-07', 5300, 168],
 ]
 
-const ACTIVITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors]) => [day, calls - errors, errors])
+const ACTIVITY_RESULTS = DAILY_TOTALS.map(([bucket, calls, errors]) => ({ bucket, successes: calls - errors, errors }))
 
 const TOOL_DAILY_SHARES: [string, number][] = [
     ['exec', 0.58],
@@ -68,7 +68,7 @@ const TOOL_DAILY_SHARES: [string, number][] = [
 ]
 
 const TOOL_DAILY_RESULTS = DAILY_TOTALS.flatMap(([day, calls]) =>
-    TOOL_DAILY_SHARES.map(([tool, share]) => [day, tool, Math.round(calls * share)])
+    TOOL_DAILY_SHARES.map(([tool, share]) => ({ bucket: day, tool, calls: Math.round(calls * share) }))
 )
 
 const SESSION_RESULTS = [
@@ -105,6 +105,17 @@ const HARNESS_RESULTS = [
     { harness: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
     { harness: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
     { harness: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
+]
+
+const MODEL_BREAKDOWN_RESULTS = [
+    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
+    { model: 'example-fast', total_calls: 3100 },
+    { model: 'example-balanced', total_calls: 1800 },
+    { model: 'example-model-d', total_calls: 500 },
+    { model: 'example-model-e', total_calls: 200 },
+    { model: 'example-model-f', total_calls: 1 },
+    { model: 'Other', total_calls: 179 },
+    { model: 'Unknown', total_calls: 600 },
 ]
 
 const SESSION_LIST = {
@@ -775,6 +786,17 @@ const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
     3100 + index * 90,
 ])
 
+const DASHBOARD_SECTIONS: Record<string, unknown[]> = {
+    kpis: KPI_RESULTS,
+    periodTotals: [[1840, 1655, 2050, 2180]],
+    toolRows: TOOL_RESULTS,
+    sessionRows: SESSION_RESULTS,
+    harnessRows: HARNESS_RESULTS,
+    modelRows: MODEL_BREAKDOWN_RESULTS,
+    activityRows: ACTIVITY_RESULTS,
+    toolDailyRows: TOOL_DAILY_RESULTS,
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/MCP Analytics',
@@ -808,22 +830,21 @@ const meta: Meta = {
                     const query: string = body?.query?.query ?? ''
                     // The harness tile sends a typed MCPHarnessBreakdownQuery node (the runner
                     // resolves the harness server-side) — match on its kind, not a SQL string.
-                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
+                    if (body?.query?.kind === 'MCPDashboardQuery') {
                         return [
                             200,
                             {
-                                results: [
-                                    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
-                                    { model: 'example-fast', total_calls: 3100 },
-                                    { model: 'example-balanced', total_calls: 1800 },
-                                    { model: 'example-model-d', total_calls: 500 },
-                                    { model: 'example-model-e', total_calls: 200 },
-                                    { model: 'example-model-f', total_calls: 1 },
-                                    { model: 'Other', total_calls: 179 },
-                                    { model: 'Unknown', total_calls: 600 },
-                                ],
+                                results: Object.fromEntries(
+                                    body.query.sections.map((section: string) => [
+                                        section,
+                                        { results: DASHBOARD_SECTIONS[section] ?? [] },
+                                    ])
+                                ),
                             },
                         ]
+                    }
+                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
+                        return [200, { results: MODEL_BREAKDOWN_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
@@ -897,28 +918,10 @@ const meta: Meta = {
                         ]
                     }
                     if (body?.query?.kind === 'MCPToolCallBreakdownQuery') {
-                        return [
-                            200,
-                            {
-                                results: TOOL_DAILY_RESULTS.map(([bucket, tool, calls]) => ({
-                                    bucket,
-                                    tool,
-                                    calls,
-                                })),
-                            },
-                        ]
+                        return [200, { results: TOOL_DAILY_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPToolCallsAndErrorsQuery') {
-                        return [
-                            200,
-                            {
-                                results: ACTIVITY_RESULTS.map(([bucket, successes, errors]) => ({
-                                    bucket,
-                                    successes,
-                                    errors,
-                                })),
-                            },
-                        ]
+                        return [200, { results: ACTIVITY_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPToolCategoriesQuery') {
                         return [200, { results: CATEGORY_LIST.map((r) => ({ category: r[0] })) }]
@@ -932,7 +935,7 @@ const meta: Meta = {
                     if (body?.query?.kind === 'EventsQuery') {
                         return [200, activityEventsResponse(body.query.select ?? [])]
                     }
-                    // Leaderboard home tab queries. Match before the KPI query below: both select AS bucket.
+                    // Leaderboard home tab queries.
                     if (query.includes('AS lab,')) {
                         return [
                             200,
@@ -976,18 +979,6 @@ const meta: Meta = {
                                 results: [[true, ACTIVITY_OVERVIEW.stats.total_calls, 72, '2026-05-15T09:00:00Z']],
                             },
                         ]
-                    }
-                    if (query.includes('AS session_id')) {
-                        return [200, { results: SESSION_RESULTS }]
-                    }
-                    if (query.includes('p95_duration_ms')) {
-                        return [200, { results: TOOL_RESULTS }]
-                    }
-                    if (query.includes('AS bucket')) {
-                        return [200, { results: KPI_RESULTS }]
-                    }
-                    if (query.includes('current_users')) {
-                        return [200, { results: [[1840, 1655, 2050, 2180]] }]
                     }
                     return [200, { results: [] }]
                 },
