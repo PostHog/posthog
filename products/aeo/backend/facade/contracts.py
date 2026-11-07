@@ -404,3 +404,64 @@ class PromptSuggestionJob:
 
 class PromptSuggestionJobNotFoundError(Exception):
     pass
+
+
+@frozen
+class RankedBrand:
+    """How often answers named one brand: the project's own, or a competitor derived from the
+    domains the engines cite."""
+
+    domain: str
+    name: str
+    is_target: bool
+    answers_mentioning: int
+    visibility: float | None
+    previous_visibility: float | None
+    positive_share: float | None
+
+
+@frozen
+class RankedBrandDay:
+    """One brand's visibility on one day."""
+
+    date: dt.date
+    domain: str
+    answers: int
+    visibility: float | None
+
+
+@frozen
+class RankedDomain:
+    """A registrable domain the engines cited, with how many answers and distinct pages."""
+
+    domain: str
+    answers: int
+    share_of_answers: float
+    urls: int
+    is_target: bool
+    is_competitor: bool
+
+
+@frozen
+class RankedPage:
+    """A page the engines cited."""
+
+    url: str
+    answers: int
+    share_of_answers: float
+    is_target: bool
+
+
+@frozen
+class PromptSetRankings:
+    """Brand visibility against competitors, and the domains and pages the engines cite, over the
+    last `days` days."""
+
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    answers: int
+    brands: tuple[RankedBrand, ...]
+    daily: tuple[RankedBrandDay, ...]
+    top_domains: tuple[RankedDomain, ...]
+    top_pages: tuple[RankedPage, ...]

@@ -25,6 +25,7 @@ import {
     EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
     EXAMPLE_PROMPT_SET_OVERVIEW,
+    EXAMPLE_PROMPT_SET_RANKINGS,
     EXAMPLE_PROMPT_TOPICS,
     EXAMPLE_PROMPTS,
     EXAMPLE_PROPOSAL,
@@ -68,6 +69,7 @@ const workspaceHandlers = ({
             ],
             '/api/projects/:team_id/aeo_prompts/topics/': () => [200, EXAMPLE_PROMPT_TOPICS],
             '/api/projects/:team_id/aeo_prompts/overview/': () => [200, EXAMPLE_PROMPT_SET_OVERVIEW],
+            '/api/projects/:team_id/aeo_prompts/rankings/': () => [200, EXAMPLE_PROMPT_SET_RANKINGS],
             '/api/projects/:team_id/web_analytics_content_autopilot_opportunities/': () => [
                 200,
                 { count: opportunities.length, next: null, previous: null, results: opportunities },
@@ -224,3 +226,7 @@ PromptsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opport
 export const OverviewTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
 OverviewTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
 OverviewTab.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+export const RankingsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="rankings" />
+RankingsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
+RankingsTab.parameters = { testOptions: { snapshotBrowsers: [] } }

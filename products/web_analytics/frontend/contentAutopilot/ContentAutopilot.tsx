@@ -11,6 +11,7 @@ import { ContentAutopilotPrompts } from './ContentAutopilotPrompts'
 import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOverview'
 import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSuggestModal'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
+import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
 
@@ -139,6 +140,11 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                 key: 'overview',
                                 label: 'Overview',
                                 content: <ContentAutopilotPromptsOverview />,
+                            },
+                            {
+                                key: 'rankings',
+                                label: 'Rankings',
+                                content: <ContentAutopilotRankings />,
                             },
                             {
                                 key: 'prompts',
