@@ -24,6 +24,7 @@ from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
@@ -99,6 +100,8 @@ COHORT_RECALCULATION_TRANSIENT_ERRORS = (
 # resume: the ClickHouse insert excludes the actors it already wrote and personhog ignores existing
 # membership. Recording the limit as terminal would strand a half-written cohort instead.
 STATIC_POPULATION_TRANSIENT_ERRORS = (*COHORT_RECALCULATION_TRANSIENT_ERRORS, SoftTimeLimitExceeded)
+
+COHORT_STATS_LOOKUP_LOAD_ERRORS = (*CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled, ClickHouseQueryTimeOut)
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
@@ -1242,7 +1245,18 @@ def collect_cohort_query_stats(
             return
 
         start_time = parser.parse(start_time_iso)
-        query_stats = get_clickhouse_query_stats(tag_matcher, cohort_id, start_time, history.team.id)
+        try:
+            query_stats = get_clickhouse_query_stats(tag_matcher, cohort_id, start_time, history.team.id)
+        except COHORT_STATS_LOOKUP_LOAD_ERRORS as e:
+            logger.warning(
+                "Failed to retrieve ClickHouse query stats, not retrying",
+                tag_matcher=tag_matcher,
+                cohort_id=cohort_id,
+                history_id=history_id,
+                error=str(e),
+            )
+            _collect_cohort_calculation_metrics(history, start_time)
+            return
 
         if query_stats:  # Skip if stats already collected (check if queries field is non-empty)
             if history.queries:
