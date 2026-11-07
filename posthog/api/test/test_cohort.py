@@ -27,6 +27,8 @@ from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
+
 from posthog.api.cohort import (
     COHORT_USED_IN_PAGE_SIZE,
     AddPersonsToStaticCohortRequestSerializer,
@@ -5359,7 +5361,7 @@ email@example.org,
         self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         self.team.timezone = timezone
         self.team.save()
-        criterion = {**_FLAG_CALLED_CRITERION, "time_value": 88}
+        criterion = {**_FLAG_CALLED_CRITERION, "time_value": FLAG_EVALUATIONS_COMPLETE_DAYS - 1}
 
         with time_machine.travel(datetime(2026, 10, 27, 0, 30, tzinfo=UTC), tick=False):
             response = self.client.post(
