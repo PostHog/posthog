@@ -41,6 +41,7 @@ rules:
               - /products/data_catalog/frontend/components/MetricMarkdownEditor.tsx
               - /products/data_catalog/frontend/components/metricMarkdown.ts
               - /products/data_catalog/frontend/components/metricMarkdownSlashCommands.tsx
+              - /products/workflows/frontend/EmailDocumentEditor
               # Anchors the packages into a shared chunk. It is a build entry, not app code.
               - /frontend/src/sharedChunkAnchors.ts
       patterns:
