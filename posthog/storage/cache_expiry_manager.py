@@ -459,7 +459,8 @@ def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> Refresh
 
 # Every writer scores a member with a whole number of seconds, so a score ending in .5 marks a
 # member that only the cleanup wrote. The delay keeps the member out of the 24-hour window that
-# select_expiring_teams reads, so an entry whose delete keeps failing never takes a refresh slot.
+# select_expiring_teams reads, so an entry whose delete keeps failing never uses up one of the
+# `limit` members that the selection returns.
 _DELETE_RETRY_DELAY_SECONDS = 2 * 24 * 3600 + 0.5
 
 

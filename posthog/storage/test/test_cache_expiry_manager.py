@@ -1,6 +1,8 @@
+import json
 import time
 from uuid import uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
@@ -8,6 +10,7 @@ from unittest.mock import MagicMock, call, patch
 from django.core.cache import caches
 from django.test import SimpleTestCase, override_settings
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.dbrouter import ReplicaRouter
@@ -285,7 +288,7 @@ class TestRefreshExpiringCaches(SimpleTestCase):
     },
 )
 class TestCleanupStaleExpiryTracking(BaseTest):
-    def given_cache(self, token_based: bool) -> None:
+    def given_cache(self, token_based: bool, mirror: bool = True) -> None:
         self.sorted_set_key = f"expiry_cleanup_test_{uuid4().hex}"
         self.hypercache = create_test_hypercache(
             namespace=f"expiry_cleanup_test_{uuid4().hex}",
@@ -293,7 +296,9 @@ class TestCleanupStaleExpiryTracking(BaseTest):
             expiry_sorted_set_key=self.sorted_set_key,
         )
         # Remote config and flag definitions mirror every write and delete to a secondary cache.
-        self.hypercache.secondary_cache_client = caches["mirror"]
+        # The flags and team metadata caches have no mirror.
+        if mirror:
+            self.hypercache.secondary_cache_client = caches["mirror"]
         self.config = HyperCacheManagementConfig(
             hypercache=self.hypercache, update_fn=lambda team, ttl=None: True, cache_name="test_cache"
         )
@@ -317,16 +322,17 @@ class TestCleanupStaleExpiryTracking(BaseTest):
 
     @parameterized.expand(
         [
-            ("token_based", True, True),
-            ("id_based", False, True),
-            ("without_object_storage", True, False),
+            ("token_based", True, True, True),
+            ("id_based", False, True, True),
+            ("without_object_storage", True, False, True),
+            ("id_based_without_a_mirror", False, True, False),
         ]
     )
     def test_deletes_the_entry_of_a_deleted_team_and_keeps_a_live_one(
-        self, _name: str, token_based: bool, object_storage_enabled: bool
+        self, _name: str, token_based: bool, object_storage_enabled: bool, mirror: bool
     ) -> None:
         with override_settings(OBJECT_STORAGE_ENABLED=object_storage_enabled):
-            self.given_cache(token_based)
+            self.given_cache(token_based, mirror=mirror)
             deleted_team = self.deleted_team()
             self.write_entry(self.team)
             self.write_entry(deleted_team)
@@ -427,25 +433,59 @@ class TestCleanupStaleExpiryTracking(BaseTest):
         assert self.entry_state(deleted_team) == (False, False, False)
         assert mirror.get(key) is None
 
-    def test_an_entry_restored_without_a_new_score_stays_tracked(self) -> None:
+    @parameterized.expand(
+        [
+            ("primary", (True, False, True), True),
+            ("object_storage", (False, True, True), False),
+            ("mirror", (False, False, True), True),
+        ]
+    )
+    def test_an_entry_restored_without_a_new_score_stays_tracked(
+        self, tier: str, state_after_cleanup: tuple[bool, bool, bool], mirror_holds_it: bool
+    ) -> None:
         self.given_cache(token_based=True)
         deleted_team = self.deleted_team()
         self.write_entry(deleted_team)
+        mirror = self.hypercache.secondary_cache_client
+        assert mirror is not None
         delete_object = object_storage.delete
+        data = {"id": deleted_team.id}
 
-        def restore_then_delete(key: str) -> None:
-            # A read between the Redis delete and the object-storage delete copies the object back
-            # into Redis. That path does not add the member again.
-            self.hypercache._set_cache_value_redis(deleted_team, {"id": deleted_team.id})
+        def delete_then_restore(key: str) -> None:
             delete_object(key)
+            # A read between the Redis delete and the object-storage delete copies the object back
+            # into Redis. A rewrite whose own add failed leaves a copy in any tier. Neither path
+            # adds the member again.
+            if tier == "primary":
+                self.hypercache._set_cache_value_redis(deleted_team, data)
+            elif tier == "object_storage":
+                self.hypercache._set_cache_value_s3(deleted_team, data)
+            else:
+                mirror.set(key, json.dumps(data))
 
-        with patch("posthog.storage.hypercache.object_storage.delete", side_effect=restore_then_delete):
+        key = self.hypercache.get_cache_key(deleted_team)
+        with patch("posthog.storage.hypercache.object_storage.delete", side_effect=delete_then_restore):
             assert cleanup_stale_expiry_tracking(self.config) == 0
 
-        assert self.entry_state(deleted_team) == (True, False, True)
+        assert self.entry_state(deleted_team) == state_after_cleanup
+        assert (mirror.get(key) is not None) == mirror_holds_it
 
         assert cleanup_stale_expiry_tracking(self.config) == 1
         assert self.entry_state(deleted_team) == (False, False, False)
+        assert mirror.get(key) is None
+
+    @parameterized.expand(
+        [
+            ("during_a_delete", "posthog.storage.hypercache.HyperCache.delete_cache_entry"),
+            ("during_the_team_lookup", f"{MODULE}.existing_team_identifiers"),
+        ]
+    )
+    def test_a_soft_time_limit_stops_the_cleanup(self, _name: str, target: str) -> None:
+        self.given_cache(token_based=True)
+        self.write_entry(self.deleted_team())
+
+        with patch(target, side_effect=SoftTimeLimitExceeded()), pytest.raises(SoftTimeLimitExceeded):
+            cleanup_stale_expiry_tracking(self.config)
 
     def test_a_failed_existence_check_keeps_the_entry_tracked_for_the_next_cleanup(self) -> None:
         self.given_cache(token_based=True)
