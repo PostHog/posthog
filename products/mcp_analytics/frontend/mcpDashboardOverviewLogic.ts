@@ -1,20 +1,14 @@
-import {
-    BreakPointFunction,
-    MakeLogicType,
-    actions,
-    afterMount,
-    connect,
-    kea,
-    listeners,
-    path,
-    reducers,
-    selectors,
-} from 'kea'
-import { loaders } from 'kea-loaders'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'lib/posthog-typed'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import {
     type ComparisonWindow,
@@ -26,12 +20,15 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import {
     CachedMCPDashboardQueryResponse,
     HogQLFilters,
     MCPAnalyticsPropertyFilter,
     MCPDashboardQuery,
     MCPDashboardSection,
+    MCPDashboardSectionResult,
     MCPHarnessBreakdownItem,
     MCPModelBreakdownItem,
     MCPProtocolVersionBreakdownItem,
@@ -52,6 +49,91 @@ export interface DateFilter {
 }
 
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
+
+const MCP_DASHBOARD_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-dashboard')
+const DASHBOARD_TILE_ID = 'mcp-dashboard'
+
+export type DashboardLayout = 'overview' | 'leaderboard'
+
+const SHARED_SECTIONS: MCPDashboardSection[] = [
+    MCPDashboardSection.Kpis,
+    MCPDashboardSection.PeriodTotals,
+    MCPDashboardSection.ToolRows,
+    MCPDashboardSection.SessionRows,
+    MCPDashboardSection.HarnessRows,
+    MCPDashboardSection.ModelRows,
+    MCPDashboardSection.ActivityRows,
+]
+
+// The leaderboard loads its facets itself and draws protocol versions from them. It keeps modelRows as the
+// model chart's fallback when the model facet fails.
+const LAYOUT_SECTIONS: Record<DashboardLayout, readonly MCPDashboardSection[]> = {
+    overview: [...SHARED_SECTIONS, MCPDashboardSection.ProtocolVersionRows, MCPDashboardSection.ToolDailyRows],
+    leaderboard: SHARED_SECTIONS,
+}
+
+// These cards hide when they have no rows, so a failure would read as no data without a toast.
+const SECTIONS_WITHOUT_ERROR_STATE = [MCPDashboardSection.ModelRows, MCPDashboardSection.ProtocolVersionRows]
+
+export interface LoadedSection extends MCPDashboardSectionResult {
+    /** The KPI split point of the window the section was computed on. */
+    currentStartBucket: string
+}
+
+export type SectionResults = Partial<Record<MCPDashboardSection, LoadedSection>>
+
+export type SectionFlags = Partial<Record<MCPDashboardSection, boolean>>
+
+function sectionRows<T>(sections: SectionResults, section: MCPDashboardSection): T[] {
+    return (sections[section]?.results as T[] | undefined) ?? []
+}
+
+interface SectionsResponse {
+    results: SectionResults
+    isCached: boolean
+    requestError?: unknown
+}
+
+async function requestSections(query: MCPDashboardQuery): Promise<SectionsResponse> {
+    const { currentStartBucket } = query.comparison
+    try {
+        const response = (await api.query(query)) as CachedMCPDashboardQueryResponse
+        const results = Object.entries(response.results).map(([section, result]) => [
+            section,
+            { ...result, currentStartBucket },
+        ])
+        return { results: Object.fromEntries(results), isCached: response.is_cached }
+    } catch (requestError) {
+        const results = query.sections.map((section) => [section, { error: String(requestError), currentStartBucket }])
+        return { results: Object.fromEntries(results), isCached: false, requestError }
+    }
+}
+
+// Matches initKea's loader failure toast, which skips a request without a status and the 401 and 403 the app
+// handles elsewhere.
+function isToastedStatus(error: unknown): boolean {
+    const status = (error as { status?: unknown } | null)?.status
+    return typeof status === 'number' && ![401, 403, 409].includes(status)
+}
+
+// Cards with an error state only report to error tracking. A one-section request's failure is that section's
+// own, so it toasts for the cards that hide; a failed batch says nothing about any one section, so it doesn't.
+// The server captures each section that fails inside a batch, so only request failures are captured here.
+function reportFailures({ results, requestError }: SectionsResponse, owned: MCPDashboardSection[]): void {
+    if (requestError !== undefined && shouldReportApiFailure(requestError)) {
+        posthog.captureException(requestError, { action: 'load-mcp-dashboard-sections', sections: owned })
+    }
+    const failedOnItsOwn =
+        requestError === undefined
+            ? (section: MCPDashboardSection): boolean => !!results[section]?.error
+            : () => Object.keys(results).length === 1 && isToastedStatus(requestError)
+    if (owned.some((section) => SECTIONS_WITHOUT_ERROR_STATE.includes(section) && failedOnItsOwn(section))) {
+        lemonToast.error(
+            "Couldn't load the model or protocol version breakdown. Try again, or pick a shorter date range.",
+            { toastId: 'mcp-dashboard-breakdown-failed' }
+        )
+    }
+}
 
 // The `__BUCKET__` expression the KPI query is built with. toString() is load-bearing: a bare
 // dateTrunc returns a typed DateTime that the query API serializes with the project's UTC offset
@@ -250,28 +332,6 @@ function kpiComparisonWindow(dateFilter: DateFilter, timezone: string, interval:
     return { ...window, dateFrom: dayjs(window.dateFrom).startOf('minute').toISOString() }
 }
 
-interface SectionQueryInputs {
-    dateFilter: DateFilter
-    interval: IntervalType
-    timezone: string
-    sharedQueryFilters: MCPSharedQueryFilters
-}
-
-function dashboardQuery(section: MCPDashboardSection, inputs: SectionQueryInputs): MCPDashboardQuery {
-    const { dateFilter, interval, timezone, sharedQueryFilters } = inputs
-    const window = kpiComparisonWindow(dateFilter, timezone, interval)
-    return {
-        kind: NodeKind.MCPDashboardQuery,
-        sections: [section],
-        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-        interval,
-        // The shared filter bar only offers event and person filters, which the server accepts.
-        properties: sharedQueryFilters.properties as MCPAnalyticsPropertyFilter[],
-        filterTestAccounts: sharedQueryFilters.filterTestAccounts,
-        comparison: { dateFrom: window.dateFrom, currentStartBucket: window.currentStartBucket },
-    }
-}
-
 function parseRows(rawRows: unknown[][]): BucketRow[] {
     return rawRows.map((r) => ({
         bucket: String(r[0]),
@@ -351,36 +411,6 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
     }
 }
 
-export type FailedLoads = Partial<
-    Record<
-        | 'kpis'
-        | 'periodTotals'
-        | 'toolRows'
-        | 'sessionRows'
-        | 'harnessRows'
-        | 'modelRows'
-        | 'protocolVersionRows'
-        | 'activityRows'
-        | 'toolDailyRows',
-        boolean
-    >
->
-
-// Drops a request superseded by a newer one, even when it fails, so a late failure can't mark the
-// newer result as failed.
-async function querySection<T>(query: MCPDashboardQuery, breakpoint: BreakPointFunction): Promise<T[]> {
-    try {
-        const [section] = query.sections
-        const result = ((await api.query(query)) as CachedMCPDashboardQueryResponse).results[section]
-        if (result?.error) {
-            throw new Error(result.error)
-        }
-        return (result?.results as T[] | undefined) ?? []
-    } finally {
-        breakpoint()
-    }
-}
-
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpDashboardOverviewLogicValues {
     sharedQueryFilters: MCPSharedQueryFilters // mcpAnalyticsFiltersLogic
@@ -391,17 +421,17 @@ export interface mcpDashboardOverviewLogicValues {
     timezone: string // teamLogic
     activityIncompleteTail: boolean
     activityRows: ActivityRow[]
-    activityRowsLoading: boolean
     bucketKeys: string[]
     canShowFeedback: boolean
     dailyActivity: DailyActivity
+    dashboardBatched: boolean
+    dashboardLayout: DashboardLayout
     dashboardLoading: boolean
     dateFilter: DateFilter
-    failedLoads: FailedLoads
+    failedLoads: SectionFlags
     feedbackContextKey: string
     feedbackLoadFailed: boolean
     harnessRows: HarnessRow[]
-    harnessRowsLoading: boolean
     hasFilterInteraction: boolean
     hasModelData: boolean
     hasProtocolVersionData: boolean
@@ -410,26 +440,45 @@ export interface mcpDashboardOverviewLogicValues {
     interval: IntervalType
     kpiIncompleteTail: boolean
     kpis: KPIData
-    kpisLoading: boolean
+    loadingSections: SectionFlags
     modelRows: ModelRow[]
-    modelRowsLoading: boolean
     notableSessions: NotableSession[]
     periodTotals: PeriodTotals
-    periodTotalsLoading: boolean
     protocolVersionRows: MCPProtocolVersionBreakdownItem[]
-    protocolVersionRowsLoading: boolean
     queryFilters: HogQLFilters
+    sections: SectionResults
     sessionRows: SessionRow[]
-    sessionRowsLoading: boolean
     toolDailyRows: ToolDailyRow[]
-    toolDailyRowsLoading: boolean
     toolDailySeries: ToolDailySeries
     toolRows: ToolRow[]
-    toolRowsLoading: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpDashboardOverviewLogicActions {
+    collectionNodeLoadData: (
+        id: string,
+        kind?: string | undefined
+    ) => {
+        id: string
+        kind: string | undefined
+    } // dataNodeCollectionLogic
+    collectionNodeLoadDataFailure: (id: string) => {
+        id: string
+    } // dataNodeCollectionLogic
+    collectionNodeLoadDataSuccess: (
+        id: string,
+        meta?: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+    ) => {
+        id: string
+        meta: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+    } // dataNodeCollectionLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
     hydrateFilters: (
         filterTestAccountsOverride: boolean | null,
         propertyFilters: AnyPropertyFilter[]
@@ -443,168 +492,15 @@ export interface mcpDashboardOverviewLogicActions {
     setPropertyFilters: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
     } // mcpAnalyticsFiltersLogic
-    loadActivityRows: (_: void) => void
-    loadActivityRowsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
+    loadDashboard: () => {
+        value: true
     }
-    loadActivityRowsSuccess: (
-        activityRows: ActivityRow[],
-        payload?: void
+    loadSections: (
+        sections: MCPDashboardSection[],
+        fullLoad?: boolean
     ) => {
-        activityRows: ActivityRow[]
-        payload?: void
-    }
-    loadHarnessRows: (_: void) => void
-    loadHarnessRowsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadHarnessRowsSuccess: (
-        harnessRows: HarnessRow[],
-        payload?: void
-    ) => {
-        harnessRows: HarnessRow[]
-        payload?: void
-    }
-    loadKPIs: (_: void) => void
-    loadKPIsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadKPIsSuccess: (
-        kpis: KPIData,
-        payload?: void
-    ) => {
-        kpis: KPIData
-        payload?: void
-    }
-    loadModelRows: (_: void) => void
-    loadModelRowsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadModelRowsSuccess: (
-        modelRows: ModelRow[],
-        payload?: void
-    ) => {
-        modelRows: ModelRow[]
-        payload?: void
-    }
-    loadPeriodTotals: (_: void) => void
-    loadPeriodTotalsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadPeriodTotalsSuccess: (
-        periodTotals: PeriodTotals,
-        payload?: void
-    ) => {
-        periodTotals: PeriodTotals
-        payload?: void
-    }
-    loadProtocolVersionRows: (_: void) => void
-    loadProtocolVersionRowsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadProtocolVersionRowsSuccess: (
-        protocolVersionRows: MCPProtocolVersionBreakdownItem[],
-        payload?: void
-    ) => {
-        protocolVersionRows: MCPProtocolVersionBreakdownItem[]
-        payload?: void
-    }
-    loadSessionRows: (_: void) => void
-    loadSessionRowsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadSessionRowsSuccess: (
-        sessionRows: {
-            distinct_tools: number
-            duration_seconds: number
-            error_rate_pct: number
-            errors: number
-            last_seen: string
-            session_id: string
-            tool_calls: number
-        }[],
-        payload?: void
-    ) => {
-        sessionRows: {
-            distinct_tools: number
-            duration_seconds: number
-            error_rate_pct: number
-            errors: number
-            last_seen: string
-            session_id: string
-            tool_calls: number
-        }[]
-        payload?: void
-    }
-    loadToolDailyRows: (_: void) => void
-    loadToolDailyRowsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadToolDailyRowsSuccess: (
-        toolDailyRows: ToolDailyRow[],
-        payload?: void
-    ) => {
-        toolDailyRows: ToolDailyRow[]
-        payload?: void
-    }
-    loadToolRows: (_: void) => void
-    loadToolRowsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadToolRowsSuccess: (
-        toolRows: {
-            error_rate_pct: number
-            errors: number
-            p95_duration_ms: number
-            tool: string
-            total_calls: number
-        }[],
-        payload?: void
-    ) => {
-        toolRows: {
-            error_rate_pct: number
-            errors: number
-            p95_duration_ms: number
-            tool: string
-            total_calls: number
-        }[]
-        payload?: void
+        fullLoad: boolean
+        sections: MCPDashboardSection[]
     }
     markFilterInteraction: () => {
         value: true
@@ -614,6 +510,9 @@ export interface mcpDashboardOverviewLogicActions {
     }
     reloadAll: () => {
         value: true
+    }
+    sectionsLoaded: (results: SectionResults) => {
+        results: Partial<Record<MCPDashboardSection, LoadedSection>>
     }
     setDateFilter: (
         dateFrom: string | null,
@@ -627,33 +526,20 @@ export interface mcpDashboardOverviewLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpDashboardOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        dashboardLoading: (
-            kpisLoading: boolean,
-            periodTotalsLoading: boolean,
-            toolRowsLoading: boolean,
-            sessionRowsLoading: boolean,
-            harnessRowsLoading: boolean,
-            modelRowsLoading: boolean,
-            protocolVersionRowsLoading: boolean,
-            activityRowsLoading: boolean,
-            toolDailyRowsLoading: boolean
-        ) => boolean
-        feedbackLoadFailed: (
-            failedLoads: Partial<
-                Record<
-                    | 'activityRows'
-                    | 'harnessRows'
-                    | 'kpis'
-                    | 'modelRows'
-                    | 'periodTotals'
-                    | 'protocolVersionRows'
-                    | 'sessionRows'
-                    | 'toolDailyRows'
-                    | 'toolRows',
-                    boolean
-                >
-            >
-        ) => boolean
+        dashboardLayout: (featureFlags: FeatureFlagsSet) => DashboardLayout
+        dashboardBatched: (featureFlags: FeatureFlagsSet) => boolean
+        dashboardLoading: (loadingSections: SectionFlags) => boolean
+        failedLoads: (sections: SectionResults, dashboardLayout: DashboardLayout) => SectionFlags
+        feedbackLoadFailed: (failedLoads: SectionFlags) => boolean
+        kpis: (sections: SectionResults) => KPIData
+        periodTotals: (sections: SectionResults) => PeriodTotals
+        toolRows: (sections: SectionResults) => ToolRow[]
+        sessionRows: (sections: SectionResults) => SessionRow[]
+        harnessRows: (sections: SectionResults) => HarnessRow[]
+        modelRows: (sections: SectionResults) => ModelRow[]
+        protocolVersionRows: (sections: SectionResults) => MCPProtocolVersionBreakdownItem[]
+        activityRows: (sections: SectionResults) => ActivityRow[]
+        toolDailyRows: (sections: SectionResults) => ToolDailyRow[]
         canShowFeedback: (
             hasFilterInteraction: boolean,
             dashboardLoading: boolean,
@@ -697,37 +583,49 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             mcpAnalyticsFiltersLogic,
             ['queryFilters as sharedQueryFilters'],
         ],
-        actions: [mcpAnalyticsFiltersLogic, ['hydrateFilters', 'setFilterTestAccounts', 'setPropertyFilters']],
+        actions: [
+            mcpAnalyticsFiltersLogic,
+            ['hydrateFilters', 'setFilterTestAccounts', 'setPropertyFilters'],
+            featureFlagLogic,
+            ['setFeatureFlags'],
+            dataNodeCollectionLogic({ key: MCP_DASHBOARD_DATA_COLLECTION_ID }),
+            ['collectionNodeLoadData', 'collectionNodeLoadDataSuccess', 'collectionNodeLoadDataFailure'],
+        ],
     })),
     actions({
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         reloadAll: true,
         markFilterInteraction: true,
         openToolReport: (tool: string) => ({ tool }),
+        loadDashboard: true,
+        loadSections: (sections: MCPDashboardSection[], fullLoad: boolean = false) => ({ sections, fullLoad }),
+        sectionsLoaded: (results: SectionResults) => ({ results }),
     }),
     reducers({
         hasFilterInteraction: [false, { markFilterInteraction: () => true }],
-        failedLoads: [
-            {} as FailedLoads,
+        // A section keeps its rows while it reloads, like the per-card loaders did, but drops its error so a
+        // retried card shows its loading state.
+        sections: [
+            {} as SectionResults,
             {
-                loadKPIs: (state) => ({ ...state, kpis: false }),
-                loadKPIsFailure: (state) => ({ ...state, kpis: true }),
-                loadPeriodTotals: (state) => ({ ...state, periodTotals: false }),
-                loadPeriodTotalsFailure: (state) => ({ ...state, periodTotals: true }),
-                loadToolRows: (state) => ({ ...state, toolRows: false }),
-                loadToolRowsFailure: (state) => ({ ...state, toolRows: true }),
-                loadSessionRows: (state) => ({ ...state, sessionRows: false }),
-                loadSessionRowsFailure: (state) => ({ ...state, sessionRows: true }),
-                loadHarnessRows: (state) => ({ ...state, harnessRows: false }),
-                loadHarnessRowsFailure: (state) => ({ ...state, harnessRows: true }),
-                loadModelRows: (state) => ({ ...state, modelRows: false }),
-                loadModelRowsFailure: (state) => ({ ...state, modelRows: true }),
-                loadProtocolVersionRows: (state) => ({ ...state, protocolVersionRows: false }),
-                loadProtocolVersionRowsFailure: (state) => ({ ...state, protocolVersionRows: true }),
-                loadActivityRows: (state) => ({ ...state, activityRows: false }),
-                loadActivityRowsFailure: (state) => ({ ...state, activityRows: true }),
-                loadToolDailyRows: (state) => ({ ...state, toolDailyRows: false }),
-                loadToolDailyRowsFailure: (state) => ({ ...state, toolDailyRows: true }),
+                loadSections: (state, { sections }) =>
+                    Object.fromEntries(
+                        Object.entries(state).filter(
+                            ([section, result]) => !(sections.includes(section as MCPDashboardSection) && result.error)
+                        )
+                    ),
+                sectionsLoaded: (state, { results }) => ({ ...state, ...results }),
+            },
+        ],
+        loadingSections: [
+            {} as SectionFlags,
+            {
+                loadSections: (state, { sections }) => ({
+                    ...state,
+                    ...Object.fromEntries(sections.map((section) => [section, true])),
+                }),
+                sectionsLoaded: (state, { results }) =>
+                    Object.fromEntries(Object.entries(state).filter(([section]) => !(section in results))),
             },
         ],
         dateFilter: [
@@ -737,163 +635,124 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
-        kpis: [
-            EMPTY_KPIS,
-            {
-                loadKPIs: async (_: void, breakpoint) => {
-                    const query = dashboardQuery(MCPDashboardSection.Kpis, values)
-                    const rows = await querySection<unknown[]>(query, breakpoint)
-                    return buildKPIs(parseRows(rows), query.comparison.currentStartBucket)
-                },
-            },
-        ],
-        periodTotals: [
-            EMPTY_PERIOD_TOTALS,
-            {
-                loadPeriodTotals: async (_: void, breakpoint): Promise<PeriodTotals> => {
-                    const query = dashboardQuery(MCPDashboardSection.PeriodTotals, values)
-                    const row = (await querySection<unknown[]>(query, breakpoint))[0] ?? []
-                    const metric = (
-                        value: number,
-                        previousValue: number,
-                        goodDirection: KPIMetric['goodDirection']
-                    ): KPIMetric => ({
-                        value,
-                        previousValue,
-                        deltaPct: deltaPct(value, previousValue),
-                        sparkline: [],
-                        sparklineLabels: [],
-                        goodDirection,
-                    })
-                    return {
-                        users: metric(Number(row[0] ?? 0), Number(row[1] ?? 0), 'up'),
-                        p95LatencyMs: metric(Number(row[2] ?? 0), Number(row[3] ?? 0), 'down'),
-                    }
-                },
-            },
-        ],
-        toolRows: [
-            [] as ToolRow[],
-            {
-                loadToolRows: async (_: void, breakpoint) => {
-                    const raw = await querySection<unknown[]>(
-                        dashboardQuery(MCPDashboardSection.ToolRows, values),
-                        breakpoint
-                    )
-                    return raw.map((r) => ({
-                        tool: String(r[0] ?? ''),
-                        total_calls: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
-                        error_rate_pct: Number(r[3] ?? 0),
-                        p95_duration_ms: Number(r[4] ?? 0),
-                    }))
-                },
-            },
-        ],
-        sessionRows: [
-            [] as SessionRow[],
-            {
-                loadSessionRows: async (_: void, breakpoint) => {
-                    const raw = await querySection<unknown[]>(
-                        dashboardQuery(MCPDashboardSection.SessionRows, values),
-                        breakpoint
-                    )
-                    return raw.map((r) => ({
-                        session_id: String(r[0] ?? ''),
-                        tool_calls: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
-                        error_rate_pct: Number(r[3] ?? 0),
-                        duration_seconds: Number(r[4] ?? 0),
-                        distinct_tools: Number(r[5] ?? 0),
-                        last_seen: String(r[6] ?? ''),
-                    }))
-                },
-            },
-        ],
-        harnessRows: [
-            [] as HarnessRow[],
-            {
-                loadHarnessRows: async (_: void, breakpoint) => {
-                    const rows = await querySection<MCPHarnessBreakdownItem>(
-                        dashboardQuery(MCPDashboardSection.HarnessRows, values),
-                        breakpoint
-                    )
-                    return rows.map(toHarnessRow)
-                },
-            },
-        ],
-        modelRows: [
-            [] as ModelRow[],
-            {
-                loadModelRows: async (_: void, breakpoint): Promise<ModelRow[]> =>
-                    querySection<MCPModelBreakdownItem>(
-                        dashboardQuery(MCPDashboardSection.ModelRows, values),
-                        breakpoint
-                    ),
-            },
-        ],
-        protocolVersionRows: [
-            [] as MCPProtocolVersionBreakdownItem[],
-            {
-                loadProtocolVersionRows: async (_: void, breakpoint): Promise<MCPProtocolVersionBreakdownItem[]> =>
-                    querySection<MCPProtocolVersionBreakdownItem>(
-                        dashboardQuery(MCPDashboardSection.ProtocolVersionRows, values),
-                        breakpoint
-                    ),
-            },
-        ],
-        activityRows: [
-            [] as ActivityRow[],
-            {
-                loadActivityRows: async (_: void, breakpoint): Promise<ActivityRow[]> => {
-                    const rows = await querySection<MCPToolCallsAndErrorsItem>(
-                        dashboardQuery(MCPDashboardSection.ActivityRows, values),
-                        breakpoint
-                    )
-                    return rows.map((r) => ({
-                        day: normalizeBucket(r.bucket),
-                        successes: r.successes,
-                        errors: r.errors,
-                    }))
-                },
-            },
-        ],
-        toolDailyRows: [
-            [] as ToolDailyRow[],
-            {
-                loadToolDailyRows: async (_: void, breakpoint): Promise<ToolDailyRow[]> => {
-                    const rows = await querySection<MCPToolCallBreakdownItem>(
-                        dashboardQuery(MCPDashboardSection.ToolDailyRows, values),
-                        breakpoint
-                    )
-                    return rows.map((r) => ({
-                        day: normalizeBucket(r.bucket),
-                        tool: r.tool,
-                        calls: r.calls,
-                    }))
-                },
-            },
-        ],
-    })),
     selectors({
+        dashboardLayout: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags: FeatureFlagsSet): DashboardLayout =>
+                featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME] ? 'leaderboard' : 'overview',
+        ],
+        dashboardBatched: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_DASHBOARD_BATCH],
+        ],
         dashboardLoading: [
-            (s) => [
-                s.kpisLoading,
-                s.periodTotalsLoading,
-                s.toolRowsLoading,
-                s.sessionRowsLoading,
-                s.harnessRowsLoading,
-                s.modelRowsLoading,
-                s.protocolVersionRowsLoading,
-                s.activityRowsLoading,
-                s.toolDailyRowsLoading,
-            ],
-            (...loading: boolean[]): boolean => loading.some(Boolean),
+            (s) => [s.loadingSections],
+            (loadingSections: SectionFlags): boolean => Object.values(loadingSections).some(Boolean),
+        ],
+        failedLoads: [
+            (s) => [s.sections, s.dashboardLayout],
+            (sections: SectionResults, layout: DashboardLayout): SectionFlags =>
+                Object.fromEntries(
+                    LAYOUT_SECTIONS[layout]
+                        .filter((section) => !!sections[section]?.error)
+                        .map((section) => [section, true])
+                ),
         ],
         feedbackLoadFailed: [
             (s) => [s.failedLoads],
-            (failedLoads: FailedLoads): boolean => Object.values(failedLoads).some(Boolean),
+            (failedLoads: SectionFlags): boolean => Object.values(failedLoads).some(Boolean),
+        ],
+        kpis: [
+            (s) => [s.sections],
+            (sections: SectionResults): KPIData =>
+                sections[MCPDashboardSection.Kpis]?.results
+                    ? buildKPIs(
+                          parseRows(sectionRows<unknown[]>(sections, MCPDashboardSection.Kpis)),
+                          sections[MCPDashboardSection.Kpis].currentStartBucket
+                      )
+                    : EMPTY_KPIS,
+        ],
+        periodTotals: [
+            (s) => [s.sections],
+            (sections: SectionResults): PeriodTotals => {
+                const row = sectionRows<unknown[]>(sections, MCPDashboardSection.PeriodTotals)[0]
+                if (!row) {
+                    return EMPTY_PERIOD_TOTALS
+                }
+                const metric = (
+                    value: number,
+                    previousValue: number,
+                    goodDirection: KPIMetric['goodDirection']
+                ): KPIMetric => ({
+                    value,
+                    previousValue,
+                    deltaPct: deltaPct(value, previousValue),
+                    sparkline: [],
+                    sparklineLabels: [],
+                    goodDirection,
+                })
+                return {
+                    users: metric(Number(row[0] ?? 0), Number(row[1] ?? 0), 'up'),
+                    p95LatencyMs: metric(Number(row[2] ?? 0), Number(row[3] ?? 0), 'down'),
+                }
+            },
+        ],
+        toolRows: [
+            (s) => [s.sections],
+            (sections: SectionResults): ToolRow[] =>
+                sectionRows<unknown[]>(sections, MCPDashboardSection.ToolRows).map((r) => ({
+                    tool: String(r[0] ?? ''),
+                    total_calls: Number(r[1] ?? 0),
+                    errors: Number(r[2] ?? 0),
+                    error_rate_pct: Number(r[3] ?? 0),
+                    p95_duration_ms: Number(r[4] ?? 0),
+                })),
+        ],
+        sessionRows: [
+            (s) => [s.sections],
+            (sections: SectionResults): SessionRow[] =>
+                sectionRows<unknown[]>(sections, MCPDashboardSection.SessionRows).map((r) => ({
+                    session_id: String(r[0] ?? ''),
+                    tool_calls: Number(r[1] ?? 0),
+                    errors: Number(r[2] ?? 0),
+                    error_rate_pct: Number(r[3] ?? 0),
+                    duration_seconds: Number(r[4] ?? 0),
+                    distinct_tools: Number(r[5] ?? 0),
+                    last_seen: String(r[6] ?? ''),
+                })),
+        ],
+        harnessRows: [
+            (s) => [s.sections],
+            (sections: SectionResults): HarnessRow[] =>
+                sectionRows<MCPHarnessBreakdownItem>(sections, MCPDashboardSection.HarnessRows).map(toHarnessRow),
+        ],
+        modelRows: [
+            (s) => [s.sections],
+            (sections: SectionResults): ModelRow[] =>
+                sectionRows<MCPModelBreakdownItem>(sections, MCPDashboardSection.ModelRows),
+        ],
+        protocolVersionRows: [
+            (s) => [s.sections],
+            (sections: SectionResults): MCPProtocolVersionBreakdownItem[] =>
+                sectionRows<MCPProtocolVersionBreakdownItem>(sections, MCPDashboardSection.ProtocolVersionRows),
+        ],
+        activityRows: [
+            (s) => [s.sections],
+            (sections: SectionResults): ActivityRow[] =>
+                sectionRows<MCPToolCallsAndErrorsItem>(sections, MCPDashboardSection.ActivityRows).map((r) => ({
+                    day: normalizeBucket(r.bucket),
+                    successes: r.successes,
+                    errors: r.errors,
+                })),
+        ],
+        toolDailyRows: [
+            (s) => [s.sections],
+            (sections: SectionResults): ToolDailyRow[] =>
+                sectionRows<MCPToolCallBreakdownItem>(sections, MCPDashboardSection.ToolDailyRows).map((r) => ({
+                    day: normalizeBucket(r.bucket),
+                    tool: r.tool,
+                    calls: r.calls,
+                })),
         ],
         canShowFeedback: [
             (s) => [s.hasFilterInteraction, s.dashboardLoading, s.feedbackLoadFailed, s.kpis],
@@ -977,42 +836,101 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             }),
         ],
     }),
-    listeners(({ actions, values }) => ({
-        setDateFilter: () => {
-            actions.reloadAll()
-        },
-        openToolReport: ({ tool }) => {
-            router.actions.push(mcpToolReportUrl(tool, values.dateFilter))
-        },
-        setFilterTestAccounts: () => {
-            actions.markFilterInteraction()
-            actions.reloadAll()
-        },
-        setPropertyFilters: () => {
-            actions.markFilterInteraction()
-            actions.reloadAll()
-        },
-        hydrateFilters: () => {
-            const { searchParams } = router.values.currentLocation
-            const dateFrom =
-                typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
-            const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
-            if (dateFrom === values.dateFilter.dateFrom && dateTo === values.dateFilter.dateTo) {
+    listeners(({ actions, values, cache }) => {
+        return {
+            setDateFilter: () => {
                 actions.reloadAll()
-            }
-        },
-        reloadAll: () => {
-            actions.loadKPIs()
-            actions.loadPeriodTotals()
-            actions.loadToolRows()
-            actions.loadSessionRows()
-            actions.loadHarnessRows()
-            actions.loadModelRows()
-            actions.loadProtocolVersionRows()
-            actions.loadActivityRows()
-            actions.loadToolDailyRows()
-        },
-    })),
+            },
+            openToolReport: ({ tool }) => {
+                router.actions.push(mcpToolReportUrl(tool, values.dateFilter))
+            },
+            setFilterTestAccounts: () => {
+                actions.markFilterInteraction()
+                actions.reloadAll()
+            },
+            setPropertyFilters: () => {
+                actions.markFilterInteraction()
+                actions.reloadAll()
+            },
+            hydrateFilters: () => {
+                const { searchParams } = router.values.currentLocation
+                const dateFrom =
+                    typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
+                const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
+                if (dateFrom === values.dateFilter.dateFrom && dateTo === values.dateFilter.dateTo) {
+                    actions.reloadAll()
+                }
+            },
+            // Flags can resolve after the first load. The layout decides which sections a load asks for, and a
+            // load's time to see data must be reported under the batch arm that ran it.
+            setFeatureFlags: () => {
+                const { requestedArm } = cache
+                if (
+                    requestedArm &&
+                    (requestedArm.layout !== values.dashboardLayout || requestedArm.batched !== values.dashboardBatched)
+                ) {
+                    actions.loadDashboard()
+                }
+            },
+            reloadAll: () => {
+                actions.loadDashboard()
+            },
+            loadDashboard: () => {
+                cache.requestedArm = { layout: values.dashboardLayout, batched: values.dashboardBatched }
+                actions.collectionNodeLoadData(DASHBOARD_TILE_ID, NodeKind.MCPDashboardQuery)
+                actions.loadSections([...LAYOUT_SECTIONS[values.dashboardLayout]], true)
+            },
+            // Each section belongs to the load that last asked for it, so a reload or retry drops a slower,
+            // older answer for that section, even a failure.
+            loadSections: async ({ sections, fullLoad }) => {
+                const loadId = (cache.lastLoadId = (cache.lastLoadId ?? 0) + 1)
+                cache.sectionLoads = {
+                    ...cache.sectionLoads,
+                    ...Object.fromEntries(sections.map((section) => [section, loadId])),
+                }
+                if (fullLoad) {
+                    cache.fullLoadId = loadId
+                }
+                const { dateFilter, interval, sharedQueryFilters } = values
+                const window = kpiComparisonWindow(dateFilter, values.timezone, interval)
+                const query: MCPDashboardQuery = {
+                    kind: NodeKind.MCPDashboardQuery,
+                    sections,
+                    dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                    interval,
+                    // The shared filter bar only offers event and person filters, which the server accepts.
+                    properties: sharedQueryFilters.properties as MCPAnalyticsPropertyFilter[],
+                    filterTestAccounts: sharedQueryFilters.filterTestAccounts,
+                    comparison: { dateFrom: window.dateFrom, currentStartBucket: window.currentStartBucket },
+                }
+                // The flag's off arm sends one request per section, as the baseline the batch is measured against.
+                const requests = values.dashboardBatched ? [sections] : sections.map((section) => [section])
+                const responses = await Promise.all(
+                    requests.map(async (requested) => {
+                        const response = await requestSections({ ...query, sections: requested })
+                        const owned = requested.filter((section) => cache.sectionLoads[section] === loadId)
+                        if (owned.length > 0 && !cache.disposables.isDisposed) {
+                            reportFailures(response, owned)
+                            actions.sectionsLoaded(
+                                Object.fromEntries(owned.map((section) => [section, response.results[section]]))
+                            )
+                        }
+                        return response
+                    })
+                )
+                if (cache.fullLoadId !== loadId || cache.disposables.isDisposed) {
+                    return
+                }
+                if (responses.some((response) => Object.values(response.results).some((result) => result.error))) {
+                    actions.collectionNodeLoadDataFailure(DASHBOARD_TILE_ID)
+                } else {
+                    actions.collectionNodeLoadDataSuccess(DASHBOARD_TILE_ID, {
+                        isCached: responses.every((response) => response.isCached),
+                    })
+                }
+            },
+        }
+    }),
     actionToUrl(({ values }) => {
         const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
             const { currentLocation } = router.values

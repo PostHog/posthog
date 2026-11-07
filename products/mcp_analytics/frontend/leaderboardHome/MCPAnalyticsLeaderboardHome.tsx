@@ -9,6 +9,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatPercentage } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { MCPDashboardSection } from '~/queries/schema/schema-general'
+
 import { labColor, modelColors } from '../colors'
 import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
@@ -39,35 +41,19 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         interval,
         queryFilters,
         dailyActivity,
-        activityRowsLoading,
         harnessRows,
-        harnessRowsLoading,
         headlineKpis,
-        kpisLoading,
         periodTotals,
-        periodTotalsLoading,
         intentClusterCount,
         kpiIncompleteTail,
         activityIncompleteTail,
         notableSessions,
         toolRows,
-        sessionRowsLoading,
-        modelRowsLoading,
-        toolRowsLoading,
         failedLoads,
+        loadingSections,
     } = useValues(mcpDashboardOverviewLogic)
-    const {
-        setDateFilter,
-        reloadAll,
-        markFilterInteraction,
-        openToolReport,
-        loadKPIs,
-        loadPeriodTotals,
-        loadActivityRows,
-        loadHarnessRows,
-        loadToolRows,
-        loadSessionRows,
-    } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadSections } =
+        useActions(mcpDashboardOverviewLogic)
     const {
         facets,
         facetsLoading,
@@ -141,12 +127,12 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     kpis={headlineKpis}
                     users={periodTotals.users}
                     intentClusterCount={intentClusterCount}
-                    kpisLoading={kpisLoading}
-                    usersLoading={periodTotalsLoading}
+                    kpisLoading={!!loadingSections.kpis}
+                    usersLoading={!!loadingSections.periodTotals}
                     kpisFailed={failedLoads.kpis}
                     usersFailed={failedLoads.periodTotals}
-                    onRetryKpis={loadKPIs}
-                    onRetryUsers={loadPeriodTotals}
+                    onRetryKpis={() => loadSections([MCPDashboardSection.Kpis])}
+                    onRetryUsers={() => loadSections([MCPDashboardSection.PeriodTotals])}
                     showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
                     theme={theme}
                     interval={interval}
@@ -154,9 +140,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 />
                 <ActivityChart
                     daily={dailyActivity}
-                    loading={activityRowsLoading}
+                    loading={!!loadingSections.activityRows}
                     failed={failedLoads.activityRows}
-                    onRetry={loadActivityRows}
+                    onRetry={() => loadSections([MCPDashboardSection.ActivityRows])}
                     theme={theme}
                     timezone={timezone}
                     interval={interval}
@@ -186,7 +172,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         interval={interval}
                         colorOf={modelColorOf}
                     />
-                    {leaderboardModelRows.length === 0 && (facetsLoading || modelRowsLoading) ? (
+                    {leaderboardModelRows.length === 0 && (facetsLoading || loadingSections.modelRows) ? (
                         <Card title="Share of calls by model" className="min-w-0">
                             <Skeleton className="h-48 w-full" />
                         </Card>
@@ -215,9 +201,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     />
                     <HarnessBarChart
                         rows={harnessRows}
-                        loading={harnessRowsLoading}
+                        loading={!!loadingSections.harnessRows}
                         failed={failedLoads.harnessRows}
-                        onRetry={loadHarnessRows}
+                        onRetry={() => loadSections([MCPDashboardSection.HarnessRows])}
                         theme={theme}
                         fillHeight
                     />
@@ -279,9 +265,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     <ToolErrorRateChart
                         rows={rankToolsByErrorRate(toolRows)}
                         emptyMessage={rankedToolsEmptyMessage(toolRows)}
-                        loading={toolRowsLoading}
+                        loading={!!loadingSections.toolRows}
                         failed={failedLoads.toolRows}
-                        onRetry={loadToolRows}
+                        onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
                         theme={theme}
                         onToolClick={openToolReport}
                     />
@@ -296,18 +282,18 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 <TwoColumns>
                     <ToolErrorRateChart
                         rows={harnessErrorRows}
-                        loading={harnessRowsLoading}
+                        loading={!!loadingSections.harnessRows}
                         failed={failedLoads.harnessRows}
-                        onRetry={loadHarnessRows}
+                        onRetry={() => loadSections([MCPDashboardSection.HarnessRows])}
                         theme={theme}
                         title="Error rate by harness"
                         emptyMessage="No harness data in this date range. Try a wider range."
                     />
                     <NotableSessionsTable
                         sessions={notableSessions}
-                        loading={sessionRowsLoading}
+                        loading={!!loadingSections.sessionRows}
                         failed={failedLoads.sessionRows}
-                        onRetry={loadSessionRows}
+                        onRetry={() => loadSections([MCPDashboardSection.SessionRows])}
                     />
                 </TwoColumns>
             </Section>
