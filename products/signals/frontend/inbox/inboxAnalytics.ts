@@ -193,6 +193,7 @@ export type InboxReportActionType =
     | 'remove_suggested_reviewer'
     | 'claim'
     | 'unclaim'
+    | 'claim_dialog'
     | 'expand_preview'
     | 'add_note'
 
