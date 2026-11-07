@@ -14,7 +14,7 @@ export function DashboardCompareFilter({ fullWidth }: { fullWidth?: boolean }): 
 
     const updateCompareFilter = (compareFilter: CompareFilterType | null): void => {
         if (!dashboardEditing?.filters) {
-            setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+            setDashboardEditing({ filters: true }, DashboardEventSource.DashboardFilters)
         }
         setCompareFilter(compareFilter)
     }

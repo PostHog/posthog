@@ -73,7 +73,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const {
         dashboard,
         dashboardMode,
-        layoutEditMode,
         canEditDashboard,
         isSavingTags,
         isPinned,
@@ -132,11 +131,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
           ? 'Template data is not ready yet. Try again in a moment.'
           : undefined
 
-    const openInsightsInNewTabsDisabled = layoutEditMode
-        ? 'Cannot open insights when editing dashboard'
-        : tiles.length === 0
-          ? 'Dashboard has no insights'
-          : undefined
+    const openInsightsInNewTabsDisabled = tiles.length === 0 ? 'Dashboard has no insights' : undefined
 
     const showCreateMenu = canEditDashboard // notebook + subscribe both gated on canEdit
     const showEditMenu = true // duplicate always

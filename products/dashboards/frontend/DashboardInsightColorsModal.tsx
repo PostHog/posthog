@@ -91,7 +91,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
 
     const ensureEditMode = (): void => {
         if (!dashboardEditing) {
-            setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardInsightColorsModal)
+            setDashboardEditing({ filters: true }, DashboardEventSource.DashboardInsightColorsModal)
         }
     }
 
