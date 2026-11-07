@@ -407,8 +407,16 @@ class TestTaskRunMetrics(TestCase):
         assert f'FROM "{Task._meta.db_table}"' in locks[0]
         assert f'FROM "{TaskRun._meta.db_table}"' in locks[1]
 
-    @parameterized.expand([("mark_failed",), ("mark_completed",)])
-    def test_finalizer_on_a_stale_instance_leaves_a_run_another_writer_ended(self, writer: str) -> None:
+    @parameterized.expand(
+        [
+            ("mark_failed", TaskRun.Status.CANCELLED),
+            ("mark_completed", TaskRun.Status.CANCELLED),
+            ("mark_failed_from_queued", TaskRun.Status.IN_PROGRESS),
+        ]
+    )
+    def test_finalizer_on_a_stale_instance_leaves_a_run_another_writer_moved(
+        self, writer: str, stored_status: str
+    ) -> None:
         def terminal_total() -> float:
             return sum(
                 _sample_value(
@@ -425,16 +433,18 @@ class TestTaskRunMetrics(TestCase):
             )
 
         run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
-        TaskRun.objects.filter(pk=run.pk).update(status=TaskRun.Status.CANCELLED)
+        TaskRun.objects.filter(pk=run.pk).update(status=stored_status)
         before = terminal_total()
 
         with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed") as notify_failed:
             if writer == "mark_failed":
                 run.mark_failed("stuck", error_type="janitor_timeout")
+            elif writer == "mark_failed_from_queued":
+                run.mark_failed("stuck", error_type="janitor_timeout", expected_status=TaskRun.Status.QUEUED)
             else:
                 run.mark_completed(notify=False)
 
-        assert TaskRun.objects.get(pk=run.pk).status == TaskRun.Status.CANCELLED
+        assert TaskRun.objects.get(pk=run.pk).status == stored_status
         notify_failed.assert_not_called()
         assert terminal_total() == before
 
