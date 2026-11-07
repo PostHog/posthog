@@ -28,7 +28,6 @@ import {
 import { TagSelect } from 'lib/components/TagSelect'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { SANDBOX_EMAIL_SENDER_NOTE } from 'lib/integrations/sandboxEmailSender'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
@@ -51,8 +50,8 @@ import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { withInertLinks } from './emailPreviewHtml'
 import { EmailSenderSummary } from './EmailSenderSummary'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
-import { selectedSenderIds } from './selectSenders'
-import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
+import { selectedSenderIds, senderHintFor, senderOptions } from './selectSenders'
+import { EmailFieldErrors, EmailTemplateFrom } from './types'
 
 export type EmailEditorMode = 'full' | 'preview'
 
@@ -275,21 +274,15 @@ export function NativeEmailIntegrationChoice({
     const { logicProps, sandboxSender, isSandboxSenderSelected } = useValues(emailTemplaterLogic)
     const { chooseSenders } = useActions(emailTemplaterLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
-    const integrationsOfKind =
-        integrations && (sandboxSender ? [...ownEmailIntegrations, sandboxSender] : ownEmailIntegrations)
+    const senderList = senderOptions(integrations, ownEmailIntegrations, sandboxSender, sandboxSenderLabel)
     // Presence of the override keys is what reveals the inputs, so a saved override is
     // visible again on reopen without any separate reveal state.
     const overridesVisible = !isSandboxSenderSelected && (value?.email !== undefined || value?.name !== undefined)
     const customSenderAvailable = !overridesVisible && !isSandboxSenderSelected
     const selectedIntegrationIds = selectedSenderIds(value)
-    const isSandbox = (integration: IntegrationType): boolean => integration.id === sandboxSender?.id
-    const senderHint = isSandboxSenderSelected
-        ? SANDBOX_EMAIL_SENDER_NOTE
-        : senderRotationEnabled
-          ? `Choose up to ${MAX_WORKFLOW_EMAIL_SENDERS} senders. Each workflow run uses one sender from this list.`
-          : null
+    const senderHint = senderHintFor(isSandboxSenderSelected, senderRotationEnabled)
 
-    if (!integrationsLoading && integrationsOfKind?.length === 0) {
+    if (!integrationsLoading && senderList?.length === 0) {
         return (
             <div className="flex gap-2 justify-between items-center">
                 {label}
@@ -321,12 +314,7 @@ export function NativeEmailIntegrationChoice({
                             mode="multiple"
                             placeholder="Choose email senders"
                             loading={integrationsLoading}
-                            options={(integrationsOfKind || []).map((integration) => ({
-                                key: String(integration.id),
-                                label: integration.display_name,
-                                value: integration.id,
-                                ...(isSandbox(integration) ? { labelComponent: sandboxSenderLabel(integration) } : {}),
-                            }))}
+                            options={senderList || []}
                             value={selectedIntegrationIds}
                             size="small"
                             fullWidth
@@ -348,12 +336,10 @@ export function NativeEmailIntegrationChoice({
                             options={[
                                 {
                                     title: 'Email senders',
-                                    options: (integrationsOfKind || []).map((integration) => ({
-                                        label: integration.display_name,
-                                        value: integration.id,
-                                        ...(isSandbox(integration)
-                                            ? { labelInMenu: sandboxSenderLabel(integration) }
-                                            : {}),
+                                    options: (senderList || []).map(({ label, value, labelComponent }) => ({
+                                        label,
+                                        value,
+                                        labelInMenu: labelComponent,
                                     })),
                                 },
                                 {
