@@ -16,7 +16,11 @@ import { RecipientsManagerService } from '../managers/recipients-manager.service
 import { FrequencyCap, TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { createFrequencyCapValkeyPool } from './frequency-cap-valkey-pool'
-import { FrequencyCapCheck, RecipientPreferencesService } from './recipient-preferences.service'
+import {
+    FrequencyCapCheck,
+    FrequencyCapHoldOptions,
+    RecipientPreferencesService,
+} from './recipient-preferences.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -734,7 +738,7 @@ describe('RecipientPreferencesService', () => {
             expect(await checkAt(emailAction(), start + 2 * day)).toEqual({
                 capped: true,
                 nextSlotAt: start + 7 * day,
-                holdHours: null,
+                hold: null,
             })
             expect(await sendAt(emailAction(), start + 7 * day + 1)).toBe(false)
         })
@@ -761,7 +765,77 @@ describe('RecipientPreferencesService', () => {
             expect(await visitAt(start + 25 * hour)).toEqual({
                 capped: true,
                 nextSlotAt: start + 47 * hour,
-                holdHours: 12,
+                hold: null,
+            })
+        })
+
+        describe('held sends', () => {
+            const day = 24 * 60 * 60 * 1000
+            const start = 1_800_000_000_000
+            const action = emailAction()
+            const checkHeld = async (
+                invocation: CyclotronJobInvocationHogFunction,
+                at: number,
+                hold: FrequencyCapHoldOptions = { canHold: true }
+            ): Promise<FrequencyCapCheck> => {
+                jest.spyOn(Date, 'now').mockReturnValue(at)
+                return cappedService.checkFrequencyCap(invocation, action, hold)
+            }
+            const heldUntil = (deadlineAt: number): FrequencyCapHoldOptions => ({
+                canHold: true,
+                deadlineAt: new Date(deadlineAt).toISOString(),
+            })
+
+            it('gives a freed slot to held sends in the order they were capped', async () => {
+                frequencyCap = { max_messages: 1, window_days: 1, hold_hours: 48 }
+                const [first, second, tooLate, fresh] = [1, 2, 3, 4].map(() => createFunctionStepInvocation(action))
+
+                expect(await sendAt(emailAction(), start)).toBe(false)
+                expect(await checkHeld(first, start + 1)).toMatchObject({
+                    capped: true,
+                    nextSlotAt: start + day,
+                    hold: { deadlineAt: start + 1 + 2 * day },
+                })
+                expect(await checkHeld(second, start + 2)).toMatchObject({
+                    capped: true,
+                    nextSlotAt: start + 2 * day,
+                    hold: { deadlineAt: start + 2 + 2 * day },
+                })
+                // Its slot frees after its hold would end, so it skips and does not join the line.
+                expect(await checkHeld(tooLate, start + 3)).toMatchObject({ capped: true, hold: null })
+
+                // The slot frees before the held sends wake. A new send waits behind both of them.
+                expect(await checkHeld(fresh, start + day + 1, { canHold: false })).toEqual({
+                    capped: true,
+                    nextSlotAt: start + 3 * day + 1,
+                    hold: null,
+                })
+                expect(await checkHeld(second, start + day + 1, heldUntil(start + 2 + 2 * day))).toMatchObject({
+                    capped: true,
+                    nextSlotAt: start + 2 * day + 1,
+                })
+                expect(await checkHeld(first, start + day + 1, heldUntil(start + 1 + 2 * day))).toEqual({
+                    capped: false,
+                })
+            })
+
+            it.each([
+                ['is released', 48, start + day + 1, true],
+                ['passes its deadline', 30, start + 1 + 30 * 60 * 60 * 1000, false],
+            ])('lets the next held send take the slot when the send ahead %s', async (_, holdHours, at, release) => {
+                frequencyCap = { max_messages: 1, window_days: 1, hold_hours: holdHours }
+                const [first, second] = [1, 2].map(() => createFunctionStepInvocation(action))
+
+                expect(await sendAt(emailAction(), start)).toBe(false)
+                const firstCheck = await checkHeld(first, start + 1)
+                await checkHeld(second, start + 2)
+                if (release && firstCheck.capped && firstCheck.hold) {
+                    await cappedService.releaseFrequencyCapHold(team.id, firstCheck.hold.line)
+                }
+
+                expect(await checkHeld(second, at, heldUntil(start + 2 + holdHours * 60 * 60 * 1000))).toEqual({
+                    capped: false,
+                })
             })
         })
 
