@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from django.test import Client, override_settings
 
 from posthog.models.organization import Organization
+from posthog.models.user import User
 
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 
@@ -21,12 +22,15 @@ class TestSandboxSenderOrganizationBlockAdmin(BaseTest):
         self.client.force_login(self.user)
 
     def test_staff_add_a_block_with_its_author_edit_its_reason_and_delete_it(self) -> None:
-        add_form = self.client.get(f"{ADMIN_URL}add/")
-        assert add_form.context["adminform"].form.initial["created_by"] == self.user.pk
+        other_staff = User.objects.create_and_join(self.organization, "other-staff@example.com", None)
 
         added = self.client.post(
             f"{ADMIN_URL}add/",
-            data={"organization": str(self.organization.id), "reason": "Abuse report", "created_by": str(self.user.pk)},
+            data={
+                "organization": str(self.organization.id),
+                "reason": "Abuse report",
+                "created_by": str(other_staff.pk),
+            },
         )
 
         assert added.status_code == 302, added.content
