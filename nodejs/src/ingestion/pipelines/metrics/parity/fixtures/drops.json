@@ -1,0 +1,834 @@
+{
+ "scenario": {
+  "name": "drops",
+  "description": "Header, team, quota and null-value drops, and which of them still bill.",
+  "batch_now_ms": [
+   1736944633250
+  ],
+  "config": {
+   "METRICS_LIMITER_ENABLED_TEAMS": "",
+   "METRICS_LIMITER_DISABLED_FOR_TEAMS": "",
+   "METRICS_LIMITER_BUCKET_SIZE_KB": 10000,
+   "METRICS_LIMITER_REFILL_RATE_KB_PER_SECOND": 1000,
+   "METRICS_LIMITER_TTL_SECONDS": 86400,
+   "METRICS_LIMITER_TEAM_BUCKET_SIZE_KB": "",
+   "METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND": ""
+  },
+  "teams": [
+   {
+    "id": 211,
+    "api_token": "token-gamma"
+   },
+   {
+    "id": 212,
+    "api_token": "token-quota"
+   }
+  ],
+  "quota_limited_tokens": [
+   "token-quota"
+  ],
+  "team_lookup_faults": {},
+  "produce_faults": [],
+  "batches": [
+   [
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 0,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "bytes_uncompressed",
+       "10"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgNyAwOjA="
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 1,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       ""
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgOCAwOjE="
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 2,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-gamma"
+      ],
+      [
+       "bytes_uncompressed",
+       "10"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "20"
+      ],
+      [
+       "bytes_compressed",
+       "4"
+      ],
+      [
+       "record_count",
+       "1"
+      ],
+      [
+       "bytes_uncompressed",
+       "-1"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgOSAwOjI="
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 3,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-gamma"
+      ],
+      [
+       "bytes_uncompressed",
+       "10"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "20"
+      ],
+      [
+       "bytes_compressed",
+       "4"
+      ],
+      [
+       "record_count",
+       "1"
+      ],
+      [
+       "record_count",
+       "1.5"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgMTAgMDoz"
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 4,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-gamma"
+      ],
+      [
+       "bytes_uncompressed",
+       "10"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "20"
+      ],
+      [
+       "bytes_compressed",
+       "4"
+      ],
+      [
+       "record_count",
+       "1"
+      ],
+      [
+       "bytes_compressed",
+       " 12"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgMTEgMDo0"
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 5,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-gamma"
+      ],
+      [
+       "bytes_uncompressed",
+       "10"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "20"
+      ],
+      [
+       "bytes_compressed",
+       "4"
+      ],
+      [
+       "record_count",
+       "1"
+      ],
+      [
+       "bytes_uncompressed_records",
+       ""
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgMTIgMDo1"
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 6,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-gamma"
+      ],
+      [
+       "bytes_uncompressed",
+       "10"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "20"
+      ],
+      [
+       "bytes_compressed",
+       "4"
+      ],
+      [
+       "record_count",
+       "1"
+      ],
+      [
+       "bytes_uncompressed",
+       "9007199254740992"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgMTMgMDo2"
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 7,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-gamma"
+      ],
+      [
+       "bytes_uncompressed",
+       "10"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "20"
+      ],
+      [
+       "bytes_compressed",
+       "4"
+      ],
+      [
+       "record_count",
+       "1"
+      ],
+      [
+       "bytes_uncompressed",
+       "٣"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgMTQgMDo3"
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 8,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-gamma"
+      ],
+      [
+       "bytes_uncompressed",
+       "10"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "20"
+      ],
+      [
+       "bytes_compressed",
+       "4"
+      ],
+      [
+       "record_count",
+       "1"
+      ],
+      [
+       "bytes_uncompressed",
+       "0007"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgMTUgMDo4"
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 9,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-gamma"
+      ],
+      [
+       "bytes_uncompressed",
+       "10"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "20"
+      ],
+      [
+       "bytes_compressed",
+       "4"
+      ],
+      [
+       "record_count",
+       "1"
+      ],
+      [
+       "bytes_uncompressed",
+       "9007199254740991"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgMTYgMDo5"
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 10,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-unknown"
+      ],
+      [
+       "bytes_uncompressed",
+       "10"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "20"
+      ],
+      [
+       "bytes_compressed",
+       "4"
+      ],
+      [
+       "record_count",
+       "1"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgMTcgMDoxMA=="
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 11,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-quota"
+      ],
+      [
+       "bytes_uncompressed",
+       "700"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "1400"
+      ],
+      [
+       "bytes_compressed",
+       "234"
+      ],
+      [
+       "record_count",
+       "7"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgMTggMDoxMQ=="
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 12,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-gamma"
+      ],
+      [
+       "bytes_uncompressed",
+       "300"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "600"
+      ],
+      [
+       "bytes_compressed",
+       "100"
+      ],
+      [
+       "record_count",
+       "3"
+      ]
+     ],
+     "value_b64": null
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 13,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-gamma"
+      ],
+      [
+       "bytes_uncompressed",
+       "100"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "200"
+      ],
+      [
+       "bytes_compressed",
+       "34"
+      ],
+      [
+       "record_count",
+       "2"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgMTkgMDoxMw=="
+    }
+   ]
+  ]
+ },
+ "expected": {
+  "batches": [
+   {
+    "error": null
+   }
+  ],
+  "outputs": [
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":211,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested\",\"count\":9007199254741398}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 9007199254741398,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 211,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":211,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_records\",\"count\":840}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 840,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 211,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":211,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_received\",\"count\":9007199254741398}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 9007199254741398,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 211,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":211,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_ingested\",\"count\":7}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 7,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 211,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":211,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_received\",\"count\":7}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 7,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 211,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":212,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_dropped\",\"count\":700}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 700,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_dropped",
+      "team_id": 212,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":212,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_received\",\"count\":700}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 700,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 212,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":212,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_dropped\",\"count\":7}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 7,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_dropped",
+      "team_id": 212,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":212,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_received\",\"count\":7}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 7,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 212,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "metrics",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "34",
+     "bytes_uncompressed": "100",
+     "bytes_uncompressed_records": "200",
+     "record_count": "2",
+     "retention-days": "30",
+     "source_partition": "0",
+     "source_topic": "metrics_ingestion_test",
+     "team_id": "211",
+     "token": "token-gamma"
+    },
+    "value": {
+     "kind": "passthrough",
+     "batch": 0,
+     "index": 13
+    }
+   },
+   {
+    "batch": 0,
+    "output": "metrics",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "4",
+     "bytes_uncompressed": "0007",
+     "bytes_uncompressed_records": "20",
+     "record_count": "1",
+     "retention-days": "30",
+     "source_partition": "0",
+     "source_topic": "metrics_ingestion_test",
+     "team_id": "211",
+     "token": "token-gamma"
+    },
+    "value": {
+     "kind": "passthrough",
+     "batch": 0,
+     "index": 8
+    }
+   },
+   {
+    "batch": 0,
+    "output": "metrics",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "4",
+     "bytes_uncompressed": "9007199254740991",
+     "bytes_uncompressed_records": "20",
+     "record_count": "1",
+     "retention-days": "30",
+     "source_partition": "0",
+     "source_topic": "metrics_ingestion_test",
+     "team_id": "211",
+     "token": "token-gamma"
+    },
+    "value": {
+     "kind": "passthrough",
+     "batch": 0,
+     "index": 9
+    }
+   }
+  ],
+  "usage_records": [
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_bytes",
+    "record_id": "metrics_ingestion_test:0:12",
+    "quantity": 300,
+    "unit": "bytes",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_bytes",
+    "record_id": "metrics_ingestion_test:0:13",
+    "quantity": 100,
+    "unit": "bytes",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_bytes",
+    "record_id": "metrics_ingestion_test:0:8",
+    "quantity": 7,
+    "unit": "bytes",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_bytes",
+    "record_id": "metrics_ingestion_test:0:9",
+    "quantity": 9007199254740991,
+    "unit": "bytes",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_bytes_records",
+    "record_id": "metrics_ingestion_test:0:12",
+    "quantity": 600,
+    "unit": "bytes",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_bytes_records",
+    "record_id": "metrics_ingestion_test:0:13",
+    "quantity": 200,
+    "unit": "bytes",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_bytes_records",
+    "record_id": "metrics_ingestion_test:0:8",
+    "quantity": 20,
+    "unit": "bytes",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_bytes_records",
+    "record_id": "metrics_ingestion_test:0:9",
+    "quantity": 20,
+    "unit": "bytes",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_records",
+    "record_id": "metrics_ingestion_test:0:12",
+    "quantity": 3,
+    "unit": "records",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_records",
+    "record_id": "metrics_ingestion_test:0:13",
+    "quantity": 2,
+    "unit": "records",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_records",
+    "record_id": "metrics_ingestion_test:0:8",
+    "quantity": 1,
+    "unit": "records",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 211,
+    "usage_key": "metrics_records",
+    "record_id": "metrics_ingestion_test:0:9",
+    "quantity": 1,
+    "unit": "records",
+    "timestamp_ms": 1736944631250
+   }
+  ],
+  "teams_ingested": [
+   [
+    211
+   ]
+  ],
+  "quota_checks": [
+   [
+    "token-gamma",
+    "metrics_mb_ingested"
+   ],
+   [
+    "token-quota",
+    "metrics_mb_ingested"
+   ]
+  ]
+ }
+}

@@ -7,3 +7,4 @@ coverage/
 bin/ingestion-boundaries.baseline.json
 tests/fixtures/hog-bytecode/
 src/logs/parity/fixtures/
+src/ingestion/pipelines/metrics/parity/fixtures/

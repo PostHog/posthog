@@ -40,6 +40,19 @@ pub trait QuotaLimiting: Send + Sync {
 #[async_trait]
 pub trait UsageRecordBatch: Send + Sync {
     fn add(&self, team_id: i64, usage_key: &str, record_id: &str, quantity: f64, unit: &str);
+    /// `add` with `timestampMs`. A record without one is dated at the flush, as Node does.
+    fn add_at(
+        &self,
+        team_id: i64,
+        usage_key: &str,
+        record_id: &str,
+        quantity: f64,
+        unit: &str,
+        timestamp_ms: Option<i64>,
+    ) {
+        let _ = timestamp_ms;
+        self.add(team_id, usage_key, record_id, quantity, unit);
+    }
     async fn flush(&self) -> anyhow::Result<()>;
 }
 
