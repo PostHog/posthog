@@ -331,6 +331,7 @@ wrappers:
         response_fields:
             - coverage
         feature_flag: mcp-analytics-intent-topics
+        reads_ingested_data: events
     query-mcp-tool-intent-profile:
         schema_ref: MCPToolIntentProfileQuery
         enabled: true
@@ -361,6 +362,7 @@ wrappers:
             - outliers
             - coverage
         feature_flag: mcp-analytics-intent-topics
+        reads_ingested_data: events
     query-mcp-similar-tools:
         schema_ref: MCPSimilarToolsQuery
         enabled: true
@@ -384,6 +386,7 @@ wrappers:
             - version
             - tags
         feature_flag: mcp-analytics-intent-topics
+        reads_ingested_data: events
     query-mcp-intent-map:
         schema_ref: MCPIntentMapQuery
         enabled: true
@@ -414,6 +417,7 @@ wrappers:
             - topics
             - total_points
         feature_flag: mcp-analytics-intent-topics
+        reads_ingested_data: events
     query-mcp-tool-descriptions:
         schema_ref: MCPToolDescriptionsQuery
         enabled: true
