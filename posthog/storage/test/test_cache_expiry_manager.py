@@ -1,14 +1,30 @@
 import time
+from uuid import uuid4
 
+import time_machine
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
-from django.test import SimpleTestCase
+from django.core.cache import caches
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.dbrouter import ReplicaRouter
 from posthog.models.team.team import Team
-from posthog.storage.cache_expiry_manager import ExpiringTeamSelection, RefreshPacing, refresh_expiring_caches
-from posthog.storage.test.test_hypercache_manager import create_test_config as build_config
+from posthog.redis import get_client
+from posthog.storage import object_storage
+from posthog.storage.cache_expiry_manager import (
+    ExpiringTeamSelection,
+    RefreshPacing,
+    cleanup_stale_expiry_tracking,
+    refresh_expiring_caches,
+)
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig
+from posthog.storage.test.test_hypercache_manager import (
+    create_test_config as build_config,
+    create_test_hypercache,
+)
 
 MODULE = "posthog.storage.cache_expiry_manager"
 
@@ -258,3 +274,170 @@ class TestRefreshExpiringCaches(SimpleTestCase):
         push_kwargs = self.mock_push.call_args.kwargs
         assert push_kwargs["expiry_backlog_before"] == 9000
         assert push_kwargs["oldest_expiry_seconds"] is None
+
+
+@override_settings(
+    OBJECT_STORAGE_ENABLED=True,
+    CACHES={
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+        "mirror": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "expiry-cleanup-mirror"},
+    },
+)
+class TestCleanupStaleExpiryTracking(BaseTest):
+    def given_cache(self, token_based: bool) -> None:
+        self.sorted_set_key = f"expiry_cleanup_test_{uuid4().hex}"
+        self.hypercache = create_test_hypercache(
+            namespace=f"expiry_cleanup_test_{uuid4().hex}",
+            token_based=token_based,
+            expiry_sorted_set_key=self.sorted_set_key,
+        )
+        # Remote config and flag definitions mirror every write and delete to a secondary cache.
+        self.hypercache.secondary_cache_client = caches["mirror"]
+        self.config = HyperCacheManagementConfig(
+            hypercache=self.hypercache, update_fn=lambda team, ttl=None: True, cache_name="test_cache"
+        )
+        self.redis = get_client(self.hypercache.redis_url)
+
+    def write_entry(self, team: Team) -> None:
+        self.hypercache.set_cache_value(team, {"id": team.id})
+        self.addCleanup(self.hypercache.delete_cache_entry, self.hypercache.get_cache_identifier(team))
+
+    def deleted_team(self) -> Team:
+        return Team(id=self.team.id + 100000, api_token=f"phc_deleted_{uuid4().hex}")
+
+    def entry_state(self, team: Team) -> tuple[bool, bool, bool]:
+        identifier = self.hypercache.get_cache_identifier(team)
+        key = self.hypercache.get_cache_key(identifier)
+        return (
+            self.hypercache.cache_client.get(key) is not None,
+            object_storage.read(key, missing_ok=True) is not None,
+            self.redis.zscore(self.sorted_set_key, str(identifier)) is not None,
+        )
+
+    @parameterized.expand(
+        [
+            ("token_based", True, True),
+            ("id_based", False, True),
+            ("without_object_storage", True, False),
+        ]
+    )
+    def test_deletes_the_entry_of_a_deleted_team_and_keeps_a_live_one(
+        self, _name: str, token_based: bool, object_storage_enabled: bool
+    ) -> None:
+        with override_settings(OBJECT_STORAGE_ENABLED=object_storage_enabled):
+            self.given_cache(token_based)
+            deleted_team = self.deleted_team()
+            self.write_entry(self.team)
+            self.write_entry(deleted_team)
+
+            # The "replica" alias does not exist. A Team read that follows the router raises.
+            # The existence check must read the primary, because a lagging replica can report a
+            # new team as missing.
+            with override_settings(DATABASE_ROUTERS=[ReplicaRouter(["Team"])]):
+                removed = cleanup_stale_expiry_tracking(self.config)
+
+            assert removed == 1
+            assert self.entry_state(deleted_team) == (False, False, False)
+            assert self.entry_state(self.team) == (True, object_storage_enabled, True)
+
+    @parameterized.expand(
+        [
+            ("primary", "cache_client", (True, False, True)),
+            ("secondary", "secondary_cache_client", (False, False, True)),
+        ]
+    )
+    def test_a_failed_redis_delete_keeps_the_entry_tracked_for_the_next_cleanup(
+        self, _name: str, failing_client_attr: str, state_after_failure: tuple[bool, bool, bool]
+    ) -> None:
+        self.given_cache(token_based=True)
+        failing_team = self.deleted_team()
+        other_deleted_team = Team(id=self.team.id + 100001, api_token=f"phc_deleted_{uuid4().hex}")
+        self.write_entry(failing_team)
+        self.write_entry(other_deleted_team)
+        failing_client = getattr(self.hypercache, failing_client_attr)
+        failing_key = self.hypercache.get_cache_key(failing_team)
+        real_delete = failing_client.delete
+
+        def fail_for_one_key(key, *args, **kwargs):
+            if key == failing_key:
+                raise ConnectionError("down")
+            return real_delete(key, *args, **kwargs)
+
+        with patch.object(failing_client, "delete", side_effect=fail_for_one_key):
+            removed = cleanup_stale_expiry_tracking(self.config)
+
+        # One entry's failure must not stop the cleanup of the others.
+        assert removed == 1
+        assert self.entry_state(other_deleted_team) == (False, False, False)
+        # The object-storage copy has no TTL. The cleanup deletes it even though a Redis delete failed.
+        assert self.entry_state(failing_team) == state_after_failure
+        assert failing_client.get(failing_key) is not None
+
+        assert cleanup_stale_expiry_tracking(self.config) == 1
+        assert self.entry_state(failing_team) == (False, False, False)
+        assert failing_client.get(failing_key) is None
+
+    @parameterized.expand(
+        [
+            ("new_score", 60, (), (True, True, True)),
+            ("same_score", 0, (), (True, True, True)),
+            ("only_object_storage_holds_it", 0, ("primary", "mirror"), (False, True, True)),
+            ("only_the_mirror_holds_it", 0, ("primary", "object_storage"), (False, False, True)),
+        ]
+    )
+    def test_an_entry_rewritten_during_the_cleanup_stays_tracked(
+        self,
+        _name: str,
+        extra_ttl: int,
+        tiers_deleted_after_rewrite: tuple[str, ...],
+        state_after_cleanup: tuple[bool, bool, bool],
+    ) -> None:
+        self.given_cache(token_based=True)
+        deleted_team = self.deleted_team()
+        mirror = self.hypercache.secondary_cache_client
+        assert mirror is not None
+        delete_object = object_storage.delete
+
+        def delete_then_rewrite(key: str) -> None:
+            delete_object(key)
+            # A refresh run that loaded the team before it was deleted writes the entry again.
+            # Within the same second and with the same TTL, the rewrite gets the score the cleanup read.
+            self.hypercache.set_cache_value(
+                deleted_team, {"id": deleted_team.id}, ttl=self.hypercache.cache_ttl + extra_ttl
+            )
+            # A rewrite that interleaves with the cleanup's deletes can survive in only some tiers.
+            if "primary" in tiers_deleted_after_rewrite:
+                self.hypercache.cache_client.delete(key)
+            if "mirror" in tiers_deleted_after_rewrite:
+                mirror.delete(key)
+            if "object_storage" in tiers_deleted_after_rewrite:
+                delete_object(key)
+
+        key = self.hypercache.get_cache_key(deleted_team)
+        with time_machine.travel(time.time(), tick=False):
+            self.write_entry(deleted_team)
+            with patch("posthog.storage.hypercache.object_storage.delete", side_effect=delete_then_rewrite):
+                assert cleanup_stale_expiry_tracking(self.config) == 0
+
+        assert self.entry_state(deleted_team) == state_after_cleanup
+        assert (mirror.get(key) is not None) == ("mirror" not in tiers_deleted_after_rewrite)
+
+        assert cleanup_stale_expiry_tracking(self.config) == 1
+        assert self.entry_state(deleted_team) == (False, False, False)
+        assert mirror.get(key) is None
+
+    def test_a_failed_existence_check_keeps_the_entry_tracked_for_the_next_cleanup(self) -> None:
+        self.given_cache(token_based=True)
+        deleted_team = self.deleted_team()
+        self.write_entry(deleted_team)
+
+        with patch(
+            "posthog.storage.cache_expiry_manager.object_storage.head_object_strict",
+            side_effect=object_storage.ObjectStorageError("down"),
+        ):
+            assert cleanup_stale_expiry_tracking(self.config) == 0
+
+        assert self.entry_state(deleted_team) == (False, False, True)
+
+        assert cleanup_stale_expiry_tracking(self.config) == 1
+        assert self.entry_state(deleted_team) == (False, False, False)
