@@ -38,6 +38,10 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
 
     api_docs_url = "https://cloud.google.com/storage/docs/interoperability"
     self_managed_service = "gcs"
+    access_denied_message = (
+        "Google Cloud Storage denied access to this bucket. Check the HMAC access key and secret, and give "
+        "the service account that owns the key the Storage Object Viewer role on the bucket."
+    )
 
     @property
     def source_type(self) -> ExternalDataSourceType:

@@ -425,13 +425,18 @@ jobs:
             full_run_reason_category: ${{ steps.classify.outputs.full_run_reason_category }}
             full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
         steps:
-            # Full checkout at PR head so the selector can glob specs on disk and read
-            # the map/script from the branch under test. The selector step fetches bounded,
-            # blobless history so the merge-base with the base branch stays reachable cheaply.
+            # Keep both complete spec roots so added and removed specs affect discovery.
+            # The selector still reads the script and map from the PR head.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  sparse-checkout-cone-mode: false
+                  sparse-checkout: |
+                      /tools/playwright_spec_selection.py
+                      /tools/playwright_area_map.json
+                      /playwright/e2e/
+                      /products/*/frontend/e2e/
 
             - name: Run spec selector
               id: select
@@ -455,6 +460,11 @@ jobs:
                       echo "::warning::git fetch of base ref failed — full run"
                       echo "reason_detail=git_fetch_failed" >> "$GITHUB_OUTPUT"
                       exit 1
+                  fi
+                  # A different PR-head selector can read files outside the sparse tree.
+                  # Restore the full tree for older branches and selector changes.
+                  if ! git diff --quiet "origin/$BASE_REF" HEAD -- tools/playwright_spec_selection.py; then
+                      git sparse-checkout disable
                   fi
                   if [ ! -f tools/playwright_spec_selection.py ] || [ ! -f tools/playwright_area_map.json ]; then
                       echo "::notice::spec selector/map absent on this checkout (unrebased branch) — full run"
@@ -865,27 +875,37 @@ jobs:
                         # depends on the posthog_instancesetting table in Postgres.
                         # On cache hit this is near no-op; on cache miss it's a full migrate.
                         # Either way, any PR-added migrations get applied here.
-                        python manage.py migrate --noinput
+                        TIMEFORMAT='Django migrations: %3R seconds'
+                        time python manage.py migrate --noinput
 
                         # Run Rust migrations for persons e2e test database
                         PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
-                        sqlx database create -D "$PERSONS_DATABASE_URL"
-                        sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
+                        TIMEFORMAT='Persons database preparation: %3R seconds'
+                        time {
+                            sqlx database create -D "$PERSONS_DATABASE_URL"
+                            sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
+                        }
 
                         # Cyclotron node DB — the plugins container runs the CDP rerun worker
                         # (default capabilities), which requires CYCLOTRON_NODE_DATABASE_URL to point
                         # at a real, migrated database or it throws on startup and the server exits.
                         CYCLOTRON_NODE_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron_node"
-                        sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
-                        sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
+                        TIMEFORMAT='Cyclotron database preparation: %3R seconds'
+                        time {
+                            sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
+                            sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
+                        }
 
-                        python manage.py migrate_clickhouse 2>&1
+                        TIMEFORMAT='ClickHouse migrations: %3R seconds'
+                        time python manage.py migrate_clickhouse 2>&1
 
                         # Person/group reads go through personhog (no ORM fallback), so the replica
                         # and router must be running before setup_dev creates demo persons.
-                        COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
+                        TIMEFORMAT='Personhog startup: %3R seconds'
+                        time COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
 
-                        python manage.py setup_dev
+                        TIMEFORMAT='Demo data setup: %3R seconds'
+                        time python manage.py setup_dev
 
                   - name: Build frontend and collect static files
                     run: |

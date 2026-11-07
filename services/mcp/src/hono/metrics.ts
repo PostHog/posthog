@@ -230,4 +230,10 @@ export const guidanceEvaluationErrorsTotal = new Counter({
     help: 'Guidance evaluations that failed (Redis errors or timeouts) and yielded no notice.',
 })
 
+export const guidanceProductStateLookupsTotal = new Counter({
+    name: 'mcp_guidance_product_state_lookups_total',
+    help: 'Budgeted reads for guidance conditions, by check and result (answered, timeout, error).',
+    labelNames: ['check', 'result'] as const,
+})
+
 export { register }

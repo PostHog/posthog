@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconCopy, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
@@ -24,6 +24,8 @@ interface ImplementButtonProps {
     surface?: 'detail_pane' | 'triage_mode'
     implementationDisabledReason?: string | null
     reportTaskToOpen?: ReportTaskEntry | null
+    openChoicesFromLink?: boolean
+    onChoicesOpenedFromLink?: () => void
 }
 
 export function ImplementButton({
@@ -31,6 +33,8 @@ export function ImplementButton({
     surface = 'detail_pane',
     implementationDisabledReason,
     reportTaskToOpen,
+    openChoicesFromLink = false,
+    onChoicesOpenedFromLink,
 }: ImplementButtonProps): JSX.Element {
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const {
@@ -44,6 +48,14 @@ export function ImplementButton({
     const { createPrFromReport, openReportTask } = useActions(inboxTaskKickoffLogic)
     const [instructions, setInstructions] = useState('')
     const [choicesOpen, setChoicesOpen] = useState(false)
+    const choicesOpenedFromLink = useRef(false)
+    useEffect(() => {
+        if (openChoicesFromLink) {
+            choicesOpenedFromLink.current = true
+            setChoicesOpen(true)
+            onChoicesOpenedFromLink?.()
+        }
+    }, [openChoicesFromLink, onChoicesOpenedFromLink])
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const disabledReason =
@@ -74,7 +86,7 @@ export function ImplementButton({
             report,
             actionType: 'create_pr',
             surface,
-            extra: { has_feedback: trimmed.length > 0 },
+            extra: { has_feedback: trimmed.length > 0, opened_from_link: choicesOpenedFromLink.current },
         })
         createPrFromReport(report, trimmed || undefined)
     }
@@ -118,9 +130,10 @@ export function ImplementButton({
                 size="small"
                 className="[--lemon-button-hover-depth:0px]"
                 icon={<IconPullRequest />}
-                onClick={() => setChoicesOpen(true)}
+                onClick={() => submit(instructions)}
                 loading={isCreatingPr}
-                tooltip="Choose how to implement this report"
+                disabledReason={disabledReason}
+                tooltip="Start a PostHog agent to implement this report"
                 data-attr={surface === 'triage_mode' ? 'inbox-triage-create-pr' : 'inbox-report-create-pr'}
                 sideAction={{
                     tooltip: 'More implementation options',
@@ -128,7 +141,12 @@ export function ImplementButton({
                     'data-attr': 'inbox-report-create-pr-steer',
                     dropdown: {
                         visible: choicesOpen && !connectionOpen,
-                        onVisibilityChange: setChoicesOpen,
+                        onVisibilityChange: (visible) => {
+                            if (!visible) {
+                                choicesOpenedFromLink.current = false
+                            }
+                            setChoicesOpen(visible)
+                        },
                         placement: 'bottom-end',
                         closeOnClickInside: false,
                         overlay: (

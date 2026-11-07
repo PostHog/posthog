@@ -72,12 +72,23 @@ class NodeIdentity:
     is_posthog_table: bool  # `events`, `persons` and friends, readable by anyone on the project
 
 
+def parse_warehouse_table_id(properties: Mapping[str, Any] | None) -> uuid.UUID | None:
+    """The imported table a node stands for, or None when its properties hold no valid id."""
+    table_id = properties.get(_WAREHOUSE_TABLE_ID_KEY) if isinstance(properties, Mapping) else None
+    if not isinstance(table_id, str):
+        return None
+    try:
+        return uuid.UUID(table_id)
+    except ValueError:
+        return None
+
+
 def node_identity(node: Node) -> NodeIdentity:
     """Resolve one node to the resource its name belongs to."""
     if node.saved_query_id is not None:
         return NodeIdentity(saved_query_id=str(node.saved_query_id), warehouse_table_id=None, is_posthog_table=False)
     properties = node.properties or {}
-    table_id = properties.get(_WAREHOUSE_TABLE_ID_KEY)
+    table_id = parse_warehouse_table_id(properties)
     return NodeIdentity(
         saved_query_id=None,
         warehouse_table_id=str(table_id) if table_id else None,
