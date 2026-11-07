@@ -746,37 +746,19 @@ const PROTOCOL_SHARES: [string, number][] = [
     ['Unknown', 0.05],
 ]
 
-// The tool facet groups by the effective tool name, which reads `$mcp_exec_tool_call_name` first.
-const facetProperty = (query: string): string => {
-    if (query.includes('$mcp_protocol_version')) {
-        return '$mcp_protocol_version'
-    }
-    if (query.includes('$mcp_exec_tool_call_name')) {
-        return '$mcp_tool_name'
-    }
-    return query.match(/toString\(properties\.(\$\w+)\)/)?.[1] ?? ''
-}
-
 const bucketedShareResults = (shares: [string, number][]): [string, string, number][] =>
     DAILY_TOTALS.flatMap(([day, calls]) =>
         shares.map(([label, share]): [string, string, number] => [day, label, Math.round(calls * share)])
     )
 
-// [label, calls, users, errors] per leaderboard facet, keyed by the event property the query groups by.
-const WINDOW_FACET_RESULTS: Record<string, [string, number, number, number][]> = {
-    $mcp_tool_name: TOOL_RESULTS.map((r): [string, number, number, number] => [
-        String(r[0]),
-        Number(r[1]),
-        100,
-        Number(r[2]),
-    ]),
-    $mcp_error_type: [
-        ['timeout', 90, 40, 90],
-        ['validation', 60, 30, 60],
-        ['auth', 30, 15, 30],
-        ['rate_limit', 15, 9, 15],
-    ],
-}
+// [label, calls, users, errors] per leaderboard facet.
+const TOOL_FACET_RESULTS = TOOL_RESULTS.map((r) => [r[0], r[1], 100, r[2]])
+const ERROR_TYPE_FACET_RESULTS = [
+    ['timeout', 90, 40, 90],
+    ['validation', 60, 30, 60],
+    ['auth', 30, 15, 30],
+    ['rate_limit', 15, 9, 15],
+]
 
 const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
     day,
@@ -795,6 +777,19 @@ const DASHBOARD_SECTIONS: Record<string, unknown[]> = {
     modelRows: MODEL_BREAKDOWN_RESULTS,
     activityRows: ACTIVITY_RESULTS,
     toolDailyRows: TOOL_DAILY_RESULTS,
+    model: bucketedShareResults(MODEL_SHARES),
+    protocolVersion: bucketedShareResults(PROTOCOL_SHARES),
+    tool: TOOL_FACET_RESULTS,
+    errorType: ERROR_TYPE_FACET_RESULTS,
+    labUsers: [
+        ['Anthropic', 190],
+        ['OpenAI', 150],
+        ['Google', 80],
+        ['Open weights', 20],
+        ['Unknown', 40],
+    ],
+    namedModelUsers: [[260]],
+    reliability: RELIABILITY_RESULTS,
 }
 
 const meta: Meta = {
@@ -934,41 +929,6 @@ const meta: Meta = {
                     }
                     if (body?.query?.kind === 'EventsQuery') {
                         return [200, activityEventsResponse(body.query.select ?? [])]
-                    }
-                    // Leaderboard home tab queries.
-                    if (query.includes('AS lab,')) {
-                        return [
-                            200,
-                            {
-                                results: [
-                                    ['Anthropic', 190],
-                                    ['OpenAI', 150],
-                                    ['Google', 80],
-                                    ['Open weights', 20],
-                                    ['Unknown', 40],
-                                ],
-                            },
-                        ]
-                    }
-                    if (query.includes("!= 'Unknown'")) {
-                        return [200, { results: [[260]] }]
-                    }
-                    if (query.includes('AS label')) {
-                        const property = facetProperty(query)
-                        if (query.includes('AS bucket')) {
-                            return [
-                                200,
-                                {
-                                    results: bucketedShareResults(
-                                        property === '$mcp_protocol_version' ? PROTOCOL_SHARES : MODEL_SHARES
-                                    ),
-                                },
-                            ]
-                        }
-                        return [200, { results: WINDOW_FACET_RESULTS[property] ?? [] }]
-                    }
-                    if (query.includes('AS p50')) {
-                        return [200, { results: RELIABILITY_RESULTS }]
                     }
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.

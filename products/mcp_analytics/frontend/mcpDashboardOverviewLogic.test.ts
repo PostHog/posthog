@@ -13,8 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BUCKET_FORMAT } from 'lib/utils/timeBuckets'
 import { urls } from 'scenes/urls'
 
-import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { MCPDashboardQuery, MCPDashboardSection, NodeKind } from '~/queries/schema/schema-general'
+import { MCPDashboardQuery, MCPDashboardSection } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -29,7 +28,6 @@ import {
     buildToolDailySeries,
     type DashboardLayout,
     deltaPct,
-    MCP_DASHBOARD_DATA_COLLECTION_ID,
     mcpDashboardOverviewLogic,
     pickNotableSessions,
     type SessionRow,
@@ -479,12 +477,13 @@ describe('mcpDashboardOverviewLogic', () => {
         async function mountDashboard(): Promise<ReturnType<typeof mcpDashboardOverviewLogic.build>> {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
+            mcpLeaderboardHomeLogic.mount()
             await expectLogic(logic).toFinishAllListeners()
             return logic
         }
 
-        // The leaderboard renders its own protocol facet, so it must not pay for the overview-only
-        // breakdowns. It keeps modelRows as the model chart's fallback.
+        // The leaderboard renders its own protocol and tool facets, so it must not pay for the
+        // overview-only breakdowns. It keeps modelRows as the model chart's fallback.
         it.each([
             {
                 layout: 'overview' as const,
@@ -493,11 +492,11 @@ describe('mcpDashboardOverviewLogic', () => {
                     MCPDashboardSection.PeriodTotals,
                     MCPDashboardSection.ToolDailyRows,
                 ],
-                excludes: [] as MCPDashboardSection[],
+                excludes: [MCPDashboardSection.Reliability, MCPDashboardSection.Model],
             },
             {
                 layout: 'leaderboard' as const,
-                includes: [MCPDashboardSection.Kpis, MCPDashboardSection.ModelRows],
+                includes: [MCPDashboardSection.Kpis, MCPDashboardSection.ModelRows, MCPDashboardSection.Reliability],
                 excludes: [MCPDashboardSection.ProtocolVersionRows, MCPDashboardSection.ToolDailyRows],
             },
         ])('loads the $layout layout in one request', async ({ layout, includes, excludes }) => {
@@ -512,7 +511,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
         it.each([
             { layout: 'overview' as const, requests: 9 },
-            { layout: 'leaderboard' as const, requests: 7 },
+            { layout: 'leaderboard' as const, requests: 14 },
         ])('sends one request per section in the $layout baseline arm', async ({ layout, requests }) => {
             useLayout(layout, false)
             mockSections((section) => (section === MCPDashboardSection.PeriodTotals ? [[42, 30, 900, 600]] : []))
@@ -619,19 +618,37 @@ describe('mcpDashboardOverviewLogic', () => {
         )
 
         it.each([
-            { batched: true, error: new Error('Failed to fetch') },
-            { batched: true, error: { status: 403, detail: 'You do not have access.' } },
-            { batched: true, error: { status: 500, detail: 'Server error' } },
-            { batched: false, error: new Error('Failed to fetch') },
-            { batched: false, error: { status: 403, detail: 'You do not have access.' } },
+            { layout: 'overview' as const, batched: true, error: new Error('Failed to fetch'), failed: 9 },
+            {
+                layout: 'overview' as const,
+                batched: true,
+                error: { status: 403, detail: 'You do not have access.' },
+                failed: 9,
+            },
+            { layout: 'overview' as const, batched: true, error: { status: 500, detail: 'Server error' }, failed: 9 },
+            { layout: 'overview' as const, batched: false, error: new Error('Failed to fetch'), failed: 9 },
+            {
+                layout: 'overview' as const,
+                batched: false,
+                error: { status: 403, detail: 'You do not have access.' },
+                failed: 9,
+            },
+            {
+                layout: 'leaderboard' as const,
+                batched: true,
+                error: { status: 500, detail: 'Server error' },
+                failed: 14,
+            },
         ])(
-            'clears the previous rows without a toast when the request fails: batched $batched, $error',
-            async ({ batched, error }) => {
-                useLayout('overview', batched)
+            'clears the previous rows without a toast when the $layout request fails: batched $batched, $error',
+            async ({ layout, batched, error, failed }) => {
+                useLayout(layout, batched)
                 const toastError = jest.spyOn(lemonToast, 'error')
-                mockSections((section) =>
-                    section === MCPDashboardSection.ToolRows ? [['search_docs', 4, 1, 25, 120]] : []
-                )
+                const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
+                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
+                    [MCPDashboardSection.Tool]: [['search_docs', 4, 1, 0]],
+                }
+                mockSections((section) => answers[section] ?? [])
                 const logic = await mountDashboard()
                 expect(logic.values.toolRows).toHaveLength(1)
 
@@ -639,11 +656,51 @@ describe('mcpDashboardOverviewLogic', () => {
                 await expectLogic(logic, () => logic.actions.setDateFilter('-30d', null)).toFinishAllListeners()
 
                 expect(logic.values.toolRows).toEqual([])
-                expect(Object.keys(logic.values.failedLoads)).toHaveLength(9)
+                expect(mcpLeaderboardHomeLogic.values.facets.tool).toEqual([])
+                expect(Object.keys(logic.values.failedLoads)).toHaveLength(failed)
                 expect(toastError).not.toHaveBeenCalled()
                 expect(timeToSeeDataEvents().map((event) => event.status)).toEqual(['success', 'failure'])
             }
         )
+
+        it.each(
+            [
+                { failing: MCPDashboardSection.Model, failedFacets: ['model'], reliabilityFailed: false },
+                {
+                    failing: MCPDashboardSection.ProtocolVersion,
+                    failedFacets: ['protocolVersion'],
+                    reliabilityFailed: false,
+                },
+                { failing: MCPDashboardSection.Tool, failedFacets: ['tool'], reliabilityFailed: false },
+                { failing: MCPDashboardSection.ErrorType, failedFacets: ['errorType'], reliabilityFailed: false },
+                { failing: MCPDashboardSection.LabUsers, failedFacets: ['labUsers'], reliabilityFailed: false },
+                {
+                    failing: MCPDashboardSection.NamedModelUsers,
+                    failedFacets: ['namedModelUsers'],
+                    reliabilityFailed: false,
+                },
+                { failing: MCPDashboardSection.Reliability, failedFacets: [], reliabilityFailed: true },
+            ].flatMap((row) => [
+                { ...row, batched: true },
+                { ...row, batched: false },
+            ])
+        )('flags only the leaderboard $failing card when its section fails (batched $batched)', async (row) => {
+            useLayout('leaderboard', row.batched)
+            const toastError = jest.spyOn(lemonToast, 'error')
+            const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
+                [MCPDashboardSection.Model]: [['2026-11-01', 'claude-sonnet-5', 4]],
+                [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
+            }
+            mockSections((section) => (section === row.failing ? new Error('Query failed') : (answers[section] ?? [])))
+            const logic = await mountDashboard()
+
+            const { facets, reliabilityFailed } = mcpLeaderboardHomeLogic.values
+            expect(facets.failedFacets).toEqual(row.failedFacets)
+            expect(reliabilityFailed).toBe(row.reliabilityFailed)
+            expect(facets.model).toHaveLength(row.failing === MCPDashboardSection.Model ? 0 : 1)
+            expect(logic.values.toolRows.map((toolRow) => toolRow.tool)).toEqual(['search_docs'])
+            expect(toastError).not.toHaveBeenCalled()
+        })
 
         it.each([
             { batched: true, requests: 1 },
@@ -675,7 +732,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             const queries = queriesSince(1)
             expect(queries).toHaveLength(1)
-            expect(queries[0].sections).not.toContain(MCPDashboardSection.ToolDailyRows)
+            expect(queries[0].sections).toContain(MCPDashboardSection.Reliability)
         })
 
         it('stops counting the sections of a replaced layout as loading', async () => {
@@ -707,40 +764,6 @@ describe('mcpDashboardOverviewLogic', () => {
                 ])
             }
         )
-
-        it.each([
-            { leaderboard: 'loads', status: 'success' },
-            { leaderboard: 'fails', status: 'failure' },
-            { leaderboard: 'unmounts mid-load', status: 'cancelled' },
-        ])('reports time to see data as $status when the leaderboard $leaderboard', async ({ leaderboard, status }) => {
-            useLayout('leaderboard')
-            const leaderboardQueries: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
-            mockApi.query.mockImplementation((node: any) =>
-                node.kind === NodeKind.MCPDashboardQuery
-                    ? Promise.resolve(sectionResponse(node.sections, () => []))
-                    : new Promise((resolve, reject) => leaderboardQueries.push({ resolve, reject }))
-            )
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            mcpLeaderboardHomeLogic.mount()
-            await expectLogic(logic).delay(0)
-
-            expect(logic.values.dashboardLoading).toBe(false)
-            expect(timeToSeeDataEvents()).toEqual([])
-
-            if (leaderboard === 'unmounts mid-load') {
-                mcpLeaderboardHomeLogic.unmount()
-            } else {
-                leaderboardQueries.forEach((query) =>
-                    leaderboard === 'fails' ? query.reject(new Error('Query failed')) : query.resolve({ results: [] })
-                )
-                await expectLogic(mcpLeaderboardHomeLogic).toFinishAllListeners()
-            }
-
-            expect(timeToSeeDataEvents()).toEqual([expect.objectContaining({ status, insights_fetched: 3 })])
-            const collection = dataNodeCollectionLogic.findMounted({ key: MCP_DASHBOARD_DATA_COLLECTION_ID })
-            expect(collection?.values.areAnyLoading).toBe(false)
-        })
 
         // The time to see data event carries the flag's value when it is sent, so the load it measures must
         // be the batched one, not the baseline load the late flag replaced.

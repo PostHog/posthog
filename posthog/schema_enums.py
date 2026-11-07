@@ -2083,6 +2083,13 @@ class MCPDashboardSection(StrEnum):
     PROTOCOL_VERSION_ROWS = "protocolVersionRows"
     ACTIVITY_ROWS = "activityRows"
     TOOL_DAILY_ROWS = "toolDailyRows"
+    MODEL = "model"
+    PROTOCOL_VERSION = "protocolVersion"
+    TOOL = "tool"
+    ERROR_TYPE = "errorType"
+    LAB_USERS = "labUsers"
+    NAMED_MODEL_USERS = "namedModelUsers"
+    RELIABILITY = "reliability"
 
 
 class NeighborDirection(StrEnum):

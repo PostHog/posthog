@@ -33972,7 +33972,14 @@
                 "modelRows",
                 "protocolVersionRows",
                 "activityRows",
-                "toolDailyRows"
+                "toolDailyRows",
+                "model",
+                "protocolVersion",
+                "tool",
+                "errorType",
+                "labUsers",
+                "namedModelUsers",
+                "reliability"
             ],
             "type": "string"
         },
