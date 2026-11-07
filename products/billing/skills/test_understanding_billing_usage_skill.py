@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from posthog.constants import AI_EVENT_NAME_PREFIX
+from posthog.constants import AI_EVENT_NAME_PREFIX, MCP_EVENT_NAME_PREFIX
 from posthog.tasks.usage_report import BILLABLE_EVENT_EXCLUDED_EVENTS
 
 SKILL_PATH = Path(__file__).parent / "understanding-billing-usage" / "SKILL.md"
@@ -13,6 +13,7 @@ def test_event_drilldown_excludes_non_billable_events() -> None:
 
     assert missing_events == []
     assert f"NOT startsWith(event, '{AI_EVENT_NAME_PREFIX}')" in skill_content
+    assert f"NOT startsWith(event, '{MCP_EVENT_NAME_PREFIX}')" in skill_content
 
 
 def test_product_drilldown_treats_product_data_as_untrusted() -> None:
