@@ -21,6 +21,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { downloadFile, uuid } from 'lib/utils/dom'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
@@ -79,6 +80,7 @@ function isDefiniteRejection(error: unknown): error is ApiError {
 
 export interface ScoutTrialsLink {
     scout: string | null
+    view: 'setup' | null
     trial: string | null
     run: string | null
 }
@@ -87,9 +89,14 @@ function linkParam(value: unknown): string | null {
     return value === undefined || value === null || value === '' ? null : String(value)
 }
 
+function onTrialsPage(): boolean {
+    return removeProjectIdIfPresent(router.values.location.pathname) === urls.inboxScoutTrials()
+}
+
 function trialsLinkFromUrl(searchParams: Record<string, any>): ScoutTrialsLink {
     return {
         scout: linkParam(searchParams.scout),
+        view: searchParams.view === 'setup' ? 'setup' : null,
         trial: linkParam(searchParams.trial),
         run: linkParam(searchParams.run),
     }
@@ -104,6 +111,7 @@ function trialsLinkFromState(
     const trial = values.trialView === 'detail' ? (values.selectedComparison?.id ?? null) : null
     return {
         scout: values.configs?.find((config) => config.id === values.selectedConfigId)?.skill_name ?? null,
+        view: values.trialView === 'setup' ? 'setup' : null,
         trial,
         run: trial ? values.selectedLaunchId : null,
     }
@@ -115,6 +123,7 @@ function trialsUrl(link: ScoutTrialsLink): [string, Record<string, any>, Record<
         {
             ...router.values.searchParams,
             scout: link.scout ?? undefined,
+            view: link.view ?? undefined,
             trial: link.trial ?? undefined,
             run: link.run ?? undefined,
         },
@@ -1332,7 +1341,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             if (!configs?.length) {
                 return
             }
-            actions.openTrialsLink(trialsLinkFromUrl(router.values.searchParams))
+            actions.openTrialsLink(trialsLinkFromUrl(onTrialsPage() ? router.values.searchParams : {}))
         },
         openTrialsLink: async ({ link }, breakpoint) => {
             const configs = values.configs
@@ -1350,16 +1359,26 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                 }
             })
             const trialId = link.trial
+            let retryable = false
             if (trialId && !values.comparisons.some((comparison) => comparison.id === trialId)) {
                 let comparison: ScoutTrialComparisonApi | null = null
                 try {
                     comparison = await signalsScoutConfigTrialComparisonRetrieve(String(props.teamId), configId, {
                         comparison_id: trialId,
                     })
-                } catch {
-                    // Trials are private to the person who ran them, so another person's link opens the list.
+                } catch (error) {
+                    // Trials are private to the person who ran them, so another person's link gets a 403 and opens
+                    // the list. Other failures keep the link in the URL, so a reload tries it again.
+                    retryable = !(error instanceof ApiError && (error.status === 403 || error.status === 404))
                 }
                 breakpoint()
+                // A URL that changed during the lookup means the person navigated, so the newer URL wins.
+                if (!onTrialsPage() || !objectsEqual(link, trialsLinkFromUrl(router.values.searchParams))) {
+                    return
+                }
+                if (comparison?.archived && !values.showArchived) {
+                    actions.setShowArchived(true)
+                }
                 if (comparison) {
                     actions.registerServerComparison(comparison)
                 }
@@ -1368,9 +1387,15 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             const runId =
                 link.run && trial?.groups.some((group) => group.launchIds.includes(link.run!)) ? link.run : null
             withoutUrlSync(cache, () => {
-                if (trial && (values.trialView !== 'detail' || values.selectedComparison?.id !== trial.id)) {
-                    actions.selectComparison(configId, trial.id)
-                } else if (!trial && values.trialView === 'detail') {
+                if (trial) {
+                    if (values.trialView !== 'detail' || values.selectedComparison?.id !== trial.id) {
+                        actions.selectComparison(configId, trial.id)
+                    }
+                } else if (link.view === 'setup') {
+                    if (values.trialView !== 'setup') {
+                        actions.newComparison()
+                    }
+                } else if (values.trialView !== 'list') {
                     actions.showTrialList()
                 }
                 if (values.selectedLaunchId !== runId) {
@@ -1378,7 +1403,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                 }
             })
             const opened = trialsLinkFromState(values)
-            if (!objectsEqual(opened, trialsLinkFromUrl(router.values.searchParams))) {
+            if (!retryable && onTrialsPage() && !objectsEqual(opened, trialsLinkFromUrl(router.values.searchParams))) {
                 router.actions.replace(...trialsUrl(opened))
             }
         },
@@ -1792,7 +1817,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         const toTrialsUrl =
             (replace: boolean) =>
             (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | undefined =>
-                props.configId || cache.applyingTrialsLink
+                props.configId || cache.applyingTrialsLink || !onTrialsPage()
                     ? undefined
                     : [...trialsUrl(trialsLinkFromState(values)), { replace }]
         return {
