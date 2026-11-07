@@ -309,6 +309,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
             }
 
+            if (functionResult.capturedPostHogEvents.length > 1) {
+                addLog(
+                    'warn',
+                    `Only the first of ${functionResult.capturedPostHogEvents.length} captured events starts the workflow. The rest were ignored.`
+                )
+            }
+
             const capturedPostHogEvent = functionResult.capturedPostHogEvents[0]
             // Add all logs to the result
 
@@ -531,8 +538,25 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             )
         }
 
+        this.discardCapturesOfFailedRequest(result)
         await this.invocationResultsService.queueInvocationResults([result])
         return result
+    }
+
+    private discardCapturesOfFailedRequest(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+    ): void {
+        const failed = !!result.error || (getCustomHttpResponse(result)?.status ?? 200) >= 500
+        if (!failed || result.capturedPostHogEvents.length <= 1) {
+            return
+        }
+        result.logs.push(
+            logEntry(
+                'warn',
+                `Discarded ${result.capturedPostHogEvents.length} captured events because the request failed.`
+            )
+        )
+        result.capturedPostHogEvents = []
     }
 
     @instrumented('cdpSourceWebhooksConsumer.processWebhook')

@@ -281,6 +281,59 @@ describe('SourceWebhooksConsumer', () => {
                 expect(internalEvents.method).toBe('POST')
             })
 
+            it.each([
+                ['*', 'ok', 200, [['first', 'second']]],
+                ['own team', 'throw', 500, []],
+                ['own team', 'answer500', 500, []],
+                ['other team', 'ok', 200, [['first']]],
+                ['', 'ok', 200, [['first']]],
+                ['', 'throw', 500, [['first']]],
+            ])(
+                'with multi-capture teams %j and outcome %s, answers %s and captures %j',
+                async (multiCaptureTeams, outcome, expectedStatus, expectedRequests) => {
+                    await api.stop()
+                    hub.CDP_SOURCE_WEBHOOK_MULTI_CAPTURE_TEAMS =
+                        { 'own team': `${team.id}`, 'other team': `${team.id + 1}` }[multiCaptureTeams] ??
+                        multiCaptureTeams
+                    api = new CdpApi(
+                        hub,
+                        { ...createCdpConsumerDeps(hub), idempotencyValkey },
+                        { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
+                    )
+                    app = setupExpressApp()
+                    app.use('/', api.router())
+                    server.close()
+                    server = app.listen(0, () => {})
+                    await api.start()
+                    const code = `
+                        postHogCapture({'event': 'first', 'distinct_id': 'd', 'properties': {}})
+                        postHogCapture({'event': 'second', 'distinct_id': 'd', 'properties': {}})
+                        if (request.body.outcome == 'throw') {
+                            throw Error('boom')
+                        }
+                        if (request.body.outcome == 'answer500') {
+                            return {'httpResponse': {'status': 500, 'body': 'retry'}}
+                        }
+                    `
+                    const capturingFunction = await insertHogFunction(hub.postgres, team.id, {
+                        type: 'source_webhook',
+                        hog: code,
+                        bytecode: await compileHog(code),
+                    })
+
+                    const res = await doPostRequest({ webhookId: capturingFunction.id, body: { outcome } })
+                    await waitForBackgroundTasks()
+
+                    expect(res.status).toEqual(expectedStatus)
+                    expect(
+                        mockInternalFetch.mock.calls.map(([, options]) => {
+                            const body = parseJSON(options.body)
+                            return body.batch ? body.batch.map((event: { event: string }) => event.event) : [body.event]
+                        })
+                    ).toEqual(expectedRequests)
+                }
+            )
+
             it('should log custom errors', async () => {
                 const res = await doPostRequest({
                     body: {

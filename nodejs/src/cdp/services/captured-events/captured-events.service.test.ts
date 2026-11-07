@@ -34,6 +34,7 @@ describe('CapturedEventsService', () => {
     beforeEach(() => {
         internalCaptureService = {
             capture: jest.fn().mockResolvedValue({ status: 200 }),
+            captureBatch: jest.fn().mockResolvedValue({ status: 200 }),
         } as unknown as jest.Mocked<InternalCaptureService>
 
         teamManager = {
@@ -155,6 +156,85 @@ describe('CapturedEventsService', () => {
                 properties: { foo: 'bar' },
             })
         })
+
+        it.each([
+            ['source_webhook', [], 400, 'small', ['batch a,b,c,d'], ['a', 'b', 'c', 'd'], 'x'],
+            [
+                'source_webhook',
+                ['c'],
+                400,
+                'small',
+                ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single c', 'single d'],
+                ['a', 'b', 'd'],
+                'x',
+            ],
+            ['source_webhook', ['c'], 413, 'small', ['batch a,b,c,d'], ['a', 'b'], 'x'],
+            [
+                'source_webhook',
+                ['a', 'd'],
+                400,
+                'small',
+                ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single a', 'single b', 'single c', 'single d'],
+                ['b', 'c'],
+                'x',
+            ],
+            [
+                'source_webhook',
+                [],
+                400,
+                'one 300 KB',
+                ['batch a,c,d', 'single b'],
+                ['a', 'b', 'c', 'd'],
+                '漢'.repeat(100_000),
+            ],
+            [
+                'destination',
+                [],
+                400,
+                'small',
+                ['single a', 'single b', 'single c', 'single d'],
+                ['a', 'b', 'c', 'd'],
+                'x',
+            ],
+        ])(
+            'sends a %s result with invalid events %j refused with %s and %s events as %j, storing %j',
+            async (type, invalid, refusal, _size, expected, stored, blob) => {
+                teamManager.getTeam.mockResolvedValue(buildTeam(1, 'token-team-1'))
+                const published: string[] = []
+                const ingest = (events: InternalCaptureEvent[]): any => {
+                    const firstInvalid = events.findIndex((event) => invalid.includes(event.event))
+                    if (firstInvalid === -1) {
+                        published.push(...events.map((event) => event.event))
+                        return { status: 200 }
+                    }
+                    if (refusal === 413) {
+                        published.push(...events.slice(0, firstInvalid).map((event) => event.event))
+                    }
+                    return { status: refusal }
+                }
+                internalCaptureService.captureBatch.mockImplementation((events) => Promise.resolve(ingest(events)))
+                internalCaptureService.capture.mockImplementation((event) => Promise.resolve(ingest([event])))
+                await service.queueInvocationResults([
+                    {
+                        ...buildResult(
+                            ['a', 'b', 'c', 'd'].map((event) =>
+                                buildCapturedEvent(1, { event, properties: { blob: event === 'b' ? blob : 'x' } })
+                            )
+                        ),
+                        invocation: { hogFunction: { type } },
+                    } as unknown as CyclotronJobInvocationResult,
+                ])
+                await service.flush()
+
+                expect([
+                    ...internalCaptureService.captureBatch.mock.calls.map(
+                        ([events]) => `batch ${events.map((event) => event.event).join(',')}`
+                    ),
+                    ...internalCaptureService.capture.mock.calls.map(([event]) => `single ${event.event}`),
+                ]).toEqual(expected)
+                expect(published.sort()).toEqual(stored)
+            }
+        )
 
         it('drops events whose team is not found (teamManager returns null)', async () => {
             teamManager.getTeam.mockResolvedValue(null)
