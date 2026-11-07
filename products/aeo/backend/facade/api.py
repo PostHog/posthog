@@ -781,7 +781,7 @@ def _latest_checks(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID,
         .filter(prompt_id__in=prompt_ids)
         .order_by("prompt_id", "engine", "-created_at")
         .distinct("prompt_id", "engine")
-        .values("prompt_id", "engine", "cited", "check_failed", "target_best_position", "created_at")
+        .values("prompt_id", "engine", "cited", "check_failed", "target_best_position", "search_queries", "created_at")
     )
     checks: dict[uuid.UUID, list[PromptEngineCheck]] = defaultdict(list)
     for row in rows:
@@ -791,6 +791,7 @@ def _latest_checks(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID,
                 cited=row["cited"],
                 check_failed=row["check_failed"],
                 target_best_position=row["target_best_position"],
+                search_queries=_strings(row["search_queries"]),
                 checked_at=row["created_at"],
             )
         )
