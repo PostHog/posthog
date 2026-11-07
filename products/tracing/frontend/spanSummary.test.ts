@@ -34,6 +34,8 @@ describe('deriveSpanSummary', () => {
         expect(s.pod).toBeNull()
         expect(s.parentSpanId).toBeNull()
         expect(s.kind).toBe('Internal')
+        // The API returns a root span's parent as the all-zero hex id, not an empty string.
+        expect(deriveSpanSummary(makeSpan({ parent_span_id: '0000000000000000' })).parentSpanId).toBeNull()
     })
 
     it('carries the correlation IDs, kind, and end time the header surfaces', () => {
