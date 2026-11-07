@@ -819,6 +819,9 @@ def write_edit(
     if reenabled:
         configuration.next_check_at = now + _REVIVE_FENCE
         update_fields.append("next_check_at")
+        if configuration.first_enabled_at is None:
+            configuration.first_enabled_at = now
+            update_fields.append("first_enabled_at")
     _assign_edit(configuration, edit)
     configuration.save(update_fields=update_fields)
 
@@ -830,6 +833,7 @@ def create_native_configuration(
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
     destinations_owner: PlatformAlertOwner,
+    created_by_id: int | None,
     now: datetime,
 ) -> PlatformAlertConfiguration:
     """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
@@ -840,6 +844,8 @@ def create_native_configuration(
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
         destinations_owner=destinations_owner,
+        created_by_id=created_by_id,
+        first_enabled_at=now if edit.enabled else None,
     )
     _assign_edit(configuration, edit)
     # The model's own save logs the creation.

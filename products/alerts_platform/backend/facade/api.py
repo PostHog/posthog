@@ -206,6 +206,17 @@ def list_configurations(
     )
 
 
+def native_configuration_keys(
+    *, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None
+) -> tuple[tuple[datetime, UUID], ...]:
+    """`(created_at, id)` of every alert of a kind with no source row, newest first. A source that keeps
+    rows for its other alerts pages the two together on these, then reads only the page with
+    `list_configurations`. With `created_by_uuid`, only the ones that user created."""
+    return platform_reads.native_configuration_keys(
+        team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
+    )
+
+
 def count_configurations(
     *,
     team_id: int,
@@ -325,14 +336,22 @@ def update_configuration(
     source_kinds: Sequence[str],
     configuration_id: UUID,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+    snooze_until: datetime | None = None,
+    snooze_changed: bool = False,
 ) -> PlatformAlertConfigurationView | None:
     """Applies an edit to a configuration the platform owns, or None when the caller cannot read it.
+    With `snooze_changed`, `snooze_until` becomes the whole alert's mute, and None clears it.
 
     Raises `PlatformAlertNotEditable` for a configuration its source owns, and
     `InvalidPlatformAlertEdit` for an edit its source kind rejects.
     """
     return platform_writes.update_configuration(
-        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, change=change
+        team_id=team_id,
+        source_kinds=source_kinds,
+        configuration_id=configuration_id,
+        change=change,
+        snooze_until=snooze_until,
+        snooze_changed=snooze_changed,
     )
 
 
