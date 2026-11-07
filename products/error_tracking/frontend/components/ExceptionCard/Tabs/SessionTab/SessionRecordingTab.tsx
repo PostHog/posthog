@@ -13,6 +13,7 @@ import { SessionRecordingPlayer } from 'scenes/session-recordings/player/Session
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
+import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { RecordingEmptyState } from '../RecordingEmptyState'
 import { SubHeader } from '../SubHeader'
 import { sessionTabLogic } from './sessionTabLogic'
@@ -29,6 +30,7 @@ export function SessionRecordingContent(): JSX.Element {
     const { recordingStatus } = useValues(errorPropertiesLogic)
     const { recordingProps, recordingTimestamp, isTimestampOutsideRecording, sessionId } = useValues(sessionTabLogic)
     const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
+    const { renderRecordingActions } = useValues(exceptionCardLogic)
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
 
     useEffect(() => {
@@ -58,8 +60,9 @@ export function SessionRecordingContent(): JSX.Element {
     )
 
     return (
-        <div className="flex h-full min-w-0 flex-col overflow-hidden">
+        <div className="@container/recording-tab flex h-full min-w-0 flex-col overflow-hidden">
             <SubHeader className="shrink-0 justify-end">
+                {renderRecordingActions?.()}
                 <Button variant="default" size="sm" render={<LinkPrimitive to={replayUrl} target="_blank" />}>
                     Open in session replay
                     <IconExternal />
