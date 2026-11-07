@@ -15,6 +15,17 @@
                 }
             }
         },
+        "ActionPinnedAtSchema": {
+            "description": "ISO 8601 timestamp. Set any value to pin the action, or null to unpin it.",
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
         "BillingSpendBreakdownsSchema": {
             "description": "Dimensions to break spend down by. Pass `[\"type\"]` for per-product series, `[\"team\"]` for one series per project summed across products, or `[\"type\",\"team\"]` for per-project series within each product. Omit for one aggregate series.",
             "anyOf": [

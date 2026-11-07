@@ -372,7 +372,11 @@ export interface DashboardBasicApi {
     readonly is_shared: boolean
     readonly deleted: boolean
     readonly creation_mode: DashboardCreationModeEnumApi
-    tags?: unknown[]
+    /**
+     * Tag names to set. Pass an empty list to clear all tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -512,7 +516,11 @@ export interface DashboardApi {
      * @nullable
      */
     data_color_theme_id?: number | null
-    tags?: unknown[]
+    /**
+     * Tag names to set. Pass an empty list to clear all tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -10226,7 +10234,11 @@ export interface InsightApi {
      */
     description?: string | null
     readonly updated_at: string
-    tags?: unknown[]
+    /**
+     * Tag names to set. Pass an empty list to clear all tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     favorited?: boolean
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi

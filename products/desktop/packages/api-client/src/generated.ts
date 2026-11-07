@@ -876,7 +876,7 @@ export namespace Schemas {
         /**
          * Serializer mixin that handles tags for objects.
          */
-        tags?: Array<unknown> | undefined;
+        tags?: Array<string> | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -6397,7 +6397,7 @@ export namespace Schemas {
         /**
          * Serializer mixin that handles tags for objects.
          */
-        tags?: Array<unknown> | undefined;
+        tags?: Array<string> | undefined;
         /**
          * The effective access level the user has for this object
          */
@@ -9569,7 +9569,7 @@ export namespace Schemas {
         /**
          * Serializer mixin that handles tags for objects.
          */
-        tags?: Array<unknown> | undefined;
+        tags?: Array<string> | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -11777,7 +11777,7 @@ export namespace Schemas {
         /**
          * Serializer mixin that handles tags for objects.
          */
-        tags?: Array<unknown> | undefined;
+        tags?: Array<string> | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -12654,7 +12654,7 @@ export namespace Schemas {
         /**
          * Simplified serializer to speed response times when loading large amounts of objects.
          */
-        tags?: Array<unknown> | undefined;
+        tags?: Array<string> | undefined;
         /**
          * Simplified serializer to speed response times when loading large amounts of objects.
          */
@@ -15551,7 +15551,7 @@ export namespace Schemas {
         id: number;
         name: string | null;
         description: string;
-        tags: Array<unknown>;
+        tags: Array<string>;
         post_to_slack: boolean;
         slack_message_format: string;
         steps: Array<ActionStepJSON>;
@@ -15843,7 +15843,7 @@ export namespace Schemas {
         created_by: UserBasic & unknown;
         description: string | null;
         updated_at: string;
-        tags: Array<unknown>;
+        tags: Array<string>;
         favorited: boolean;
         last_modified_at: string;
         last_modified_by: UserBasic & unknown;
@@ -18214,7 +18214,7 @@ export namespace Schemas {
         /**
          * Mixin for serializers to add user access control fields
          */
-        tags?: Array<unknown> | undefined;
+        tags?: Array<string> | undefined;
         /**
          * The effective access level the user has for this object
          */

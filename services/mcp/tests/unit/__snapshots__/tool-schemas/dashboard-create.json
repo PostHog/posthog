@@ -177,7 +177,11 @@
             "description": "List of quick filter IDs associated with this dashboard"
         },
         "tags": {
-            "items": {},
+            "description": "Tag names to set. Pass an empty list to clear all tags.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
             "type": "array"
         },
         "use_dashboard": {

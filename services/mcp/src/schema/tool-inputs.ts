@@ -14,6 +14,12 @@ import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
 export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
 export const CanvasStateKeysOnlySchema = z.boolean().default(true)
 export const WikiPageReadLimitSchema = z.number().int().min(1).max(12000).default(12000)
+// A plain string: the generated date-time regex pushes the action tools over the claude.ai
+// schema size limit. The API still validates the timestamp.
+export const ActionPinnedAtSchema = z
+    .string()
+    .nullish()
+    .describe('ISO 8601 timestamp. Set any value to pin the action, or null to unpin it.')
 export const SignalReportFeedbackSentimentSchema = z
     .enum(['positive', 'negative'])
     .describe("The report rating: 'positive' (thumbs up) or 'negative' (thumbs down).")

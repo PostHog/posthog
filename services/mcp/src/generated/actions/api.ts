@@ -51,6 +51,8 @@ export const ActionsCreateQueryParams = () => zod.object({
 
 export const actionsCreateBodyNameMax = 400
 
+export const actionsCreateBodyTagsItemMax = 255
+
 export const actionsCreateBodySlackMessageFormatMax = 1200
 
 export const actionsCreateBodyStepsItemPropertiesItemOneTypeDefault = `event`
@@ -71,7 +73,10 @@ export const ActionsCreateBody = () => zod
             .nullish()
             .describe('Name of the action (must be unique within the project).'),
         description: zod.string().optional().describe('Human-readable description of what this action represents.'),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(actionsCreateBodyTagsItemMax))
+            .optional()
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         post_to_slack: zod
             .boolean()
             .optional()
@@ -509,6 +514,8 @@ export const ActionsPartialUpdateQueryParams = () => zod.object({
 
 export const actionsPartialUpdateBodyNameMax = 400
 
+export const actionsPartialUpdateBodyTagsItemMax = 255
+
 export const actionsPartialUpdateBodySlackMessageFormatMax = 1200
 
 export const actionsPartialUpdateBodyStepsItemPropertiesItemOneTypeDefault = `event`
@@ -529,7 +536,10 @@ export const ActionsPartialUpdateBody = () => zod
             .nullish()
             .describe('Name of the action (must be unique within the project).'),
         description: zod.string().optional().describe('Human-readable description of what this action represents.'),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(actionsPartialUpdateBodyTagsItemMax))
+            .optional()
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         post_to_slack: zod
             .boolean()
             .optional()

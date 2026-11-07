@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/actions/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { ActionPinnedAtSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -12,6 +13,7 @@ const ActionCreateSchema = () => {
     const ActionsCreateBody = orvalSchemas.ActionsCreateBody()
     return ActionsCreateBody.omit({ _create_in_folder: true }).extend({
         name: ActionsCreateBody.shape['name'].describe('Name of the action (must be unique within the project)'),
+        pinned_at: ActionPinnedAtSchema,
     })
 }
 
@@ -95,9 +97,9 @@ const actionGet = (): ToolBase<ReturnType<typeof ActionGetSchema>, WithPostHogUr
 const ActionUpdateSchema = () => {
     const ActionsPartialUpdateBody = orvalSchemas.ActionsPartialUpdateBody()
     const ActionsPartialUpdateParams = orvalSchemas.ActionsPartialUpdateParams()
-    return ActionsPartialUpdateParams.omit({ project_id: true }).extend(
-        ActionsPartialUpdateBody.omit({ _create_in_folder: true }).shape
-    )
+    return ActionsPartialUpdateParams.omit({ project_id: true })
+        .extend(ActionsPartialUpdateBody.omit({ _create_in_folder: true }).shape)
+        .extend({ pinned_at: ActionPinnedAtSchema.optional() })
 }
 
 const actionUpdate = (): ToolBase<ReturnType<typeof ActionUpdateSchema>, WithPostHogUrl<Schemas.Action>> =>

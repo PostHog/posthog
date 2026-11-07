@@ -202,6 +202,8 @@ export const insightsCreateBodyOrderMax = 2147483647
 
 export const insightsCreateBodyDescriptionMax = 400
 
+export const insightsCreateBodyTagsItemMax = 255
+
 export const InsightsCreateBody = () => zod
     .object({
         name: zod.string().max(insightsCreateBodyNameMax).nullish(),
@@ -215,7 +217,10 @@ export const InsightsCreateBody = () => zod
                 '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        This field is omitted from session-authenticated responses unless `include_dashboards=true`\n        is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)\n        must opt in the same way. Do not rely on it being present.\n        '
             ),
         description: zod.string().max(insightsCreateBodyDescriptionMax).nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(insightsCreateBodyTagsItemMax))
+            .optional()
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         favorited: zod.boolean().optional(),
         _create_in_folder: zod.string().optional(),
     })
@@ -306,6 +311,8 @@ export const insightsPartialUpdateBodyOrderMax = 2147483647
 
 export const insightsPartialUpdateBodyDescriptionMax = 400
 
+export const insightsPartialUpdateBodyTagsItemMax = 255
+
 export const InsightsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(insightsPartialUpdateBodyNameMax).nullish(),
@@ -319,7 +326,10 @@ export const InsightsPartialUpdateBody = () => zod
                 '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        This field is omitted from session-authenticated responses unless `include_dashboards=true`\n        is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)\n        must opt in the same way. Do not rely on it being present.\n        '
             ),
         description: zod.string().max(insightsPartialUpdateBodyDescriptionMax).nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(insightsPartialUpdateBodyTagsItemMax))
+            .optional()
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         favorited: zod.boolean().optional(),
         _create_in_folder: zod.string().optional(),
     })

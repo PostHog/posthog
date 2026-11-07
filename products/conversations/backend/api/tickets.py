@@ -639,13 +639,13 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
-        validated_data.pop("tags", None)
+        tags = validated_data.pop("tags", None)
         for field, value in validated_data.items():
             setattr(instance, field, value)
         # Only the submitted columns. A full save writes back every column this request
         # loaded, so a delete that commits in between would be undone.
         instance.save(update_fields=[*validated_data, "updated_at"])
-        self._attempt_set_tags(self.initial_data.get("tags"), instance)
+        self._attempt_set_tags(tags, instance)
         return instance
 
 
