@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { IconCheckCircle, IconDocument, IconEllipsis, IconHide } from '@posthog/icons'
 import { Badge, Button, Heading, IconStack, IconStackItem, Text, cn } from '@posthog/quill'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -30,11 +30,13 @@ function PhoneActions({
     report,
     stateBadge,
     sampleReason,
+    linksToInbox,
     giveVerdict,
 }: {
     report: SignalReport
     stateBadge: JSX.Element | null
     sampleReason: string | null
+    linksToInbox: boolean
     giveVerdict: (verdict: TodayReportVerdict) => void
 }): JSX.Element {
     const [open, setOpen] = useState(false)
@@ -61,7 +63,7 @@ function PhoneActions({
                 title={reportTitle(report)}
                 description={sampleReason ?? undefined}
             >
-                {!sampleReason && (
+                {!sampleReason && linksToInbox && (
                     <Item to={urls.inboxReport('reports', report.id)} dataAttr="today-report-open-inbox">
                         <IconDocument />
                         Open the full report
@@ -99,7 +101,14 @@ function PhoneActions({
     )
 }
 
-export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Element {
+/** `linksToInbox` is off when the page already renders inside the inbox, where "Full report" would link to itself. */
+export function TodayReportHeader({
+    report,
+    linksToInbox = true,
+}: {
+    report: SignalReport
+    linksToInbox?: boolean
+}): JSX.Element {
     const { requestReportVerdict } = useActions(todayVerdictLogic)
     const { phoneLayout } = useValues(todayShellLogic)
     const { lead, leadMarks, shownKeyClauses, reportState, isSample } = useValues(
@@ -112,7 +121,6 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
     ) : null
     const sources = reportSourceLine(report)
     const icon = reportIcon(report)
-    const updated = dayjs(report.updated_at)
     const stillInvestigating = !report.summary?.trim()
 
     const giveVerdict = (verdict: TodayReportVerdict): void =>
@@ -130,7 +138,7 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                     variant="muted"
                     render={<div />}
                     className={cn(
-                        'flex flex-1 basis-0 items-center gap-2 whitespace-nowrap',
+                        'flex flex-1 basis-0 flex-wrap items-center gap-2',
                         phoneLayout ? 'min-w-0' : 'min-w-64'
                     )}
                 >
@@ -145,21 +153,26 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                     <span aria-hidden className="-mx-0.5">
                         ·
                     </span>
-                    <time dateTime={report.updated_at} title={updated.format('LLL')}>
-                        {!phoneLayout && <span>Updated&nbsp;</span>}
-                        <span translate="no">{updated.fromNow()}</span>
-                    </time>
+                    <span className="whitespace-nowrap">
+                        <span>Created&nbsp;</span>
+                        <TZLabel time={report.created_at} showPopover={false} />
+                    </span>
+                    <span className="whitespace-nowrap">
+                        <span>Updated&nbsp;</span>
+                        <TZLabel time={report.updated_at} showPopover={false} />
+                    </span>
                 </Text>
                 {phoneLayout ? (
                     <PhoneActions
                         report={report}
                         stateBadge={stateBadge}
                         sampleReason={sampleReason}
+                        linksToInbox={linksToInbox}
                         giveVerdict={giveVerdict}
                     />
                 ) : (
                     <div className="-mx-2 flex shrink-0 items-center gap-0.5">
-                        {!isSample && (
+                        {!isSample && linksToInbox && (
                             <Button
                                 size="sm"
                                 variant="link-muted"

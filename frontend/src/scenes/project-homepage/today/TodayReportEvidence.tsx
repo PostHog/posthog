@@ -1,16 +1,16 @@
 import { useValues } from 'kea'
 
-import { Button, Text } from '@posthog/quill'
+import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { captureInboxReportAction } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import { todayReportLogic } from './todayReportLogic'
 import { TodayReportSignalRow } from './TodayReportSignalRow'
 import { isSampleReportId } from './todaySampleReports'
-import { TodaySectionTitle } from './TodaySectionTitle'
 
 function EvidenceRows({ reportId }: { reportId: string }): JSX.Element {
     const { shownEvidence } = useValues(todayReportLogic({ reportId }))
@@ -30,15 +30,43 @@ function EvidenceRows({ reportId }: { reportId: string }): JSX.Element {
     )
 }
 
-export function TodayReportEvidence({ report }: { report: SignalReport }): JSX.Element {
+export function TodayReportEvidence({
+    report,
+    linksToInbox = true,
+    defaultCollapsed = false,
+}: {
+    report: SignalReport
+    linksToInbox?: boolean
+    defaultCollapsed?: boolean
+}): JSX.Element {
     const { shownEvidence, evidenceCount } = useValues(todayReportLogic({ reportId: report.id }))
     const fullReport = urls.inboxReport('reports', report.id)
-    const showsSeeAll = evidenceCount > shownEvidence.length && !isSampleReportId(report.id)
+    const showsSeeAll = linksToInbox && evidenceCount > shownEvidence.length && !isSampleReportId(report.id)
 
     return (
-        <section className="flex flex-col gap-0.5" aria-label="Evidence" data-attr="today-report-evidence">
+        <Collapsible
+            defaultOpen={!defaultCollapsed}
+            onOpenChange={(open) =>
+                captureInboxReportAction({
+                    report,
+                    actionType: open ? 'expand_section' : 'collapse_section',
+                    surface: 'today',
+                    extra: { section: 'evidence' },
+                })
+            }
+            render={<section aria-label="Evidence" />}
+            className="flex flex-col gap-0.5"
+            data-attr="today-report-evidence"
+        >
             <div className="flex items-baseline justify-between gap-3">
-                <TodaySectionTitle>Evidence</TodaySectionTitle>
+                <Text size="base" weight="semibold" render={<h2 />} className="m-0">
+                    <CollapsibleTrigger data-attr="today-report-evidence-toggle">
+                        <span>Evidence</span>
+                        <Text size="xs" variant="muted" render={<span />}>
+                            {evidenceCount}
+                        </Text>
+                    </CollapsibleTrigger>
+                </Text>
                 {showsSeeAll && (
                     <Button
                         variant="link-muted"
@@ -52,7 +80,9 @@ export function TodayReportEvidence({ report }: { report: SignalReport }): JSX.E
                     </Button>
                 )}
             </div>
-            <EvidenceRows reportId={report.id} />
-        </section>
+            <CollapsibleContent>
+                <EvidenceRows reportId={report.id} />
+            </CollapsibleContent>
+        </Collapsible>
     )
 }

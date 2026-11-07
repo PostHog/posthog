@@ -9,10 +9,13 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 
+import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
+
 import { expect, userEvent } from 'storybook/test'
 
 import {
     allReports,
+    makeReport,
     mockArtefacts,
     mockReviewers,
     mockSignals,
@@ -223,6 +226,117 @@ function reportWithEvidenceItems(count: number): Story {
 export const ReportWithManyEvidenceItems: Story = reportWithEvidenceItems(12)
 export const ReportWithTwoEvidenceItems: Story = reportWithEvidenceItems(2)
 export const ReportWithoutEvidence: Story = reportWithEvidenceItems(0)
+
+const todayStyleFlags = {
+    ...meta.parameters?.featureFlags,
+    [FEATURE_FLAGS.INBOX_TODAY_STYLE]: true,
+    [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+}
+
+function todayReportPage(reportId: string): ReportPageApi {
+    const report = reportTabReports.find((candidate) => candidate.id === reportId) ?? reportTabReports[0]
+    const evidence = mockSignals(reportId, 3).map((signal) => {
+        const headline = signal.content.split('\n')[0]
+        return {
+            signal_id: signal.signal_id,
+            source_product: signal.source_product,
+            source_type: signal.source_type,
+            source_id: signal.source_id,
+            content: signal.content,
+            timestamp: signal.timestamp,
+            extra: { ...signal.extra },
+            headline,
+            lead: headline,
+            meta: '',
+            cited: null,
+            recording: null,
+            link: null,
+            preview: null,
+        }
+    })
+    return {
+        lead: report.summary_lead ?? '',
+        proposal: report.suggested_prompts?.[0] ?? '',
+        impact_sentence: '',
+        named_pull_request: null,
+        solution_names_pull_request: false,
+        evidence,
+        source_count: 12,
+        impact_numbers: [],
+        last_seen: null,
+    }
+}
+
+// The Home-style list: "For you" rows in place of report cards.
+export const TodayStyleReports: Story = {
+    parameters: { featureFlags: todayStyleFlags, layout: 'padded' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/reports/:id/page/': (req) => [
+                    200,
+                    todayReportPage(req.params.id as string),
+                ],
+            },
+        }),
+    ],
+}
+
+// The Home-style report: the single-page report, with the inbox sections under "Details".
+export const TodayStyleReport = {
+    parameters: { featureFlags: todayStyleFlags, layout: 'padded' },
+    decorators: [
+        routeTo(urls.inboxReport('reports', reportTabReports[0].id)),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/reports/:id/page/': (req) => [
+                    200,
+                    todayReportPage(req.params.id as string),
+                ],
+            },
+        }),
+    ],
+} satisfies Story
+
+export const TodayStyleReportWithPullRequest: Story = {
+    ...TodayStyleReport,
+    parameters: {
+        ...TodayStyleReport.parameters,
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        ...(TodayStyleReport.decorators ?? []),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/:reportId': () => [
+                    200,
+                    makeReport({
+                        ...reportTabReports[0],
+                        created_at: '2026-05-01T12:00:00Z',
+                        implementation_pr_url: 'https://github.com/example/app/pull/42',
+                        implementation_pr_state: 'open',
+                        pull_requests: [
+                            {
+                                id: 'example-pull-request',
+                                url: 'https://github.com/example/app/pull/42',
+                                state: 'open',
+                                merged: false,
+                                review_decision: null,
+                                merged_at: null,
+                                claim_id: null,
+                                attached_at: '2026-06-10T12:00:00Z',
+                                attached_by: null,
+                            },
+                        ],
+                    }),
+                ],
+                '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string, 'completed')],
+                '/api/projects/:id/signals/reports/:reportId/pr_checks/': () => [200, { checks: [] }],
+                '/api/projects/:id/signals/reports/:reportId/pr_comments/': () => [200, { comments: [] }],
+            },
+        }),
+    ],
+}
 
 // Triage mode over the Needs-a-decision queue: one report at a time, keyboard-driven.
 export const Triage: Story = {

@@ -34,6 +34,8 @@ import { InboxFiltersPanel } from '../shell/InboxFiltersPanel'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
 import { InboxSortSelect } from '../shell/InboxSortSelect'
+import { InboxTodayReportRow } from '../today/InboxTodayReportRow'
+import { useInboxTodayStyle } from '../today/useInboxTodayStyle'
 import { useReportImpressions } from '../useReportImpressions'
 import { useSelectableReportList } from '../useSelectableReportList'
 
@@ -226,6 +228,7 @@ export function ReportsTab(): JSX.Element {
     const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
     const { savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
+    const todayStyle = useInboxTodayStyle()
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
@@ -421,21 +424,39 @@ export function ReportsTab(): JSX.Element {
                 )
             ) : (
                 <div className="@container flex flex-col gap-1.5">
-                    {rows.map(({ report, sectionKey }, index) => (
-                        <Fragment key={report.id}>
-                            {index > 0 && index === firstUnscoredIndex && (
-                                <LemonDivider label="Not scored yet" className="my-2 text-xs text-tertiary" />
-                            )}
-                            <ReportRow
-                                report={report}
-                                sectionKey={sectionKey}
-                                rankingSortField={rankingSortField}
-                                rankingPill={rankingPill}
-                                timestampField={timestampField}
-                                hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
-                            />
-                        </Fragment>
-                    ))}
+                    {todayStyle ? (
+                        <ol className="Today__page TodayRows" data-quill>
+                            {rows.map(({ report, sectionKey }, index) => (
+                                <Fragment key={report.id}>
+                                    {index > 0 && index === firstUnscoredIndex && (
+                                        <li>
+                                            <LemonDivider
+                                                label="Not scored yet"
+                                                className="my-2 text-xs text-tertiary"
+                                            />
+                                        </li>
+                                    )}
+                                    <InboxTodayReportRow report={report} sectionKey={sectionKey} />
+                                </Fragment>
+                            ))}
+                        </ol>
+                    ) : (
+                        rows.map(({ report, sectionKey }, index) => (
+                            <Fragment key={report.id}>
+                                {index > 0 && index === firstUnscoredIndex && (
+                                    <LemonDivider label="Not scored yet" className="my-2 text-xs text-tertiary" />
+                                )}
+                                <ReportRow
+                                    report={report}
+                                    sectionKey={sectionKey}
+                                    rankingSortField={rankingSortField}
+                                    rankingPill={rankingPill}
+                                    timestampField={timestampField}
+                                    hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
+                                />
+                            </Fragment>
+                        ))
+                    )}
                     {/* Skeleton cards continue the list while the next pages load – sleeker than a spinner. */}
                     {pageLoading && <CardSkeleton count={2} variant="cards" dashed />}
                     {anyLoadFailed && (
