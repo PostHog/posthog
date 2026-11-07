@@ -828,6 +828,54 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
         self.assertTrue(any(getattr(m, "content", None) == "Please clarify your request" for m in messages))
         mock_graph.aupdate_state.assert_called_once()
 
+    async def test_approve_all_resumes_every_selected_insight_approval(self) -> None:
+        executed: list[str] = []
+        proposal_ids = {name: str(uuid4()) for name in ("first", "second")}
+
+        def operation(name: str) -> Callable[[AssistantState], dict[str, object]]:
+            def run(state: AssistantState) -> dict[str, object]:
+                response = interrupt(
+                    ApprovalRequest(
+                        proposal_id=proposal_ids[name],
+                        tool_name="create_insight",
+                        preview=name,
+                        payload={},
+                        original_tool_call_id=name,
+                    )
+                )
+                if response["action"] == "approve":
+                    executed.append(name)
+                return {}
+
+            return run
+
+        builder = StateGraph(AssistantState)
+        for name in proposal_ids:
+            builder.add_node(name, operation(name))
+            builder.add_edge(START, name)
+            builder.add_edge(name, END)
+        graph = builder.compile(checkpointer=MemorySaver())
+        runner, _ = self._create_runner_with_interrupt(None)
+        runner._graph = graph
+        config = runner._get_config()
+        config["callbacks"] = []
+        await graph.ainvoke(AssistantState(messages=[]), config)
+
+        self.conversation.approval_decisions = {
+            proposal_id: {"decision_status": "pending"} for proposal_id in proposal_ids.values()
+        }
+        await self.conversation.asave(update_fields=["approval_decisions"])
+        runner._resume_payload = {"action": "approve_all", "proposal_ids": list(proposal_ids.values())}
+        await graph.ainvoke(await runner._init_or_update_state(), config)
+
+        self.assertCountEqual(executed, proposal_ids)
+        self.assertFalse((await graph.aget_state(config)).next)
+        await self.conversation.arefresh_from_db()
+        self.assertEqual(
+            {decision["decision_status"] for decision in self.conversation.approval_decisions.values()},
+            {"approved"},
+        )
+
     @parameterized.expand([("approve", None), ("reject", None), ("reject", "make them monthly")])
     async def test_response_targets_selected_parallel_approval(self, action: str, feedback: str | None) -> None:
         executed: list[str] = []

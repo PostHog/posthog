@@ -580,7 +580,39 @@ class BaseAgentRunner(ABC):
             )
 
             resume_value = self._resume_payload
-            if self._resume_payload and self._resume_payload.get("action") in ("approve", "reject"):
+            if self._resume_payload and self._resume_payload.get("action") == "approve_all":
+                proposal_ids = self._resume_payload.get("proposal_ids")
+                approval_interrupts = {
+                    proposal_id: pending
+                    for task in snapshot.tasks
+                    if task.result is None
+                    for pending in task.interrupts
+                    if (proposal_id := pending_approval_proposal_id(pending.value))
+                }
+                if (
+                    not isinstance(proposal_ids, list)
+                    or len(proposal_ids) < 2
+                    or any(not isinstance(proposal_id, str) for proposal_id in proposal_ids)
+                    or len(proposal_ids) != len(set(proposal_ids))
+                    or any(proposal_id not in approval_interrupts for proposal_id in proposal_ids)
+                    or any(
+                        approval_interrupts[proposal_id].value.tool_name != "create_insight"
+                        for proposal_id in proposal_ids
+                        if proposal_id in approval_interrupts
+                    )
+                ):
+                    if not self._latest_message:
+                        raise ValueError("Approval does not match a pending operation")
+                    self._resume_payload = None
+                    resume_value = None
+                else:
+                    # Resolve all selected interrupts in one graph resume. A scalar resume could
+                    # target a different concurrent tool call and leave approvals waiting.
+                    resume_value = {
+                        approval_interrupts[proposal_id].interrupt_id: {"action": "approve", "proposal_id": proposal_id}
+                        for proposal_id in proposal_ids
+                    }
+            elif self._resume_payload and self._resume_payload.get("action") in ("approve", "reject"):
                 proposal_id = self._resume_payload.get("proposal_id")
                 approval_interrupt = next(
                     (
@@ -796,6 +828,16 @@ class BaseAgentRunner(ABC):
         Update the approval_decisions status when user approves or rejects.
         """
         action = resume_payload.get("action")
+        if action == "approve_all":
+            proposal_ids = resume_payload.get("proposal_ids")
+            if not isinstance(proposal_ids, list):
+                return
+            for proposal_id in proposal_ids:
+                if proposal_id in self._conversation.approval_decisions:
+                    self._conversation.approval_decisions[proposal_id]["decision_status"] = "approved"
+            await self._conversation.asave(update_fields=["approval_decisions"])
+            return
+
         proposal_id = resume_payload.get("proposal_id")
 
         if not action or not proposal_id:
