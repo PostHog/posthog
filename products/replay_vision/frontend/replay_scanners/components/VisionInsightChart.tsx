@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useMemo } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
@@ -38,26 +39,19 @@ export function adHocInsightProps(insightProps: InsightLogicProps, query: Insigh
 
 export type ChartOverlayState = 'none' | 'loading' | 'error'
 
-/**
- * `insightData` is always a truthy object, but `insightData.result` is `undefined` until a query resolves (an empty
- * result is `[]`), so it — not the object — is the real "is there anything to render" signal. No data while loading is
- * a spinner; no data once settled is a failed/cancelled query we surface as a retry rather than a blank box.
- */
+// The lazy renderer can mount after this overlay, before any query has started.
 export function chartOverlayState(
     insightData: { result?: unknown } | null | undefined,
-    loading: boolean
+    loading: boolean,
+    hasError: boolean
 ): ChartOverlayState {
     if (insightData?.result != null) {
         return 'none'
     }
-    return loading ? 'loading' : 'error'
+    return !loading && hasError ? 'error' : 'loading'
 }
 
-/**
- * Embedded insight chart with a guaranteed loading/error state. Off a dashboard, InsightViz can fall through to a
- * blank box when a query is cancelled or hasn't resolved (its empty/refresh fallbacks are dashboard-only), so we
- * overlay our own spinner/retry whenever there's no response to render.
- */
+/** Embedded charts need their own overlay because InsightViz reserves its loading fallbacks for dashboards. */
 export function VisionInsightChart({
     query,
     insightProps,
@@ -71,10 +65,16 @@ export function VisionInsightChart({
         [chartProps, onDataPointClick]
     )
     const logic = insightVizDataLogic(chartProps)
-    const { insightData, insightDataLoading } = useValues(logic)
+    const { insightData, insightDataLoading, insightDataError } = useValues(logic)
     const { loadData } = useActions(logic)
 
-    const overlay = chartOverlayState(insightData, insightDataLoading)
+    const overlay = chartOverlayState(insightData, insightDataLoading, insightDataError != null)
+
+    useEffect(() => {
+        if (overlay === 'error') {
+            posthog.capture('replay_vision_chart_error_shown', { query_kind: query.source.kind })
+        }
+    }, [overlay, query.source.kind])
 
     return (
         <div className={clsx('relative', className)}>
