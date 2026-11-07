@@ -1,23 +1,46 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
-from django.db import transaction
+from django.conf import settings
+from django.db import OperationalError, transaction
 from django.utils import timezone
 
 import structlog
+from botocore.exceptions import (
+    ClientError,
+    ConnectionClosedError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ReadTimeoutError,
+)
+from prometheus_client import Counter
+from psycopg.errors import LockNotAvailable
 
 from posthog.models.team import Team
-from posthog.plugins.plugin_server_api import reload_team_workflows_config_on_workers
+from posthog.plugins.plugin_server_api import (
+    reload_sandbox_sender_state_on_workers,
+    reload_team_workflows_config_on_workers,
+)
 from posthog.tasks.email import (
     send_email_sending_reputation_finding,
     send_email_sending_suspended,
     send_email_sending_unsuspended,
 )
 
+from products.workflows.backend.models.sandbox_sender_tenant_state import SandboxSenderTenantState
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import SESProvider
 
 logger = structlog.get_logger(__name__)
+
+SANDBOX_TENANT_SYNC_FAILURES = Counter(
+    "workflows_sandbox_tenant_sync_failures_total",
+    "Failed reads of the shared sandbox SES tenant state, so its pause mirror may be stale.",
+    labelnames=["kind"],
+)
+_TRANSIENT_SES_ERRORS = frozenset({"Throttling", "ThrottlingException", "TooManyRequestsException"})
+_TRANSIENT_TRANSPORT_ERRORS = (EndpointConnectionError, ConnectTimeoutError, ConnectionClosedError, ReadTimeoutError)
 
 PROVIDER_PAUSE_REASON = "Our email provider paused sending for this project because of high-impact reputation findings"
 # A tenant can also be paused without high-impact findings: someone pausing it directly in the
@@ -56,6 +79,73 @@ def _announce_state_change(team_id: int) -> None:
         reload_team_workflows_config_on_workers(team_id)
     except Exception:
         logger.exception("Failed to announce SES tenant state change to workers", team_id=team_id)
+
+
+def _sandbox_sync_failure_kind(error: Exception) -> str:
+    if isinstance(error, _TRANSIENT_TRANSPORT_ERRORS):
+        return "transient"
+    if isinstance(error, ClientError) and (
+        error.response["Error"]["Code"] in _TRANSIENT_SES_ERRORS
+        or error.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0) >= 500
+    ):
+        return "transient"
+    return "error"
+
+
+def _apply_sandbox_tenant_state(state: SandboxSenderTenantState, sending_status: str) -> None:
+    previous_status = state.sending_status
+    state.synced_at = timezone.now()
+    if previous_status == sending_status:
+        state.save(update_fields=["synced_at"])
+        logger.info("Sandbox SES tenant state unchanged", tenant_name=state.tenant_name, status=previous_status)
+        return
+
+    state.sending_status = sending_status
+    state.save(update_fields=["sending_status", "synced_at"])
+    logger.info(
+        "Sandbox SES tenant state changed",
+        tenant_name=state.tenant_name,
+        from_status=previous_status,
+        to_status=sending_status,
+    )
+    tenant_name = state.tenant_name
+    transaction.on_commit(lambda: reload_sandbox_sender_state_on_workers(tenant_name), robust=True)
+
+
+@contextmanager
+def _counted_state_row_failures() -> Iterator[None]:
+    try:
+        yield
+    except OperationalError as error:
+        SANDBOX_TENANT_SYNC_FAILURES.labels(
+            kind="busy" if isinstance(error.__cause__, LockNotAvailable) else "error"
+        ).inc()
+        raise
+
+
+def sync_sandbox_tenant_state() -> None:
+    tenant_name = settings.SES_SANDBOX_TENANT_NAME
+    if not tenant_name:
+        return
+    # The row commits before the lock transaction starts. An insert inside that transaction stays
+    # uncommitted during the SES read, and an overlapping first sync would wait on it, not fail with NOWAIT.
+    with _counted_state_row_failures():
+        SandboxSenderTenantState.objects.get_or_create(tenant_name=tenant_name)
+    with transaction.atomic():
+        with _counted_state_row_failures():
+            # The lock serializes SES reads, so a stale sweep cannot overwrite a newer pause. NOWAIT
+            # makes an overlapping sync fail at once, and its task retries with backoff. A waiting
+            # sync would hold a Celery worker and a database connection while the holder waits on SES.
+            state = SandboxSenderTenantState.objects.select_for_update(nowait=True).get(tenant_name=tenant_name)
+        try:
+            tenant = SESProvider().get_tenant_sending_state(tenant_name)
+        except Exception as error:
+            SANDBOX_TENANT_SYNC_FAILURES.labels(kind=_sandbox_sync_failure_kind(error)).inc()
+            raise
+        if tenant is None:
+            SANDBOX_TENANT_SYNC_FAILURES.labels(kind="missing").inc()
+            logger.warning("Sandbox SES tenant not found", tenant_name=tenant_name)
+        _apply_sandbox_tenant_state(state, tenant.sending_status if tenant is not None else "")
 
 
 def sync_ses_tenant_state(team_id: int, provider: SESProvider | None = None, *, verify_team: bool = True) -> None:

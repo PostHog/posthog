@@ -1,16 +1,39 @@
+from datetime import UTC, datetime
+
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
+from django.test import override_settings
 from django.utils import timezone
 
+from botocore.exceptions import (
+    ClientError,
+    ConnectionClosedError,
+    EndpointConnectionError,
+    NoCredentialsError,
+    PartialCredentialsError,
+    SSLError,
+)
 from parameterized import parameterized
+from prometheus_client import REGISTRY
+from psycopg import OperationalError as PsycopgOperationalError
+from psycopg.errors import LockNotAvailable
 
+from posthog.models.integration import Integration
+
+from products.workflows.backend.models.sandbox_sender_tenant_state import SandboxSenderTenantState
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.ses_tenant_state import (
     PROVIDER_PAUSE_REASON,
     PROVIDER_PAUSE_REASON_UNSPECIFIED,
     apply_ses_tenant_state,
     sync_ses_tenant_state,
+)
+from products.workflows.backend.tasks.ses_tenant_state import (
+    reconcile_ses_tenant_states,
+    sync_sandbox_tenant_state_task,
 )
 
 
@@ -183,3 +206,224 @@ class TestSyncSesTenantState(BaseTest):
 
         provider.get_tenant_reputation.assert_not_called()
         assert not TeamWorkflowsConfig.objects.filter(team_id=self.team.id + 99_999).exists()
+
+
+SANDBOX_TENANT = "workflows-sandbox"
+SANDBOX_TENANT_ARN = f"arn:aws:ses:us-east-1:123456789012:tenant/{SANDBOX_TENANT}/abc"
+
+
+def _ses_status_error(code: str, status: int) -> ClientError:
+    return ClientError(
+        {
+            "Error": {"Code": code},
+            "ResponseMetadata": {
+                "HTTPStatusCode": status,
+                "HTTPHeaders": {},
+                "HostId": "",
+                "RequestId": "",
+                "RetryAttempts": 0,
+            },
+        },
+        "GetTenant",
+    )
+
+
+def _sync_failures(kind: str) -> float:
+    return REGISTRY.get_sample_value("workflows_sandbox_tenant_sync_failures_total", {"kind": kind}) or 0
+
+
+@override_settings(SES_SANDBOX_TENANT_NAME=SANDBOX_TENANT)
+class TestSandboxTenantStateSync(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        boto3_client = patch("products.workflows.backend.providers.ses.boto3.client")
+        self.ses = boto3_client.start().return_value
+        self.addCleanup(boto3_client.stop)
+        publish = patch("posthog.plugins.plugin_server_api.publish_message")
+        self.publish = publish.start()
+        self.addCleanup(publish.stop)
+        self.ses.list_recommendations.return_value = {"Recommendations": []}
+
+    def _aws_tenant(self, sending_status: str, impact: str) -> None:
+        self.ses.get_tenant.return_value = {"Tenant": {"TenantName": SANDBOX_TENANT, "TenantArn": SANDBOX_TENANT_ARN}}
+        self.ses.get_reputation_entity.return_value = {
+            "ReputationEntity": {"ReputationImpact": impact, "SendingStatusAggregate": sending_status}
+        }
+
+    def _sync(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            sync_sandbox_tenant_state_task()
+
+    def test_a_changed_state_is_stored_and_announced_after_commit(self) -> None:
+        self._aws_tenant("ENABLED", "NONE")
+        self._sync()
+        self.publish.reset_mock()
+        self._aws_tenant("DISABLED", "HIGH")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            sync_sandbox_tenant_state_task()
+            self.publish.assert_not_called()
+
+        state = SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT)
+        assert state.sending_status == "DISABLED"
+        self.ses.get_tenant.assert_called_with(TenantName=SANDBOX_TENANT)
+        self.publish.assert_called_once_with("reload-sandbox-sender-state", {"tenantName": SANDBOX_TENANT})
+
+    @parameterized.expand([("same_impact", "HIGH"), ("only_the_impact_changed", "LOW")])
+    def test_an_unchanged_sending_status_refreshes_synced_at_without_announcing(self, _name: str, impact: str) -> None:
+        self._aws_tenant("DISABLED", "HIGH")
+        with time_machine.travel("2026-10-05T10:00:00Z", tick=False):
+            self._sync()
+        self.publish.reset_mock()
+        self._aws_tenant("DISABLED", impact)
+
+        with time_machine.travel("2026-10-05T11:00:00Z", tick=False):
+            self._sync()
+
+        state = SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT)
+        assert state.sending_status == "DISABLED"
+        assert state.synced_at == datetime(2026, 10, 5, 11, tzinfo=UTC)
+        self.publish.assert_not_called()
+
+    def test_a_pause_is_stored_even_when_findings_cannot_be_listed(self) -> None:
+        self._aws_tenant("DISABLED", "HIGH")
+        self.ses.list_recommendations.side_effect = ClientError(
+            {"Error": {"Code": "TooManyRequestsException"}}, "ListRecommendations"
+        )
+
+        self._sync()
+
+        assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).sending_status == "DISABLED"
+
+    @parameterized.expand([("never_synced", "", False), ("paused_before_it_was_deleted", "DISABLED", True)])
+    def test_an_unknown_sandbox_tenant_is_never_paused(self, _name: str, stored: str, announced: bool) -> None:
+        SandboxSenderTenantState.objects.create(tenant_name=SANDBOX_TENANT, sending_status=stored)
+        self.ses.get_tenant.side_effect = ClientError({"Error": {"Code": "NotFoundException"}}, "GetTenant")
+        missing = _sync_failures("missing")
+
+        self._sync()
+
+        assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).sending_status == ""
+        assert self.publish.called is announced
+        assert _sync_failures("missing") == missing + 1
+
+    @parameterized.expand(
+        [
+            ("held_by_another_sync", "lock", LockNotAvailable("could not obtain lock"), "busy"),
+            ("database_unreachable", "lock", PsycopgOperationalError("connection refused"), "error"),
+            (
+                "database_unreachable_before_the_row_exists",
+                "create",
+                PsycopgOperationalError("connection refused"),
+                "error",
+            ),
+        ]
+    )
+    def test_a_sync_that_cannot_lock_the_state_row_is_counted_and_raised(
+        self, _name: str, failing_query: str, cause: Exception, kind: str
+    ) -> None:
+        def fail(**_kwargs: object) -> None:
+            raise OperationalError(str(cause)) from cause
+
+        failures = _sync_failures(kind)
+
+        with (
+            patch.object(SandboxSenderTenantState.objects, "get_or_create") as get_or_create,
+            patch.object(SandboxSenderTenantState.objects, "select_for_update") as select_for_update,
+            self.assertRaises(OperationalError),
+        ):
+            if failing_query == "create":
+                get_or_create.side_effect = fail
+            else:
+                select_for_update.return_value.get.side_effect = fail
+            sync_sandbox_tenant_state_task()
+
+        assert _sync_failures(kind) == failures + 1
+        self.ses.get_tenant.assert_not_called()
+
+    def test_a_sweep_whose_provider_cannot_be_built_counts_a_failed_sandbox_read(self) -> None:
+        failures = _sync_failures("error")
+
+        with (
+            patch(
+                "products.workflows.backend.providers.ses.boto3.client",
+                side_effect=PartialCredentialsError(provider="env", cred_var="AWS_SECRET_ACCESS_KEY"),
+            ),
+            self.assertRaises(PartialCredentialsError),
+        ):
+            reconcile_ses_tenant_states()
+
+        assert _sync_failures("error") == failures + 1
+
+    def test_the_daily_sweep_syncs_the_sandbox_tenant_once_beside_team_tenants(self) -> None:
+        Integration.objects.create(team=self.team, kind="email", config={"provider": "ses"})
+        self._aws_tenant("ENABLED", "LOW")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            reconcile_ses_tenant_states()
+
+        tenant_names = [call.kwargs["TenantName"] for call in self.ses.get_tenant.call_args_list]
+        assert sorted(tenant_names) == sorted([SANDBOX_TENANT, f"team-{self.team.id}"])
+        assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).sending_status == "ENABLED"
+
+    @parameterized.expand(
+        [
+            ("throttled", ClientError({"Error": {"Code": "TooManyRequestsException"}}, "GetTenant"), "transient"),
+            ("connection_lost", EndpointConnectionError(endpoint_url="https://email.example.com"), "transient"),
+            (
+                "reset_mid_response",
+                ConnectionClosedError(endpoint_url="https://email.example.com", error="connection reset"),
+                "transient",
+            ),
+            (
+                "ses_outage",
+                _ses_status_error("InternalFailure", 500),
+                "transient",
+            ),
+            (
+                "access_denied",
+                _ses_status_error("AccessDeniedException", 403),
+                "error",
+            ),
+            (
+                "rejected_read",
+                _ses_status_error("BadRequestException", 400),
+                "error",
+            ),
+            ("no_credentials", NoCredentialsError(), "error"),
+            (
+                "bad_ca_bundle",
+                SSLError(endpoint_url="https://email.example.com", error=Exception("certificate verify failed")),
+                "error",
+            ),
+        ]
+    )
+    def test_a_failed_sandbox_sync_keeps_the_stored_pause_and_the_team_sweep(
+        self, _name: str, error: Exception, kind: str
+    ) -> None:
+        Integration.objects.create(team=self.team, kind="email", config={"provider": "ses"})
+        SandboxSenderTenantState.objects.create(tenant_name=SANDBOX_TENANT, sending_status="DISABLED")
+
+        def get_tenant(TenantName: str) -> dict:
+            if TenantName == SANDBOX_TENANT:
+                raise error
+            return {"Tenant": {"TenantName": TenantName, "SendingStatus": "ENABLED"}}
+
+        self.ses.get_tenant.side_effect = get_tenant
+        failures = _sync_failures(kind)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            reconcile_ses_tenant_states()
+
+        assert TeamWorkflowsConfig.objects.get(team=self.team).ses_tenant_sending_status == "ENABLED"
+        assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).sending_status == "DISABLED"
+        assert "reload-sandbox-sender-state" not in [call.args[0] for call in self.publish.call_args_list]
+        assert _sync_failures(kind) == failures + 1
+
+    @override_settings(SES_SANDBOX_TENANT_NAME="")
+    def test_nothing_is_synced_while_no_sandbox_tenant_is_configured(self) -> None:
+        sync_sandbox_tenant_state_task()
+        reconcile_ses_tenant_states()
+
+        self.ses.get_tenant.assert_not_called()
+        assert not SandboxSenderTenantState.objects.exists()

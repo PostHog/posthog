@@ -395,6 +395,13 @@ def _is_throttling(error: Exception) -> bool:
     return isinstance(error, ClientError) and error.response["Error"]["Code"] in ("Throttling", "ThrottlingException")
 
 
+@frozen
+class TenantSendingState:
+    sending_status: str
+    reputation_impact: str | None
+    tenant_arn: str | None
+
+
 class SESProvider:
     ses_client: "SESClient"
     ses_v2_client: "SESV2Client"
@@ -469,50 +476,72 @@ class SESProvider:
         provider feedback loops, third-party listings), so this is the authoritative health source;
         our own app metrics only provide the per-workflow diagnosis.
         """
-        tenant_name = self._tenant_name_for_team(team_id)
+        state = self._tenant_sending_state(
+            self.ses_v2_client,
+            self._tenant_name_for_team(team_id),
+            missing_codes=("NotFoundException", "BadRequestException"),
+        )
+        if state is None:
+            return None
+        return {
+            "sending_status": state.sending_status,
+            "reputation_impact": state.reputation_impact,
+            "findings": self._open_findings(state.tenant_arn) if state.tenant_arn else [],
+        }
+
+    def get_tenant_sending_state(self, tenant_name: str) -> TenantSendingState | None:
+        """
+        Sending status and reputation impact of the named SES tenant, or None when SES has no
+        tenant of that name. Any other failed read raises: a rejected request says nothing about
+        the tenant, so the caller must keep its stored state. The read uses the fail-fast client
+        because the caller holds a row lock for its duration.
+        """
+        return self._tenant_sending_state(self.ses_v2_status_client, tenant_name, missing_codes=("NotFoundException",))
+
+    def _tenant_sending_state(
+        self, client: "SESV2Client", tenant_name: str, *, missing_codes: tuple[str, ...]
+    ) -> TenantSendingState | None:
         try:
-            tenant = self.ses_v2_client.get_tenant(TenantName=tenant_name)["Tenant"]
+            tenant = client.get_tenant(TenantName=tenant_name)["Tenant"]
         except ClientError as e:
-            if e.response["Error"]["Code"] in ("NotFoundException", "BadRequestException"):
+            if e.response["Error"]["Code"] in missing_codes:
                 return None
             raise
 
         sending_status: str = tenant.get("SendingStatus", "ENABLED")
         tenant_arn = tenant.get("TenantArn")
-        reputation_impact: str | None = None
-        findings: list[dict[str, Any]] = []
+        if not tenant_arn:
+            return TenantSendingState(sending_status=sending_status, reputation_impact=None, tenant_arn=None)
 
-        if tenant_arn:
-            try:
-                entity = self.ses_v2_client.get_reputation_entity(
-                    ReputationEntityReference=tenant_arn, ReputationEntityType="RESOURCE"
-                )["ReputationEntity"]
-            except ClientError as e:
-                # A tenant with no attributed sends yet has no reputation entity.
-                if e.response["Error"]["Code"] != "NotFoundException":
-                    raise
-                entity = {}
-            reputation_impact = entity.get("ReputationImpact")
+        entity = self._reputation_entity(client, tenant_arn)
+        return TenantSendingState(
             # The aggregate folds in both AWS-managed and customer-managed pauses.
-            sending_status = entity.get("SendingStatusAggregate", sending_status)
+            sending_status=entity.get("SendingStatusAggregate", sending_status),
+            reputation_impact=entity.get("ReputationImpact"),
+            tenant_arn=tenant_arn,
+        )
 
-            # RESOURCE_ARN is the only filter key AWS documents as usable on its own with this
-            # scoping (see _iter_open_recommendations for why STATUS is filtered locally).
-            findings.extend(
-                {
-                    "finding_type": recommendation.get("Type", ""),
-                    "impact": recommendation.get("Impact", "LOW"),
-                    "description": recommendation.get("Description", ""),
-                    "last_updated_at": recommendation.get("LastUpdatedTimestamp"),
-                }
-                for recommendation in self._iter_open_recommendations({"RESOURCE_ARN": tenant_arn})
-            )
+    def _reputation_entity(self, client: "SESV2Client", tenant_arn: str) -> Mapping[str, Any]:
+        try:
+            return client.get_reputation_entity(ReputationEntityReference=tenant_arn, ReputationEntityType="RESOURCE")[
+                "ReputationEntity"
+            ]
+        except ClientError as e:
+            # A tenant with no attributed sends yet has no reputation entity.
+            if e.response["Error"]["Code"] != "NotFoundException":
+                raise
+            return {}
 
-        return {
-            "sending_status": sending_status,
-            "reputation_impact": reputation_impact,
-            "findings": findings,
-        }
+    def _open_findings(self, tenant_arn: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "finding_type": recommendation.get("Type", ""),
+                "impact": recommendation.get("Impact", "LOW"),
+                "description": recommendation.get("Description", ""),
+                "last_updated_at": recommendation.get("LastUpdatedTimestamp"),
+            }
+            for recommendation in self._iter_open_recommendations({"RESOURCE_ARN": tenant_arn})
+        ]
 
     def _iter_open_recommendations(
         self, finding_filter: dict[Any, str] | None, client: "SESV2Client | None" = None
