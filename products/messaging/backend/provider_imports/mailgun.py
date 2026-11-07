@@ -99,6 +99,11 @@ _MAX_NOTED_ITEMS = 5
 _STEPS_NEEDING_SUPPRESSION_ROLE = {step: step for step in ("bounces", "complaints", "unsubscribes")}
 
 
+def _position_key(region: str, owner: str, name: str) -> str:
+    # The separator sorts below every character in a name, so the key sorts field by field.
+    return "\x00".join((region, owner, name))
+
+
 @frozen
 class _Target:
     """One thing a step reads page by page. Fields sort in this order, so a checkpoint keeps its place between runs."""
@@ -112,8 +117,8 @@ class _Target:
     details: Mapping[str, Any] = field(default_factory=dict)
 
     @property
-    def position(self) -> tuple[str, str, str]:
-        return (self.region.value, self.owner, self.name)
+    def position(self) -> str:
+        return _position_key(self.region.value, self.owner, self.name)
 
     @property
     def on_behalf_of(self) -> str | None:
@@ -364,7 +369,9 @@ def _remaining_targets(targets: list[_Target], checkpoint: StepCheckpoint | None
     ordered = sorted(targets, key=lambda target: target.position)
     if not checkpoint:
         return ordered, None
-    saved = (str(checkpoint.get("region", "")), str(checkpoint.get("owner", "")), str(checkpoint.get("name", "")))
+    saved = _position_key(
+        str(checkpoint.get("region", "")), str(checkpoint.get("owner", "")), str(checkpoint.get("name", ""))
+    )
     remaining = [target for target in ordered if target.position >= saved]
     after = checkpoint.get("after") if remaining and remaining[0].position == saved else None
     return remaining, str(after) if after else None
@@ -449,6 +456,10 @@ def _timestamp(value: Any) -> datetime | None:
         return parsedate_to_datetime(value) if isinstance(value, str) else None
     except ValueError:
         return None
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _clean(value: Any) -> str:
@@ -758,8 +769,8 @@ def _read_template_versions(
         try:
             body = client.get(path, {"active": "yes"}, target.on_behalf_of)
             versions = client.versions(path, target.on_behalf_of)
-            detail = body.get("template") if isinstance(body.get("template"), dict) else {}
-            active = detail.get("version") if isinstance(detail.get("version"), dict) else None
+            detail = _as_dict(body.get("template"))
+            active = _as_dict(detail.get("version")) or None
             selected: list[dict[str, Any]] = [active] if active else []
             if all_versions:
                 active_tag = active.get("tag") if active else None
@@ -774,8 +785,8 @@ def _read_template_versions(
 
 def _read_version(client: MailgunClient, path: str, version: dict[str, Any], target: _Target) -> dict[str, Any]:
     body = client.get(f"{path}/versions/{quoted(str(version['tag']))}", None, target.on_behalf_of)
-    template = body.get("template") if isinstance(body.get("template"), dict) else {}
-    detail = template.get("version") if isinstance(template.get("version"), dict) else None
+    template = _as_dict(body.get("template"))
+    detail = _as_dict(template.get("version")) or None
     return detail or version
 
 
@@ -903,7 +914,7 @@ def _email_content(
     version: Mapping[str, Any], converted: ConvertedVersion, senders: Mapping[str, IntegrationRecord], target: _Target
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
     email: dict[str, Any] = {"subject": converted.subject, "html": converted.html}
-    headers = version.get("headers") if isinstance(version.get("headers"), dict) else {}
+    headers = _as_dict(version.get("headers"))
     by_name = {str(key).lower(): value for key, value in headers.items()}
     if reply_to := by_name.get("reply-to"):
         email["replyTo"] = _clean(reply_to)
@@ -983,7 +994,7 @@ def _read_tracking(client: MailgunClient, target: _Target) -> dict[str, Any]:
 def _save_domain(
     context: ImportContext, target: _Target, detail: dict[str, Any], tracking: dict[str, Any]
 ) -> SavedPage:
-    domain = detail.get("domain") if isinstance(detail.get("domain"), dict) else target.details
+    domain = _as_dict(detail.get("domain")) or target.details
     senders = [
         sender
         for sender in IntegrationManager.email.credentials.list(context.team_id)

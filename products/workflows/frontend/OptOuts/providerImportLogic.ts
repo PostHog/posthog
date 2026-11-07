@@ -119,13 +119,6 @@ export interface providerImportLogicActions {
     setImportError: (error: string | null) => {
         error: string | null
     }
-    setImportSetting: (
-        key: string,
-        value: string
-    ) => {
-        key: string
-        value: string
-    }
     setImportFormManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -138,6 +131,13 @@ export interface providerImportLogicActions {
     }
     setImportFormValues: (values: DeepPartial<ImportFormValues>) => {
         values: DeepPartial<ImportFormValues>
+    }
+    setImportSetting: (
+        key: string,
+        value: string
+    ) => {
+        key: string
+        value: string
     }
     setShowImportAgainForm: (show: boolean) => {
         show: boolean
