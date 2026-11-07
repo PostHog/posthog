@@ -1237,6 +1237,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # Deleting again is idempotent (recording-api returns already_deleted)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1", **headers)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert ActivityLog.objects.filter(team_id=self.team.id, scope="Replay", activity="deleted").count() == 2
 
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
         query_params = [
@@ -2547,6 +2548,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         mock_delete_via_recording_api.assert_called_once()
+        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="Replay", activity="deleted").exists()
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
