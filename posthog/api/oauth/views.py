@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
 from django.db import DatabaseError, OperationalError, transaction
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -38,7 +38,7 @@ from oauthlib.common import Request as OauthlibRequest
 from oauthlib.oauth2 import InvalidClientError, InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
-from rest_framework.exceptions import AuthenticationFailed, NotFound
+from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -78,13 +78,14 @@ from posthog.api.oauth.metadata import (
     protected_resource_metadata,
 )
 from posthog.api.oauth.step_up import resolve_step_up_grant
-from posthog.auth import IDJagAccessTokenAuthentication, SessionAuthentication
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
@@ -2846,7 +2847,23 @@ class OAuthJwksInfoView(JwksInfoView):
 
 
 class OAuthUserInfoView(UserInfoView):
-    pass
+    def _create_userinfo_response(self, request: HttpRequest) -> HttpResponse:
+        valid, oauth_request = self.get_oauthlib_core().verify_request(request, scopes=["openid"])
+        if valid:
+            authenticator = OAuthAccessTokenAuthentication()
+            authenticator.access_token = oauth_request.access_token
+            try:
+                enforce_ip_restrictions(request, oauth_request.user, authenticator)
+            except PermissionDenied as error:
+                return JsonResponse(
+                    {
+                        "error": "access_denied",
+                        "error_description": str(error.detail),
+                        "code": "ip_not_allowed",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        return cast(HttpResponse, super()._create_userinfo_response(request))
 
 
 class _PublicMetadataView(APIView):

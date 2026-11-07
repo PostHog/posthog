@@ -31618,12 +31618,17 @@ export namespace Schemas {
       readonly id: number;
       readonly short_id: string;
       /** @nullable */
-      readonly name: string | null;
+      readonly name?: string | null;
       /** @nullable */
-      readonly derived_name: string | null;
-      readonly result: unknown;
+      readonly derived_name?: string | null;
+      readonly result?: unknown;
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
-      readonly warnings: _InsightResultWarnings | null;
+      readonly warnings?: _InsightResultWarnings | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     /**
@@ -34479,6 +34484,14 @@ export namespace Schemas {
       readonly exception: string | null;
     }
 
+    export interface DatasetExtendRetention {
+      /**
+         * Revision to extend along with its dataset. Omit to extend only the dataset.
+         * @minimum 1
+         */
+      revision?: number;
+    }
+
     export interface DatasetItemArchive {
       /**
          * Current item version observed by the caller.
@@ -34641,6 +34654,36 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    export interface DatasetRetentionEntry {
+      /** Dataset to open or extend. */
+      readonly dataset_id: string;
+      /** Name of the dataset. */
+      readonly dataset_name: string;
+      /** Whether the dataset is archived. */
+      readonly dataset_archived: boolean;
+      /**
+         * Historical revision number, or null for a dataset.
+         * @nullable
+         */
+      readonly revision: number | null;
+      /**
+         * Earliest cleanup time if this dataset or revision remains unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+    }
+
+    export interface DatasetRetentionRead {
+      /** Accessible active and archived datasets within seven days of expiry. */
+      readonly datasets_count: number;
+      /** Accessible older revisions within seven days of expiry, excluding the latest revision. */
+      readonly revisions_count: number;
+      /** Total expiring entries of the requested kind. */
+      readonly count: number;
+      /** Expiring entries, ordered by earliest cleanup time. */
+      readonly results: readonly DatasetRetentionEntry[];
     }
 
     export interface DatasetRevisionRead {
@@ -35755,9 +35798,9 @@ export namespace Schemas {
       is_verified: boolean;
       /** The scopes the token will carry if the person approves. */
       scopes: string[];
-      /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+      /** The requested scopes the person can't leave out: the client's required scopes, the scopes the client marked as required when it started the grant, such as the new scopes of a step-up, and identity scopes such as `openid`. */
       required_scopes: string[];
-      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones. */
       granted_scopes: GrantedScopes[];
       /** When the code expires. */
       expires_at: string;
@@ -47915,10 +47958,34 @@ export namespace Schemas {
       value: unknown;
     };
 
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    export type ExternalDataSchemaAvailableColumnsItemSensitivity = typeof ExternalDataSchemaAvailableColumnsItemSensitivity[keyof typeof ExternalDataSchemaAvailableColumnsItemSensitivity] | null;
+
+
+    export const ExternalDataSchemaAvailableColumnsItemSensitivity = {
+      Email: 'email',
+      Phone: 'phone',
+      Name: 'name',
+      Address: 'address',
+      DateOfBirth: 'date_of_birth',
+      IpAddress: 'ip_address',
+      Token: 'token',
+      Secret: 'secret',
+      CardNumber: 'card_number',
+    } as const;
+
     export type ExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
       is_nullable?: boolean;
+      /**
+         * The kind of personal or secret data the column's name and type suggest, or null.
+         * @nullable
+         */
+      sensitivity?: ExternalDataSchemaAvailableColumnsItemSensitivity;
     };
 
     /**
@@ -48167,6 +48234,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly history_table_name: string | null;
+      /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+      drop_history_table?: boolean;
+      /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         * @nullable
+         */
+      readonly registered_history_table_name: string | null;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -48966,7 +49040,7 @@ export namespace Schemas {
       value: unknown;
       /** Property type (person, group, etc.) */
       type: string;
-      /** Actual property value from user */
+      /** Actual property value from user. Null when the property is not set, or when property access control hides it from the requesting user. */
       actual_value: unknown;
       /** Whether this property condition matched */
       matched: boolean;
@@ -49190,7 +49264,7 @@ export namespace Schemas {
     }
 
     /**
-     * Person properties at the time of evaluation (for historical evaluations)
+     * Person properties at the time of evaluation (for historical evaluations). Properties that property access control hides from the requesting user are omitted.
      */
     export type FeatureFlagTestEvaluationResponsePersonProperties = { [key: string]: unknown };
 
@@ -49213,7 +49287,7 @@ export namespace Schemas {
       condition_index: number | null;
       /** Payload associated with the flag result, if any */
       payload: unknown;
-      /** Person properties at the time of evaluation (for historical evaluations) */
+      /** Person properties at the time of evaluation (for historical evaluations). Properties that property access control hides from the requesting user are omitted. */
       person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
       /**
          * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
@@ -58039,6 +58113,101 @@ export namespace Schemas {
       tags?: TagDefinition[];
     }
 
+    export interface HoglakeConnect {
+      /** The hoglake catalog (warehouse) these credentials reach */
+      catalog: string;
+      /** Hoglake's public REST catalog URL */
+      hoglake_url?: string;
+      /** OAuth token endpoint (client_credentials grant) */
+      token_url?: string;
+    }
+
+    export interface HoglakeCredential {
+      /** The OAuth client_id, hlc_… */
+      client_id: string;
+      name: string;
+      /** read or write */
+      scope: string;
+      /** org: reaches the whole catalog. team: a member's personal credential, limited to the projects in team_ids that its owner can still see. */
+      kind?: string;
+      /** A personal credential's owner */
+      owner_user_uuid?: string;
+      /** The owner's email, while they are a member */
+      owner_email?: string;
+      /** The owner's name, while they are a member */
+      owner_name?: string;
+      /** A personal credential's projects */
+      team_ids?: number[];
+      created_at: string;
+      last_rotated_at: string;
+      expires_at: string;
+      /**
+         * Set once revoked
+         * @nullable
+         */
+      revoked_at?: string | null;
+    }
+
+    /**
+     * * `read` - Read
+     * * `write` - Read & write
+     */
+    export type HoglakeCredentialScopeEnum = typeof HoglakeCredentialScopeEnum[keyof typeof HoglakeCredentialScopeEnum];
+
+
+    export const HoglakeCredentialScopeEnum = {
+      Read: 'read',
+      Write: 'write',
+    } as const;
+
+    export interface HoglakeCredentialCreateRequest {
+      /**
+         * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+         * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+         */
+      name: string;
+      /** read lists and reads tables; write can also commit to them.
+       *
+       * * `read` - Read
+       * * `write` - Read & write */
+      scope: HoglakeCredentialScopeEnum;
+      /**
+         * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+         * @minimum 3600
+         * @maximum 31536000
+         */
+      ttl_seconds?: number;
+    }
+
+    export interface HoglakeCredentialIssued {
+      /** The OAuth client_id, hlc_… */
+      client_id: string;
+      /** The client secret — returned only here, never again */
+      client_secret: string;
+      name: string;
+      scope: string;
+      expires_at: string;
+      /** org or team */
+      kind?: string;
+    }
+
+    export interface HoglakeCredentialListResponse {
+      hoglake_credentials: HoglakeCredential[];
+      connect: HoglakeConnect;
+    }
+
+    export interface HoglakeCredentialRevoked {
+      /** The revoked client_id */
+      revoked: string;
+    }
+
+    export interface HoglakeProject {
+      id: number;
+      name: string;
+      /** read or write: the most a credential gets on this project */
+      access: string;
+    }
+
     export interface HoneybadgerFaultSignalExtra {
       environment: string | null;
       component: string | null;
@@ -65529,6 +65698,26 @@ export namespace Schemas {
          * @nullable
          */
       readonly duration_ms: number | null;
+      /** Arguments the client passed ($mcp_parameters) as JSON text, exactly as the SDK captured them after its redaction. Empty when not captured. */
+      readonly parameters: string;
+      /** Result the MCP server returned ($mcp_response) as JSON text, exactly as the SDK captured it after its redaction and truncation. Empty when not captured. */
+      readonly response: string;
+      /** Error category ($mcp_error_type) when the SDK classified the failure, otherwise empty. */
+      readonly error_type: string;
+      /** HTTP status ($mcp_error_status) when the failure carried one, otherwise empty. */
+      readonly error_status: string;
+      /** Command an exec-style server ran ($mcp_exec_verb), such as call, info, search or unrecognized. Empty for direct tool calls. */
+      readonly exec_verb: string;
+      /** Tool the exec command named ($mcp_exec_target_tool). Empty when the command named none. */
+      readonly exec_target_tool: string;
+      /** Argument names the client sent ($mcp_input_keys), without values. Empty when not captured. */
+      readonly input_keys: readonly string[];
+      /** Specific failure code ($mcp_error_code) when the server set one, otherwise empty. */
+      readonly error_code: string;
+      /** Argument the failure points at ($mcp_error_field), otherwise empty. */
+      readonly error_field: string;
+      /** Model that made the call ($mcp_llm_model), otherwise empty. */
+      readonly llm_model: string;
     }
 
     /**
@@ -68306,6 +68495,39 @@ export namespace Schemas {
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
+    }
+
+    export interface MyHoglakeCredentialCreateRequest {
+      /**
+         * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+         * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+         */
+      name: string;
+      /** read lists and reads tables; write can also commit to them.
+       *
+       * * `read` - Read
+       * * `write` - Read & write */
+      scope: HoglakeCredentialScopeEnum;
+      /**
+         * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+         * @minimum 3600
+         * @maximum 31536000
+         */
+      ttl_seconds?: number;
+      /**
+         * The projects this credential reaches, each one you can see. Its tokens get your current access on each, so losing a project's access takes it out of the next token.
+         * @minItems 1
+         * @maxItems 200
+         * @items.minimum 1
+         */
+      team_ids: number[];
+    }
+
+    export interface MyHoglakeCredentialListResponse {
+      hoglake_credentials: HoglakeCredential[];
+      connect: HoglakeConnect;
+      /** The projects you can put in a credential */
+      projects: HoglakeProject[];
     }
 
     export interface NoMatchMetadata {
@@ -77006,6 +77228,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -83528,10 +83755,34 @@ export namespace Schemas {
       value: unknown;
     };
 
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    export type PatchedExternalDataSchemaAvailableColumnsItemSensitivity = typeof PatchedExternalDataSchemaAvailableColumnsItemSensitivity[keyof typeof PatchedExternalDataSchemaAvailableColumnsItemSensitivity] | null;
+
+
+    export const PatchedExternalDataSchemaAvailableColumnsItemSensitivity = {
+      Email: 'email',
+      Phone: 'phone',
+      Name: 'name',
+      Address: 'address',
+      DateOfBirth: 'date_of_birth',
+      IpAddress: 'ip_address',
+      Token: 'token',
+      Secret: 'secret',
+      CardNumber: 'card_number',
+    } as const;
+
     export type PatchedExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
       is_nullable?: boolean;
+      /**
+         * The kind of personal or secret data the column's name and type suggest, or null.
+         * @nullable
+         */
+      sensitivity?: PatchedExternalDataSchemaAvailableColumnsItemSensitivity;
     };
 
     /**
@@ -83697,6 +83948,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly history_table_name?: string | null;
+      /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+      drop_history_table?: boolean;
+      /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         * @nullable
+         */
+      readonly registered_history_table_name?: string | null;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -89373,7 +89631,7 @@ export namespace Schemas {
        * * `external_survey` - external survey
        * * `api` - api */
       type?: SurveyTypeEnum;
-      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
        *
        * * `once` - once
        * * `recurring` - recurring
@@ -89538,7 +89796,7 @@ export namespace Schemas {
          */
       responses_limit?: number | null;
       /**
-         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
          * @minimum 1
          * @maximum 500
          * @nullable
@@ -89551,6 +89809,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -95447,6 +95710,18 @@ export namespace Schemas {
       /** Maximum number of proxy records allowed for this organization's current plan. */
       max_proxy_records: number;
     }
+
+    /**
+     * * `signal_report` - Signal Report
+     * * `hog_flow` - Hog Flow
+     */
+    export type PublicTaskSourceKindEnum = typeof PublicTaskSourceKindEnum[keyof typeof PublicTaskSourceKindEnum];
+
+
+    export const PublicTaskSourceKindEnum = {
+      SignalReport: 'signal_report',
+      HogFlow: 'hog_flow',
+    } as const;
 
     /**
      * * `published` - published
@@ -111057,6 +111332,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -111114,7 +111394,7 @@ export namespace Schemas {
        * * `external_survey` - external survey
        * * `api` - api */
       type: SurveyTypeEnum;
-      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
        *
        * * `once` - once
        * * `recurring` - recurring
@@ -111279,7 +111559,7 @@ export namespace Schemas {
          */
       responses_limit?: number | null;
       /**
-         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
          * @minimum 1
          * @maximum 500
          * @nullable
@@ -111292,6 +111572,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -111735,6 +112020,81 @@ export namespace Schemas {
       next: string | null;
     }
 
+    export interface TaskRunOptionsRepository {
+      /**
+         * GitHub repository in `organization/repo` format.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * Branch the first run starts from. Omit to use the repository's default branch.
+         * @maxLength 255
+         * @nullable
+         */
+      initial_branch?: string | null;
+    }
+
+    /**
+     * JSON schema that the agent's final answer must match.
+     */
+    export type TaskRunOptionsRequestOutputSchema = { [key: string]: unknown };
+
+    export interface TaskRunOptionsRequest {
+      /** Agent protocol and harness for the task. It must be one the profile allows.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      runtime?: TaskRuntimeEnum;
+      /** Agent harness for the first run. Derived from the model when omitted.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      adapter?: RuntimeAdapterEnum;
+      /** LLM model for the first run. */
+      model?: string;
+      /** Reasoning effort for the first run, for models that support it.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max
+       * * `ultracode` - ultracode */
+      reasoning_effort?: ReasoningEffortEnum;
+      /**
+         * GitHub repositories available to the task. The first one's initial branch starts the first run.
+         * @maxItems 10
+         */
+      repositories?: TaskRunOptionsRepository[];
+      /** JSON schema that the agent's final answer must match. */
+      output_schema?: TaskRunOptionsRequestOutputSchema;
+      /** The agent's starting permission mode for the first run.
+       *
+       * * `default` - default
+       * * `acceptEdits` - acceptEdits
+       * * `plan` - plan
+       * * `bypassPermissions` - bypassPermissions
+       * * `auto` - auto
+       * * `read-only` - read-only
+       * * `full-access` - full-access */
+      permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+      /** When true, the agent pushes its work and opens a draft pull request when it finishes. */
+      auto_publish?: boolean;
+    }
+
+    export interface TaskSourceRequest {
+      /** The kind of row the task starts from. It must be the kind the profile takes.
+       *
+       * * `signal_report` - Signal Report
+       * * `hog_flow` - Hog Flow */
+      kind: PublicTaskSourceKindEnum;
+      /**
+         * ID of that row. It must belong to the current project.
+         * @maxLength 64
+         */
+      id: string;
+    }
+
     export interface TaskCreate {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.
@@ -111902,6 +112262,20 @@ export namespace Schemas {
        * * `acp` - ACP
        * * `pi` - Pi */
       runtime?: TaskRuntimeEnum;
+      /**
+         * Key of a public task profile, which sets the limits for this kind of task. Omit it to create a task from `origin_product` as before.
+         * @maxLength 64
+         */
+      profile?: string;
+      /** Settings for this task, checked against the profile. Only the options the profile makes public are accepted. Requires `profile`. Do not repeat a setting that you also send at the top level. Settings for the first run also require `start_run`: `adapter`, `model`, `reasoning_effort`, `permission_mode`, `auto_publish` and the `initial_branch` of a repository. */
+      options?: TaskRunOptionsRequest;
+      /** The row this task starts from, for profiles that take one. Requires `profile`. */
+      source?: TaskSourceRequest;
+      /**
+         * Makes the request safe to retry. Sending the same key with the same body returns the task that the first request created. The same key with a different body is refused. Requires `profile`.
+         * @maxLength 64
+         */
+      idempotency_key?: string;
     }
 
     /**
@@ -123073,6 +123447,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -123195,6 +123570,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      OrganizationIPRestrictions: 'OrganizationIPRestrictions',
       IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
@@ -123303,6 +123679,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -123413,6 +123790,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      OrganizationIPRestrictions: 'OrganizationIPRestrictions',
       IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
@@ -127038,6 +127416,36 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type DatasetsRetentionRetrieveParams = {
+    /**
+     * Whether to return expiring datasets or older revisions. Counts always include both.
+     *
+     * * `datasets` - Datasets
+     * * `revisions` - Older revisions
+     * @minLength 1
+     */
+    kind?: DatasetsRetentionRetrieveKind;
+    /**
+     * Maximum entries to return, up to 50.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Number of expiring entries to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type DatasetsRetentionRetrieveKind = typeof DatasetsRetentionRetrieveKind[keyof typeof DatasetsRetentionRetrieveKind];
+
+
+    export const DatasetsRetentionRetrieveKind = {
+      Datasets: 'datasets',
+      Revisions: 'revisions',
+    } as const;
+
     export type EarlyAccessFeatureListParams = {
     /**
      * Number of results to return per page.
@@ -129203,6 +129611,14 @@ export namespace Schemas {
     };
 
     export type ExternalDataSchemasCancelCreate400 = {
+      detail?: string;
+    };
+
+    export type ExternalDataSchemasHistoryTableDestroy400 = {
+      detail?: string;
+    };
+
+    export type ExternalDataSchemasHistoryTableDestroy503 = {
       detail?: string;
     };
 

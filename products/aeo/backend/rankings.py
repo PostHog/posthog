@@ -21,6 +21,7 @@ from django.utils import timezone
 
 import tldextract
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.aeo.backend.brand import brand_names, brand_regex
@@ -140,7 +141,7 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
     brands = ([(target_domain, brand_regex(target_domains), True)] if target_domain else []) + [
         (domain, rf"\m{re.escape(_brand_name(domain))}\M", False) for domain in competitors
     ]
-    current, previous, daily = _brand_days(
+    brand_days = _brand_days(
         team_id,
         brands=[brand for brand in brands if brand[1]],
         timezone_name=timezone_name,
@@ -155,9 +156,9 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
                 domain=domain,
                 name=", ".join(brand_names(target_domains)) if is_target else _brand_name(domain),
                 is_target=is_target,
-                answers_mentioning=current[domain][1],
-                visibility=_share(*current[domain]),
-                previous_visibility=_share(*previous[domain]),
+                answers_mentioning=brand_days.current[domain][1],
+                visibility=_share(*brand_days.current[domain]),
+                previous_visibility=_share(*brand_days.previous[domain]),
                 positive_share=positive_share if is_target else None,
             )
             for domain, _, is_target in brands
@@ -170,7 +171,7 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
         window_to=window_to,
         answers=answers,
         brands=tuple(ranked_brands),
-        daily=daily,
+        daily=brand_days.daily,
         top_domains=tuple(
             RankedDomain(
                 domain=domain,
@@ -183,10 +184,31 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
             for domain, count in top_domains
         ),
         top_pages=tuple(
-            RankedPage(url=url, answers=count, share_of_answers=count / answers, is_target=domain in targets)
-            for url, domain, count in citations.top_pages()
+            RankedPage(
+                url=page.url,
+                answers=page.answers,
+                share_of_answers=page.answers / answers,
+                is_target=page.domain in targets,
+            )
+            for page in citations.top_pages()
         ),
     )
+
+
+@frozen
+class _CitedPage:
+    url: str
+    domain: str
+    answers: int
+
+
+@frozen
+class _BrandDays:
+    """Answers and mentions per brand, as [answers, mentioning], in each window, and the current window per day."""
+
+    current: defaultdict[str, list[int]]
+    previous: defaultdict[str, list[int]]
+    daily: tuple[RankedBrandDay, ...]
 
 
 class _Citations:
@@ -217,20 +239,20 @@ class _Citations:
             cursor.execute(_DOMAIN_URLS_SQL, [*self._mapping(mapping), *self._params])
             return dict(cursor.fetchall())
 
-    def top_pages(self) -> list[tuple[str, str, int]]:
-        """The most cited pages as (url, registrable domain, answers). URLs that don't parse are skipped,
-        so the query reads a few extra rows to fill the list."""
+    def top_pages(self) -> list[_CitedPage]:
+        """The most cited pages. URLs that don't parse are skipped, so the query reads a few extra rows
+        to fill the list."""
         with connection.cursor() as cursor:
             cursor.execute(_PAGES_SQL, [*self._params, MAX_RANKED_PAGES * 2])
             rows = cursor.fetchall()
-        pages: list[tuple[str, str, int]] = []
+        pages: list[_CitedPage] = []
         for url, count in rows:
             try:
                 host = (urlparse(url).hostname or "").lower()
             except ValueError:
                 continue
             if host and len(pages) < MAX_RANKED_PAGES:
-                pages.append((url, registrable_domain(host), count))
+                pages.append(_CitedPage(url=url, domain=registrable_domain(host), answers=count))
         return pages
 
     @staticmethod
@@ -257,12 +279,11 @@ def _brand_days(
     timezone_name: str,
     since: dt.datetime,
     window_from: dt.date,
-) -> tuple[defaultdict[str, list[int]], defaultdict[str, list[int]], tuple[RankedBrandDay, ...]]:
-    """Answers and mentions per brand in the current and previous windows, and per day in the current one."""
+) -> _BrandDays:
     current: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
     previous: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
     if not brands:
-        return current, previous, ()
+        return _BrandDays(current=current, previous=previous, daily=())
     # The ORM reads above map a child environment to its parent; raw SQL has to do the same.
     effective_team_id = resolve_effective_team_id(team_id)
     with connection.cursor() as cursor:
@@ -287,7 +308,9 @@ def _brand_days(
             daily.append(
                 RankedBrandDay(date=day, domain=domain, answers=answers, visibility=_share(answers, mentioning))
             )
-    return current, previous, tuple(sorted(daily, key=lambda row: (row.date, row.domain)))
+    return _BrandDays(
+        current=current, previous=previous, daily=tuple(sorted(daily, key=lambda row: (row.date, row.domain)))
+    )
 
 
 def _positive_share(answered: QuerySet[AEOCitationCheck]) -> float | None:
