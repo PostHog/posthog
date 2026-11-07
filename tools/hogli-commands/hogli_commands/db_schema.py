@@ -236,9 +236,15 @@ def _forget_product_app_migrations(target_db: str) -> None:
     _psql_write(target_db, f"DELETE FROM django_migrations WHERE app IN ({in_list});")
 
 
-def _recorded_migrations(schema_path: Path) -> set[tuple[str, str]]:
+@dataclass(frozen=True, kw_only=True, slots=True, order=True)
+class _MigrationReference:
+    app: str
+    name: str
+
+
+def _recorded_migrations(schema_path: Path) -> set[_MigrationReference]:
     """The (app, name) rows in the dump's django_migrations data block."""
-    recorded: set[tuple[str, str]] = set()
+    recorded: set[_MigrationReference] = set()
     with gzip.open(schema_path, "rt", encoding="utf-8") as dump:
         for line in dump:
             if match := MIGRATIONS_COPY_RE.match(line.rstrip("\n")):
@@ -252,11 +258,11 @@ def _recorded_migrations(schema_path: Path) -> set[tuple[str, str]]:
             if row == "\\.":
                 break
             values = row.split("\t")
-            recorded.add((values[app_index], values[name_index]))
+            recorded.add(_MigrationReference(app=values[app_index], name=values[name_index]))
     return recorded
 
 
-def _replaced_migrations(source: str) -> set[tuple[str, str]]:
+def _replaced_migrations(source: str) -> set[_MigrationReference]:
     """The `replaces` list of a squashed migration, read without importing the module."""
     match = REPLACES_RE.search(source)
     if match is None:
@@ -270,21 +276,23 @@ def _replaced_migrations(source: str) -> set[tuple[str, str]]:
             if depth == 0:
                 break
     try:
-        return {(app, name) for app, name in ast.literal_eval(source[match.end() : end + 1])}
+        return {
+            _MigrationReference(app=app, name=name) for app, name in ast.literal_eval(source[match.end() : end + 1])
+        }
     except (ValueError, SyntaxError, TypeError):
         return set()
 
 
-def _checkout_migrations(app_paths: Mapping[str, Path]) -> set[tuple[str, str]]:
+def _checkout_migrations(app_paths: Mapping[str, Path]) -> set[_MigrationReference]:
     # A fresh migrate records a squash's replaced names alongside the squash itself,
     # so those names count as known even after their files are deleted.
-    known: set[tuple[str, str]] = set()
+    known: set[_MigrationReference] = set()
     for app, migrations_dir in app_paths.items():
         if not migrations_dir.is_dir():
             continue
         for path in migrations_dir.iterdir():
             if MIGRATION_FILE_RE.fullmatch(path.name):
-                known.add((app, path.stem))
+                known.add(_MigrationReference(app=app, name=path.stem))
                 source = path.read_text(encoding="utf-8")
                 if "replaces" in source:
                     known |= _replaced_migrations(source)
@@ -302,13 +310,15 @@ def _check_dump_is_not_newer_than_checkout(schema_path: Path) -> None:
     app_paths = get_managed_app_paths(REPO_ROOT)
     routed_away = set(_product_routed_app_labels())
     recorded = {
-        (app, name) for app, name in _recorded_migrations(schema_path) if app in app_paths and app not in routed_away
+        migration
+        for migration in _recorded_migrations(schema_path)
+        if migration.app in app_paths and migration.app not in routed_away
     }
     if not recorded:
         return
     unknown = sorted(recorded - _checkout_migrations(app_paths))
     if unknown:
-        sample = ", ".join(f"{app}.{name}" for app, name in unknown[:UNKNOWN_MIGRATION_SAMPLE])
+        sample = ", ".join(f"{migration.app}.{migration.name}" for migration in unknown[:UNKNOWN_MIGRATION_SAMPLE])
         raise SchemaRestoreError(
             f"schema dump records {len(unknown)} migration(s) this checkout does not have ({sample}), "
             "so it was built from newer code; run migrations from scratch or rebase onto the dump's branch"
