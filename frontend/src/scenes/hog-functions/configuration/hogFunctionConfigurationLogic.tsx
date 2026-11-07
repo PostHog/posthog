@@ -1055,7 +1055,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const res = await api.hogFunctions.getTemplate(props.templateId)
+                    let res: HogFunctionTemplateType
+                    try {
+                        res = await api.hogFunctions.getTemplate(props.templateId)
+                    } catch (e) {
+                        // A template id that does not exist (a stale or mistyped link) 404s here. Fall back
+                        // to null so the scene renders its not-found state instead of filing the rejection
+                        // in error tracking.
+                        if (e instanceof ApiError && e.status === 404) {
+                            return null
+                        }
+                        throw e
+                    }
 
                     if (!res) {
                         throw new Error('Template not found')
