@@ -135,7 +135,7 @@ class AccountPersonsCatalog:
             distinct_id=str(self.user.distinct_id),
             properties=SloStartedProperties(
                 area=SloArea.ANALYTIC_PLATFORM,
-                operation=SloOperation.ACCOUNT_PERSONS_LIST,
+                operation=SloOperation.ACCOUNT_PERSONS_QUERY,
                 team_id=self.team.pk,
             ),
             extra_properties=properties,
@@ -149,7 +149,7 @@ class AccountPersonsCatalog:
                 distinct_id=str(self.user.distinct_id),
                 properties=SloCompletedProperties(
                     area=SloArea.ANALYTIC_PLATFORM,
-                    operation=SloOperation.ACCOUNT_PERSONS_LIST,
+                    operation=SloOperation.ACCOUNT_PERSONS_QUERY,
                     team_id=self.team.pk,
                     outcome=outcome,
                     duration_ms=(perf_counter() - started_at) * 1000,

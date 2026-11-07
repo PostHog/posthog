@@ -138,6 +138,8 @@ class TestAccountPersonsCatalogEvents(SimpleTestCase):
                 assert not started.called and not completed.called
             else:
                 exposure = started.call_args.kwargs["extra_properties"]
+                assert started.call_args.kwargs["properties"].operation == "account_persons_query"
+                assert completed.call_args.kwargs["properties"].operation == "account_persons_query"
                 assert exposure[f"$feature/{ACCOUNT_PERSONS_CATALOG_FLAG}"] == variant
                 assert completed.call_args.kwargs["properties"].outcome == ("failure" if failed else "success")
                 assert "error_message" not in completed.call_args.kwargs["extra_properties"]
