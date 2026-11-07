@@ -26,6 +26,7 @@ import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { humanList } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { IntegrationType, PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
@@ -354,6 +355,26 @@ export interface EmailTemplaterLogicProps {
     fieldErrors?: EmailFieldErrors
     // Only workflow email steps can send through the sandbox sender; every other surface hides it.
     sandboxSenderAllowed?: boolean
+}
+
+/** What switching to the sandbox sender drops, because it sends with a fixed identity. */
+function sandboxSwitchLosses(emailTemplate: EmailTemplate): string[] {
+    const from = senderFrom(emailTemplate)
+    return [
+        from.email ? 'From address' : '',
+        from.name ? 'From name' : '',
+        emailTemplate?.replyTo ? 'Reply-To' : '',
+    ].filter(Boolean)
+}
+
+function sandboxSwitchDescription(replacedSenders: string | null, losses: string[]): string {
+    return [
+        replacedSenders ? `This replaces ${replacedSenders} with the sandbox sender.` : '',
+        losses.length > 0 ? `This removes your custom ${humanList(losses)}.` : '',
+        'The sandbox sender sends from its own address.',
+    ]
+        .filter(Boolean)
+        .join(' ')
 }
 
 function autoRevealAdvancedFields(
@@ -849,8 +870,32 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 return
             }
             if (sandboxSenderId !== undefined && next.integrationId === sandboxSenderId) {
-                actions.setEmailTemplateValues({ from: next, replyTo: '' })
-                actions.hideAdvancedField('replyTo')
+                const selectSandbox = (): void => {
+                    actions.setEmailTemplateValues({ from: next, replyTo: '' })
+                    actions.hideAdvancedField('replyTo')
+                }
+                const replacedSenderIds = selectedSenderIds(senderFrom(values.emailTemplate))
+                const losses = sandboxSwitchLosses(values.emailTemplate)
+                if (losses.length === 0 && replacedSenderIds.length < 2) {
+                    selectSandbox()
+                    return
+                }
+                const integrations = integrationsLogic.isMounted() ? (integrationsLogic.values.integrations ?? []) : []
+                const replacedSenderNames = replacedSenderIds
+                    .map((id) => integrations.find((sender) => sender.id === id)?.display_name)
+                    .filter((name): name is string => !!name)
+                const replacedSenders =
+                    replacedSenderIds.length < 2
+                        ? null
+                        : replacedSenderNames.length === replacedSenderIds.length
+                          ? humanList(replacedSenderNames)
+                          : 'your current senders'
+                LemonDialog.open({
+                    title: 'Switch to the sandbox sender?',
+                    description: sandboxSwitchDescription(replacedSenders, losses),
+                    primaryButton: { children: 'Switch sender', onClick: selectSandbox },
+                    secondaryButton: { children: 'Cancel' },
+                })
                 return
             }
             actions.setEmailTemplateValue('from', next)
