@@ -409,6 +409,7 @@ class TestSandboxSenderValidation(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "At most 10 email senders" in response.json()["detail"]
+        assert response.json()["attr"] == "actions__1__inputs__email"
         assert not [query for query in queries if 'FROM "posthog_integration"' in query["sql"]]
 
     @parameterized.expand(
