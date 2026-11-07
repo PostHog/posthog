@@ -1486,7 +1486,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         page = self.paginate_queryset(keys)
         listed = keys if page is None else page
         loaded = {row.id: row for row in rows.filter(id__in=[key[1] for key in listed if key[2] is None])}
-        alerts = [native if native is not None else loaded[alert_id] for _, alert_id, native in listed]
+        # A row deleted since its key was read drops out of the page rather than failing it.
+        alerts = [alert for _, alert_id, native in listed if (alert := native or loaded.get(alert_id)) is not None]
         data = self.get_serializer(alerts, many=True).data
         return Response(data) if page is None else self.get_paginated_response(data)
 
