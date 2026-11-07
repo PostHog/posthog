@@ -34,6 +34,8 @@ describe('GitLab', () => {
         ['git@gitlab.com:acme/tools/web.git', 'acme/tools/web'],
         ['https://gitlab.com/acme/web', 'acme/web'],
         ['git@github.com:acme/web.git', undefined],
+        ['https://evil.example.com/gitlab.com/acme/web', undefined],
+        ['https://gitlab.com/acme/web.git?private_token=secret', undefined],
     ])('reads the project path from the remote %s', (remote, expected) => {
         expect(GITLAB.nameFromRemote(remote)).toBe(expected)
     })

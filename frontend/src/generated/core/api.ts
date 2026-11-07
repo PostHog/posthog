@@ -3220,6 +3220,23 @@ export const workloadTrustPolicyRequestsRejectCreate = async (
     })
 }
 
+export const getWorkloadTrustPolicyRequestsProvidersRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workload_trust_policy_requests/providers/`
+}
+
+/**
+ * The supported providers and the settings a job needs, for any member who asks for a policy.
+ */
+export const workloadTrustPolicyRequestsProvidersRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkloadProvidersResponseApi> => {
+    return apiMutator<WorkloadProvidersResponseApi>(getWorkloadTrustPolicyRequestsProvidersRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWorkloadTrustPolicyRequestsResolveSubjectRetrieveUrl = (
     projectId: string,
     params: WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams

@@ -2,6 +2,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
+import { parseRemoteUrls, stripCredentials } from '@/error-tracking/git'
 
 import { WORKLOAD_PROVIDERS, type WorkloadProvider } from './providers/registry'
 
@@ -43,47 +44,34 @@ async function configPath(runtime: Runtime, gitPath: string): Promise<string> {
     return join(common ? resolve(gitDir, common) : gitDir, 'config')
 }
 
-function originUrl(config: string): string | undefined {
-    let inOrigin = false
-    for (const raw of config.split(/\r?\n/)) {
-        const line = raw.trim()
-        if (line.startsWith('[')) {
-            inOrigin = /^\[remote\s+"origin"\]$/.test(line)
-            continue
-        }
-        const url = inOrigin ? line.match(/^url\s*=\s*(.+)$/)?.[1]?.trim() : undefined
-        if (url) {
-            return url.replace(/^"(.*)"$/, '$1')
-        }
-    }
-    return undefined
-}
-
 export async function readRepository(runtime: Runtime): Promise<Repository | undefined> {
     const found = await findGitRoot(runtime)
     if (!found) {
         return undefined
     }
     const config = await runtime.readFile(await configPath(runtime, found.gitPath)).catch(() => '')
-    return { root: found.root, remote: originUrl(config) }
+    const remotes = parseRemoteUrls(config)
+    // Only origin, so a checkout of someone else's repository never asks to trust theirs.
+    const url = remotes.find(([name]) => name === 'origin')?.[1]
+    // A remote URL can carry a token, and the name read from it goes to PostHog.
+    return { root: found.root, remote: url === undefined ? undefined : stripCredentials(url) }
 }
 
-export function pickProviderHint(providers: readonly WorkloadProvider[] = WORKLOAD_PROVIDERS): string {
-    return `Pass --provider with one of: ${providers.map((provider) => provider.key).join(', ')}.`
+export function pickProviderHint(): string {
+    return `Pass --provider with one of: ${WORKLOAD_PROVIDERS.map((provider) => provider.key).join(', ')}.`
 }
 
 export async function detectRepositoryProvider(
     runtime: Runtime,
-    repository: Repository | undefined,
-    providers: readonly WorkloadProvider[] = WORKLOAD_PROVIDERS
+    repository: Repository | undefined
 ): Promise<WorkloadProvider> {
-    const pick = pickProviderHint(providers)
+    const pick = pickProviderHint()
     if (repository === undefined) {
         throw new HogError('provider_not_detected', "hog couldn't find a git repository here.", pick, EXIT_USAGE)
     }
     const matches: WorkloadProvider[] = []
     const { root, remote } = repository
-    for (const provider of providers) {
+    for (const provider of WORKLOAD_PROVIDERS) {
         if (remote === undefined || provider.nameFromRemote(remote) === undefined) {
             continue
         }

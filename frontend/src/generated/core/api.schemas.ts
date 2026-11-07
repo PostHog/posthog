@@ -101,9 +101,9 @@ export interface DeviceGrantDetailsApi {
     is_verified: boolean
     /** The scopes the token will carry if the person approves. */
     scopes: string[]
-    /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+    /** The requested scopes the person can't leave out: the client's required scopes, the scopes the client marked as required when it started the grant, such as the new scopes of a step-up, and identity scopes such as `openid`. */
     required_scopes: string[]
-    /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+    /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones. */
     granted_scopes: GrantedScopesApi[]
     /** When the code expires. */
     expires_at: string
@@ -5778,6 +5778,17 @@ export interface UploadedMediaUploadStartedApi {
 }
 
 /**
+ * * `github_actions` - GitHub Actions
+ * * `gitlab` - GitLab
+ */
+export type WorkloadProviderKeyEnumApi = (typeof WorkloadProviderKeyEnumApi)[keyof typeof WorkloadProviderKeyEnumApi]
+
+export const WorkloadProviderKeyEnumApi = {
+    GithubActions: 'github_actions',
+    Gitlab: 'gitlab',
+} as const
+
+/**
  * The label of each condition claim the provider allows, keyed by claim name.
  */
 export type WorkloadClaimLabelsApiConditions = { [key: string]: string }
@@ -5808,11 +5819,11 @@ export interface WorkloadTrustPolicyApi {
      * @maxLength 255
      */
     issuer: string
-    /**
-     * The key of the workload provider the issuer belongs to.
-     * @nullable
-     */
-    readonly provider: string | null
+    /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab */
+    readonly provider: WorkloadProviderKeyEnumApi
     /**
      * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
      * @maxLength 255
@@ -5865,11 +5876,11 @@ export interface PatchedWorkloadTrustPolicyApi {
      * @maxLength 255
      */
     issuer?: string
-    /**
-     * The key of the workload provider the issuer belongs to.
-     * @nullable
-     */
-    readonly provider?: string | null
+    /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab */
+    readonly provider?: WorkloadProviderKeyEnumApi
     /**
      * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
      * @maxLength 255
@@ -5900,17 +5911,6 @@ export interface PatchedWorkloadTrustPolicyApi {
  * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
  */
 export type WorkloadProvidersResponseApiRiskyScopes = { [key: string]: string }
-
-/**
- * * `github_actions` - GitHub Actions
- * * `gitlab` - GitLab
- */
-export type WorkloadProviderKeyEnumApi = (typeof WorkloadProviderKeyEnumApi)[keyof typeof WorkloadProviderKeyEnumApi]
-
-export const WorkloadProviderKeyEnumApi = {
-    GithubActions: 'github_actions',
-    Gitlab: 'gitlab',
-} as const
 
 export interface WorkloadClaimApi {
     /** The claim's name in the provider's OIDC token. */
@@ -5978,7 +5978,7 @@ export interface WorkloadProviderApi {
     condition_companions: ConditionCompanionsApi[]
     /** Whether PostHog can look up the subject from its name with resolve_subject. */
     readonly can_resolve_subject: boolean
-    /** The CI config a job of this project needs, empty when the provider has none. */
+    /** The CI config a job needs to get a token for PostHog, empty when the provider has none. */
     readonly setup_snippet: string
 }
 
@@ -5989,8 +5989,6 @@ export interface WorkloadJobSettingsApi {
     project_id: number
     /** Whether hog reads the host from posthog.json. It does only for PostHog Cloud, so other hosts need HOG_HOST. */
     host_in_posthog_json: boolean
-    /** The posthog.json keys a job needs, as JSON. */
-    posthog_json: string
 }
 
 export interface WorkloadProvidersResponseApi {
@@ -6036,11 +6034,11 @@ export interface WorkloadTrustPolicyRequestApi {
      * @maxLength 255
      */
     issuer: string
-    /**
-     * The key of the workload provider the issuer belongs to.
-     * @nullable
-     */
-    readonly provider: string | null
+    /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab */
+    readonly provider: WorkloadProviderKeyEnumApi
     /**
      * The display name of the workload provider, or null.
      * @nullable

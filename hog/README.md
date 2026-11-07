@@ -14,6 +14,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | Command                                   | Status                                                                                                                  |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `hog auth login`                          | Logs in through the browser and saves a personal API key. Agents finish with `hog auth login --wait`.                   |
+| `hog auth add <scope...>`                 | Adds scopes to your login, approved in the browser. Agents finish with `hog auth add --wait`.                           |
 | `hog auth status`                         | Shows whether hog is logged in, whose key it is, and where the key comes from. Exits with code 1 without a working key. |
 | `hog auth logout`                         | Removes the stored key. The key stays valid in PostHog until you delete it there.                                       |
 | `hog auth migrate`                        | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                            |
@@ -203,7 +204,7 @@ A CI job can trade the OIDC token its provider issues for a PostHog token, so no
 hog supports GitHub Actions and GitLab.com.
 An organization admin trusts the repository once, and each run of the job then gets a token that lives a few minutes.
 
-1. In the repository, logged in with `hog auth login`, run `hog ci setup --branch main --scope error_tracking:write`. Pass `--environment production` instead of, or as well as, `--branch` to trust only deploy jobs, and list every scope the job needs, separated by commas, like `--scope error_tracking:write,query:read`.
+1. In the repository, logged in with `hog auth login`, run `hog ci setup --scope error_tracking:write`, listing every scope the job needs, separated by commas, like `--scope error_tracking:write,query:read`. hog asks which runs may get a token, such as pushes to a branch or deploys to an environment, with the presets and explanations PostHog offers for the provider. Pass them as options instead, like `--preset branch_push=main`. An agent gets the list of presets it still needs, with the same explanations.
 2. hog finds the CI provider and the repository from the origin remote, and asks PostHog to trust it in your project. PostHog looks up the repository's ID, so a deleted and re-created repository with the same name doesn't match.
 3. An organization admin approves the request in the browser. When you are one, hog opens the page and waits. Otherwise it names the admins and prints the link to send them. `hog ci setup --wait` checks on the request later.
 4. Add the `host` and `projectId` hog prints to `posthog.json`, and the snippet it prints to the job, which gives the job an OIDC token. Setting `HOG_HOST` and `HOG_PROJECT_ID` in the job works too, and a self-hosted PostHog needs `HOG_HOST`.
@@ -220,7 +221,10 @@ In the job:
 
 - At a terminal, `hog auth login` asks where your PostHog account is hosted, opens the browser, and waits for you to approve. The address PostHog opens at, us.posthog.com or eu.posthog.com, tells you which to pick.
 - On the approval page you check the code, pick a project and see what hog will be able to do. The token only works in that project; to use another one, log in again. hog renews the token by itself.
-- `hog auth login --read-only` asks only for read access. To change something later, run `hog auth login` again without the flag.
+- `hog auth login --read-only` asks only for read access. To change something later, run `hog auth add` with the write scopes you need.
+- `hog auth add insight:write dashboard:write` adds scopes to your login. hog asks for the scopes you already have plus the new ones, and the approval page keeps the new ones ticked. In the same project, commands that are still running keep working with the new token. Agents finish with `hog auth add --wait`.
+- When PostHog refuses a request because your login lacks a scope, hog asks at a terminal whether to add it with `hog auth add`, then sends the request again. Agents get the error `step_up_required` with the `hog auth add` command to run. A personal API key gets the scopes to add to the key in PostHog.
+- `hog error-tracking upload`, `hog error-tracking process`, `hog endpoints push` and `hog api call` check your scopes before they change anything, so they don't stop halfway.
 - An agent or a script cannot answer prompts, so `hog auth login --region us` returns at once with a link and a code for a person to approve. `hog auth login --wait` then saves the token. Running `hog auth login` again before the code expires returns the same link.
 - Each login checks that hog can use the keychain, and records where it stored the token in `settings.json` in hog's folder, so other commands don't check again. The keychain, or the credentials file, keeps only the secrets. The rest of the login, such as the project and the scopes, is in `settings.json`. When the keychain shows a dialog, choose "Always Allow".
 - Self-hosted PostHog has to reach posthog.com to log hog in, because hog's OAuth client is described there. Without that, set the environment variables above.

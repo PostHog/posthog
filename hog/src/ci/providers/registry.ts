@@ -1,6 +1,5 @@
 import type { Env, Runtime } from '@/core/runtime'
 import type { Host } from '@/posthog/host'
-import type { ProjectId } from '@/posthog/ids'
 import type { ProviderIdToken } from '@/posthog/tokens'
 
 import { GITHUB_ACTIONS } from './github-actions/github-actions'
@@ -22,10 +21,6 @@ export interface WorkloadProvider {
     // The rest is for `hog ci setup`. Config paths are relative to the repository root.
     readonly configPaths: readonly string[]
     nameFromRemote(remote: string): string | undefined
-    branchConditions(branch: string): WorkloadConditions
-    // Undefined for a provider whose token names no environment.
-    environmentConditions?(environment: string): WorkloadConditions
-    snippet(target: { host: Host; projectId: ProjectId }): string
 }
 
 export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [GITHUB_ACTIONS, GITLAB]

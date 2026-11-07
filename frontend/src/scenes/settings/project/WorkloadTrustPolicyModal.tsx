@@ -23,7 +23,7 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
         scopeLevels,
         scopeSearchTerm,
         editingProvider,
-        setupSnippet,
+        showingSetup,
     } = useValues(workloadTrustPoliciesLogic)
     const { setEditingPolicyId, submitEditingPolicy, setScopeLevel, setScopeSearchTerm } =
         useActions(workloadTrustPoliciesLogic)
@@ -31,7 +31,7 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
     const isNew = editingPolicyId === 'new'
     const close = (): void => setEditingPolicyId(null)
 
-    if (setupSnippet) {
+    if (showingSetup && editingProvider?.setup_snippet && providers) {
         return (
             <LemonModal
                 title="Set up the workload"
@@ -44,7 +44,7 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
                     </LemonButton>
                 }
             >
-                <WorkloadSetupSnippet {...setupSnippet} />
+                <WorkloadSetupSnippet provider={editingProvider} jobSettings={providers.job_settings} />
             </LemonModal>
         )
     }
