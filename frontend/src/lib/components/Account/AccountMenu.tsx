@@ -1,5 +1,6 @@
 import { DropdownMenuContentProps } from '@radix-ui/react-dropdown-menu'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import {
     IconCake,
@@ -344,6 +345,8 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             <ButtonPrimitive
                                 menuItem
                                 onClick={() => {
+                                    // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                                    posthog.capture('today nav switched on', { surface: 'account_menu' })
                                     updateEarlyAccessFeatureEnrollment(
                                         FEATURE_FLAGS.TODAY_RAIL_NAV,
                                         true,

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import {
@@ -118,6 +119,8 @@ export function TodayAccountMenu(): JSX.Element {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     onClick={() => {
+                        // pinned: analytics event name and properties. The exit survey triggers on this event.
+                        posthog.capture('today nav switched off', { surface: 'account_menu' })
                         updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.TODAY_RAIL_NAV, false, todayNavFeature?.stage)
                         lemonToast.success(
                             'You are back on the old navigation. Turn the new navigation on again from the account menu.'
