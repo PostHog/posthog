@@ -127,6 +127,9 @@ deny:
                 # runs the previous engine needs this exact literal.
                 - 'tools/pr-approval-agent/'
                 - 'CODEOWNERS'
+# CI results that lift deny categories for the files they list (see attestations.py). Every one
+# names a repository's own CI job, so a repository declares its own and none ships here.
+attestations: []
 allow:
     path_patterns:
         - 'docs/'

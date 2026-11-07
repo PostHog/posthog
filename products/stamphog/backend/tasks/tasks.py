@@ -609,6 +609,10 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
     )
     if standing is None or standing.posted_review_id is None or not standing.head_sha:
         return None
+    # An approval that a CI attestation lifted rests on that result for the approved head only. The
+    # worker's own gate check records the lift, and an approval with no such record is not retained.
+    if ((standing.output or {}).get("gate_attestation") or {}).get("attestation_lifted") is not False:
+        return None
 
     approved_pr = (standing.output or {}).get("pr")
     approved_base = (approved_pr or {}).get("base") if isinstance(approved_pr, dict) else None

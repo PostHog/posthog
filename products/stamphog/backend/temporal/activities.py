@@ -509,7 +509,6 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         # Inline review threads (GraphQL-only) carry a maintainer's unresolved "do not merge" that the
         # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
         review_threads_future = submit("review_threads", client.get_pr_review_threads, repo, number)
-        # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
         check_runs_future = submit("check_runs", client.get_check_runs, repo, run.head_sha)
         commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
         reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)
@@ -966,6 +965,8 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
             return GateAttestation(attested=False, reason="file_list_moved", gates=[])
         context, policy_files = _engine_gate_inputs(run)
         context["files"] = pinned_files
+        # A CI check can be rerun and fail while the sandbox reviews, so the gates read it again here.
+        context["check_runs"] = client.get_check_runs(repo, run.head_sha)
         attestation = run_engine_attest(context, policy_files)
         if attestation.reason == "dependency_manifest" and 0 < len(attestation.manifests) <= _MAX_ATTESTED_MANIFESTS:
             manifest_contents = fetch_manifest_contents(
@@ -1051,7 +1052,7 @@ def refuse_on_pre_gates(input: StamphogReviewInput) -> dict:
 
     Runs the engine's gate-only pre-check on the stored context (see logic/engine_pregate.py). Only a
     verdict the full review would also reach counts: a gate refusal, or the WAIT for a pending
-    `Migration risk` check. It is persisted in the sandbox's output shape, so post_verdict and
+    attestation. It is persisted in the sandbox's output shape, so post_verdict and
     everything after it work unchanged, and ``refused`` is True for both, because the workflow reads
     that key to skip the sandbox. Everything else, including any failure here, returns
     ``refused: False`` and the run takes the full review path, which runs every gate again. This step
@@ -1819,6 +1820,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
                 attested=stored.get("attested") is True,
                 reason=str(stored.get("reason") or ""),
                 gates=list(stored.get("gates") or []),
+                attestation_lifted=stored.get("attestation_lifted") is not False,
             )
         else:
             attestation = _attest_gates(run, client)
@@ -1829,6 +1831,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
                         "attested": attestation.attested,
                         "reason": attestation.reason,
                         "gates": attestation.gates,
+                        "attestation_lifted": attestation.attestation_lifted,
                     }
                 },
             )
@@ -2535,12 +2538,12 @@ _PATH_DENY_GATES = frozenset({"deny-list", "tier"})
 def _only_a_human_can_approve(parsed: ReviewerVerdict) -> bool:
     """True when the changed paths alone refused the PR, so a re-review of the same files refuses again.
 
-    A deny on migrations alone is excluded: it lifts once the `Migration risk` check passes.
+    A deny that an attestation could lift is excluded: it clears once that CI result passes.
     """
     gates = [g for g in parsed.gate_result.get("gates") or [] if isinstance(g, dict)]
     failed = {g.get("gate") for g in gates if not g.get("passed", True)}
-    deny_categories = (parsed.gate_result.get("classification") or {}).get("deny_categories") or []
-    return bool(failed) and failed <= _PATH_DENY_GATES and deny_categories != ["migrations"]
+    classification = parsed.gate_result.get("classification") or {}
+    return bool(failed) and failed <= _PATH_DENY_GATES and not classification.get("attestations_could_clear_deny")
 
 
 def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | None) -> str:

@@ -1356,12 +1356,14 @@ index aaa..bbb 100644
 """
 
 
-def _approved_run(team_id: int) -> None:
+def _approved_run(team_id: int, gate_attestation: dict | None = None) -> None:
+    if gate_attestation is None:
+        gate_attestation = {"attested": True, "attestation_lifted": False}
     with team_scope(team_id):
         ReviewRun.objects.filter(pull_request__pr_number=42).update(
             verdict=ReviewVerdict.APPROVED,
             posted_review_id=9,
-            output={"pr": {"base": {"sha": "base-1"}}},
+            output={"pr": {"base": {"sha": "base-1"}}, "gate_attestation": gate_attestation},
         )
 
 
@@ -1433,19 +1435,32 @@ def test_retention_reads_both_sides_from_pinned_commits(team, repo_config):
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_manually_dismissed_approval_is_not_retained(team, repo_config):
+@pytest.mark.parametrize(
+    "case,gate_attestation,active_approval_ids",
+    [
+        ("dismissed", {"attested": True, "attestation_lifted": False}, []),
+        ("lifted", {"attested": True, "attestation_lifted": True}, None),
+        ("no-record", {"attested": True}, None),
+    ],
+    ids=["dismissed_by_hand", "deny_lifted_by_attestation", "no_lift_record"],
+)
+def test_identical_diff_is_not_retained_without_a_standing_unattested_approval(
+    team, repo_config, case, gate_attestation, active_approval_ids
+):
     # A maintainer who dismisses stamphog's review on GitHub updates nothing in the product DB, so
     # the stored review id still looks like a standing approval. Retention over it would skip the
-    # replacement review and leave the PR with no approval at all.
-    _run_task(_pr_payload(), "delivery-dismissed-approved", team.id)
-    _approved_run(team.id)
+    # replacement review and leave the PR with no approval at all. An approval that a CI attestation
+    # lifted rests on that result for the approved head only, so a push needs fresh proof.
+    delivery = f"delivery-not-retained-{case}"
+    _run_task(_pr_payload(), f"{delivery}-approved", team.id)
+    _approved_run(team.id, gate_attestation)
 
     mock_execute = _run_task(
         _pr_payload(action="synchronize", head_sha="sha-2"),
-        "delivery-dismissed-push",
+        f"{delivery}-push",
         team.id,
         compare_diffs=[_APPROVED, _APPROVED],
-        active_approval_ids=[],
+        active_approval_ids=active_approval_ids,
     )
 
     mock_execute.assert_called_once()

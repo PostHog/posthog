@@ -75,6 +75,8 @@ Everything ambiguous falls through to the normal path, which dismisses first: no
 Retention also re-checks GitHub that the stored approval is still active, because a maintainer dismissing it by hand updates nothing in the product DB, and skipping the review over a dismissed approval would leave the PR with neither.
 A retained head is recorded on the approving run (`retained_head_shas`), because `_record_merged_pull_request` matches an approving run on `head_sha` alone and would otherwise treat every retained merge as unapproved and drop it from the digest for good.
 Self-driving inbox runs are excluded so the carve-out's head pinning stays untouched.
+So is an approval that a CI attestation lifted a deny for, because that result proves the approved head only.
+The worker's `--attest` check records the lift (`gate_attestation.attestation_lifted`), never the sandbox, and an approval without that record is not retained.
 
 ## Supersession and terminal states
 
@@ -274,8 +276,8 @@ Test clone changes with `GIT_NO_LAZY_FETCH=1`, because a public repository hides
 
 The server's pre-check (`refuse_on_pre_gates`, `backend/logic/engine_pregate.py`) runs `review_local.py --pregate` in a child process on the worker, in a temporary tree with the run's effective trusted policy and the PR head's `AGENT_APPROVALS.md` files.
 It never imports the engine: the engine's bare module names and its import-time policy load would bind to the worker's own checkout.
-Its fast verdict (a gate refusal, or the pending-migration WAIT) may only be one the sandbox review would also reach, because nothing re-reviews it.
-Every input the sandbox reads from its checkout must reach the tree too, or finality must not depend on it: the folder files decide the size gate, and the manifest scripts scan still needs git, so a dependency manifest keeps the pending-migration case undecided.
+Its fast verdict (a gate refusal, or the pending-attestation WAIT) may only be one the sandbox review would also reach, because nothing re-reviews it.
+Every input the sandbox reads from its checkout must reach the tree too, or finality must not depend on it: the folder files decide the size gate, and the manifest scripts scan still needs git, so a dependency manifest keeps the pending-attestation case undecided.
 `pregate()` decides that finality in the engine, and the server adds the file-list guards in `pregate_skip_reason` (head moved, list truncated, renames).
 Anything in doubt, and any error, falls through to the full review.
 
@@ -288,11 +290,20 @@ Every input the worker cannot confirm fails the check: a file list GitHub may ha
 A retry of `post_verdict` reuses the stored answer, because a second check that attests would post an approval over a delivered escalation.
 A new path to an approval must go through this check too.
 
-A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
-refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over what is a
-race with CI. It can't reuse `Pipeline._only_pending_migration_check`: that method disqualifies on
-any failing gate other than the deny-list, and a migrations deny always drags the tier gate to
-T2-never with it, so it answers False for every PR it exists to catch.
+## Attestations (CI results that lift a deny)
+
+An attestation is a policy entry (`attestations` in the default-branch `.stamphog/policy.yml`, merged onto the shipped default) naming a check run, the deny categories it may lift, and `paths`, the files it judges.
+A passing result lifts those categories only for the files it lists itself, matched by exact path and intersected with `paths`, and only those categories: the file still denies every other one.
+Stamphog knows no ecosystem, tool or bot. What a passing result proves is the publisher's concern, so a new kind of proof is a new CI check and a policy entry, never engine code.
+Every entry names a repository's own CI job, so the shipped default declares none. Declare a new key in a repository's policy only after the engine that reads it is deployed, because the deployed engine refuses a policy with a key it does not know.
+
+- `stamphog_policy` is never liftable; the policy loader refuses such an entry.
+- Trust the run, not the name. An entry reads the head commit's check runs, which GitHub binds to that commit, and must pin the publishing App by its numeric id (`app_id`), because a same-repo PR's workflow can create a check run of any name. A slug follows a rename, and an id never changes. The newest run of the check decides, so a rerun in progress makes the result pending again. The worker reads the check runs again before it posts an approval, so a rerun that fails during the review stops the approval.
+- Every entry lists `publisher_paths`, the in-repo files that produce its result (its workflow and the scripts it runs). A `pull_request` run uses the PR's own copy of them, so a PR that edits one gets a result that lifts nothing and waits for nothing. List them in `stamphog_policy` too, so such an edit always reaches a person.
+- A result with more than one marker lifts nothing, because a publisher's report can quote PR content.
+- A PR that changes a file in `paths` waits for a result that has not reported (a WAIT, not a refusal, because a refusal strips the trigger label over a race with CI). The publisher's trigger must cover `paths`, or such a PR waits forever. A result that reported and lifted nothing leaves the deny standing. A `deps_toolchain` deny from the manifest scripts scan never waits, because no attestation lifts it. The scan reads every changed manifest, also one next to its lockfile, because an attestation can lift the lockfile's own deny.
+- The WAIT records `pending_attestations` in the classification. Nothing re-runs it before the next push.
+- `_blocked_only_by_pending_attestations` lets a failing tier gate through, because a deny always drags the tier to T2-never with it.
 
 ## Temporal specifics
 
