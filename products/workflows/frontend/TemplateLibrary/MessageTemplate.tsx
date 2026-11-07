@@ -285,7 +285,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     )}
                                 </>
                             )}
-                            <CodeManagedTag template={originalTemplate} />
                         </>
                     }
                     actions={
@@ -431,8 +430,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     dataAttrKey="message-template"
                 />
 
-                {(originalTemplate.key || templateSource) && (
+                {(isCodeManaged || originalTemplate.key) && (
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-secondary">
+                        <CodeManagedTag template={originalTemplate} />
                         {originalTemplate.key && (
                             <span
                                 className="flex items-center gap-1 min-w-0 max-w-full"

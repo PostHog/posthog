@@ -28,11 +28,11 @@ function template(overrides: Partial<MessageTemplate> = {}): MessageTemplate {
 
 const Template: StoryFn<{ template: MessageTemplate }> = ({ template }) => (
     <div className="flex flex-col gap-1 w-80">
-        <div className="flex flex-wrap items-center gap-2">
-            <h2 className="m-0">{template.name}</h2>
+        <h2 className="m-0">{template.name}</h2>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-secondary">
             <CodeManagedTag template={template} />
+            <CodeManagedSource source={templateSource(template)} />
         </div>
-        <CodeManagedSource source={templateSource(template)} />
     </div>
 )
 
