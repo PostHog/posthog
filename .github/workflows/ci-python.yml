@@ -362,7 +362,7 @@ jobs:
               shell: bash
               run: |
                   echo "📊 Feedback welcome in #team-devex"
-                  uv run ty check
+                  UV_PROJECT_ENVIRONMENT="$pythonLocation" uv run --no-sync ty check --python "$pythonLocation"
 
             - name: Add mypy Problem Matcher
               shell: bash
@@ -372,20 +372,12 @@ jobs:
             - name: Compute mypy cache prefix
               id: mypy-cache-key
               shell: bash
-              env:
-                  # Unrebased branches may not contain the native hash script yet.
-                  FALLBACK_CONFIG_HASH: ${{ hashFiles('bin/mypy_cache_key.py') == '' && hashFiles('uv.lock', '**/pyproject.toml', '**/mypy.ini') || '' }}
               run: |
-                  if [ -f bin/mypy_cache_key.py ]; then
-                      config_hash=$(python bin/mypy_cache_key.py)
-                  else
-                      config_hash=$FALLBACK_CONFIG_HASH
-                  fi
                   python_version=$(python -c 'import platform; print(platform.python_version())')
                   mypy_version=$(python -c 'from importlib.metadata import version; print(version("mypy"))')
                   toolchain_prefix="mypy-v3-${{ runner.os }}-${{ runner.arch }}-${python_version}-${mypy_version}"
                   echo "toolchain_prefix=${toolchain_prefix}" >> "$GITHUB_OUTPUT"
-                  echo "prefix=${toolchain_prefix}-${config_hash}" >> "$GITHUB_OUTPUT"
+                  echo "prefix=${toolchain_prefix}-${{ hashFiles('uv.lock', '**/pyproject.toml', '**/mypy.ini') }}" >> "$GITHUB_OUTPUT"
 
             - name: Restore mypy cache
               id: mypy-cache
@@ -560,9 +552,6 @@ jobs:
                     run: |
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
-                        if [ -f bin/test/test_mypy_cache_key.py ]; then
-                            pytest bin/test/test_mypy_cache_key.py -v
-                        fi
 
                   - name: Run semgrep ratchet script tests
                     shell: bash
