@@ -24,7 +24,14 @@ import {
     hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogFunctionConfigurationLogic'
+import {
+    EnteredSecretInputs,
+    SecretReentryConfiguration,
+    SecretReentrySource,
+    hogFunctionSecretReentryLogic,
+} from './hogFunctionSecretReentryLogic'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
+import { SecretReentryRefusal, parseSecretReentryRefusal } from './secretReentryRefusal'
 
 export type HogFunctionTestInvocationForm = {
     globals: string // CyclotronJobInvocationGlobals
@@ -139,6 +146,17 @@ export interface hogFunctionTestLogicActions {
     touchConfigurationField: (key: string) => {
         key: string
     } // hogFunctionConfigurationLogic
+    requireSecretReentry: (
+        refusal: SecretReentryRefusal,
+        source: SecretReentrySource,
+        onContinue: (entered: EnteredSecretInputs) => void,
+        configuration?: SecretReentryConfiguration | null | undefined
+    ) => {
+        configuration: SecretReentryConfiguration | null | undefined
+        onContinue: (entered: EnteredSecretInputs) => void
+        refusal: SecretReentryRefusal
+        source: SecretReentrySource
+    } // hogFunctionSecretReentryLogic
     cancelSampleGlobalsLoading: () => {
         value: true
     }
@@ -260,6 +278,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         actions: [
             hogFunctionConfigurationLogic(props),
             ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals', 'setSampleGlobals'],
+            hogFunctionSecretReentryLogic(props),
+            ['requireSecretReentry'],
         ],
     })),
     actions({
@@ -523,6 +543,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
 
                     actions.setTestResult(res)
                 } catch (e: any) {
+                    const refusal = parseSecretReentryRefusal(e)
+                    if (refusal) {
+                        actions.requireSecretReentry(refusal, 'test', () => actions.submitTestInvocation())
+                        return
+                    }
                     if (e?.data?.configuration?.filters?.non_field_errors) {
                         lemonToast.error(`Testing failed: ${e.data.configuration.filters.non_field_errors}`)
                         return

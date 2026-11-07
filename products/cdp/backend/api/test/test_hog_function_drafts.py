@@ -434,6 +434,69 @@ class TestHogFunctionDrafts(DraftTestCase):
     @parameterized.expand(
         [
             (
+                "enters_the_refused_secret",
+                {"token": {"value": "entered at publish"}},
+                status.HTTP_200_OK,
+                None,
+            ),
+            (
+                "changes_an_input_that_is_not_secret",
+                {"url": {"value": SENDER_URL}},
+                status.HTTP_400_BAD_REQUEST,
+                "inputs__url",
+            ),
+            ("enters_an_empty_secret", {"token": {"value": ""}}, status.HTTP_400_BAD_REQUEST, "inputs__token"),
+            (
+                "enters_a_dictionary_for_a_text_secret",
+                {"token": {"value": {"Authorization": "entered at publish"}}},
+                status.HTTP_400_BAD_REQUEST,
+                "inputs__token",
+            ),
+            (
+                "adds_a_secret_the_draft_does_not_hold",
+                {"spare_token": {"value": "entered at publish"}},
+                status.HTTP_400_BAD_REQUEST,
+                "inputs__spare_token",
+            ),
+        ]
+    )
+    def test_publish_refused_for_a_moved_secret_takes_the_secret_entered_again(
+        self, _name: str, entered: dict, expected_status: int, expected_attr: str | None
+    ):
+        spare_secret = {"key": "spare_token", "type": "string", "label": "Spare", "secret": True, "required": False}
+        function_id = self._create(
+            hog=SENDER_HOG,
+            inputs_schema=[*BASE_FUNCTION["inputs_schema"], spare_secret],
+            inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}},
+        )
+
+        with secret_host_binding_flag(True):
+            self._stage(function_id, {"inputs": sender_inputs(MOVED_URL)})
+            confirm_token = self._preview_publish(function_id)["confirm_token"]
+            refused = self.client.post(
+                self._url(function_id, "/publish"), {"confirm": True, "confirm_token": confirm_token}
+            )
+            retried = self.client.post(
+                self._url(function_id, "/publish"),
+                {"confirm": True, "confirm_token": confirm_token, "inputs": entered},
+            )
+
+        assert (refused.json()["attr"], refused.json()["code"]) == ("inputs__token", "secret_reentry_required")
+        assert retried.status_code == expected_status, retried.json()
+        function = HogFunction.objects.get(id=function_id)
+        if expected_status == status.HTTP_200_OK:
+            assert function.draft is None
+            assert function.encrypted_inputs["token"]["value"] == "entered at publish"
+            assert function.encrypted_inputs["token"]["allowed_origins"] == ["https://evil.example.com"]
+        else:
+            assert retried.json()["attr"] == expected_attr
+            assert function.draft is not None
+            assert function.encrypted_inputs["token"]["value"] == "live"
+            assert function.encrypted_inputs.get("spare_token") is None
+
+    @parameterized.expand(
+        [
+            (
                 "by_adding_an_entry",
                 "fetch(inputs.url, {'headers': inputs.secret_headers});",
                 {"Authorization": "Bearer live"},
@@ -508,6 +571,8 @@ class TestHogFunctionDrafts(DraftTestCase):
 
         assert response.status_code == expected_status, response.json()
         assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert (response.json()["attr"], response.json()["code"]) == ("inputs__token", "secret_reentry_required")
 
     @parameterized.expand([("live_edit", False), ("draft_test_run", True)])
     def test_rotating_one_secret_keeps_an_unbound_sibling(self, _name: str, staged: bool):

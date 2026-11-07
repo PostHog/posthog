@@ -247,6 +247,30 @@ const GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH: Record<string, 
     loadPrComments: 'scenes.inbox.logics.inboxReportDetailLogic',
 }
 
+/*
+Write actions whose owning logic asks for the secret again after a 400 with code `secret_reentry_required`.
+The 400 asks for user input, so it is not reported as an exception. Owned by hogFunctionSecretReentryLogic's
+upsertHogFunctionFailure listener. The backend raises the code in products/cdp/backend/api/hog_function.py.
+*/
+const SECRET_REENTRY_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    upsertHogFunction: 'scenes.pipeline.hogFunctionConfigurationLogic',
+}
+
+function isSelfHandledSecretReentry(error: any, actionKey: string, logicPath: string): boolean {
+    return (
+        error?.status === 400 &&
+        error?.code === 'secret_reentry_required' &&
+        isOwnedByLogic(SECRET_REENTRY_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    )
+}
+
+function isSelfHandledBadRequest(error: any, actionKey: string, logicPath: string): boolean {
+    return (
+        (error?.status === 400 && isOwnedByLogic(VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)) ||
+        isSelfHandledSecretReentry(error, actionKey, logicPath)
+    )
+}
+
 // projectLogic toasts a duplicate project name 409 from these actions.
 const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     createProject: 'scenes.projectLogic',
@@ -342,9 +366,7 @@ export function initKea({
                 // when a click, an Enter key press, or a form submit started the request.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
-                const isSelfHandledValidationError =
-                    error?.status === 400 &&
-                    isOwnedByLogic(VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
+                const isSelfHandledValidationError = isSelfHandledBadRequest(error, actionKey, logic.pathString)
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     !isErrorSelfHandledByLogic(actionKey, logic.pathString) &&
