@@ -140,6 +140,8 @@ A tenant Django has never synced counts as open, and SES enforces its own state.
 The worker checks the pause again after the daily allowance claim and gives the claim back when the pause blocks delivery.
 Own-sender sends do not read the pause state.
 The `workflows sandbox email blocked` event names the outcome: `paused` or `pause_check_failed`.
+A blocked organization's sandbox sends skip with the reason `organization_blocked`.
+The worker reads the block in the same transaction as the organization members. The check right before delivery reads both again, so a block stops sends at once. The check before the send is prepared uses a snapshot up to one minute old, so a removed block can still skip sends for up to a minute. Own-sender sends do not read the block.
 Each delivered send emits a `workflows sandbox email sent` event.
 Live workflow sends record `email_sent`, so workflow reports count them.
 A live sandbox send that SES accepts also records `email_sandbox_sent`, so a reader can tell sandbox sends apart; the sending tier and the sending allowance do not read it yet and count sandbox sends as `email_sent`.

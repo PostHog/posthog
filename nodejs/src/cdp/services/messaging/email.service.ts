@@ -504,6 +504,11 @@ const SANDBOX_BLOCKS: Record<
         message: () => 'Skipping send: the sandbox sender is paused right now. Verify your own domain to keep sending.',
         statusReason: 'sending_suspended',
     },
+    organization_blocked: {
+        message: () =>
+            'Skipping send: the sandbox sender is turned off for this organization. Contact support to find out why.',
+        statusReason: 'sending_suspended',
+    },
     pause_check_failed: {
         message: () =>
             'Skipping send: could not check whether the sandbox sender is paused. Verify your own domain to keep sending.',
@@ -1249,16 +1254,18 @@ export class EmailService {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
             }
-            const { blocked, deliverTo } = await this.organizationMembers.checkRecipients(teamId, recipients, {
-                fresh,
-            })
-            if (!blocked.length) {
-                return deliverTo
+            const check = await this.organizationMembers.checkRecipients(teamId, recipients, { fresh })
+            if (check.organizationBlocked) {
+                blockedRecipients = []
+                reason = 'organization_blocked'
+            } else if (!check.blocked.length) {
+                return check.deliverTo
+            } else {
+                blockedRecipients = check.blocked.map(({ address }) => address)
+                reason = check.blocked.every(({ unverifiedMember }) => unverifiedMember)
+                    ? 'recipient_unverified'
+                    : 'recipient_not_member'
             }
-            blockedRecipients = blocked.map(({ address }) => address)
-            reason = blocked.every(({ unverifiedMember }) => unverifiedMember)
-                ? 'recipient_unverified'
-                : 'recipient_not_member'
         } catch (error) {
             blockedRecipients = recipients
             reason = 'check_failed'

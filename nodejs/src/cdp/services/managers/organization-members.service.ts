@@ -8,6 +8,7 @@ type StoredCasingsByNormalizedEmail = ReadonlyMap<string, ReadonlySet<string>>
 type OrganizationMemberSnapshot = {
     verifiedEmails: StoredCasingsByNormalizedEmail
     unverifiedEmails: ReadonlySet<string>
+    sandboxSenderBlocked: boolean
     loadedAt: number
 }
 
@@ -15,7 +16,13 @@ export type BlockedRecipient = { readonly address: string; readonly unverifiedMe
 
 export type StoredAddressByRecipient = ReadonlyMap<string, string>
 
-export type RecipientCheck = { readonly blocked: BlockedRecipient[]; readonly deliverTo: StoredAddressByRecipient }
+export type RecipientCheck =
+    | { readonly organizationBlocked: true }
+    | {
+          readonly organizationBlocked: false
+          readonly blocked: BlockedRecipient[]
+          readonly deliverTo: StoredAddressByRecipient
+      }
 
 const MAX_SNAPSHOT_AGE_MS = 60_000
 const LOOKUP_TIMEOUT_MS = 3_000
@@ -25,6 +32,7 @@ const MAX_OPEN_LOOKUPS = 5
 const MAX_CACHED_TEAMS = 10_000
 
 type MemberRow = { team_id: number; email: string; is_email_verified: boolean | null }
+type TeamLookup = { members: MemberRow[]; blockedTeamIds: ReadonlySet<string> }
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase()
 
@@ -36,6 +44,9 @@ const pickStoredMailbox = (storedCasings: ReadonlySet<string> | undefined, addre
 }
 
 const checkAgainst = (snapshot: OrganizationMemberSnapshot, recipients: string[]): RecipientCheck => {
+    if (snapshot.sandboxSenderBlocked) {
+        return { organizationBlocked: true }
+    }
     const blocked: BlockedRecipient[] = []
     const deliverTo = new Map<string, string>()
     for (const address of recipients) {
@@ -46,7 +57,7 @@ const checkAgainst = (snapshot: OrganizationMemberSnapshot, recipients: string[]
             deliverTo.set(address, match)
         }
     }
-    return { blocked, deliverTo }
+    return { organizationBlocked: false, blocked, deliverTo }
 }
 
 export class OrganizationMembersService {
@@ -77,20 +88,22 @@ export class OrganizationMembersService {
         const id = String(teamId)
         if (fresh) {
             const check = checkAgainst((await this.loadSnapshots([id]))[id], recipients)
-            if (check.blocked.length) {
+            if (check.organizationBlocked || check.blocked.length) {
                 this.snapshots.markForRefresh(id)
             }
             return check
         }
-        let snapshot = await this.cachedSnapshot(id)
+        const snapshot = await this.cachedSnapshot(id)
+        const check = checkAgainst(snapshot, recipients)
         if (
-            checkAgainst(snapshot, recipients).blocked.length &&
+            !check.organizationBlocked &&
+            check.blocked.length &&
             Date.now() - snapshot.loadedAt > BLOCK_RECHECK_AGE_MS
         ) {
             await this.snapshots.reload(id)
-            snapshot = await this.cachedSnapshot(id)
+            return checkAgainst(await this.cachedSnapshot(id), recipients)
         }
-        return checkAgainst(snapshot, recipients)
+        return check
     }
 
     private async cachedSnapshot(id: string): Promise<OrganizationMemberSnapshot> {
@@ -102,13 +115,14 @@ export class OrganizationMembersService {
     }
 
     private async loadSnapshots(teamIds: string[]): Promise<Record<string, OrganizationMemberSnapshot>> {
-        const rows = await this.lookupMembers(teamIds.map(Number))
+        const { members: rows, blockedTeamIds } = await this.lookupTeams(teamIds.map(Number))
         const members = new Map(
             teamIds.map((id) => [
                 id,
                 {
                     verifiedEmails: new Map<string, Set<string>>(),
                     unverifiedEmails: new Set<string>(),
+                    sandboxSenderBlocked: blockedTeamIds.has(id),
                     loadedAt: Date.now(),
                 },
             ])
@@ -125,10 +139,10 @@ export class OrganizationMembersService {
         return Object.fromEntries(members)
     }
 
-    private async lookupMembers(teamIds: number[]): Promise<MemberRow[]> {
+    private async lookupTeams(teamIds: number[]): Promise<TeamLookup> {
         const tag = 'fetch-sandbox-team-organization-members'
         return await this.lookup.run(tag, async (tx) => {
-            const result = await this.postgres.query<MemberRow>(
+            const members = await this.postgres.query<MemberRow>(
                 tx,
                 `SELECT team.id AS team_id, users.email, users.is_email_verified
                  FROM posthog_team AS team
@@ -141,7 +155,19 @@ export class OrganizationMembersService {
                 [teamIds],
                 tag
             )
-            return result.rows
+            const blocks = await this.postgres.query<{ team_id: number }>(
+                tx,
+                `SELECT team.id AS team_id
+                 FROM posthog_team AS team
+                 JOIN workflows_sandboxsenderorganizationblock AS block ON block.organization_id = team.organization_id
+                 WHERE team.id = ANY($1::bigint[])`,
+                [teamIds],
+                'fetch-sandbox-team-organization-blocks'
+            )
+            return {
+                members: members.rows,
+                blockedTeamIds: new Set(blocks.rows.map((row) => String(row.team_id))),
+            }
         })
     }
 }
