@@ -1,0 +1,261 @@
+import { MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
+import '@testing-library/jest-dom'
+
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { expectLogic } from 'kea-test-utils'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import { messageTemplateLogic } from './messageTemplateLogic'
+import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
+import { SendTestEmailModal } from './SendTestEmailModal'
+
+const sandbox = {
+    id: 9,
+    kind: 'email',
+    display_name: 'Sandbox <sender@example.com>',
+    config: { provider: 'sandbox', verified: true },
+}
+
+const ownSender = {
+    id: 5,
+    kind: 'email',
+    display_name: 'Team <team@example.com>',
+    config: { verified: true },
+}
+
+describe('SendTestEmailModal', () => {
+    let logic: ReturnType<typeof messageTemplateTestSendLogic.build>
+    let template: ReturnType<typeof messageTemplateLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+            [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+        })
+    })
+    afterEach(() => {
+        cleanup()
+        logic?.unmount()
+        template?.unmount()
+    })
+
+    const openModal = (): void => {
+        template = messageTemplateLogic({ id: 'new' })
+        template.mount()
+        template.actions.setTemplateValue('content.email.subject', 'Welcome')
+        logic = messageTemplateTestSendLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setModalOpen(true)
+        render(<SendTestEmailModal id="new" isOpen />)
+    }
+
+    it.each([
+        [false, 'Verify your email address to send test emails to yourself.'],
+        [true, null],
+    ])(
+        'for a signed-in user with verified=%s sending to their own address, shows the matching warning',
+        async (verified, expected) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': { results: [sandbox] },
+                    '/api/organizations/:organization_id/members/': { results: [] },
+                },
+            })
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: verified })
+            openModal()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setRecipientEmail(MOCK_DEFAULT_USER.email.toUpperCase())
+
+            await waitFor(() =>
+                expect(screen.getByText('Send test email', { selector: 'button *' }).closest('button')).toHaveAttribute(
+                    'aria-disabled',
+                    String(!verified)
+                )
+            )
+            expect(
+                screen.queryByText('Verify your email address to send test emails to yourself.')?.textContent ?? null
+            ).toBe(expected)
+            expect(screen.queryByText(/isn't among the verified members you can see/)).toBeNull()
+        }
+    )
+
+    it('warns that a recipient cannot be checked when the member list fails to load, and retries it', async () => {
+        let membersAvailable = false
+        let releaseRetry: () => void = () => {}
+        const retryGate = new Promise<void>((resolve) => {
+            releaseRetry = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': { results: [sandbox] },
+                '/api/organizations/:organization_id/members/': async () => {
+                    if (!membersAvailable) {
+                        return [500, { detail: 'Unavailable' }]
+                    }
+                    await retryGate
+                    return [200, { results: [] }]
+                },
+            },
+        })
+        openModal()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setRecipientEmail('someone@example.com')
+
+        expect(await screen.findByText(/Couldn't load your organization's members/)).toBeInTheDocument()
+
+        membersAvailable = true
+        fireEvent.click(screen.getAllByText('Try again')[0])
+        await waitFor(() => expect(logic.values.membersLoading).toBe(true))
+        expect(screen.getByText(/Couldn't load your organization's members/)).toBeInTheDocument()
+
+        releaseRetry()
+        expect(await screen.findByText(/isn't among the verified members you can see/)).toBeInTheDocument()
+        expect(screen.queryByText(/Couldn't load your organization's members/)).toBeNull()
+    })
+
+    it.each([
+        ['no address yet', '', false, false],
+        ['their own verified address', MOCK_DEFAULT_USER.email, false, false],
+        ['a teammate an earlier load listed', 'teammate@example.com', true, false],
+        ["a typed address sent from the project's own sender", 'someone@example.com', false, true],
+    ])(
+        'does not warn about an unchecked recipient for %s when the member list fails to load',
+        async (_, recipient, loadedBefore, ownSenderSelected) => {
+            let membersLoads = 0
+            let membersFailures = 0
+            const teammate = {
+                ...MOCK_DEFAULT_ORGANIZATION_MEMBER,
+                user: {
+                    ...MOCK_DEFAULT_ORGANIZATION_MEMBER.user,
+                    email: 'teammate@example.com',
+                    is_email_verified: true,
+                },
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': {
+                        results: ownSenderSelected ? [sandbox, ownSender] : [sandbox],
+                    },
+                    '/api/organizations/:organization_id/members/': () => {
+                        if (loadedBefore && membersLoads++ === 0) {
+                            return [200, { results: [teammate] }]
+                        }
+                        membersFailures++
+                        return [500, { detail: 'Unavailable' }]
+                    },
+                },
+            })
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: true })
+            openModal()
+            await expectLogic(logic).toFinishAllListeners()
+            if (loadedBefore) {
+                logic.actions.setModalOpen(false)
+                logic.actions.setModalOpen(true)
+                await expectLogic(logic).toFinishAllListeners()
+            }
+            if (ownSenderSelected) {
+                logic.actions.setSenderIntegrationId(ownSender.id)
+            }
+            logic.actions.setRecipientEmail(recipient)
+
+            await waitFor(() => expect(membersFailures).toBeGreaterThan(0))
+            await expectLogic(logic).toFinishAllListeners()
+            expect(
+                screen.getByText(ownSenderSelected ? ownSender.display_name : sandbox.display_name)
+            ).toBeInTheDocument()
+            expect(screen.queryByText(/Couldn't load your organization's members/)).toBeNull()
+        }
+    )
+
+    it.each([
+        [
+            'a suggested teammate',
+            'teammate@example.com',
+            () => fireEvent.click(screen.getByText('teammate@example.com')),
+        ],
+        [
+            'a typed address',
+            'someone@example.com',
+            (input: HTMLElement) => {
+                fireEvent.change(input, { target: { value: 'someone@example.com' } })
+                fireEvent.keyDown(input, { key: 'Enter' })
+            },
+        ],
+    ])('sends the test to %s', async (_, expectedRecipient, pickRecipient) => {
+        let sentTo: string | null = null
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': { results: [sandbox] },
+                '/api/organizations/:organization_id/members/': {
+                    results: [
+                        {
+                            ...MOCK_DEFAULT_ORGANIZATION_MEMBER,
+                            user: {
+                                ...MOCK_DEFAULT_ORGANIZATION_MEMBER.user,
+                                email: 'teammate@example.com',
+                                is_email_verified: true,
+                            },
+                        },
+                    ],
+                },
+            },
+            post: {
+                '/api/environments/:team_id/hog_flows/:id/invocations/': async ({ request }: { request: Request }) => {
+                    const body = await request.json()
+                    const emailAction = body.configuration.actions.find((a: any) => a.type === 'function_email')
+                    sentTo = emailAction.config.inputs.email.value.to.email
+                    return [200, { status: 'success', nextActionId: null }]
+                },
+            },
+        })
+        openModal()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const input = screen.getByPlaceholderText('you@example.com')
+        fireEvent.focus(input)
+        pickRecipient(input)
+        fireEvent.click(screen.getByText('Send test email', { selector: 'button *' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(sentTo).toBe(expectedRecipient)
+    })
+
+    it.each([
+        ['loading', true],
+        ['loaded', false],
+    ])('distinguishes member loading from an empty list while %s', async (_, loading) => {
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: false })
+        let releaseMembers: () => void = () => {}
+        const gate = new Promise<void>((resolve) => {
+            releaseMembers = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': { results: [sandbox] },
+                '/api/organizations/:organization_id/members/': async () => {
+                    if (loading) {
+                        await gate
+                    }
+                    return [200, { results: [] }]
+                },
+            },
+        })
+        openModal()
+        await waitFor(() => expect(logic.values.isSandboxSenderSelected).toBe(true))
+        if (!loading) {
+            await expectLogic(logic).toFinishAllListeners()
+        }
+        fireEvent.focus(screen.getByPlaceholderText('you@example.com'))
+        expect(screen.queryAllByText('Loading…').length > 0).toBe(loading)
+        expect(screen.queryByText('Type an email address and press Enter') !== null).toBe(!loading)
+        releaseMembers()
+        await expectLogic(logic).toFinishAllListeners()
+    })
+})

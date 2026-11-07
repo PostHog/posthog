@@ -1,20 +1,48 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonLabel,
+    LemonSelect,
+    type LemonSelectOption,
+    LemonTag,
+    Spinner,
+} from '@posthog/lemon-ui'
 
+import { SANDBOX_EMAIL_SENDER_NOTE, isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { urls } from 'scenes/urls'
 
+import { IntegrationType } from '~/types'
+
 import { MessageTemplateLogicProps } from './messageTemplateLogic'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
+import { TestEmailRecipientField } from './TestEmailRecipientField'
+
+function senderOption(integration: IntegrationType): LemonSelectOption<number> {
+    const option = { label: integration.display_name, value: integration.id }
+    if (!isSandboxEmailSender(integration)) {
+        return option
+    }
+    return {
+        ...option,
+        labelInMenu: (
+            <span className="flex items-center gap-2">
+                <span translate="no">{integration.display_name}</span>
+                <LemonTag type="highlight">Sandbox</LemonTag>
+            </span>
+        ),
+    }
+}
 
 export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: boolean }): JSX.Element {
     const { isOpen, ...logicProps } = props
     const logic = messageTemplateTestSendLogic(logicProps)
     const {
-        recipientEmail,
         senderIntegrationId,
+        isSandboxSenderSelected,
         emailIntegrations,
         integrationsLoading,
         sendDisabledReason,
@@ -22,7 +50,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
         testSendResultLoading,
         testSendSkipReason,
     } = useValues(logic)
-    const { setModalOpen, setRecipientEmail, setSenderIntegrationId, sendTestEmail } = useActions(logic)
+    const { setModalOpen, setSenderIntegrationId, sendTestEmail } = useActions(logic)
 
     return (
         <LemonModal
@@ -49,29 +77,25 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
             <div className="flex flex-col gap-4 min-w-100">
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Send to</LemonLabel>
-                    <LemonInput
-                        type="email"
-                        value={recipientEmail}
-                        onChange={setRecipientEmail}
-                        placeholder="you@example.com"
-                        data-attr="send-test-email-recipient"
-                    />
+                    <TestEmailRecipientField logicProps={logicProps} />
                 </div>
                 <div className="flex flex-col gap-1">
                     <LemonLabel>From</LemonLabel>
                     {integrationsLoading && emailIntegrations.length === 0 ? (
                         <Spinner />
                     ) : emailIntegrations.length > 0 ? (
-                        <LemonSelect
-                            value={senderIntegrationId}
-                            onChange={(id) => setSenderIntegrationId(id)}
-                            options={emailIntegrations.map((integration) => ({
-                                label: integration.display_name,
-                                value: integration.id,
-                            }))}
-                            data-attr="send-test-email-sender"
-                            fullWidth
-                        />
+                        <>
+                            <LemonSelect
+                                value={senderIntegrationId}
+                                onChange={(id) => setSenderIntegrationId(id)}
+                                options={emailIntegrations.map(senderOption)}
+                                data-attr="send-test-email-sender"
+                                fullWidth
+                            />
+                            {isSandboxSenderSelected && (
+                                <span className="text-xs text-secondary">{SANDBOX_EMAIL_SENDER_NOTE}</span>
+                            )}
+                        </>
                     ) : (
                         <div className="flex gap-2 items-center">
                             <span className="text-muted">No email senders configured yet</span>
