@@ -76,7 +76,10 @@ def personal_api_key_denial(request: Request, organization: Organization) -> str
     membership = get_cached_organization_membership(organization.id, cast(User, request.user))
     if membership is None:
         return None
-    if not organization.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
+    if (
+        not organization.members_can_use_personal_api_keys
+        and membership.effective_level < OrganizationMembership.Level.ADMIN
+    ):
         return (
             f"Organization '{organization.name}' does not allow using personal API keys. "
             f"Contact an admin to enable personal API keys for this organization."

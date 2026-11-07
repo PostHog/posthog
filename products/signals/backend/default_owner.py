@@ -74,10 +74,11 @@ def accountable_candidate_ids(team_id: int) -> list[int]:
         .values_list("created_by_id", flat=True)
     )
     admin_ids = (
-        OrganizationMembership.objects.filter(
+        OrganizationMembership.objects.with_effective_level()
+        .filter(
             organization_id=org_id,
             user__is_active=True,
-            level__gte=OrganizationMembership.Level.ADMIN,
+            resolved_level__gte=OrganizationMembership.Level.ADMIN,
         )
         .order_by("-level", "user_id")
         .values_list("user_id", flat=True)

@@ -476,9 +476,8 @@ class VercelIntegration:
             raise RuntimeError("No license available to deauthorize billing")
 
         org_membership = (
-            OrganizationMembership.objects.filter(
-                organization=organization, level__gte=OrganizationMembership.Level.ADMIN
-            )
+            OrganizationMembership.objects.with_effective_level()
+            .filter(organization=organization, resolved_level__gte=OrganizationMembership.Level.ADMIN)
             .select_related("user")
             .order_by("-level")
             .first()

@@ -79,7 +79,7 @@ def validate_group_change(
     if new_groups == current_groups:
         return
     membership = OrganizationMembership.objects.filter(user=user, organization_id=organization_id).first()
-    if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
+    if membership is None or membership.effective_level < OrganizationMembership.Level.ADMIN:
         raise exceptions.ValidationError({"tags": "Only organization admins and owners can change project groups."})
 
 

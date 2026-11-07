@@ -137,7 +137,7 @@ def _check_membership(session: Session, request: CheckRequest) -> bool:
     else:
         organization_id = UUID(resource.id)
     membership = get_cached_organization_membership(organization_id, principal)
-    return membership is not None and membership.level >= level
+    return membership is not None and membership.effective_level >= level
 
 
 def _check_project(

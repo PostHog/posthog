@@ -260,7 +260,7 @@ def validate_team_attrs(
             membership = OrganizationMembership.objects.filter(
                 user=cast(User, view.request.user), organization_id=view.organization_id
             ).first()
-            member_level = membership.level if membership else None
+            member_level = membership.effective_level if membership else None
             if member_level is None or member_level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied(
                     "Only organization admins can set these settings on project creation: "

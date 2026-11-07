@@ -180,7 +180,7 @@ class AssistantContextManager(AssistantContextMixin):
         """
         Check if the user has access to the billing tool.
         """
-        return self._user.organization_memberships.get(organization=self._team.organization).level in (
+        return self._user.organization_memberships.get(organization=self._team.organization).effective_level in (
             OrganizationMembership.Level.ADMIN,
             OrganizationMembership.Level.OWNER,
         )

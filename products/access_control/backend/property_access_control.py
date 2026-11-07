@@ -429,7 +429,7 @@ def _resolve_access_level(
     for the property, mirroring the admin bypass in `UserAccessControl.access_level_for_object`.
     """
     # Org admins bypass all access control rules and get full access
-    if membership is not None and membership.level >= OrganizationMembership.Level.ADMIN:
+    if membership is not None and membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return get_default_access_level()
 
     # 1. user-specific rule

@@ -450,7 +450,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         except OrganizationMembership.DoesNotExist:
             raise exceptions.PermissionDenied("You are not a member of this organization.")
 
-        if membership.level < OrganizationMembership.Level.ADMIN:
+        if membership.effective_level < OrganizationMembership.Level.ADMIN:
             raise exceptions.PermissionDenied("You must be an admin or owner to link this organization.")
 
         organization = membership.organization
@@ -651,10 +651,14 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         cached_data = _load_browser_bound_session(request, session_key)
 
         user = cast(User, request.user)
-        memberships = OrganizationMembership.objects.filter(
-            user=user,
-            level__gte=OrganizationMembership.Level.ADMIN,
-        ).select_related("organization")
+        memberships = (
+            OrganizationMembership.objects.with_effective_level()
+            .filter(
+                user=user,
+                resolved_level__gte=OrganizationMembership.Level.ADMIN,
+            )
+            .select_related("organization")
+        )
 
         org_ids = [m.organization_id for m in memberships]
         vercel_integrations = {
