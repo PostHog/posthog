@@ -1,6 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
-import { ComponentProps } from 'react'
+import posthog from 'posthog-js'
+import { ComponentProps, useEffect } from 'react'
 
 import {
     IconDatabase,
@@ -11,14 +12,19 @@ import {
     IconReceipt,
     IconServer,
     IconShieldLock,
+    IconSparkles,
     IconToggle,
 } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 
+import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inviteLogic } from 'lib/logic/inviteLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -83,6 +89,16 @@ export function NewAccountMenu({
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const projectSubmenu = useSubmenuSafeTriangle()
     const organizationSubmenu = useSubmenuSafeTriangle()
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
+    const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
+    // The stage rides on the enrollment event, so the list loads before the person can click the switch.
+    useEffect(() => {
+        if (isAccountMenuOpen) {
+            loadEarlyAccessFeatures()
+        }
+    }, [isAccountMenuOpen, loadEarlyAccessFeatures])
+    const todayNavFeature = earlyAccessFeatures.find((feature) => feature.flagKey === FEATURE_FLAGS.TODAY_RAIL_NAV)
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -483,6 +499,28 @@ export function NewAccountMenu({
                                     )}
                                 />
 
+                                {todayNavFeature && !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && (
+                                    <Menu.Item
+                                        onClick={() => {
+                                            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                                            posthog.capture('today nav switched on', { surface: 'account_menu' })
+                                            updateEarlyAccessFeatureEnrollment(
+                                                FEATURE_FLAGS.TODAY_RAIL_NAV,
+                                                true,
+                                                todayNavFeature.stage
+                                            )
+                                            lemonToast.success(
+                                                'New navigation is on. Switch back any time from the account menu.'
+                                            )
+                                        }}
+                                        render={
+                                            <ButtonPrimitive menuItem data-attr="top-menu-try-new-navigation">
+                                                <IconSparkles />
+                                                Try the new navigation
+                                            </ButtonPrimitive>
+                                        }
+                                    />
+                                )}
                                 <Menu.Item
                                     onClick={() => logout()}
                                     render={
