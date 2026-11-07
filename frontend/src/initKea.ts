@@ -264,6 +264,13 @@ function isSelfHandledSecretReentry(error: any, actionKey: string, logicPath: st
     )
 }
 
+function isSelfHandledBadRequest(error: any, actionKey: string, logicPath: string): boolean {
+    return (
+        (error?.status === 400 && isOwnedByLogic(VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)) ||
+        isSelfHandledSecretReentry(error, actionKey, logicPath)
+    )
+}
+
 // projectLogic toasts a duplicate project name 409 from these actions.
 const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     createProject: 'scenes.projectLogic',
@@ -273,9 +280,6 @@ const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
 function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
     if (error?.status === 404 && error?.code === 'content_expired') {
         return isOwnedByLogic(CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
-    }
-    if (isSelfHandledSecretReentry(error, actionKey, logicPath)) {
-        return true
     }
     if (error?.status === 404 && error?.code === 'github_repository_inaccessible') {
         return isOwnedByLogic(GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
@@ -362,9 +366,7 @@ export function initKea({
                 // when a click, an Enter key press, or a form submit started the request.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
-                const isSelfHandledValidationError =
-                    error?.status === 400 &&
-                    isOwnedByLogic(VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
+                const isSelfHandledValidationError = isSelfHandledBadRequest(error, actionKey, logic.pathString)
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     !isErrorSelfHandledByLogic(actionKey, logic.pathString) &&
@@ -410,8 +412,7 @@ export function initKea({
                         isFeatureFlagDuplicateKey ||
                         isHasDependentsError ||
                         isSelfHandledFieldError ||
-                        isSelfHandledValidationError ||
-                        isSelfHandledSecretReentry(error, actionKey, logic.pathString)
+                        isSelfHandledValidationError
                     ) {
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
