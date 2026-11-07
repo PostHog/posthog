@@ -1444,17 +1444,21 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return query.validated_data.get("created_by")
 
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:
-        # An alert with no logs row has no row in the queryset, so the page is merged here. A team has
-        # at most a few dozen alerts, so merging in memory stays cheap.
-        alerts = [
-            *self.filter_queryset(self.get_queryset()),
-            *native_alerts(self.team_id, created_by_uuid=self._list_created_by),
+        # An alert with no logs row has no row in the queryset, so the page is merged here. It pages on
+        # each logs row's sort key alone, then loads only the page's rows with their event history.
+        rows = self.filter_queryset(self.get_queryset())
+        natives = native_alerts(self.team_id, created_by_uuid=self._list_created_by)
+        keys: list[tuple[datetime, UUID, LogsAlertConfiguration | None]] = [
+            *((created_at, alert_id, None) for created_at, alert_id in rows.values_list("created_at", "id")),
+            *((alert.created_at, alert.id, alert) for alert in natives),
         ]
-        alerts.sort(key=lambda alert: (alert.created_at, alert.id), reverse=True)
-        page = self.paginate_queryset(alerts)
-        if page is not None:
-            return self.get_paginated_response(self.get_serializer(page, many=True).data)
-        return Response(self.get_serializer(alerts, many=True).data)
+        keys.sort(key=lambda key: (key[0], key[1]), reverse=True)
+        page = self.paginate_queryset(keys)
+        listed = keys if page is None else page
+        loaded = {row.id: row for row in rows.filter(id__in=[key[1] for key in listed if key[2] is None])}
+        alerts = [native if native is not None else loaded[alert_id] for _, alert_id, native in listed]
+        data = self.get_serializer(alerts, many=True).data
+        return Response(data) if page is None else self.get_paginated_response(data)
 
     def safely_get_object(self, queryset: QuerySet) -> LogsAlertConfiguration | None:
         return self._row_or_native(queryset, lock=False)

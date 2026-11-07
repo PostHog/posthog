@@ -153,6 +153,20 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         seen.append(HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).count())
         return seen
 
+    def test_a_list_page_interleaves_both_kinds_of_alert_newest_first(self, *_: object) -> None:
+        created = []
+        for minute, kind in enumerate(["row", "native", "row", "native"]):
+            with time_machine.travel(_NOW + timedelta(minutes=minute), tick=False):
+                alert_id = self._create_with_logs_row() if kind == "row" else self._create_without_logs_row()
+            created.append(alert_id)
+
+        pages = [
+            [alert["id"] for alert in self.client.get(self.base_url, {"limit": 2, "offset": offset}).json()["results"]]
+            for offset in (0, 2)
+        ]
+
+        assert pages == [created[3:1:-1], created[1::-1]]
+
     def test_terraform_sees_no_difference_between_an_alert_with_a_logs_row_and_one_without(self, *_: object) -> None:
         with_row = self._terraform_lifecycle(self._create_with_logs_row())
         without_row = self._terraform_lifecycle(self._create_without_logs_row())
