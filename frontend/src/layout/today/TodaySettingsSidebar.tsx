@@ -88,7 +88,7 @@ export function TodaySettingsSidebar(): JSX.Element {
                                         key={result.settingId}
                                         value={`setting:${result.sectionId}:${result.settingId}`}
                                         label={result.settingTitle}
-                                        to={urls.settings(result.sectionId, result.settingId)}
+                                        to={result.to}
                                         // pinned: autocapture data-attr shared with the settings page search
                                         dataAttr={`settings-search-result-${result.settingId}`}
                                     />
