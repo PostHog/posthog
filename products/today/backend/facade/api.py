@@ -17,13 +17,14 @@ from ..logic import (
     report_page as report_pages,
 )
 from ..logic.jev import GatewayJev
+from ..models import UserInterfaceFragment
 from . import contracts
 
 
 def delete_highlights_for_teams(team_ids: list[int]) -> None:
-    """Remove every highlights row of the given teams, and the analytics sidebars. Called from team deletion, which no foreign key covers."""
+    """Called from team deletion because product database rows have no foreign key to Team."""
     highlights.delete_for_teams(team_ids)
-    analytics_sidebar.delete_for_teams(team_ids)
+    UserInterfaceFragment.objects.unscoped().filter(team_id__in=team_ids).delete()
 
 
 def _jev(team: Team, user: User, model: str | None = None) -> GatewayJev:

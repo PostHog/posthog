@@ -47,6 +47,27 @@ def _item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 class TestAnalyticsSidebarLayout(SimpleTestCase):
+    @parameterized.expand([("aB3dE5fG",), ("99999999999",), ("aB3dE5fG7hIj",), ("a",)])
+    def test_current_and_legacy_insight_ids_round_trip_in_links_and_metrics(self, short_id: str) -> None:
+        layout = _with(["sections", 0, "items", 0, "insight"], short_id)
+        layout["sections"][0]["items"][1] = {
+            "type": "link",
+            "to": {"kind": "insight", "short_id": short_id},
+            "label": "Signups",
+        }
+
+        field = AnalyticsSidebarLayoutField()
+        assert field.to_representation(field.to_internal_value(layout)) == layout
+
+    @parameterized.expand([("",), ("a" * 13,), ("../insights",), ("a?query",), ("a#hash",)])
+    def test_unsafe_or_unbounded_insight_ids_are_rejected_in_links_and_metrics(self, short_id: str) -> None:
+        for item in [
+            {"type": "metric", "insight": short_id, "label": "Signups"},
+            {"type": "link", "to": {"kind": "insight", "short_id": short_id}, "label": "Signups"},
+        ]:
+            with self.assertRaises(serializers.ValidationError):
+                AnalyticsSidebarLayoutField().to_internal_value(_item(item))
+
     @parameterized.expand([("Zx9Yw8Vu",), ("scratchpad",), ("aB3dE5fG7hIj",), ("a",)])
     def test_a_layout_with_every_kind_of_item_round_trips(self, notebook_short_id: str) -> None:
         field = AnalyticsSidebarLayoutField()

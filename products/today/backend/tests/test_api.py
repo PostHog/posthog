@@ -28,10 +28,12 @@ from posthog.models.personal_api_key import hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade import api as signals
 from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact
+from products.today.backend.facade import api as today_facade
 from products.today.backend.facade.contracts import HighlightFindings, HighlightSource
 from products.today.backend.logic import highlights, pinned
+from products.today.backend.logic.analytics_sidebar import SIDEBAR_CONTEXT
 from products.today.backend.logic.jev import JevPick
-from products.today.backend.models import TodayAnalyticsSidebar
+from products.today.backend.models import UserInterfaceFragment
 from products.today.backend.temporal.inputs import (
     ComputeHighlightsInputs,
     FinalizeHighlightsInputs,
@@ -544,6 +546,9 @@ class TestTodayAnalyticsSidebarAPI(TodayTeamScopedTestMixin, APIBaseTest):
         return body["customized"], [section["id"] for section in body["layout"]["sections"]]
 
     def test_a_person_saves_and_resets_their_own_layout_without_changing_anyone_elses(self) -> None:
+        other_fragment = UserInterfaceFragment.objects.create(
+            team_id=self.team.id, user_id=self.user.id, context="OtherSurface", content={"title": "Other surface"}
+        )
         default = (False, ["browse", "pinned", "recents", "by-posthog", "monitor"])
         before = self._section_ids(self._call("get"))
         saved = self._call("put", {"layout": GROWTH_LAYOUT})
@@ -562,6 +567,43 @@ class TestTodayAnalyticsSidebarAPI(TodayTeamScopedTestMixin, APIBaseTest):
             default,
             default,
         )
+        other_fragment.refresh_from_db()
+        assert other_fragment.content == {"title": "Other surface"}
+
+    def test_child_environments_share_the_parent_team_layout(self) -> None:
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+        )
+        self._call("put", {"layout": GROWTH_LAYOUT})
+
+        assert (
+            today_facade.get_analytics_sidebar(team=child, user=self.user).layout.model_dump(
+                mode="json", exclude_none=True
+            )
+            == GROWTH_LAYOUT
+        )
+        today_facade.reset_analytics_sidebar(team=child, user=self.user)
+
+        assert self._call("get").json()["customized"] is False
+
+    def test_team_deletion_removes_all_fragment_contexts_and_users_only_for_that_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        teammate = self._create_user("fragment-teammate@example.com")
+        for team_id in [self.team.id, other_team.id]:
+            for user_id in [self.user.id, teammate.id]:
+                for context in [SIDEBAR_CONTEXT, "OtherSurface"]:
+                    UserInterfaceFragment.objects.for_team(team_id).create(
+                        team_id=team_id, user_id=user_id, context=context, content={"title": context}
+                    )
+
+        today_facade.delete_highlights_for_teams([self.team.id])
+
+        assert not UserInterfaceFragment.objects.for_team(self.team.id).exists()
+        assert set(UserInterfaceFragment.objects.for_team(other_team.id).values_list("user_id", "context")) == {
+            (user_id, context)
+            for user_id in [self.user.id, teammate.id]
+            for context in [SIDEBAR_CONTEXT, "OtherSurface"]
+        }
 
     def test_a_layout_outside_the_schema_is_rejected_and_names_the_value(self) -> None:
         layout = {
@@ -575,11 +617,13 @@ class TestTodayAnalyticsSidebarAPI(TodayTeamScopedTestMixin, APIBaseTest):
 
     def test_a_stored_layout_the_schema_no_longer_accepts_shows_the_default_and_stays_stored(self) -> None:
         stored = {"sections": [{"id": "x", "items": [{"type": "retired_widget"}]}]}
-        TodayAnalyticsSidebar.objects.create(team_id=self.team.id, user_id=self.user.id, layout=stored)
+        UserInterfaceFragment.objects.create(
+            team_id=self.team.id, user_id=self.user.id, context=SIDEBAR_CONTEXT, content=stored
+        )
 
         response = self._call("get")
 
-        assert (response.json()["customized"], TodayAnalyticsSidebar.objects.get(user_id=self.user.id).layout) == (
+        assert (response.json()["customized"], UserInterfaceFragment.objects.get(user_id=self.user.id).content) == (
             False,
             stored,
         )

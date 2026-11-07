@@ -58,7 +58,7 @@ export interface SidebarInsightTargetApi {
     kind: 'insight'
     /**
      * The insight's short ID, as in /insights/<short_id>.
-     * @pattern ^[A-Za-z0-9]{8}$
+     * @pattern ^[A-Za-z0-9]{1,12}$
      */
     short_id: string
 }
@@ -125,7 +125,7 @@ export interface SidebarMetricApi {
     type: 'metric'
     /**
      * Short ID of a trends insight.
-     * @pattern ^[A-Za-z0-9]{8}$
+     * @pattern ^[A-Za-z0-9]{1,12}$
      */
     insight: string
     /**

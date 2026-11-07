@@ -15,9 +15,10 @@ from ..facade.contracts import (
     SidebarSection,
 )
 from ..facade.enums import SidebarIcon, SidebarListSource, SidebarPage
-from ..models import TodayAnalyticsSidebar
+from ..models import UserInterfaceFragment
 
 logger = structlog.get_logger(__name__)
+SIDEBAR_CONTEXT = "TodayAnalyticsSidebar"
 
 
 def _page(page: SidebarPage) -> SidebarLink:
@@ -51,11 +52,15 @@ DEFAULT = AnalyticsSidebar(layout=DEFAULT_LAYOUT, customized=False)
 
 
 def get_sidebar(*, team: Team, user_id: int) -> AnalyticsSidebar:
-    row = TodayAnalyticsSidebar.objects.for_team(_canonical(team), canonical=True).filter(user_id=user_id).first()
+    row = (
+        UserInterfaceFragment.objects.for_team(_canonical(team), canonical=True)
+        .filter(user_id=user_id, context=SIDEBAR_CONTEXT)
+        .first()
+    )
     if row is None:
         return DEFAULT
     try:
-        return AnalyticsSidebar(layout=AnalyticsSidebarLayout.model_validate(row.layout), customized=True)
+        return AnalyticsSidebar(layout=AnalyticsSidebarLayout.model_validate(row.content), customized=True)
     except ValidationError:
         # The row stays, so a rolled-back deploy that does not know a newer value gets the layout back on the next one.
         logger.warning("today_analytics_sidebar_invalid", team_id=row.team_id, user_id=user_id)
@@ -67,24 +72,22 @@ def set_sidebar(*, team: Team, user_id: int, layout: AnalyticsSidebarLayout) -> 
     stored = layout.model_dump(mode="json", exclude_none=True)
     try:
         with transaction.atomic():
-            TodayAnalyticsSidebar.objects.for_team(team_id, canonical=True).update_or_create(
-                team_id=team_id, user_id=user_id, defaults={"layout": stored}
+            UserInterfaceFragment.objects.for_team(team_id, canonical=True).update_or_create(
+                team_id=team_id, user_id=user_id, context=SIDEBAR_CONTEXT, defaults={"content": stored}
             )
     except IntegrityError:
-        TodayAnalyticsSidebar.objects.for_team(team_id, canonical=True).filter(user_id=user_id).update(
-            layout=stored, updated_at=timezone.now()
-        )
+        UserInterfaceFragment.objects.for_team(team_id, canonical=True).filter(
+            user_id=user_id, context=SIDEBAR_CONTEXT
+        ).update(content=stored, updated_at=timezone.now())
     return AnalyticsSidebar(layout=layout, customized=True)
 
 
 def reset_sidebar(*, team: Team, user_id: int) -> AnalyticsSidebar:
-    TodayAnalyticsSidebar.objects.for_team(_canonical(team), canonical=True).filter(user_id=user_id).delete()
+    UserInterfaceFragment.objects.for_team(_canonical(team), canonical=True).filter(
+        user_id=user_id, context=SIDEBAR_CONTEXT
+    ).delete()
     return DEFAULT
 
 
 def _canonical(team: Team) -> int:
     return team.parent_team_id or team.id
-
-
-def delete_for_teams(team_ids: list[int]) -> None:
-    TodayAnalyticsSidebar.objects.unscoped().filter(team_id__in=team_ids).delete()

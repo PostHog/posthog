@@ -39,7 +39,7 @@ export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemIdRegExp = new 
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemTitleOneMax = 60
 
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneToTwoShortIdRegExp = new RegExp(
-    '^[A-Za-z0-9]{8}$'
+    '^[A-Za-z0-9]{1,12}$'
 )
 
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneToFourShortIdRegExp = new RegExp(
@@ -48,7 +48,7 @@ export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneToF
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemOneLabelOneMax = 60
 
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoToTwoShortIdRegExp = new RegExp(
-    '^[A-Za-z0-9]{8}$'
+    '^[A-Za-z0-9]{1,12}$'
 )
 
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoToFourShortIdRegExp = new RegExp(
@@ -58,7 +58,7 @@ export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoLab
 
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoVariantDefault = `outline`
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeInsightRegExp = new RegExp(
-    '^[A-Za-z0-9]{8}$'
+    '^[A-Za-z0-9]{1,12}$'
 )
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelMax = 60
 
