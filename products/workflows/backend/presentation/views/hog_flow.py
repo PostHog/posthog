@@ -67,7 +67,6 @@ from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
-from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     AccessControlPermission,
@@ -166,8 +165,10 @@ from products.workflows.backend.facade.api import (
 )
 from products.workflows.backend.facade.batch_jobs import (
     create_batch_job,
+    get_audience_snapshot_page,
     get_batch_job,
     list_batch_jobs,
+    request_audience_snapshot,
     set_batch_job_status,
 )
 from products.workflows.backend.facade.blast_radius import (
@@ -179,6 +180,7 @@ from products.workflows.backend.facade.blast_radius import (
     get_audience_size,
     is_account_audience,
     parse_account_audience_filters,
+    reject_flag_conditions_in_audience,
 )
 from products.workflows.backend.facade.broadcast_conversion import (
     BROADCAST_CONVERSION_CANDIDATE_LIMIT,
@@ -232,6 +234,7 @@ from products.workflows.backend.facade.email_health import (
     verified_email_domains,
 )
 from products.workflows.backend.facade.enums import (
+    HogFlowBatchJobAudienceStatus,
     HogFlowBatchJobState,
     HogFlowExitCondition,
     HogFlowOriginProduct,
@@ -630,23 +633,6 @@ def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Op
         for key in secret_keys_for_action(deep_merge(deepcopy(live_step), item), template_cache):
             inputs.pop(key, None)
     return stripped
-
-
-# A batch audience is a one-time snapshot of everyone matching the conditions at run time, so each
-# condition must resolve to a concrete set of persons/groups. Feature flag evaluation is dynamic
-# (rollout %, distinct_id hashing, super-conditions, holdouts) and has no such fixed membership, so a
-# flag condition can't be turned into an audience query — it falls through to a NotImplementedError
-# deeper in HogQL property compilation. Reject it up front with a clear 400 instead.
-BATCH_FLAG_CONDITION_REJECTION = (
-    "Feature flags can't be used as a batch audience condition. Use person properties or cohorts instead."
-)
-
-
-def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
-    # Cohorts are expanded so a flag condition nested inside one is still caught.
-    property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
-    if any(prop.type == "flag" for prop in property_groups.flat):
-        raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
 
 
 def _validation_error_message(error: exceptions.ValidationError) -> str:
@@ -1336,6 +1322,22 @@ class BlastRadiusSerializer(serializers.Serializer):
             "Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: "
             "a realtime cohort has to be the only condition."
         ),
+    )
+
+
+class InternalBatchJobAudienceSnapshotSerializer(serializers.Serializer):
+    """Response contract for the internal audience snapshot endpoint. Mirrors
+    AudienceSnapshotResponse in nodejs hogflow-batch-person-query.service.ts."""
+
+    status = serializers.ChoiceField(
+        choices=HogFlowBatchJobAudienceStatus.choices,
+        help_text="Where the audience resolution got to: resolving, ready, or failed.",
+    )
+    audience_size = serializers.IntegerField(
+        allow_null=True, help_text="Number of persons in the stored audience once it is ready."
+    )
+    error = serializers.CharField(
+        allow_null=True, help_text="Why the audience could not be resolved, in words meant for the customer."
     )
 
 
@@ -7862,6 +7864,77 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
+
+    def internal_batch_job_audience_snapshot(self, request: Request, team_id: str, batch_job_id: str) -> Response:
+        """
+        Internal endpoint for the Node batch resolver: resolve the run's whole audience once, in the
+        background. The first call starts it; later calls report its status. The resolver pages the
+        stored audience through internal_batch_job_audience_page once the status is ready.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        dedupe_key = request.data.get("dedupe_key", None)
+        if dedupe_key is not None and dedupe_key not in SUPPORTED_DEDUPE_KEYS:
+            return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
+        max_audience_size = request.data.get("max_audience_size")
+        if not isinstance(max_audience_size, int) or max_audience_size < 1:
+            return Response({"error": "max_audience_size must be a positive integer"}, status=400)
+
+        try:
+            snapshot = request_audience_snapshot(
+                team_id=team.id,
+                batch_job_id=batch_job_id,
+                dedupe_key=dedupe_key,
+                max_audience_size=max_audience_size,
+            )
+        except WorkflowBatchJobNotFound:
+            return Response({"error": "Batch job not found"}, status=404)
+        except Exception as e:
+            logger.exception("Error in internal_batch_job_audience_snapshot", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
+        return Response(
+            InternalBatchJobAudienceSnapshotSerializer(
+                {"status": snapshot.status, "audience_size": snapshot.audience_size, "error": snapshot.error}
+            ).data
+        )
+
+    def internal_batch_job_audience_page(self, request: Request, team_id: str, batch_job_id: str) -> Response:
+        """
+        Internal endpoint for the Node batch resolver: one page of a run's stored audience, cursor-paginated
+        like internal_user_blast_radius_persons. Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        cursor = request.data.get("cursor", None)
+        try:
+            page = get_audience_snapshot_page(team_id=team.id, batch_job_id=batch_job_id, cursor=cursor)
+        except ValueError:
+            return Response({"error": "cursor and batch_job_id must be UUIDs"}, status=400)
+        except Exception as e:
+            logger.exception("Error in internal_batch_job_audience_page", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
+        return Response(
+            InternalBlastRadiusPersonsSerializer(
+                {
+                    "users_affected": page.ids,
+                    "cursor": page.ids[-1] if page.ids else None,
+                    "has_more": page.has_more,
+                }
+            ).data
+        )
 
     def internal_account_audience(self, request: Request, team_id: str) -> Response:
         """
