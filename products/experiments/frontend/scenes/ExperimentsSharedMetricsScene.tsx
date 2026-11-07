@@ -7,7 +7,6 @@ import {
     LemonBanner,
     LemonButton,
     LemonInput,
-    LemonSelect,
     LemonTable,
     LemonTableColumn,
     LemonTableColumns,
@@ -15,8 +14,6 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
-import { TagSelect } from 'lib/components/TagSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -35,15 +32,7 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 
-import { ExperimentSavedMetricsListMetricType } from '../generated/api.schemas'
-
-const METRIC_TYPE_OPTIONS: { label: string; value: ExperimentSavedMetricsListMetricType | null }[] = [
-    { label: 'Any type', value: null },
-    { label: 'Mean', value: ExperimentSavedMetricsListMetricType.Mean },
-    { label: 'Funnel', value: ExperimentSavedMetricsListMetricType.Funnel },
-    { label: 'Ratio', value: ExperimentSavedMetricsListMetricType.Ratio },
-    { label: 'Retention', value: ExperimentSavedMetricsListMetricType.Retention },
-]
+import { SharedMetricsFilterBar } from '../components/SharedMetricsFilterBar'
 
 export const scene: SceneExport = {
     component: ExperimentsSharedMetricsScene,
@@ -51,18 +40,9 @@ export const scene: SceneExport = {
 }
 
 export function ExperimentsSharedMetricsScene(): JSX.Element {
-    const {
-        sharedMetrics,
-        sharedMetricsLoading,
-        searchTerm,
-        savingTagsMetricId,
-        count,
-        page,
-        filters,
-        hasActiveFilters,
-    } = useValues(sharedMetricsLogic)
-    const { setSearchTerm, setPage, setFilters, updateSharedMetricTags, deleteSharedMetric } =
-        useActions(sharedMetricsLogic)
+    const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId, count, page, hasActiveFilters } =
+        useValues(sharedMetricsLogic)
+    const { setSearchTerm, setPage, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
     const { currentProjectId } = useValues(teamLogic)
     const [deleteCheckMetricId, setDeleteCheckMetricId] = useState<number | null>(null)
@@ -211,36 +191,7 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                         value={searchTerm}
                         onChange={setSearchTerm}
                     />
-                    <div className="flex items-center gap-2">
-                        <b>Created by</b>
-                        <MemberMultiSelect
-                            defaultLabel="Any user"
-                            value={filters.created_by_id ?? []}
-                            size="xsmall"
-                            onChange={(userIds) => setFilters({ created_by_id: userIds.length ? userIds : undefined })}
-                        />
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <b>Tags</b>
-                        <TagSelect
-                            defaultLabel="Any tags"
-                            value={filters.tags ?? []}
-                            size="xsmall"
-                            onChange={(tags) => setFilters({ tags: tags.length ? tags : undefined })}
-                            data-attr="shared-metrics-select-tags"
-                        />
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <b>Type</b>
-                        <LemonSelect
-                            size="xsmall"
-                            options={METRIC_TYPE_OPTIONS}
-                            value={filters.metric_type ?? null}
-                            onChange={(metricType) => setFilters({ metric_type: metricType ?? undefined })}
-                            dropdownMatchSelectWidth={false}
-                            data-attr="shared-metrics-select-type"
-                        />
-                    </div>
+                    <SharedMetricsFilterBar />
                     {count ? (
                         <span className="text-secondary whitespace-nowrap">
                             {`${startCount}${endCount > startCount ? '-' + endCount : ''} of ${pluralize(
