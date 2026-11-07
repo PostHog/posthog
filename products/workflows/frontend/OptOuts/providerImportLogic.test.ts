@@ -6,12 +6,25 @@ import { initKeaTests } from '~/test/init'
 import type { ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { customerIOImportLogic } from './customerIOImportLogic'
+import { providerImportLogic } from './providerImportLogic'
 
 const STEP_OPTIONS = [
     { key: 'categories', label: 'Subscription topics', description: '' },
     { key: 'suppressions', label: 'Suppressed addresses', description: '' },
     { key: 'opt_outs', label: 'Global unsubscribes', description: '' },
 ]
+
+const PROVIDER_OPTION = {
+    key: 'customerio',
+    label: 'Customer.io',
+    steps: STEP_OPTIONS,
+    retains_credentials: true,
+    api_key_label: 'App API key',
+    api_key_help: '',
+    api_key_url: null,
+    not_imported: '',
+    next_steps: [],
+}
 
 const importRun = (status: ProviderImportRunApi['status']): ProviderImportRunApi => ({
     id: 'run-1',
@@ -37,8 +50,9 @@ const importRun = (status: ProviderImportRunApi['status']): ProviderImportRunApi
     finished_at: status === 'completed' ? '2026-01-01T00:05:00Z' : null,
 })
 
-describe('customerIOImportLogic', () => {
-    let logic: ReturnType<typeof customerIOImportLogic.build>
+describe('providerImportLogic', () => {
+    let logic: ReturnType<typeof providerImportLogic.build>
+    let customerIOLogic: ReturnType<typeof customerIOImportLogic.build>
     let runResponses: [number, ProviderImportRunApi[] | { detail: string }][]
     let listCalls: number
     let startBodies: Record<string, unknown>[]
@@ -57,22 +71,7 @@ describe('customerIOImportLogic', () => {
                     200,
                     { app_integration_id: null },
                 ],
-                '/api/projects/:team_id/messaging_provider_imports/providers/': () => [
-                    200,
-                    [
-                        {
-                            key: 'customerio',
-                            label: 'Customer.io',
-                            steps: STEP_OPTIONS,
-                            retains_credentials: true,
-                            api_key_label: 'Customer.io App API Key',
-                            api_key_help: '',
-                            api_key_url: null,
-                            not_imported: '',
-                            next_steps: [],
-                        },
-                    ],
-                ],
+                '/api/projects/:team_id/messaging_provider_imports/providers/': () => [200, [PROVIDER_OPTION]],
                 '/api/projects/:team_id/messaging_provider_imports/': () => {
                     listCalls += 1
                     return runResponses[Math.min(listCalls - 1, runResponses.length - 1)]
@@ -86,11 +85,14 @@ describe('customerIOImportLogic', () => {
             },
         })
         initKeaTests()
-        logic = customerIOImportLogic()
+        logic = providerImportLogic()
         logic.mount()
+        customerIOLogic = customerIOImportLogic()
+        customerIOLogic.mount()
     })
 
     afterEach(() => {
+        customerIOLogic.unmount()
         logic.unmount()
         jest.useRealTimers()
     })
@@ -118,11 +120,26 @@ describe('customerIOImportLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadImportRunsSuccess'])
 
         expect(logic.values.latestImportRun?.status).toBe('completed')
-        expect(logic.values.stepCompletion.step1).toBe('completed')
+        expect(customerIOLogic.values.stepCompletion.step1).toBe('completed')
 
         const callsWhenFinished = listCalls
         await jest.advanceTimersByTimeAsync(10000)
 
         expect(listCalls).toBe(callsWhenFinished)
+    })
+
+    it('asks which tool to import from only when there is more than one', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.selectedProvider?.key).toBe('customerio')
+
+        const resend = { ...PROVIDER_OPTION, key: 'resend', label: 'Resend', retains_credentials: false }
+        logic.actions.loadImportProvidersSuccess([PROVIDER_OPTION, resend] as any)
+        expect(logic.values.selectedProvider).toBeNull()
+
+        logic.actions.setImportFormValue('api_key', 'a-key-for-another-tool')
+        logic.actions.selectProvider('resend')
+        expect(logic.values.selectedProvider?.key).toBe('resend')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.importForm.api_key).toBe('')
     })
 })
