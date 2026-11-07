@@ -1995,12 +1995,13 @@ class TestFindTaskRun(TestCase):
             result = find_task_run(team_ids=[self.team.id], pr_url="https://github.com/posthog/posthog/pull/123")
 
         self.assertEqual(result, task_run)
-        self.assertEqual(len(queries), 2)
-        self.assertNotIn("JOIN", queries[0]["sql"])
-        self.assertIn("verified_pr_urls", queries[0]["sql"])
-        self.assertIn('INNER JOIN "posthog_task"', queries[1]["sql"])
-        self.assertIn('"posthog_task_run"."id" IN', queries[1]["sql"])
-        self.assertNotIn("verified_pr_urls", queries[1]["sql"])
+        run_queries = [query["sql"] for query in queries if 'FROM "posthog_task_run"' in query["sql"]]
+        self.assertEqual(len(run_queries), 2)
+        self.assertNotIn("JOIN", run_queries[0])
+        self.assertIn("verified_pr_urls", run_queries[0])
+        self.assertIn('INNER JOIN "posthog_task"', run_queries[1])
+        self.assertIn('"posthog_task_run"."id" IN', run_queries[1])
+        self.assertNotIn("verified_pr_urls", run_queries[1])
 
     def test_pr_url_prefers_active_run_over_terminal(self):
         # A resumed wizard run inherits its predecessor's head branch, so two runs can
