@@ -2594,7 +2594,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             query=query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=24),
             last_run_at=timezone.now(),
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -2733,7 +2732,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         version = endpoint.versions.first()
         saved_query = version.saved_query
-        saved_query.sync_frequency_interval = None  # migration cleanup nulls this on v2 teams
         saved_query.last_run_at = timezone.now() - timedelta(days=3)
         saved_query.status = None
         saved_query.save()
@@ -2766,7 +2764,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             "v2-transform-now", {"kind": "HogQLQuery", "query": "select 1 as n"}
         )
         saved_query = endpoint.versions.first().saved_query
-        saved_query.sync_frequency_interval = None
         saved_query.last_run_at = None
         saved_query.status = None
         saved_query.save()

@@ -9,6 +9,7 @@ from django.core.management import call_command
 from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
 
+from products.data_modeling.backend.logic.node_frequency import get_declared_target
 from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import NodeType
@@ -92,6 +93,7 @@ class TestReenableMaterialization(BaseTest):
         assert create.call_args.kwargs["schedule"].action.args[0]["node_ids"] == [str(node.id)]
         assert switched_off.is_materialized is expected_materialized
         assert node.type == expected_node_type
+        assert get_declared_target(node) == timedelta(hours=12)
         assert deleted.is_materialized is False
         assert nodeless.is_materialized is False
         assert already_materialized.is_materialized is False
