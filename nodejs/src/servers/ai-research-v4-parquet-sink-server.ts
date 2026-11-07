@@ -58,7 +58,7 @@ export class AiResearchV4ParquetSinkServer extends AiResearchV4ConsumerServer {
         }
 
         const consumer = new KafkaConsumer(consumerConfig)
-        const watermark = new CaptureWatermark('ai_research_v4_parquet_sink')
+        const watermark = new CaptureWatermark('ai_research_v4_parquet_sink').reportOnly(() => consumer.assignments())
         const batcher = new IndexBatcher(
             new IndexParquetStore(s3Client, bucket, rowGroupRows),
             releasingOffsetStore(consumer, watermark),
