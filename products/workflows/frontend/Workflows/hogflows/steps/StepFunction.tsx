@@ -40,6 +40,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                     // another step of the same template must remount to show the newly selected node's inputs.
                     key={node.id}
                     templateId={templateId}
+                    actionType={node.data.type}
                     inputs={inputs}
                     setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
                     mappings={mappings}

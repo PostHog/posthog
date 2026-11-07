@@ -36,6 +36,7 @@ The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Dj
 With the flag on, any project member who opens the Channels page, or the push step of the workflows setup guide, creates the sender. Channels shows it in its own row.
 Each of those visits also refreshes the sender's display name from the organization name. Nothing else refreshes it, so a rename shows on sends after the next visit whose refresh succeeds.
 A 404 from the endpoint means the project isn't offered the sender, and a 403 means the member can't write integrations, so Channels shows nothing for either rather than an error.
+Workflow email steps offer it as a sender. It replaces any other selected sender and has no Reply-To or custom sender. Broadcasts and other email surfaces do not offer it.
 Users cannot edit, verify, or remove the managed integration, make it the project default, use it for transactional email, or register their own integration on the shared domain.
 The managed integration is excluded from project SES tenant migration, identity cleanup, data suggestions, and the reputation page's domain breakdown.
 Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the sandbox caps ship.
