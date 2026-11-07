@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from products.warehouse_sources.backend.logic.source_credentials_sync import (
     CREATED,
+    HUBSPOT_LEGACY_ADOPTED,
     NOT_BACKFILLED,
     OAUTH_LINKED,
     RECREATED,
@@ -21,6 +22,7 @@ VERIFY_LABELS = {
     RECREATED: "missing_row",
     UPDATED: "differs_or_unreadable_row",
     OAUTH_LINKED: "oauth_reference_not_in_column",
+    HUBSPOT_LEGACY_ADOPTED: "legacy_oauth_tokens_in_job_inputs",
 }
 
 

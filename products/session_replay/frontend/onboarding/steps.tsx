@@ -12,7 +12,6 @@ import {
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -118,5 +117,4 @@ export const sessionReplayOnboarding: ProductOnboardingProvider = {
             },
         ]
     },
-    completeRedirectUrl: () => urls.replay(),
 }

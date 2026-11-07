@@ -57,6 +57,10 @@ pub const SYMBOL_SET_DECOMPRESSED_BYTES: &str = "cymbal_symbol_set_decompressed_
 // Time a large symbol set parse waits for a `ParseLimiter` permit, in milliseconds.
 pub const SYMBOL_SET_LARGE_PARSE_WAIT_MS: &str = "cymbal_symbol_set_large_parse_wait_ms";
 pub const SYMBOL_SET_PARSE_INPUT_BYTES: &str = "cymbal_symbol_set_parse_input_bytes";
+// Symbol set parses that failed on a size limit. Labelled by `kind`, and by `limit`:
+// `container` for `SYMBOL_SET_MAX_DECOMPRESSED_BYTES`, `extracted` for
+// `SYMBOL_SET_MAX_EXTRACTED_BYTES`.
+pub const SYMBOL_SET_SIZE_LIMIT_EXCEEDED: &str = "cymbal_symbol_set_size_limit_exceeded";
 
 // Histogram buckets for the byte-shaped metrics above. The default
 // `common_metrics` buckets are tuned for milliseconds of latency and saturate
@@ -88,6 +92,7 @@ pub const ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED: &str =
 pub const ISSUE_CREATED_EVENT_PROPERTIES_BYTES: &str =
     "cymbal_issue_created_event_properties_bytes";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
+pub const INGESTION_NOTIFICATION_SKIPPED: &str = "cymbal_ingestion_notification_skipped";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";
 pub const CHUNK_ID_FAILURE_FETCHED: &str = "cymbal_chunk_id_failure_fetched";

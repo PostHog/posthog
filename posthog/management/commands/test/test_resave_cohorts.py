@@ -15,7 +15,8 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.management.commands.resave_cohorts import UNWIND_SIGNALS, StaleFlagsCacheError, termination_unwinds
+from posthog.cohort_resave import UNWIND_SIGNALS, termination_unwinds
+from posthog.management.commands.resave_cohorts import StaleFlagsCacheError
 from posthog.models.team.team import Team
 from posthog.test.db_context_capturing import capture_db_queries
 

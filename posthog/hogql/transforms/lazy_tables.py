@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, DATA_WAREHOUSE_EXPERIMENTS
 from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd, UnexpandedScan
 from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
 from posthog.hogql.errors import ResolutionError
@@ -95,6 +96,39 @@ def find_field_chains(node: ast.AST | None) -> list[list[str | int]]:
     finder = FieldFinder()
     finder.visit(node)
     return finder.field_chains
+
+
+DATA_WAREHOUSE_RESOLVERS = frozenset({DATA_WAREHOUSE, DATA_WAREHOUSE_EXPERIMENTS})
+
+
+def _constant_type_of(expr: ast.Expr, context: HogQLContext) -> ast.ConstantType | None:
+    return expr.type.resolve_constant_type(context) if expr.type is not None else None
+
+
+def _as_string(expr: ast.Expr, integer_type: ast.ConstantType) -> ast.Call:
+    return ast.Call(name="toString", args=[expr], type=ast.StringType(nullable=integer_type.nullable))
+
+
+def _stringify_integer_side_compared_to_string(comparison: ast.CompareOperation, context: HogQLContext) -> None:
+    if comparison.op != ast.CompareOperationOp.Eq:
+        return
+    left_type = _constant_type_of(comparison.left, context)
+    right_type = _constant_type_of(comparison.right, context)
+    if isinstance(left_type, ast.StringType) and isinstance(right_type, ast.IntegerType):
+        comparison.right = _as_string(comparison.right, right_type)
+    elif isinstance(right_type, ast.StringType) and isinstance(left_type, ast.IntegerType):
+        comparison.left = _as_string(comparison.left, left_type)
+
+
+def _stringify_integer_join_keys_compared_to_strings(
+    constraint: ast.JoinConstraint | None, context: HogQLContext
+) -> None:
+    if constraint is None:
+        return
+    comparisons = constraint.expr.exprs if isinstance(constraint.expr, ast.And) else [constraint.expr]
+    for comparison in comparisons:
+        if isinstance(comparison, ast.CompareOperation):
+            _stringify_integer_side_compared_to_string(comparison, context)
 
 
 def get_table_alias_for_lazy_join(lazy_join_type: ast.LazyJoinType) -> str | None:
@@ -498,6 +532,23 @@ class LazyTableResolver(TraversingVisitor):
         # Field types retain the original tables after the scope replaces them with subqueries.
         original_select_type = ast.SelectQueryType(tables=dict(select_type.tables))
 
+        # Virtual-table fields take their own export name, which must not equal the name of any other export.
+        export_names: dict[int, str] = {}
+
+        def allocate_export_name(
+            accessed: dict[str, list[str | int]], field: ast.FieldType, chain: list[str | int]
+        ) -> str:
+            if not isinstance(field.table_type, ast.VirtualTableType):
+                return field.name
+            base = "___".join(str(link) for link in chain)
+            name = base
+            counter = 1
+            while name in accessed and accessed[name] != chain:
+                counter += 1
+                name = f"{base}_{counter}"
+            export_names[id(field)] = name
+            return name
+
         # First properties, then fields. This way we always get the smallest units to query first.
         matched_properties: list[ast.PropertyType | ast.FieldType] = [
             property for property in field_collector if isinstance(property, ast.PropertyType)
@@ -505,6 +556,10 @@ class LazyTableResolver(TraversingVisitor):
         matched_fields: list[ast.PropertyType | ast.FieldType] = [
             field for field in field_collector if isinstance(field, ast.FieldType)
         ]
+        # Virtual-table fields go last, so each one picks a name that no other export has taken.
+        matched_fields.sort(
+            key=lambda field: isinstance(field, ast.FieldType) and isinstance(field.table_type, ast.VirtualTableType)
+        )
         sorted_properties: list[ast.PropertyType | ast.FieldType] = matched_properties + matched_fields
 
         # Look for tables without requested fields to support cases like `select count() from table`
@@ -612,7 +667,9 @@ class LazyTableResolver(TraversingVisitor):
                             property.joined_subquery_field_name = "___".join(str(x) for x in chain)
                             new_join.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
-                            new_join.fields_accessed[field.name] = chain
+                            new_join.fields_accessed[allocate_export_name(new_join.fields_accessed, field, chain)] = (
+                                chain
+                            )
                 elif isinstance(table_type, ast.LazyTableType):
                     table_name = get_long_table_name(select_type, table_type)
                     if table_name not in tables_to_add:
@@ -633,7 +690,9 @@ class LazyTableResolver(TraversingVisitor):
                             property.joined_subquery_field_name = "___".join(str(x) for x in lazy_chain)
                             new_table.fields_accessed[property.joined_subquery_field_name] = lazy_chain
                         else:
-                            new_table.fields_accessed[field.name] = lazy_chain
+                            new_table.fields_accessed[
+                                allocate_export_name(new_table.fields_accessed, field, lazy_chain)
+                            ] = lazy_chain
                 elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                     # Widen mypy's view of the inner type: the annotated union is
                     # `TableType | LazyTableType`, but the LazyJoinType branch below is a
@@ -667,7 +726,9 @@ class LazyTableResolver(TraversingVisitor):
                                 property.joined_subquery_field_name = "___".join(str(x) for x in field_chain)
                                 new_join.fields_accessed[property.joined_subquery_field_name] = field_chain
                             else:
-                                new_join.fields_accessed[field.name] = field_chain
+                                new_join.fields_accessed[
+                                    allocate_export_name(new_join.fields_accessed, field, field_chain)
+                                ] = field_chain
                     elif isinstance(inner_table_type, ast.LazyTableType):
                         table_name = get_long_table_name(select_type, table_type)
                         if table_name not in tables_to_add:
@@ -689,7 +750,9 @@ class LazyTableResolver(TraversingVisitor):
                                 property.joined_subquery_field_name = "___".join(str(x) for x in chain)
                                 new_table.fields_accessed[property.joined_subquery_field_name] = chain
                             else:
-                                new_table.fields_accessed[field.name] = chain
+                                new_table.fields_accessed[
+                                    allocate_export_name(new_table.fields_accessed, field, chain)
+                                ] = chain
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
@@ -780,13 +843,17 @@ class LazyTableResolver(TraversingVisitor):
                     # A lazy table expands into an aggregating subquery. ClickHouse rejects a SAMPLE
                     # modifier on a subquery, and sampling a pre-aggregated table is meaningless, so
                     # drop the modifier rather than emitting invalid SQL.
-                    if join_ptr.sample is not None:
+                    # EventsWithFlagCallsTable.lazy_select, called above, already copied the SAMPLE into each union
+                    # branch, so it needs no warning. This clear must stay after that call.
+                    if join_ptr.sample is not None and not isinstance(
+                        table_to_add.lazy_table, EventsWithFlagCallsTable
+                    ):
                         self.context.add_warning(
                             f'SAMPLE clause ignored: the "{table_name}" table is computed on the fly and cannot be sampled',
                             start=join_ptr.sample.start,
                             end=join_ptr.sample.end,
                         )
-                        join_ptr.sample = None
+                    join_ptr.sample = None
                     break
                 join_ptr = join_ptr.next_join
 
@@ -821,6 +888,8 @@ class LazyTableResolver(TraversingVisitor):
                     context=self.context,
                     setTimeZones=False,
                 ).visit(join_to_add)
+            if join_scope.lazy_join.resolver in DATA_WAREHOUSE_RESOLVERS:
+                _stringify_integer_join_keys_compared_to_strings(join_to_add.constraint, self.context)
 
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type
@@ -912,6 +981,10 @@ class LazyTableResolver(TraversingVisitor):
                 continue
 
             if isinstance(field_or_property, ast.FieldType):
+                # A field still on its virtual table reads the export name allocated above.
+                # A field that a wrapper subquery already rebound keeps the name the wrapper gave it.
+                if isinstance(field_or_property.table_type, ast.VirtualTableType):
+                    field_or_property.name = export_names.get(id(field_or_property), field_or_property.name)
                 field_or_property.table_type = table_type
             elif isinstance(field_or_property, ast.PropertyType):
                 field_or_property.field_type.table_type = table_type

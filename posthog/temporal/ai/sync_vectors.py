@@ -1,11 +1,10 @@
 import json
 import asyncio
+import dataclasses
 from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
-
-from django.db.models import F, Q
 
 import structlog
 import posthoganalytics
@@ -23,37 +22,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade import api as actions_facade
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
 from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
 
 logger = structlog.get_logger(__name__)
-
-
-async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_size: int | None = None):
-    filter_conditions = Q(
-        # Only orgs that have accepted data processing
-        team__organization__is_ai_data_processing_approved=True,
-        # Only actions updated before the start date
-        updated_at__lte=start_dt,
-    ) & (
-        # Never summarized actions but not deleted
-        Q(last_summarized_at__isnull=True, deleted=False)
-        # Actions updated after last summarization workflow
-        | Q(updated_at__gte=F("last_summarized_at"))
-        # The line below preserves the execution order of the workflow. Temporal workflows must be deterministic,
-        # so activities can be executed in the same order in case of retries. If this line was removed, the execution
-        # order with list slices would be non-deterministic, as the queryset would remove already processed actions.
-        | Q(last_summarized_at=start_dt)
-    )
-
-    actions_to_summarize = Action.objects.filter(filter_conditions).order_by("id", "team_id", "updated_at")
-    if offset is None and batch_size is None:
-        return actions_to_summarize
-    if offset is None or batch_size is None:
-        raise ValueError("Cannot provide only offset or only batch_size")
-    return actions_to_summarize[offset : offset + batch_size]
 
 
 @dataclass
@@ -67,8 +41,7 @@ async def get_approximate_actions_count(inputs: GetApproximateActionsCountInputs
     Retrieves the approximate count of actions to summarize. The action count can change
     during the sync (updated_at > start_dt). The count is needed for batch summarization.
     """
-    qs = await get_actions_qs(datetime.fromisoformat(inputs.start_dt))
-    return await qs.acount()
+    return await actions_facade.acount_actions_to_summarize(start_dt=datetime.fromisoformat(inputs.start_dt))
 
 
 @dataclass
@@ -87,8 +60,9 @@ async def batch_summarize_actions(inputs: BatchSummarizeActionsInputs):
         inputs: Inputs for the activity.
     """
     workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
-    actions_to_summarize = await get_actions_qs(workflow_start_dt, inputs.offset, inputs.batch_size)
-    actions = [action async for action in actions_to_summarize]
+    actions = await actions_facade.alist_actions_to_summarize(
+        start_dt=workflow_start_dt, offset=inputs.offset, batch_size=inputs.batch_size
+    )
 
     logger.info(
         "Preparing to summarize actions",
@@ -103,7 +77,7 @@ async def batch_summarize_actions(inputs: BatchSummarizeActionsInputs):
         start_dt=inputs.start_dt,
         properties={"offset": inputs.offset, "batch_size": inputs.batch_size, "start_dt": inputs.start_dt},
     )
-    models_to_update = []
+    new_summaries: dict[int, str] = {}
     for action, maybe_summary in zip(actions, summaries):
         # If a few actions across the batch fail, we don't want to fail the entire workflow.
         if isinstance(maybe_summary, BaseException):
@@ -115,11 +89,9 @@ async def batch_summarize_actions(inputs: BatchSummarizeActionsInputs):
                 capture_exception(maybe_summary, additional_properties={"action_id": action.id, "tag": "max_ai"})
             logger.exception("Error summarizing actions", error=maybe_summary, action_id=action.id)
             continue
-        action.last_summarized_at = workflow_start_dt
-        action.summary = maybe_summary
-        models_to_update.append(action)
+        new_summaries[action.id] = maybe_summary
 
-    await Action.objects.abulk_update(models_to_update, ["last_summarized_at", "summary"])
+    await actions_facade.asave_action_summaries(summaries=new_summaries, summarized_at=workflow_start_dt)
 
 
 async def batch_embed_actions(
@@ -216,20 +188,10 @@ async def sync_action_vectors(
 
         await client.execute_query(INSERT_BULK_PG_EMBEDDINGS_SQL, *rows)
 
-        bulk_update = []
-        for action, _ in batch:
-            action_model = Action(id=action["id"], embedding_last_synced_at=workflow_start_dt)
-            if embedding_version is not None:
-                action_model.embedding_version = embedding_version
-            bulk_update.append(action_model)
-
-        await Action.objects.abulk_update(
-            bulk_update,
-            (
-                ["embedding_last_synced_at", "embedding_version"]
-                if embedding_version is not None
-                else ["embedding_last_synced_at"]
-            ),
+        await actions_facade.amark_actions_embedded(
+            action_ids=[action["id"] for action, _ in batch],
+            synced_at=workflow_start_dt,
+            embedding_version=embedding_version,
         )
 
 
@@ -261,37 +223,6 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
     tag_queries(product=Product.MAX_AI)
     workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
 
-    query = (
-        # Include only updated actions.
-        Q(last_summarized_at__gt=F("embedding_last_synced_at"))
-        # Or actions that haven't never been synced but have summaries.
-        | (Q(embedding_last_synced_at__isnull=True) & Q(last_summarized_at__isnull=False))
-    )
-
-    # Backward compatibility: Temporal workflows must be deterministic, so we won't
-    # look for embedding versions if the version is not set in the inputs.
-    if inputs.embedding_version is not None:
-        query |= (
-            # Or actions that don't have an embedding version.
-            Q(embedding_version__isnull=True)
-            # Or actions with an old embedding version.
-            | Q(embedding_version__lt=inputs.embedding_version)
-        )
-
-    actions_to_sync_qs = (
-        Action.objects.filter(
-            Q(
-                # Include only actions that have been summarized.
-                last_summarized_at__lte=workflow_start_dt,
-                # And they must have a summary to prevent infinite loops.
-                summary__isnull=False,
-            )
-            & query
-        )
-        .order_by("updated_at", "id")
-        .values("team_id", "id", "summary", "name", "description", "deleted")
-    )
-
     actions_batch_size = inputs.embeddings_batch_size * inputs.max_parallel_requests
     offset = 0
     embedded_actions: list[tuple[dict[str, Any], list[float]]] = []
@@ -300,7 +231,13 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
         temporalio.activity.heartbeat()
 
         qs_slice = [
-            cast(dict[str, Any], action) async for action in actions_to_sync_qs[offset : offset + actions_batch_size]
+            dataclasses.asdict(action)
+            for action in await actions_facade.alist_actions_to_embed(
+                start_dt=workflow_start_dt,
+                embedding_version=inputs.embedding_version,
+                offset=offset,
+                limit=actions_batch_size,
+            )
         ]
         if not qs_slice:
             break

@@ -55,7 +55,7 @@ TODAY = dt.date(2026, 4, 30)
 def test_resolve_window_start(last_value, expected_start):
     window = _resolve_window(TODAY, last_value)
     assert window.start == expected_start
-    # Today's aggregates are still accruing — the window always ends at yesterday.
+    # Today's aggregates are still accruing, so an incremental window ends at yesterday.
     assert window.end == TODAY - dt.timedelta(days=1)
 
 
@@ -506,6 +506,41 @@ def test_source_initial_sync_starts_at_configured_history_window(monkeypatch, hi
     list(cast(Iterable[Any], response.items()))
 
     assert requested_starts[0] == expected_first_start
+
+
+@pytest.mark.parametrize(
+    "should_use_incremental_field,expected_last_end",
+    [
+        (False, "2026-04-30"),
+        (True, "2026-04-29"),
+    ],
+)
+def test_source_includes_today_only_on_full_refresh(monkeypatch, should_use_incremental_field, expected_last_end):
+    monkeypatch.setattr(ga, "_today", lambda: TODAY)
+    _patch_session(monkeypatch)
+
+    requested_ends: list[str] = []
+
+    def fake_run_report(session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000):
+        requested_ends.append(end_date)
+        return {}
+
+    monkeypatch.setattr(ga, "_run_report", fake_run_report)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+
+    response = google_analytics_source(
+        config=_config(history_days=10),
+        resource_name="website_overview",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=None,
+    )
+    list(cast(Iterable[Any], response.items()))
+
+    assert requested_ends[-1] == expected_last_end
 
 
 def test_source_resume_past_end_date_yields_nothing(monkeypatch):

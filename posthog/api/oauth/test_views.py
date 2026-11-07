@@ -49,7 +49,9 @@ from posthog.models.oauth import (
     revoke_oauth_session,
 )
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
@@ -2607,6 +2609,69 @@ class TestOAuthAPI(APIBaseTest):
         response = self.post("/oauth/token/", token_data)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_request")
+
+    @parameterized.expand(
+        [
+            ("get_header_allowed", "get", "header", "192.0.2.1", True, False, 200),
+            ("get_header_blocked", "get", "header", "203.0.113.1", True, False, 403),
+            ("post_header_allowed", "post", "header", "192.0.2.1", True, False, 200),
+            ("post_header_blocked", "post", "header", "203.0.113.1", True, False, 403),
+            ("get_query_blocked", "get", "query", "203.0.113.1", True, False, 403),
+            ("post_body_allowed", "post", "body", "192.0.2.1", True, False, 200),
+            ("post_body_blocked", "post", "body", "203.0.113.1", True, False, 403),
+            ("disabled_policy", "get", "header", "203.0.113.1", False, False, 200),
+            ("staff_impersonation", "get", "header", "203.0.113.1", True, True, 200),
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False)
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_userinfo_checks_token_principal_ip_policy(
+        self,
+        _name: str,
+        method: str,
+        transport: str,
+        client_ip: str,
+        enabled: bool,
+        impersonated: bool,
+        expected_status: int,
+    ) -> None:
+        self.client.logout()
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization, enabled=enabled, ip_restrictions=["192.0.2.0/24"]
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.confidential_application,
+            token="userinfo_policy_test_token",
+            scope="openid profile email",
+            expires=timezone.now() + timedelta(hours=1),
+            impersonated_by=User.objects.create_user(
+                email="userinfo-staff@example.com", first_name="Verifier", password=None, is_staff=True
+            )
+            if impersonated
+            else None,
+        )
+        headers = {"Authorization": f"Bearer {token.token}"} if transport == "header" else {}
+        data = {"access_token": token.token} if transport in ("query", "body") else {}
+        if method == "post":
+            response = self.client.post(
+                "/oauth/userinfo/",
+                data=urlencode(data),
+                content_type="application/x-www-form-urlencoded",
+                headers=headers,
+                REMOTE_ADDR=client_ip,
+            )
+        else:
+            response = self.client.get("/oauth/userinfo/", data, headers=headers, REMOTE_ADDR=client_ip)
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == 200:
+            self.assertEqual(response.json()["sub"], str(self.user.uuid))
+            self.assertEqual(response.json()["email"], self.user.email)
+        else:
+            self.assertEqual(response.json()["code"], "ip_not_allowed")
+            self.assertNotIn("email", response.json())
+            self.assertNotIn("sub", response.json())
 
     def test_userinfo_endpoint_requires_valid_token(self):
         response = self.client.get("/oauth/userinfo/", headers={"Authorization": "Bearer invalid_token"})

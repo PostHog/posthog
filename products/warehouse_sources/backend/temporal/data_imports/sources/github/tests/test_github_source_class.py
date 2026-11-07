@@ -144,6 +144,16 @@ class TestGithubSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
+    def test_graphql_rate_limit_error_is_retryable_not_non_retryable(self):
+        # GraphQL's own primary rate limit (_raise_if_graphql_rate_limited) raises the same
+        # GitHubRateLimitError type as the REST limit above, but with different wording, so it
+        # needs its own entry to avoid falling through to the generic exception path.
+        observed_error = "Github GraphQL rate limit exceeded (resets at 1786360951)"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
     def test_egress_budget_exhausted_is_retryable_not_non_retryable(self):
         # Our own limiter shedding a deferrable call is the twin of GitHub's rate limit above, and
         # must be classified the same way: tracking it as an exception put a self-inflicted,
