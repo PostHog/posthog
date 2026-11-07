@@ -94,12 +94,6 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return [throttle() for throttle in PULSE_PIN_THROTTLES]
         return super().get_throttles()
 
-    def _new_navigation_user(self) -> User:
-        user = cast(User, self.request.user)
-        if not api.is_enabled_for(user, self.team):
-            raise NotFound()
-        return user
-
     def _jev_user(self) -> User:
         user = cast(User, self.request.user)
         if not api.may_ask_jev(user, self.team):
@@ -118,7 +112,9 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["get"], url_path="highlights", required_scopes=["today:read", "query:read"])
     def highlights(self, request: Request, **kwargs) -> Response:
-        user = self._new_navigation_user()
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
         scopes = get_authenticator_scopes(request.successful_authenticator)
         found = api.get_highlights(
             team=self.team,
@@ -135,7 +131,9 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["get"], url_path="pulse_pins")
     def pulse_pins(self, request: Request, **kwargs) -> Response:
-        user = self._new_navigation_user()
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
         scopes = get_authenticator_scopes(request.successful_authenticator)
         found = api.get_pulse_pins(team=self.team, user=user, scopes=None if scopes is None else frozenset(scopes))
         return Response(PulsePinsSerializer(found).data)
@@ -148,7 +146,9 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @pulse_pins.mapping.put
     def set_pulse_pins(self, request: Request, **kwargs) -> Response:
-        user = self._new_navigation_user()
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
         saved = api.set_pulse_pins(team=self.team, user=user, pins=request.validated_data.pins)
         return Response(PulsePinsSerializer(saved).data)
 
@@ -164,7 +164,9 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["today:read", "inbox:read"],
     )
     def report_page(self, request: Request, report_id: str, **kwargs) -> Response:
-        user = self._new_navigation_user()
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
         self._check_report_access(user)
         page = api.report_page(team=self.team, report_id=report_id)
         if page is None:
