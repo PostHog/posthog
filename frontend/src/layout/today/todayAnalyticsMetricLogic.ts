@@ -151,12 +151,23 @@ export const todayAnalyticsMetricLogic = kea<todayAnalyticsMetricLogicType>([
                     const controller = new AbortController()
                     void (async () => {
                         try {
-                            const { pollForResults } = await retryImport(() => import('~/queries/query'))
+                            const { pollForResults, isExpiredQueryStatusError } = await retryImport(
+                                () => import('~/queries/query')
+                            )
                             if (controller.signal.aborted) {
                                 return
                             }
-                            const completed = await pollForResults(status.id, { signal: controller.signal })
-                            if (controller.signal.aborted || completed.error) {
+                            try {
+                                const completed = await pollForResults(status.id, { signal: controller.signal })
+                                if (completed.error) {
+                                    return
+                                }
+                            } catch (error) {
+                                if (!isExpiredQueryStatusError(error)) {
+                                    throw error
+                                }
+                            }
+                            if (controller.signal.aborted) {
                                 return
                             }
                             const { results } = await insightsList(

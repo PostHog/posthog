@@ -86,10 +86,10 @@ describe('todayAnalyticsMetricLogic', () => {
         jest.clearAllMocks()
     })
 
-    it('reads the completed result from cache after its initial async response', async () => {
+    it.each(['completed', 'expired'] as const)('reads the cached result after a %s query status', async (status) => {
         let finishPoll!: () => void
-        const polling = new Promise<Awaited<ReturnType<typeof pollForResults>>>((resolve) => {
-            finishPoll = () => resolve(completedStatus)
+        const polling = new Promise<Awaited<ReturnType<typeof pollForResults>>>((resolve, reject) => {
+            finishPoll = () => (status === 'expired' ? reject({ status: 404 }) : resolve(completedStatus))
         })
         jest.mocked(pollForResults).mockReturnValue(polling)
         jest.mocked(insightsList).mockImplementation(
@@ -112,6 +112,7 @@ describe('todayAnalyticsMetricLogic', () => {
         const refreshed = expectLogic(logic).toDispatchActions(['setRefreshedInsight'])
         finishPoll()
         await refreshed
+        expect(insightsList).toHaveBeenCalledTimes(2)
         expect(insightsList).toHaveBeenNthCalledWith(
             2,
             expect.any(String),
