@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.aws_guardduty.aws_guardduty import (
 )
 from products.warehouse_sources.sources.aws_guardduty.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.aws_guardduty.settings import (
+    AWS_SESSION_ACTIONS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     ERROR_MESSAGES,
@@ -15,6 +16,9 @@ from products.warehouse_sources.sources.aws_guardduty.settings import (
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
@@ -29,8 +33,10 @@ from products.warehouse_sources.sources.sdk import (
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    aws_auth_field,
     build_endpoint_schemas,
     detect,
+    resolve_aws_credentials,
 )
 
 
@@ -50,12 +56,19 @@ class AwsGuarddutySource(ResumableSource[AwsGuarddutySourceConfig, AwsGuarddutyR
     default_version = GUARDDUTY_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/guardduty/latest/APIReference/Welcome.html"
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
+    credential_kind = "aws-guardduty"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSGUARDDUTY
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS GuardDuty request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS GuardDuty request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS
@@ -80,7 +93,13 @@ class AwsGuarddutySource(ResumableSource[AwsGuarddutySourceConfig, AwsGuarddutyR
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_aws_guardduty_credentials(config, self.resolve_api_version(api_version), schema_name)
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_aws_guardduty_credentials(
+            config, credentials, self.resolve_api_version(api_version), schema_name
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsGuarddutyResumeConfig]:
         return ResumableSourceManager(inputs, AwsGuarddutyResumeConfig)
@@ -93,6 +112,7 @@ class AwsGuarddutySource(ResumableSource[AwsGuarddutySourceConfig, AwsGuarddutyR
     ) -> SourceResponse:
         return aws_guardduty_source(
             config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             inputs.schema_name,
             self.resolve_api_version(inputs.api_version),
             resumable_source_manager,
@@ -121,31 +141,7 @@ class AwsGuarddutySource(ResumableSource[AwsGuarddutySourceConfig, AwsGuarddutyR
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        caption="Temporary credentials expire. Reconnect with current credentials when the session token expires.",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="aws_region",
                         label="AWS region",

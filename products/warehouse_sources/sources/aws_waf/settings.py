@@ -171,3 +171,28 @@ ERROR_MESSAGES = {
         "These credentials lack the AWS read permissions for this table. Grant the permissions listed in the source setup.",
     ),
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+# ListResourcesForWebACL also needs each resource type's own permission.
+AWS_SESSION_ACTIONS = (
+    "apprunner:ListAssociatedServicesForWebAcl",
+    "appsync:ListResourcesForWebACL",
+    "cloudwatch:GetMetricData",
+    "cloudwatch:ListMetrics",
+    "cognito-idp:ListResourcesForWebACL",
+    "ec2:DescribeVerifiedAccessInstanceWebAclAssociations",
+    "elasticloadbalancing:DescribeWebACLAssociation",
+    "wafv2:DescribeManagedRuleGroup",
+    "wafv2:GetIPSet",
+    "wafv2:GetRegexPatternSet",
+    "wafv2:GetRuleGroup",
+    "wafv2:GetSampledRequests",
+    "wafv2:GetWebACL",
+    "wafv2:ListAvailableManagedRuleGroups",
+    "wafv2:ListIPSets",
+    "wafv2:ListRegexPatternSets",
+    "wafv2:ListResourcesForWebACL",
+    "wafv2:ListRuleGroups",
+    "wafv2:ListWebACLs",
+)

@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.aws_inspector.aws_inspector import (
 )
 from products.warehouse_sources.sources.aws_inspector.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.aws_inspector.settings import (
+    AWS_SESSION_ACTIONS,
     DEFAULT_REGION,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
@@ -16,6 +17,9 @@ from products.warehouse_sources.sources.aws_inspector.settings import (
     INSPECTOR_API_VERSION,
 )
 from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
@@ -30,8 +34,10 @@ from products.warehouse_sources.sources.sdk import (
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    aws_auth_field,
     build_endpoint_schemas,
     detect,
+    resolve_aws_credentials,
 )
 
 
@@ -58,12 +64,19 @@ class AwsInspectorSource(ResumableSource[AwsInspectorSourceConfig, AwsInspectorR
     default_version = INSPECTOR_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/inspector/v2/APIReference/Welcome.html"
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
+    credential_kind = "aws-inspector"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSINSPECTOR
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS Inspector request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS Inspector request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_retryable_errors(self) -> set[str]:
         return {
@@ -94,7 +107,13 @@ class AwsInspectorSource(ResumableSource[AwsInspectorSourceConfig, AwsInspectorR
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_aws_inspector_credentials(config, schema_name, self.resolve_api_version(api_version))
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_aws_inspector_credentials(
+            config, credentials, schema_name, self.resolve_api_version(api_version)
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsInspectorResumeConfig]:
         return ResumableSourceManager(inputs, AwsInspectorResumeConfig)
@@ -107,6 +126,7 @@ class AwsInspectorSource(ResumableSource[AwsInspectorSourceConfig, AwsInspectorR
     ) -> SourceResponse:
         return aws_inspector_source(
             config=config,
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             endpoint=inputs.schema_name,
             manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
@@ -132,7 +152,7 @@ Enable Amazon Inspector in the region you select. Grant these IAM permissions fo
 - `cis_scan_result_details`: `inspector2:ListCisScans`, `inspector2:ListCisScanResultsAggregatedByTargetResource`, and `inspector2:GetCisScanResultDetails`
 - `clusters_for_image`: `inspector2:ListCoverage` and `inspector2:GetClustersForImage`
 
-Enter your access key ID and secret access key. Add a session token if you use temporary credentials.
+Connect with an IAM role, or enter your access key ID and secret access key. Add a session token if you use temporary credentials.
 This source reads one AWS region.""",
             iconPath="/static/services/aws_inspector.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-inspector",
@@ -141,31 +161,7 @@ This source reads one AWS region.""",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        caption="Temporary credentials expire. Connect again with new credentials when the session token expires.",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="region",
                         label="AWS region",
