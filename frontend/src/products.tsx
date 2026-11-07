@@ -371,6 +371,8 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/etl': ['PipelineOverview', 'pipelineOverview'],
     '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+    '/ai-visibility': ['WebAnalytics', 'aiVisibility'],
+    '/ai-visibility/bots': ['WebAnalytics', 'aiVisibilityBots'],
     '/heatmaps': ['Heatmaps', 'heatmaps'],
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
@@ -2052,6 +2054,8 @@ export const productUrls = {
     webAnalyticsLive: (): string => `/web/live`,
     webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
     webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
+    aiVisibility: (): string => `/ai-visibility`,
+    aiVisibilityBots: (): string => `/ai-visibility/bots`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapNew: (params?: string): string =>
@@ -2416,6 +2420,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export type ProductTreePath =
+    | 'AI visibility'
     | 'Application observability'
     | 'Apps'
     | 'Autoresearch'
@@ -2472,6 +2477,20 @@ export type ProductTreePath =
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
+    {
+        path: 'AI visibility',
+        intents: [ProductKey.WEB_ANALYTICS],
+        category: ProductItemCategory.ANALYTICS,
+        iconType: 'ai_visibility',
+        iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
+        href: urls.aiVisibility(),
+        flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+        tags: ['alpha'],
+        sceneKey: 'WebAnalytics',
+        sceneKeys: ['WebAnalytics'],
+        searchKeywords: ['aeo', 'geo', 'llm', 'chatgpt', 'citations', 'prompts', 'ai search', 'crawlers'],
+        searchTabs: [{ name: 'Bots', href: urls.aiVisibilityBots() }],
+    },
     {
         path: 'Application observability',
         intents: [ProductKey.TRACING],
@@ -3460,16 +3479,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Page reports', href: urls.webAnalyticsPageReports() },
             { name: 'Live', href: urls.webAnalyticsLive() },
             { name: 'Installation health', href: urls.webAnalyticsHealth() },
-            {
-                name: 'AI visibility',
-                href: urls.webAnalyticsContentAutopilot(),
-                flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-            },
-            {
-                name: 'Bots',
-                href: urls.webAnalyticsBotAnalytics(),
-                flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-            },
             {
                 name: 'Search & AI',
                 href: urls.webAnalyticsPagePerformance(),

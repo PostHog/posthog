@@ -182,7 +182,12 @@ export function fileSystemEntryToAnalytics(
 }
 
 // pinned: sidebar `iconType` values from the product manifests, in the order the sidebar lists them.
-export const FROM_POSTHOG_ICON_TYPES = ['web_analytics', 'marketing_analytics', 'mcp_analytics'] as const
+export const FROM_POSTHOG_ICON_TYPES = [
+    'web_analytics',
+    'ai_visibility',
+    'marketing_analytics',
+    'mcp_analytics',
+] as const
 
 export interface FromPostHogItem {
     key: string

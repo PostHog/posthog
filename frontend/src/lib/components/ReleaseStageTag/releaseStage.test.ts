@@ -21,6 +21,8 @@ describe('releaseStage', () => {
         ['Dashboard', 'Dashboard', null],
         ['AIObservability', 'AI observability', null],
         ['AIObservabilityTags', 'Taggers', 'alpha'],
+        ['WebAnalytics', 'AI visibility', 'alpha'],
+        ['WebAnalytics', 'Web analytics', null],
         ['SQLEditor', 'SQL editor', null],
         ['Pulse', undefined, null],
         [null, 'Pulse', null],

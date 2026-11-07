@@ -64,6 +64,7 @@ import {
     IconRocket,
     IconScatter,
     IconSearch,
+    IconSparkles,
     IconSend,
     IconServer,
     IconShuffle,
@@ -151,6 +152,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     web_analytics: {
         icon: <IconPieChart />,
+        iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
+    },
+    ai_visibility: {
+        icon: <IconSparkles />,
         iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
     },
     endpoints: {

@@ -5772,6 +5772,7 @@ export type FileSystemIconType =
     | 'sql_editor'
     | 'business_intelligence'
     | 'web_analytics'
+    | 'ai_visibility'
     | 'error_tracking'
     | 'heatmap'
     | 'session_replay'
