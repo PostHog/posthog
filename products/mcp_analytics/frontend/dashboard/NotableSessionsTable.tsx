@@ -48,6 +48,15 @@ function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
     )
 }
 
+// A placeholder in a text line box, so a placeholder row is as tall as a row of text.
+function SkeletonLine({ className, style }: { className?: string; style?: React.CSSProperties }): JSX.Element {
+    return (
+        <div className="flex h-lh items-center">
+            <Skeleton className={cn('h-3', className)} style={style} />
+        </div>
+    )
+}
+
 function SessionRows({
     sessions,
     loading,
@@ -74,19 +83,22 @@ function SessionRows({
                 {SKELETON_REASON_WIDTHS.map((reasonWidth, i) => (
                     <TableRow key={i}>
                         <TableCell>
-                            <Skeleton className="h-3 w-20" />
+                            <SkeletonLine className="w-[65px]" />
                         </TableCell>
                         <TableCell align="right">
-                            <Skeleton className="ml-auto h-3 w-6" />
+                            <SkeletonLine className="ml-auto w-6" />
                         </TableCell>
                         <TableCell align="right">
-                            <Skeleton className="ml-auto h-3 w-12" />
+                            <SkeletonLine className="ml-auto w-12" />
                         </TableCell>
                         <TableCell>
-                            <Skeleton className="h-4 w-16 rounded-full" />
+                            {/* Inline like the status badge, so it sits on the text baseline and sets the same row height. */}
+                            <Skeleton className="inline-flex h-4 w-[70px] items-center rounded-full py-0.5 text-[10px]">
+                                <span>&nbsp;</span>
+                            </Skeleton>
                         </TableCell>
                         <TableCell expand>
-                            <Skeleton className="h-3" style={{ width: reasonWidth }} />
+                            <SkeletonLine style={{ width: reasonWidth }} />
                         </TableCell>
                     </TableRow>
                 ))}

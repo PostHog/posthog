@@ -69,7 +69,7 @@ export function MetricTile({
     className,
 }: MetricTileProps): JSX.Element {
     const hasSparkline = data != null && data.length > 0
-    const flush = sparklineHeight != null
+    const flush = sparklineHeight != null || (!loading && !failed && hasSparkline)
     // A stable identity per interval, so `Metric`'s memoized context does not rebuild every render.
     const formatLabel = useMemo(() => (label: string) => formatBucketLabel(label, interval), [interval])
     return (
