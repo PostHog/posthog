@@ -22,9 +22,9 @@ import {
 
 import { Logomark } from 'lib/brand'
 
-import type { SidebarIconApi } from './generated/api.schemas'
+import type { FragmentIconApi } from './generated/api.schemas'
 
-export const SIDEBAR_ICONS: Record<SidebarIconApi, JSX.Element> = {
+export const SIDEBAR_ICONS: Record<FragmentIconApi, JSX.Element> = {
     list: <IconList />,
     person: <IconPerson />,
     people: <IconPeople />,

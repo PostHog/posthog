@@ -25,7 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
 import type { UserType } from '../../../frontend/src/types'
 import type { CustomizationApi } from './generated/api.schemas'
-import type { AnalyticsSidebarLayoutApi } from './generated/api.schemas'
+import type { AnalyticsFragmentLayoutApi } from './generated/api.schemas'
 
 export interface SidebarConfiguration {
     context: string
@@ -87,10 +87,10 @@ export interface sidebarCustomizationLogicActions {
         sidebar: CustomizationApi
     }
     resetSidebar: (previous: CustomizationApi['layout']) => {
-        previous: AnalyticsSidebarLayoutApi
+        previous: AnalyticsFragmentLayoutApi
     }
     restoreSidebar: (layout: CustomizationApi['layout']) => {
-        layout: AnalyticsSidebarLayoutApi
+        layout: AnalyticsFragmentLayoutApi
     }
     sidebarReadFailed: () => {
         value: true

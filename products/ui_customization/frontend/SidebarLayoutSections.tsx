@@ -1,12 +1,16 @@
 import { ReactNode } from 'react'
 
-import type { SidebarSectionApi } from './generated/api.schemas'
+import type { AnalyticsFragmentSectionApi } from './generated/api.schemas'
 import { SidebarSection } from './primitives/SidebarSection'
 
 export interface SidebarLayoutSectionsProps {
-    sections: SidebarSectionApi[]
-    renderItem: (section: SidebarSectionApi, item: SidebarSectionApi['items'][number], index: number) => JSX.Element[]
-    renderIcon: (icon: NonNullable<SidebarSectionApi['icon']>) => JSX.Element | null
+    sections: AnalyticsFragmentSectionApi[]
+    renderItem: (
+        section: AnalyticsFragmentSectionApi,
+        item: AnalyticsFragmentSectionApi['items'][number],
+        index: number
+    ) => JSX.Element[]
+    renderIcon: (icon: NonNullable<AnalyticsFragmentSectionApi['icon']>) => JSX.Element | null
     isSectionOpen: (id: string) => boolean
     toggleSection: (id: string) => void
     dataAttrPrefix: string

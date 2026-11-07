@@ -7,13 +7,13 @@ import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
 
-import type { SidebarMetricApi } from 'products/ui_customization/frontend/generated/api.schemas'
+import type { AnalyticsFragmentMetricApi } from 'products/ui_customization/frontend/generated/api.schemas'
 import { SidebarMetric } from 'products/ui_customization/frontend/SidebarMetric'
 
 import { todayAnalyticsMetricLogic } from './todayAnalyticsMetricLogic'
 
 interface TodayAnalyticsMetricProps {
-    item: SidebarMetricApi
+    item: AnalyticsFragmentMetricApi
     value: string
     active: boolean
 }

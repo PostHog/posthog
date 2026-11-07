@@ -2,7 +2,7 @@ import { AutocompleteItem, Button } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import type { SidebarButtonApi } from './generated/api.schemas'
+import type { AnalyticsFragmentButtonApi } from './generated/api.schemas'
 
 export function SidebarButton({
     value,
@@ -11,7 +11,7 @@ export function SidebarButton({
     dataAttr,
 }: {
     value: string
-    target: SidebarButtonApi
+    target: AnalyticsFragmentButtonApi
     resolved: { to: string; label: string; icon?: JSX.Element | null } | null
     dataAttr: string
 }): JSX.Element | null {

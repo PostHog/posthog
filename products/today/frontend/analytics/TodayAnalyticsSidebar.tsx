@@ -18,7 +18,7 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
 import { CustomizedSidebar, SidebarNavigationItem } from 'products/ui_customization/frontend/CustomizedSidebar'
-import type { SidebarListSourceApi } from 'products/ui_customization/frontend/generated/api.schemas'
+import type { AnalyticsListSourceApi } from 'products/ui_customization/frontend/generated/api.schemas'
 
 import { ANALYTICS_SIDEBAR_CONFIGURATION } from './analyticsSidebarConfiguration'
 import { todayAnalyticsLogic } from './todayAnalyticsLogic'
@@ -57,7 +57,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
     const isOpen = (targetPath: string): boolean =>
         path === removeProjectIdIfPresent(targetPath) && (targetPath !== urls.analyticsList() || openFolder === null)
 
-    const lists: Record<SidebarListSourceApi, SidebarNavigationItem[]> = {
+    const lists: Record<AnalyticsListSourceApi, SidebarNavigationItem[]> = {
         pinned: pinnedAnalytics.map((pinned) =>
             pinned.kind === 'collection'
                 ? {

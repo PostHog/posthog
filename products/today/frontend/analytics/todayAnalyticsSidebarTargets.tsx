@@ -18,20 +18,20 @@ import type { TodayExplainerPreview } from '~/layout/today/todayPreviewCards'
 import { InsightShortId } from '~/types'
 
 import type {
-    SidebarDashboardTargetApi,
-    SidebarIconApi,
-    SidebarInsightTargetApi,
-    SidebarNotebookTargetApi,
-    SidebarPageApi,
-    SidebarPageTargetApi,
+    AnalyticsDashboardTargetApi,
+    FragmentIconApi,
+    AnalyticsInsightTargetApi,
+    AnalyticsNotebookTargetApi,
+    AnalyticsPageApi,
+    AnalyticsPageTargetApi,
 } from 'products/ui_customization/frontend/generated/api.schemas'
 import { SIDEBAR_ICONS } from 'products/ui_customization/frontend/sidebarIcons'
 
 export type SidebarTarget =
-    | SidebarPageTargetApi
-    | SidebarInsightTargetApi
-    | SidebarDashboardTargetApi
-    | SidebarNotebookTargetApi
+    | AnalyticsPageTargetApi
+    | AnalyticsInsightTargetApi
+    | AnalyticsDashboardTargetApi
+    | AnalyticsNotebookTargetApi
 
 export interface ResolvedSidebarTarget {
     label: string
@@ -53,7 +53,7 @@ function sidebarPage(
 }
 
 // Module constants, so the shared hover card gets the same payload on every render.
-export const SIDEBAR_PAGES: Record<SidebarPageApi, ResolvedSidebarTarget> = {
+export const SIDEBAR_PAGES: Record<AnalyticsPageApi, ResolvedSidebarTarget> = {
     analytics_all: sidebarPage('View all', <IconList />, urls.analyticsList(), {
         description:
             'Browse every canvas, dashboard, notebook, and insight your project shares. Filter by type, creator, or collection.',
@@ -94,7 +94,7 @@ export const SIDEBAR_PAGES: Record<SidebarPageApi, ResolvedSidebarTarget> = {
 export function resolveSidebarTarget(
     target: SidebarTarget,
     label?: string | null,
-    icon?: SidebarIconApi | null
+    icon?: FragmentIconApi | null
 ): ResolvedSidebarTarget | null {
     const chosenIcon = icon ? SIDEBAR_ICONS[icon] : undefined
     switch (target.kind) {

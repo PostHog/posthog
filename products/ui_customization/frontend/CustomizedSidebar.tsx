@@ -8,7 +8,12 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import type { SidebarButtonApi, SidebarLinkApi, SidebarListSourceApi, SidebarMetricApi } from './generated/api.schemas'
+import type {
+    AnalyticsFragmentButtonApi,
+    AnalyticsFragmentLinkApi,
+    AnalyticsListSourceApi,
+    AnalyticsFragmentMetricApi,
+} from './generated/api.schemas'
 import { SidebarRow } from './primitives/SidebarRow'
 import { SidebarSearchList } from './primitives/SidebarSearchList'
 import { SidebarButton } from './SidebarButton'
@@ -38,9 +43,11 @@ export interface CustomizedSidebarProps {
     search: { query: string; onChange: (query: string) => void; label: string; empty: string }
     sections: { isOpen: (id: string) => boolean; toggle: (id: string) => void; dataAttrPrefix: string }
     navigation: {
-        resolve: (item: SidebarLinkApi | SidebarButtonApi) => Omit<SidebarNavigationItem, 'value'> | null
-        lists: Record<SidebarListSourceApi, SidebarNavigationItem[]>
-        metric: (item: SidebarMetricApi, value: string) => JSX.Element
+        resolve: (
+            item: AnalyticsFragmentLinkApi | AnalyticsFragmentButtonApi
+        ) => Omit<SidebarNavigationItem, 'value'> | null
+        lists: Record<AnalyticsListSourceApi, SidebarNavigationItem[]>
+        metric: (item: AnalyticsFragmentMetricApi, value: string) => JSX.Element
     }
     customization: { url: string; event: string }
     dataAttrPrefix: string
