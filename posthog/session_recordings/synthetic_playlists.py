@@ -16,10 +16,11 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Comment, Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.session_recording_api import list_recordings_from_query
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
@@ -195,7 +196,7 @@ class ExportedPlaylistSource(SyntheticPlaylistSource):
         )
 
 
-@dataclass
+@frozen
 class ExpiringPlaylistSource(SyntheticPlaylistSource):
     """
     Surfaces recordings whose retention window ends within the next 10 days.
@@ -221,13 +222,13 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
             return cached_data
 
         query = RecordingsQuery(limit=ExpiringPlaylistSource.SCAN_LIMIT, order=RecordingOrder.RECORDING_TTL)
-        listing_result = list_recordings_from_query(query, user, team)
+        recordings = SessionRecordingListFromQuery(query=query, team=team, user=user).run().results
 
         now = datetime.now(UTC)
         window_end = now + timedelta(days=ExpiringPlaylistSource.EXPIRY_WINDOW_DAYS)
 
         session_ids = [
-            r.session_id for r in listing_result.recordings if r.expiry_time and now <= r.expiry_time <= window_end
+            r["session_id"] for r in recordings if r["expiry_time"] and now <= r["expiry_time"] <= window_end
         ]
         cache.set(cache_key, session_ids, ExpiringPlaylistSource.CACHE_TTL)
         return session_ids

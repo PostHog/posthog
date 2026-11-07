@@ -1,6 +1,4 @@
-from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
-from typing import Any, cast
+from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -17,7 +15,7 @@ from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.session_recording_api import RecordingsListingResult
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource, FrustrationSignalsPlaylistSource
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -56,34 +54,38 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert sorted(synthetic_short_ids) == sorted(expected)
 
-    def test_expiring_playlist_caches_and_shares_one_scan(self) -> None:
-        cache.clear()
+    def _produce_recording(self, session_id: str, retention_period_days: int) -> None:
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=session_id,
+            first_timestamp=now() - timedelta(hours=1),
+            retention_period_days=retention_period_days,
+            ensure_analytics_event_in_session=False,
+        )
 
-        now_ts = datetime.now(UTC)
-        recordings = [
-            SimpleNamespace(session_id="expiring-soon", expiry_time=now_ts + timedelta(days=3)),
-            SimpleNamespace(session_id="expiring-later", expiry_time=now_ts + timedelta(days=40)),
-            SimpleNamespace(session_id="no-expiry", expiry_time=None),
-        ]
+    def test_expiring_playlist_shares_one_cached_scan_without_loading_persons(self) -> None:
+        cache.clear()
+        expiring_soon, expiring_later, expiring_after_first_scan = (str(uuid7()) for _ in range(3))
+        self._produce_recording(expiring_soon, retention_period_days=5)
+        self._produce_recording(expiring_later, retention_period_days=30)
 
         source = ExpiringPlaylistSource()
 
         with patch(
-            "posthog.session_recordings.synthetic_playlists.list_recordings_from_query",
-            return_value=RecordingsListingResult(
-                recordings=cast(Any, recordings), more_recordings_available=False, timings_header="", next_cursor=None
-            ),
-        ) as mock_query:
+            "posthog.session_recordings.session_recording_api.get_persons_mapped_by_distinct_id", return_value={}
+        ) as persons_lookup:
             count = source.count_session_ids(self.team, self.user)
+            self._produce_recording(expiring_after_first_scan, retention_period_days=5)
             session_ids = source.get_session_ids(self.team, self.user)
             # a second list load within the cache TTL must not re-scan
             recount = source.count_session_ids(self.team, self.user)
 
-        assert count == 1
-        assert recount == 1
-        assert session_ids == ["expiring-soon"]
+        assert expiring_soon in session_ids
+        assert expiring_later not in session_ids
         # count + get_session_ids + recount share a single cached scan
-        assert mock_query.call_count == 1
+        assert expiring_after_first_scan not in session_ids
+        assert recount == count == len(session_ids)
+        persons_lookup.assert_not_called()
 
     def test_retrieve_synthetic_playlist(self) -> None:
         playlist = self._get_synthetic_playlist("synthetic-watch-history")
