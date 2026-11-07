@@ -1,10 +1,9 @@
 """Whether the check attestations a WAIT waits on have reported, for the poll that wakes it."""
 
-import yaml
-
 from posthog.dataclasses import frozen
 
 from .github_client import StamphogGitHubClient
+from .repo_policy import policy_list
 
 
 @frozen
@@ -16,22 +15,10 @@ class CheckAttestation:
 
 def check_attestations(policy_text: str | None) -> list[CheckAttestation]:
     """The check attestations a repository's default-branch policy declares."""
-    # The engine validates the whole policy and fails the review on a malformed one, so an entry
-    # this cannot read is skipped here rather than reported twice.
-    try:
-        raw = yaml.safe_load(policy_text or "")
-    except yaml.YAMLError:
-        return []
-    if not isinstance(raw, dict):
-        return []
     return [
         CheckAttestation(name=entry["name"], check=entry["check"], app_id=entry["app_id"])
-        for key in ("attestations", "extend_attestations")
-        if isinstance(listed := raw.get(key), list)
-        for entry in listed
-        if isinstance(entry, dict)
-        and all(isinstance(entry.get(field), str) for field in ("name", "check"))
-        and type(entry.get("app_id")) is int
+        for entry in policy_list(policy_text, "attestations")
+        if all(isinstance(entry.get(key), str) for key in ("name", "check")) and type(entry.get("app_id")) is int
     ]
 
 

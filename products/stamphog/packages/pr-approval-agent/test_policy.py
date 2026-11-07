@@ -311,6 +311,7 @@ _VALID_ATTESTATION = {
     "name": "Migration risk",
     "check": "Migration risk",
     "app_id": 2492437,
+    "authors": "anyone",
     "lifts": ["migrations"],
     "paths": ["migrations/[^/]+\\.py$"],
     "publisher_paths": ["migration_analysis/"],
@@ -320,6 +321,19 @@ _VALID_ATTESTATION = {
 def _set_attestation(d: dict, **changes: object) -> None:
     entry = {**_VALID_ATTESTATION, **changes}
     d["attestations"] = [{k: v for k, v in entry.items() if v is not None}]
+
+
+_VALID_BOT_AUTHOR = {
+    "login": "renovate[bot]",
+    "id": 29139614,
+    "branch_prefix": "renovate/",
+    "requires": "every_file_attested",
+}
+
+
+def _set_bot_author(d: dict, **changes: object) -> None:
+    entry = {**_VALID_BOT_AUTHOR, **changes}
+    d["bot_authors"] = [{k: v for k, v in entry.items() if v is not None}]
 
 
 @pytest.mark.parametrize(
@@ -419,9 +433,22 @@ def _set_attestation(d: dict, **changes: object) -> None:
                 ("no-check", {"check": None}),
                 ("no-app-id", {"app_id": None}),
                 ("app-slug-not-id", {"app_id": "tests-posthog"}),
+                ("no-authors", {"authors": None}),
+                ("authors-not-in-bot-authors", {"authors": ["renovate[bot]"]}),
                 ("no-publisher-paths", {"publisher_paths": None}),
                 ("invalid-publisher-path", {"publisher_paths": ["("]}),
                 ("unknown-key", {"lift": ["deps_toolchain"]}),
+            ]
+        ],
+        *[
+            pytest.param(partial(_set_bot_author, **changes), id=f"bot-author-{name}")
+            for name, changes in [
+                ("human-login", {"login": "renovate"}),
+                ("no-id", {"id": None}),
+                ("string-id", {"id": "29139614"}),
+                ("no-branch-prefix", {"branch_prefix": None}),
+                ("unknown-requirement", {"requires": "nothing"}),
+                ("no-requirement", {"requires": None}),
             ]
         ],
     ],
@@ -433,6 +460,25 @@ def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
     bad.write_text(yaml.safe_dump(data))
     with pytest.raises(PolicyError):
         load_policy(bad, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+
+@pytest.mark.parametrize(
+    "authors, expected",
+    [
+        pytest.param("anyone", None, id="anyone"),
+        pytest.param(["renovate[bot]"], frozenset({"renovate[bot]"}), id="named-bot"),
+    ],
+)
+def test_attestation_authors_parse(tmp_path: Path, authors: object, expected: frozenset[str] | None) -> None:
+    data = _valid_policy_dict()
+    _set_bot_author(data)
+    _set_attestation(data, authors=authors)
+    path = tmp_path / "policy.yml"
+    path.write_text(yaml.safe_dump(data))
+
+    policy = load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+    assert [attestation.authors for attestation in policy.attestations] == [expected]
 
 
 @pytest.mark.parametrize(

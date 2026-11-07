@@ -218,6 +218,7 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         # Separate keys on purpose: self_driving_review relaxes gates, the trigger only describes.
         assert context_for()["review_trigger"] == ""
         assert context_for()["self_driving_review"] is False
+        assert context_for()["bot_author_review"] is False
 
 
 def _graphql_commit(oid: str, login: str | None) -> dict:
@@ -585,6 +586,37 @@ def _with_scripted_graphql(call: Callable[[StamphogGitHubClient], T], *graphql_r
 def _teams_page(slugs: list[str], *, has_next: bool) -> fakes.FakeResponse:
     teams = {"pageInfo": {"hasNextPage": has_next, "endCursor": "c"}, "nodes": [{"slug": s} for s in slugs]}
     return fakes.FakeResponse(200, json_data={"data": {"organization": {"teams": teams}}})
+
+
+def _branch_update(after: str, activity_type: str, actor_id: int) -> dict:
+    return {"after": after, "activity_type": activity_type, "actor": {"id": actor_id}}
+
+
+class GetBranchPusherIdsTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Renovate deletes and recreates a branch, and the earlier branch's pushers are not this PR's.
+            (
+                "stops_at_the_branch_creation",
+                [
+                    _branch_update("c", "push", 1),
+                    _branch_update("b", "branch_creation", 1),
+                    _branch_update("a", "push", 2),
+                ],
+                [1, 1],
+            ),
+            ("newest_update_is_not_the_head", [_branch_update("b", "push", 1)], None),
+            ("page_never_reaches_the_creation", [_branch_update("c", "push", 1)], None),
+        ]
+    )
+    def test_reads_the_pushers_since_the_branch_was_created(
+        self, _name: str, activities: list[dict], expected: list[int] | None
+    ) -> None:
+        pusher_ids = _with_scripted_graphql(
+            lambda client: client.get_branch_pusher_ids("o/r", "renovate/x", "c"),
+            fakes.FakeResponse(200, json_data=activities),
+        )
+        assert pusher_ids == expected
 
 
 class GetUserTeamSlugsTests(SimpleTestCase):

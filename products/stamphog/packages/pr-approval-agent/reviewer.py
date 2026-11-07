@@ -429,6 +429,7 @@ _INVOCATION_LINES = {
     "label": "Invocation: this repo reviews on request only, and this PR carries the request label.",
     "all": "Invocation: this repo reviews every pull request automatically.",
     "self_driving": "Invocation: dispatched from a self-driving Inbox implementation run.",
+    "bot_author": "Invocation: a bot that the repository's policy admits opened this PR, and CI attested every changed file.",
 }
 
 

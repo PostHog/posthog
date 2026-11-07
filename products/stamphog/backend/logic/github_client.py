@@ -739,6 +739,14 @@ class StamphogGitHubClient:
 
         Newest first, the order `git log` lists them, so the engine collects trailer values in the
         same order on both paths.
+        """
+        commits = self.get_pr_commits(repo, number, head_sha)
+        if commits is None:
+            return None
+        return [str((commit.get("commit") or {}).get("message") or "") for commit in reversed(commits)]
+
+    def get_pr_commits(self, repo: str, number: int, head_sha: str) -> list[dict] | None:
+        """The PR's raw commits, oldest first, or None when the list does not end at ``head_sha``.
 
         The endpoint answers for the live head, so a push after the run was queued returns commits
         the run does not review. GitHub also lists at most 250 commits per PR, and past that cap
@@ -766,7 +774,41 @@ class StamphogGitHubClient:
                 break
         if not commits or commits[-1].get("sha") != head_sha:
             return None
-        return [str((commit.get("commit") or {}).get("message") or "") for commit in reversed(commits)]
+        return commits
+
+    def get_branch_pusher_ids(self, repo: str, branch: str, head_sha: str) -> list[int | None] | None:
+        """The user id behind every update of ``branch`` since GitHub last created it, newest first.
+
+        GitHub's repository activity record names the account that pushed, which a commit does not:
+        a person can create a commit through the API that names a bot as its author. None when the
+        newest update is not ``head_sha``, or when one page does not reach the branch's creation.
+        """
+        path = f"/repos/{repo}/activity"
+        response = self._request(
+            "GET",
+            path,
+            endpoint="/repos/{owner}/{repo}/activity",
+            params={"ref": f"refs/heads/{branch}", "per_page": _PER_PAGE},
+            priority=Priority.BATCH,
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to fetch branch activity {repo}@{branch}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        activities = self._json(response, path)
+        if not isinstance(activities, list):
+            raise StamphogGitHubError(f"Unexpected branch activity payload for {repo}@{branch}")
+        if not activities or not isinstance(activities[0], dict) or activities[0].get("after") != head_sha:
+            return None
+        pusher_ids: list[int | None] = []
+        for activity in activities:
+            if not isinstance(activity, dict):
+                return None
+            pusher_ids.append((activity.get("actor") or {}).get("id"))
+            if activity.get("activity_type") == "branch_creation":
+                return pusher_ids
+        return None
 
     def compare_diff(self, repo: str, base_sha: str, head_sha: str) -> str:
         """The unified diff between two commits, as text.

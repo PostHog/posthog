@@ -20,7 +20,7 @@ import review_pr  # noqa: E402
 import review_local  # noqa: E402
 import openai_reviewer  # noqa: E402
 from github import CommitProvenance  # noqa: E402
-from policy import Attestation, DenyException  # noqa: E402
+from policy import Attestation, BotAuthor, DenyException  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
 _MIGRATION_RISK = Attestation(
@@ -30,6 +30,7 @@ _MIGRATION_RISK = Attestation(
     lifts=("migrations",),
     paths=(r"(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$", r"(?:^|/)migrations/max_migration\.txt$"),
     publisher_paths=(r"(?:^|/)migration_analysis/", r"^\.(github|depot)/"),
+    authors=None,
 )
 
 
@@ -799,6 +800,103 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
 
     monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
     assert review_local.run(context)["final_verdict"] == expect_verdict
+
+
+_RENOVATE = BotAuthor(login="renovate[bot]", id=29139614, branch_prefix="renovate/", requires="every_file_attested")
+_DEPENDENCY_PROOF = Attestation(
+    name="Dependency proof",
+    check="Dependency proof",
+    app_id=3001,
+    authors=frozenset({"renovate[bot]"}),
+    lifts=("deps_toolchain",),
+    paths=(r"^pnpm-lock\.yaml$", r"(?:^|/)package\.json$"),
+    publisher_paths=(r"^\.github/scripts/prove-dependencies\.py$",),
+)
+_PROVEN = {
+    "name": "Dependency proof",
+    "id": 1,
+    "app": {"id": 3001, "slug": "dependency-prover"},
+    "status": "completed",
+    "conclusion": "success",
+    "output": {"summary": '<!-- stamphog:v1 ["pnpm-lock.yaml", "package.json"] -->'},
+}
+_RUNNING = {**_PROVEN, "status": "in_progress", "conclusion": None}
+_RENOVATE_USER = {"login": _RENOVATE.login, "id": _RENOVATE.id, "type": "Bot"}
+_OTHER_BOT = BotAuthor(login="other[bot]", id=4242, branch_prefix="other/", requires="every_file_attested")
+_OTHER_BOT_USER = {"login": _OTHER_BOT.login, "id": _OTHER_BOT.id, "type": "Bot"}
+_PERSON = {"login": "devex-dev", "id": 7, "type": "User"}
+
+
+@pytest.mark.parametrize(
+    "files, lines, user, admitted, proof, expected_verdict",
+    [
+        pytest.param(
+            ["pnpm-lock.yaml", "package.json"], 10, _RENOVATE_USER, True, _PROVEN, "APPROVED", id="every-file-proven"
+        ),
+        pytest.param(
+            ["pnpm-lock.yaml", "src/app.py"], 10, _RENOVATE_USER, True, _PROVEN, "REFUSED", id="a-file-no-proof-covers"
+        ),
+        pytest.param(["pnpm-lock.yaml"], 10, _RENOVATE_USER, True, _RUNNING, "WAIT", id="proof-still-running"),
+        pytest.param(
+            ["pnpm-lock.yaml"],
+            5000,
+            _RENOVATE_USER,
+            True,
+            _RUNNING,
+            "WAIT",
+            id="proof-still-running-on-an-oversized-lockfile",
+        ),
+        pytest.param(
+            ["pnpm-lock.yaml"],
+            10,
+            _RENOVATE_USER,
+            True,
+            {**_PROVEN, "conclusion": "failure"},
+            "REFUSED",
+            id="proof-failed",
+        ),
+        pytest.param(["pnpm-lock.yaml"], 10, _RENOVATE_USER, False, _PROVEN, "REFUSED", id="server-did-not-admit"),
+        pytest.param(
+            ["pnpm-lock.yaml"], 10, {**_RENOVATE_USER, "id": 1}, True, _PROVEN, "REFUSED", id="login-with-another-id"
+        ),
+        # A person can write the lockfile a bot would, but the proof covers only the bot's choice of change.
+        pytest.param(["pnpm-lock.yaml"], 10, _PERSON, False, _PROVEN, "REFUSED", id="a-person-with-a-bot-only-proof"),
+        pytest.param(["pnpm-lock.yaml"], 10, _OTHER_BOT_USER, True, _PROVEN, "REFUSED", id="another-admitted-bot"),
+    ],
+)
+def test_admitted_bot_needs_ci_to_attest_every_file(
+    monkeypatch, files: list[str], lines: int, user: dict, admitted: bool, proof: dict, expected_verdict: str
+) -> None:
+    policy = replace(review_pr.POLICY, attestations=(_DEPENDENCY_PROOF,), bot_authors=(_RENOVATE, _OTHER_BOT))
+    monkeypatch.setattr(review_pr, "POLICY", policy)
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "manifest_script_changes", lambda *a, **k: [])
+
+    def approve(self, pr, classification, gate_context, diff_path=None):
+        return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
+    api_files = [{**_api_file(path, status="modified"), "additions": lines} for path in files]
+    context = _pregate_context(api_files, folder_policies_known=True)
+    context["pr"]["user"] = user
+    context["bot_author_review"] = admitted
+    context["check_runs"] = [proof]
+    if "package.json" in files:
+        context["manifest_contents"] = {
+            "package.json": {"base": '{"version": "1.0.0"}', "head": '{"version": "1.0.1"}'}
+        }
+
+    outcome = review_local.pregate(context)
+
+    assert review_local.run(context)["final_verdict"] == expected_verdict
+    # Only an approval needs the sandbox review. Every refusal and wait is already decided.
+    assert outcome["final"] is (expected_verdict != "APPROVED")
+    if outcome["final"]:
+        assert outcome["result"]["final_verdict"] == expected_verdict
+    # The worker's check before posting must confirm exactly the approvals the full review reaches.
+    assert review_local.attest(context)["attested"] is (expected_verdict == "APPROVED")
 
 
 @pytest.mark.parametrize(

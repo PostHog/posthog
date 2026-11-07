@@ -120,6 +120,7 @@ def build_reviewer_invocation(
     engine_dir: str,
     context_path: str,
     self_driving_review: bool = False,
+    bot_author_review: bool = False,
     review_trigger: str = "",
     review_evidence: list[dict] | None = None,
 ) -> ReviewerInvocation:
@@ -151,6 +152,9 @@ def build_reviewer_invocation(
     ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
     to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
     never sets it, and only a run stamped with inbox provenance turns it on.
+    ``bot_author_review`` lets the engine review a PR from a bot that the repository's policy
+    admits, and only when CI attests every changed file. The engine still matches the author against
+    the policy itself. Only a run stamped with bot-author provenance turns it on.
     ``review_trigger`` is a ReviewTrigger value naming why stamphog is looking at this PR, which
     the reviewer otherwise cannot tell: a requested review and an automatic one reach it identically.
     It stays separate from ``self_driving_review`` on purpose. That flag relaxes two security gates,
@@ -175,6 +179,7 @@ def build_reviewer_invocation(
         "familiarity_facts": familiarity_facts,
         "commit_messages": commit_messages,
         "self_driving_review": self_driving_review,
+        "bot_author_review": bot_author_review,
         "review_trigger": review_trigger,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]
