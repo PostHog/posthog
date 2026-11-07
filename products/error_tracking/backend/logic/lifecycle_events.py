@@ -17,7 +17,7 @@ import structlog
 from posthog.models.user import User
 
 from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
-from products.error_tracking.backend.logic.assignees import resolve_current_assignee
+from products.error_tracking.backend.logic.assignees import ResolvedAssignee, resolve_current_assignee
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
@@ -83,6 +83,51 @@ class PendingLifecycleEvent:
     alert_inputs: AlertDeliveryWorkflowInputs
 
 
+def issue_event_properties(
+    *,
+    name: Optional[str],
+    description: Optional[str],
+    first_seen: str,
+    severity: Optional[str],
+    status: str,
+    fingerprint: Optional[str],
+    assignee: Optional[ResolvedAssignee],
+    extra_properties: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Issue properties of a lifecycle internal event.
+
+    Same issue-property set the ingestion-driven producer emits (see
+    produce_issue_lifecycle_internal_event), so destination property filters
+    match both paths.
+    """
+    return {
+        "name": name,
+        "description": description,
+        "issue_description": description,
+        "first_seen": first_seen,
+        "severity": severity,
+        "status": status_label(status),
+        **({"fingerprint": fingerprint} if fingerprint is not None else {}),
+        **({"assignee": assignee.property_value, **assignee.display_properties()} if assignee is not None else {}),
+        **(extra_properties or {}),
+    }
+
+
+def event_person(user: User) -> InternalEventPerson:
+    # Deliberately a minimal actor subset: person reaches customer-configured
+    # destinations verbatim (the default webhook body sends `{person}`), so no
+    # full user serializer here.
+    return InternalEventPerson(
+        id=str(user.id),
+        properties={
+            "id": str(user.id),
+            "distinct_id": user.distinct_id,
+            "email": user.email,
+            "first_name": user.first_name,
+        },
+    )
+
+
 def prepare_issue_lifecycle_event(
     *,
     event: str,
@@ -99,47 +144,26 @@ def prepare_issue_lifecycle_event(
     # falls back to the issue's latest exception instead of an empty window around
     # the mutation.
     fingerprint = _issue_fingerprint_for_links(issue)
-    current_assignee = resolve_current_assignee(issue.id)
-    assignee_properties: dict[str, str] = (
-        {"assignee": current_assignee.property_value, **current_assignee.display_properties()}
-        if current_assignee is not None
-        else {}
-    )
     issue_id = str(issue.id)
     # The notification id names both the internal event and the alert delivery
     # workflow, so redelivered starts and retries stay idempotent per transition.
     notification_id = str(uuid.uuid4())
-    # Same issue-property set the ingestion-driven producer emits (see
-    # produce_issue_lifecycle_internal_event), so destination property filters
-    # match both paths.
-    properties: dict[str, Any] = {
-        "name": issue.name,
-        "description": issue.description,
-        "issue_description": issue.description,
-        "first_seen": issue.created_at.isoformat(),
-        "severity": issue.severity,
-        "status": status_label(status if status is not None else issue.status),
-        **({"fingerprint": fingerprint} if fingerprint is not None else {}),
-        **assignee_properties,
-        **(extra_properties or {}),
-    }
+    properties = issue_event_properties(
+        name=issue.name,
+        description=issue.description,
+        first_seen=issue.created_at.isoformat(),
+        severity=issue.severity,
+        status=status if status is not None else issue.status,
+        fingerprint=fingerprint,
+        assignee=resolve_current_assignee(issue.id),
+        extra_properties=extra_properties,
+    )
     internal_event = InternalEventEvent(event=event, distinct_id=issue_id, properties=properties, uuid=notification_id)
 
     person = None
     actor_email: Optional[str] = None
     if user is not None:
-        # Deliberately a minimal actor subset: person reaches customer-configured
-        # destinations verbatim (the default webhook body sends `{person}`), so no
-        # full user serializer here.
-        person = InternalEventPerson(
-            id=str(user.id),
-            properties={
-                "id": str(user.id),
-                "distinct_id": user.distinct_id,
-                "email": user.email,
-                "first_name": user.first_name,
-            },
-        )
+        person = event_person(user)
         actor_email = user.email
 
     status_property = properties.get("status")
