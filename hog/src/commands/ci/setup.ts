@@ -290,8 +290,9 @@ export default defineCommand({
             const api = await ctx.posthog()
             const { host, projectId } = (await ctx.session()).current
             const approved = await resumeApproval(ctx, policyRequestWait(api, { host, projectId }))
-            await clearPending(ctx.runtime, CI_SETUP_COMMAND)
+            // The snippet needs the provider's settings, so the request stays for another --wait until they load.
             const settings = await providerSettings(api, approved.projectId, approved.provider)
+            await clearPending(ctx.runtime, CI_SETUP_COMMAND)
             return { status: 'approved', policyId: approved.policyId, ...setupFor(settings, approved) }
         }
 

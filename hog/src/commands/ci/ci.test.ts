@@ -191,6 +191,19 @@ describe('hog ci setup', () => {
         expect(PENDING_FILE in run.files).toBe(true)
     })
 
+    test('--wait keeps an approved request when the provider settings fail to load', async () => {
+        const first = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], { respond: policyApi() })
+        const run = await runHog(['ci', 'setup', '--wait'], {
+            env: TEST_CREDENTIALS,
+            files: first.files,
+            respond: (url) =>
+                url === `${REQUESTS}providers/` ? { status: 503, body: { detail: 'Unavailable.' } } : policyApi()(url),
+        })
+
+        expect(run.exitCode).not.toBe(0)
+        expect(PENDING_FILE in run.files).toBe(true)
+    })
+
     test('--wait gives up after a while and keeps the request for the next --wait', async () => {
         const first = await setup(['--preset', 'branch_push=main', '--scope', 'query:read'], { respond: policyApi() })
         const run = await runHog(['ci', 'setup', '--wait'], {
