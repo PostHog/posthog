@@ -50,6 +50,7 @@ export interface SearchResult {
     sectionId: SettingSectionId
     sectionTitle: string
     level: SettingLevelId
+    to: string
 }
 
 export interface SearchResultGroup {
@@ -711,13 +712,13 @@ export const settingsLogic = kea<settingsLogicType>([
                 const results = searchSettingsIndex(globalSearchIndex, searchTerm)
                 const groupMap = new Map<SettingSectionId, SearchResultGroup>()
 
-                for (const { sectionId, sectionTitle, level, settingId, settingTitle } of results) {
+                for (const { sectionId, sectionTitle, level, settingId, settingTitle, to } of results) {
                     let group = groupMap.get(sectionId)
                     if (!group) {
                         group = { sectionId, sectionTitle, level, results: [] }
                         groupMap.set(sectionId, group)
                     }
-                    group.results.push({ settingId, settingTitle, sectionId, sectionTitle, level })
+                    group.results.push({ settingId, settingTitle, sectionId, sectionTitle, level, to })
                 }
 
                 return Array.from(groupMap.values())
