@@ -45,11 +45,9 @@ export function TodaySidebarFooter(): JSX.Element {
     return (
         <div className="flex-none border-t border-[var(--border)]">
             {/* The old navigation's sidebar footer holds the same toggle, so it sits in the same place either way. */}
-            {sidebarVisible && (
-                <div className="px-2 pt-2">
-                    <NavSwitchToggle surface="today_sidebar" />
-                </div>
-            )}
+            <div className="px-2 pt-2">
+                <NavSwitchToggle surface="today_sidebar" />
+            </div>
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-2 pt-2 pb-2">
                 {sidebarVisible ? (
                     <NewAccountMenu side="top" align="start" sideOffset={12} renderTrigger={renderTrigger} />
