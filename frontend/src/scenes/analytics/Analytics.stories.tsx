@@ -350,6 +350,10 @@ export const ListCustomSidebar: Story = {
     parameters: {
         pageUrl: urls.analyticsList(),
         featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+        testOptions: {
+            includeNavigationInSnapshot: true,
+            waitForSelector: '[data-attr="analytics-sidebar-metric"] >> text=1,284',
+        },
     },
 }
 
