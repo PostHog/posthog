@@ -257,6 +257,14 @@ class TestWarehouseRoutes:
             },
         )
 
+    @_routes(
+        {("GET", W): _detail(data_store={"kind": "s3bucket", "bucket_name": "posthog-duckling-acme", "prefix": "lake"})}
+    )
+    def test_status_reports_the_data_store_prefix(self, fake: FakeHogtower) -> None:
+        body = _mapped("GET", "/warehouse/status").json()
+
+        assert (body["bucket"], body["bucket_prefix"]) == ("posthog-duckling-acme", "lake")
+
     @_routes({("GET", W): _detail(state="provisioning", ready_at=None, data_store={"kind": "external"})})
     def test_status_omits_connection_and_bucket_until_known(self, fake: FakeHogtower) -> None:
         body = _mapped("GET", "/warehouse/status").json()
