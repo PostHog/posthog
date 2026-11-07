@@ -1905,6 +1905,13 @@ describe('infiniteListLogic', () => {
                 searchQuery: 'feature flag',
                 offerHiddenEventStandIns: true,
             },
+            {
+                name: 'fires when stand-ins are offered but none matches the search',
+                activeTab: TaxonomicFilterGroupType.Events,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                expectFire: true,
+                offerHiddenEventStandIns: true,
+            },
         ])(
             '$name',
             async ({

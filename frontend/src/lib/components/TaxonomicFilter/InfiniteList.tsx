@@ -44,6 +44,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterGroupValueMap,
+    TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { groupNamedBySearch } from 'lib/components/TaxonomicFilter/utils/groupNamedBySearch'
 import { hiddenEventMatchingSearch } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
@@ -506,14 +507,7 @@ export const InfiniteListRow = ({
     }
 
     const itemGroup = getItemGroup(item, taxonomicGroups, group)
-    // Recent items are stripped to { name, id? } — getValue on the source group
-    // (e.g. Persons expects distinct_ids) returns undefined. Use the canonical
-    // sourceValue recorded at first selection instead.
-    const itemValue = item
-        ? hasRecentContext(item)
-            ? (item._recentContext.sourceValue ?? itemGroup?.getValue?.(item))
-            : itemGroup?.getValue?.(item)
-        : null
+    const itemValue = item ? getItemValue(item, itemGroup) : null
 
     const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
 
@@ -1216,4 +1210,18 @@ export function getItemGroup(
     }
 
     return group
+}
+
+/**
+ * A recent row keeps only `{ name, id? }`, so the source group's `getValue` can return undefined for it.
+ * Persons is one such group, because its `getValue` reads distinct_ids.
+ * The value recorded when the row was first picked takes precedence.
+ */
+export function getItemValue(
+    item: TaxonomicDefinitionTypes,
+    itemGroup: TaxonomicFilterGroup | undefined
+): TaxonomicFilterValue | undefined {
+    return hasRecentContext(item)
+        ? (item._recentContext.sourceValue ?? itemGroup?.getValue?.(item))
+        : itemGroup?.getValue?.(item)
 }

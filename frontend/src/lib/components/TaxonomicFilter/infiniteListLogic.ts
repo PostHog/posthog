@@ -79,7 +79,7 @@ import type { DataWarehouseTableForInsight } from '../../../../../products/data_
 import type { MaxContextTaxonomicFilterOption } from '../../../scenes/max/maxTypes'
 import { teamLogic } from '../../../scenes/teamLogic'
 import type { ActionType, PersonProperty, PropertyDefinition } from '../../../types'
-import { getItemGroup } from './InfiniteList'
+import { getItemGroup, getItemValue } from './InfiniteList'
 import type { SelectItemMeta, TopMatchItem } from './taxonomicFilterLogic'
 import type { HiddenEventStandIn } from './types'
 
@@ -2383,12 +2383,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem && itemGroup) {
-                    // A recent row keeps only `{ name, id? }`, so read the value recorded when it was first picked.
-                    const itemValue = selectedItem
-                        ? hasRecentContext(selectedItem)
-                            ? (selectedItem._recentContext.sourceValue ?? itemGroup.getValue?.(selectedItem))
-                            : itemGroup.getValue?.(selectedItem)
-                        : null
+                    const itemValue = selectedItem ? getItemValue(selectedItem, itemGroup) : null
                     actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
                         position: values.index,
                     })
