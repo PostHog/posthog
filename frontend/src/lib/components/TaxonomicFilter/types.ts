@@ -169,8 +169,9 @@ export interface TaxonomicFilterProps {
      */
     includeHiddenEvents?: boolean
     /**
-     * A search that starts to spell a hidden event offers a stand-in row for it.
-     * The event's own row stays out of the list, whatever `includeHiddenEvents` says.
+     * A search that reaches the second word of a hidden event's name or label offers a stand-in row for it.
+     * The event's own row stays out of the search results, whatever `includeHiddenEvents` says.
+     * Recent and pinned rows still follow `includeHiddenEvents`.
      * Picking the stand-in commits the event's name.
      * Set it only where the host turns that pick into a query on the table that now holds the event, and only for a
      * team whose `events` table no longer receives the event. Such a team may have no definition to list, or one that

@@ -771,13 +771,13 @@ function InfiniteListEmptyState(): JSX.Element {
 
     // Reads the Events group rather than this list's own group because the active tab can be the
     // aggregated one, which carries no exclusions of its own. `taxonomicGroups` holds every group
-    // whether or not this filter offers it, hence the gate.
-    const hiddenEventSearched = taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Events)
-        ? hiddenEventMatchingSearch(
-              searchQuery,
-              taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.Events)?.excludedProperties
-          )
-        : null
+    // whether or not this filter offers it, hence the gate. A picker that offers stand-ins can build a
+    // series on the hidden event, so the notice that it can't would be false there.
+    const eventsGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.Events)
+    const hiddenEventSearched =
+        taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Events) && !eventsGroup?.hiddenEventStandIns
+            ? hiddenEventMatchingSearch(searchQuery, eventsGroup?.excludedProperties)
+            : null
 
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">

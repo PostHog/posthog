@@ -469,6 +469,24 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
                 expected: { name: '$feature_flag_called', value: '$feature_flag_called' },
             },
             {
+                description: 'keeps the quick filter marker so a pinned keyword shortcut still applies its filter',
+                input: {
+                    _type: 'quick_filter',
+                    name: 'Click (autocapture)',
+                    filterValue: 'click',
+                    eventName: '$autocapture',
+                    propertyKey: '$event_type',
+                },
+                fallback: 'Click (autocapture)',
+                expected: {
+                    _type: 'quick_filter',
+                    name: 'Click (autocapture)',
+                    filterValue: 'click',
+                    eventName: '$autocapture',
+                    propertyKey: '$event_type',
+                },
+            },
+            {
                 description: 'uses fallback value when name is missing',
                 input: { id: 5 },
                 fallback: 'fb',

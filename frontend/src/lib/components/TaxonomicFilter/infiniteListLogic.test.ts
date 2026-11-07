@@ -1804,6 +1804,37 @@ describe('infiniteListLogic', () => {
             expect(topMatches[0]).toMatchObject({ _type: 'quick_filter', filterValue: 'click' })
         })
 
+        it('places a hidden event stand-in ahead of the remote matches', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': [
+                        200,
+                        {
+                            results: [{ id: 'uuid-flag-enrolled', name: 'feature flag enrolled', tags: [] }],
+                            count: 1,
+                        },
+                    ],
+                },
+            })
+            keySuffix += 1
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `hiddenEventStandInTest-${keySuffix}`,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+                offerHiddenEventStandIns: true,
+            })
+            listLogic.mount()
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('feature flag'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            const results = listLogic.values.items.results
+            expect(results[0]).toMatchObject({ _type: 'hidden_event_stand_in', value: '$feature_flag_called' })
+            expect(results.slice(1)).toContainEqual(expect.objectContaining({ name: 'feature flag enrolled' }))
+        })
+
         it('returns no shortcut items when enableKeywordShortcuts is false', async () => {
             const listLogic = mountEventsLogic(false)
 
