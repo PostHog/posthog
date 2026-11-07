@@ -3135,6 +3135,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "token_cost",
         "token_cost_incomplete",
         "compute_cost",
+        # Trial funding is stamped by admission, never by clients.
+        "self_driving_funding",
         "failure_error_type",
         "startup_failure",
         "startup_started_at",
