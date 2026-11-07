@@ -237,6 +237,7 @@ pub fn process_single_event(
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
         historical_migration: metadata.data_type == DataType::AnalyticsHistorical,
+        options: None,
     };
 
     Ok(ProcessedEvent { metadata, event })
