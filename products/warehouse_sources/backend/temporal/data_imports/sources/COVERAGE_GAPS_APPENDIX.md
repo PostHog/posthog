@@ -11461,10 +11461,10 @@ Today (4): `issues`, `metrics`, `projects`, `quality_gates`
 
 Diffed against: <https://sonarcloud.io/api/webservices/list>
 
-- [ ] `measures/component_tree` — the actual metric values per project/directory/file - today only the metric definitions (api/metrics) are synced, so no numbers land in the warehouse (high)
-- [ ] `measures/search_history` — historical metric values over time; required for any coverage/debt trend chart (high)
-- [ ] `rules/search` — lookup table resolving the rule keys carried on every issue we already sync (severity, type, language, remediation effort) (high)
-- [ ] `issues/changelog` — issue state/assignee/severity transition history - lets you measure time-to-fix and false-positive rates (high)
+- [x] `measures/component_tree` — the actual metric values per project/directory/file - today only the metric definitions (api/metrics) are synced, so no numbers land in the warehouse (high) → `measures` (full refresh, fan-out over `projects`)
+- [x] `measures/search_history` — historical metric values over time; required for any coverage/debt trend chart (high) → `measures_history` (full refresh, fan-out over `projects`)
+- [x] `rules/search` — lookup table resolving the rule keys carried on every issue we already sync (severity, type, language, remediation effort) (high) → `rules` (full refresh)
+- [x] `issues/changelog` — issue state/assignee/severity transition history - lets you measure time-to-fix and false-positive rates (high) → `issue_changelog` (full refresh, fan-out over `issues`, off by default)
 - [ ] `hotspots/search` — security hotspots are a separate finding class from issues and are entirely absent (high)
 - [ ] `project_analyses/search` — per-analysis records with version and event markers; the join key for measures history and release-over-release comparison (medium)
 - [ ] `project_branches/list` — branch-level quality gate status and analysis dates (medium)
