@@ -7,6 +7,8 @@ import { expectLogic } from 'kea-test-utils'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import apiReal, { ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -109,27 +111,47 @@ describe('integrationsLogic', () => {
             config: { provider: 'ses', email: 'hello@acme.example.com', domain: 'acme.example.com', verified: true },
             created_at: '2026-08-18T00:00:00Z',
         }
-        it('keeps the sandbox row out of the own-sender lists', async () => {
-            integrationsPayload = [sandboxSender, ownSender]
-
-            await expectLogic(logic, () => {
-                logic.actions.loadIntegrations()
-            })
-                .toDispatchActions(['loadIntegrationsSuccess'])
-                .toMatchValues({
-                    ownEmailIntegrations: [expect.objectContaining({ id: ownSender.id })],
-                    userManagedIntegrations: [expect.objectContaining({ id: ownSender.id })],
-                    domainGroupedEmailIntegrations: [
-                        {
-                            domain: 'acme.example.com',
-                            integrations: [expect.objectContaining({ id: ownSender.id })],
-                        },
-                    ],
-                })
-            expect(logic.values.getIntegrationsByKind(['email'])).toEqual([
-                expect.objectContaining({ id: ownSender.id }),
-            ])
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
         })
+
+        const enableFlag = (): void => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+                [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+            })
+        }
+
+        it.each([
+            { flagState: 'on', flag: true, expectedSandbox: expect.objectContaining({ id: sandboxSender.id }) },
+            { flagState: 'off', flag: false, expectedSandbox: null },
+        ])(
+            'keeps the sandbox row out of the own-sender lists and exposes it only with the flag $flagState',
+            async ({ flag, expectedSandbox }) => {
+                if (flag) {
+                    enableFlag()
+                }
+                integrationsPayload = [sandboxSender, ownSender]
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadIntegrations()
+                })
+                    .toDispatchActions(['loadIntegrationsSuccess'])
+                    .toMatchValues({
+                        sandboxEmailSender: expectedSandbox,
+                        ownEmailIntegrations: [expect.objectContaining({ id: ownSender.id })],
+                        userManagedIntegrations: [expect.objectContaining({ id: ownSender.id })],
+                        domainGroupedEmailIntegrations: [
+                            {
+                                domain: 'acme.example.com',
+                                integrations: [expect.objectContaining({ id: ownSender.id })],
+                            },
+                        ],
+                    })
+                expect(logic.values.getIntegrationsByKind(['email'])).toEqual([
+                    expect.objectContaining({ id: ownSender.id }),
+                ])
+            }
+        )
     })
 
     describe('GitHub discovery freshness', () => {

@@ -215,6 +215,8 @@ export interface integrationsLogicValues {
     pollingSubscribers: number
     providerIntegrations: IntegrationType[] | null
     requestedAccessKinds: IntegrationKind[]
+    sandboxEmailSender: IntegrationType | null
+    sandboxEmailSenderEnabled: boolean
     selectedIntegration: IntegrationType | null
     setupModalOpen: boolean
     setupModalType: ChannelType | null
@@ -802,6 +804,11 @@ export interface integrationsLogicMeta {
         getGitHubRepositoriesTotal: (
             githubRepositoriesTotal: Record<number, number>
         ) => (integrationId: number) => number | null
+        sandboxEmailSenderEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        sandboxEmailSender: (
+            integrations: IntegrationType[] | null,
+            sandboxEmailSenderEnabled: boolean
+        ) => IntegrationType | null
         userManagedIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[] | null
         ownEmailIntegrations: (userManagedIntegrations: IntegrationType[] | null) => IntegrationType[]
         domainGroupedEmailIntegrations: (ownEmailIntegrations: IntegrationType[]) => EmailIntegrationDomainGroupedType[]
@@ -1570,6 +1577,15 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
 
+        sandboxEmailSenderEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER],
+        ],
+        sandboxEmailSender: [
+            (s) => [s.integrations, s.sandboxEmailSenderEnabled],
+            (integrations: IntegrationType[] | null, sandboxEmailSenderEnabled: boolean): IntegrationType | null =>
+                sandboxEmailSenderEnabled ? (integrations?.find(isSandboxEmailSender) ?? null) : null,
+        ],
         userManagedIntegrations: [
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null): IntegrationType[] | null =>

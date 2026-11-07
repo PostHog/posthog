@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconUpload } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -13,17 +13,22 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { SupabaseAuthEmails } from '../SupabaseAuthEmails/SupabaseAuthEmails'
 import { ChannelCatalog } from './ChannelCatalog'
+import { channelCatalogLogic } from './channelCatalogLogic'
 import { ChannelSetupModal } from './ChannelSetupModal'
 import { PUSH_CHANNELS } from './channelSummary'
 import { pushTokenImportLogic } from './PushTokenImport/pushTokenImportLogic'
 import { PushTokenImportModal } from './PushTokenImport/PushTokenImportModal'
+import { SandboxEmailSenderRow } from './SandboxEmailSenderRow'
 
 const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio', 'firebase', 'apns'] as const
 export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]
 
 export function MessageChannels(): JSX.Element {
-    const { setupModalOpen, integrations, setupModalType, selectedIntegration } = useValues(integrationsLogic)
+    const { setupModalOpen, userManagedIntegrations, setupModalType, selectedIntegration, sandboxEmailSender } =
+        useValues(integrationsLogic)
     const { closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
+    const { sandboxSetupError, sandboxSetupOutcomeLoading, sandboxRefreshPending } = useValues(channelCatalogLogic)
+    const { setUpSandboxSender } = useActions(channelCatalogLogic)
     const { openImport } = useActions(pushTokenImportLogic)
     const supabaseAuthEmailsEnabled = useFeatureFlag('WORKFLOWS_SUPABASE_AUTH_EMAILS')
     const restrictedReason = useRestrictedArea({
@@ -31,8 +36,10 @@ export function MessageChannels(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const allWorkflowIntegrations =
-        integrations?.filter((integration) => MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType)) ?? []
+    const ownWorkflowIntegrations =
+        userManagedIntegrations?.filter((integration) =>
+            MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType)
+        ) ?? []
 
     return (
         <>
@@ -50,8 +57,21 @@ export function MessageChannels(): JSX.Element {
 
             <div className="flex flex-col gap-4" data-attr="message-channels">
                 <ChannelCatalog />
+                {sandboxSetupError && (
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Try again',
+                            onClick: () => setUpSandboxSender(),
+                            loading: sandboxSetupOutcomeLoading || sandboxRefreshPending,
+                        }}
+                    >
+                        {sandboxSetupError}
+                    </LemonBanner>
+                )}
+                {sandboxEmailSender && <SandboxEmailSenderRow integration={sandboxEmailSender} />}
                 {supabaseAuthEmailsEnabled && <SupabaseAuthEmails />}
-                {allWorkflowIntegrations.length > 0 && (
+                {ownWorkflowIntegrations.length > 0 && (
                     <h3 className="mb-0 text-base font-semibold">Your connections</h3>
                 )}
                 <EmailIntegrationsList />

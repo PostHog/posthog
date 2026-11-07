@@ -1,0 +1,53 @@
+import { useActions } from 'kea'
+
+import { IconLetter, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
+
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
+
+import { IntegrationType } from '~/types'
+
+import { channelCatalogLogic } from './channelCatalogLogic'
+
+export function SandboxEmailSenderRow({ integration }: { integration: IntegrationType }): JSX.Element {
+    const { startChannelSetup } = useActions(channelCatalogLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+    const fromLine = `${integration.config.name} <${integration.config.email}>`
+
+    return (
+        <LemonCard hoverEffect={false} className="p-2 @container" data-attr="sandbox-email-sender">
+            <div className="flex flex-col gap-3 ml-2 @lg:flex-row @lg:items-center">
+                <div className="flex flex-1 gap-4 items-start min-w-0">
+                    <IconLetter className="w-8 h-8 shrink-0" />
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <div className="flex flex-wrap gap-2 items-center">
+                            <strong>Sandbox sender</strong>
+                            <span className="text-xs text-secondary truncate" translate="no" title={fromLine}>
+                                {fromLine}
+                            </span>
+                        </div>
+                        <span className="text-sm text-secondary">
+                            Sends from a PostHog address, so it works before you verify a domain. It delivers only to
+                            verified members of your organization. Add your own sender to email anyone.
+                        </span>
+                    </div>
+                </div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconPlus />}
+                    className="shrink-0 self-start @lg:self-center"
+                    onClick={() => startChannelSetup('email')}
+                    disabledReason={restrictedReason}
+                    data-attr="sandbox-email-sender-add-own"
+                >
+                    Add your own sender
+                </LemonButton>
+            </div>
+        </LemonCard>
+    )
+}
