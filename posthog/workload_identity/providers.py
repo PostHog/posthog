@@ -8,8 +8,6 @@ supported once it has an entry in `SUPPORTED_WORKLOAD_PROVIDERS`.
 from __future__ import annotations
 
 import string
-from enum import StrEnum
-from typing import assert_never
 
 from django.conf import settings
 from django.db import models
@@ -17,12 +15,6 @@ from django.db import models
 from posthog.dataclasses import frozen
 from posthog.workload_identity.resolvers import resolve_github_repository, resolve_gitlab_project
 from posthog.workload_identity.subjects import SubjectResolver
-
-
-class AudienceCheck(StrEnum):
-    # The token's `aud` must equal this deployment's SITE_URL, which the workload sets when it asks
-    # its provider for the token. A token minted for another service is then never accepted.
-    SITE_URL = "site_url"
 
 
 @frozen
@@ -79,7 +71,6 @@ class WorkloadProvider:
     # Compared with the token's `iss` claim after trailing slashes are stripped from both.
     issuer: str
     jwks_url: str
-    audience_check: AudienceCheck
     # The claim every policy pins: the workload's immutable subject, for example a repository id. It
     # survives a rename, and a re-created workload gets a new one, so nobody can take over a policy by
     # claiming the old name.
@@ -140,7 +131,6 @@ GITHUB_ACTIONS = WorkloadProvider(
     name="GitHub Actions",
     issuer="https://token.actions.githubusercontent.com",
     jwks_url="https://token.actions.githubusercontent.com/.well-known/jwks",
-    audience_check=AudienceCheck.SITE_URL,
     subject_claim=WorkloadClaim(
         name="repository_id",
         label="Repository ID",
@@ -404,15 +394,6 @@ def get_workload_provider_by_key(key: str) -> WorkloadProvider | None:
 
 
 def workload_site_url() -> str:
-    """This deployment's address without a trailing slash, or empty when SITE_URL is unset."""
+    """This deployment's address without a trailing slash, or empty when SITE_URL is unset. It is the `aud`
+    every workload token must carry, so a token minted for another service is never accepted."""
     return (settings.SITE_URL or "").rstrip("/")
-
-
-def expected_audience(provider: WorkloadProvider) -> str:
-    """The `aud` a token from this provider must carry. The exchange checks it and setup instructions show
-    it, so the two can't drift apart. Empty when this deployment has no address."""
-    match provider.audience_check:
-        case AudienceCheck.SITE_URL:
-            return workload_site_url()
-        case _:
-            assert_never(provider.audience_check)

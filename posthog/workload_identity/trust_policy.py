@@ -59,7 +59,6 @@ from posthog.workload_identity.providers import (
     ConditionPreset,
     WorkloadProvider,
     WorkloadProviderKey,
-    expected_audience,
     get_supported_workload_providers,
     get_workload_provider_by_issuer,
     get_workload_provider_by_key,
@@ -403,7 +402,7 @@ class WorkloadProviderSerializer(serializers.Serializer):
 
     def get_setup_snippet(self, provider: WorkloadProvider) -> str:
         # The job asks its provider for a token whose audience is this host.
-        return provider.setup_snippet.replace(SNIPPET_HOST, expected_audience(provider))
+        return provider.setup_snippet.replace(SNIPPET_HOST, workload_site_url())
 
 
 class WorkloadJobSettingsSerializer(serializers.Serializer):
@@ -815,9 +814,7 @@ class WorkloadTrustPolicyRequestViewSet(
         to ask for or write a policy."""
         provider = supported_provider_for(request.validated_query_data["issuer"])
         if provider.resolve_subject is None:
-            raise NotFound(
-                f"PostHog can't look up {provider.subject_claim.label} for {provider.name}. Enter it by hand."
-            )
+            raise NotFound(f"PostHog can't look up {provider.subject_claim.label} for {provider.name}.")
         try:
             resolved = provider.resolve_subject(self.team_id, request.validated_query_data["subject_name"])
         except WorkloadSubjectNotFound as e:
