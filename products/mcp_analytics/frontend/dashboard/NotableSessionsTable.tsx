@@ -27,6 +27,7 @@ import { CardError } from './Card'
 import { DESTRUCTIVE_ERROR_RATE_PCT, formatDuration, truncateSessionId } from './formatters'
 
 const WARNING_ERROR_PCT = 1
+const SKELETON_REASON_WIDTHS = [200, 260, 120]
 
 function statusVariant(errorRatePct: number): 'destructive' | 'warning' | 'success' {
     if (errorRatePct >= DESTRUCTIVE_ERROR_RATE_PCT) {
@@ -69,16 +70,26 @@ function SessionRows({
     }
     if (loading && sessions.length === 0) {
         return (
-            <TableBody>
-                <TableRow>
-                    <TableCell colSpan={5}>
-                        <div className="space-y-2 py-1">
-                            {Array.from({ length: 4 }).map((_, i) => (
-                                <Skeleton key={i} className="h-3.5 w-full" />
-                            ))}
-                        </div>
-                    </TableCell>
-                </TableRow>
+            <TableBody aria-busy>
+                {SKELETON_REASON_WIDTHS.map((reasonWidth, i) => (
+                    <TableRow key={i}>
+                        <TableCell>
+                            <Skeleton className="h-3 w-20" />
+                        </TableCell>
+                        <TableCell align="right">
+                            <Skeleton className="ml-auto h-3 w-6" />
+                        </TableCell>
+                        <TableCell align="right">
+                            <Skeleton className="ml-auto h-3 w-12" />
+                        </TableCell>
+                        <TableCell>
+                            <Skeleton className="h-4 w-16 rounded-full" />
+                        </TableCell>
+                        <TableCell expand>
+                            <Skeleton className="h-3" style={{ width: reasonWidth }} />
+                        </TableCell>
+                    </TableRow>
+                ))}
             </TableBody>
         )
     }
