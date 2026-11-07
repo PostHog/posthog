@@ -2250,7 +2250,15 @@ class HogFlowActionSerializer(serializers.Serializer):
             for key in email_keys:
                 email_input = inputs.get(key) if isinstance(inputs, dict) else None
                 if isinstance(email_input, dict):
-                    validate_sandbox_email_sender(email_input.get("value"), input_context)
+                    try:
+                        validate_sandbox_email_sender(email_input.get("value"), input_context)
+                    except serializers.ValidationError as error:
+                        # These checks run before the inputs serializer. API clients map an error to its
+                        # field by attr, so report it at the input's path, unwrapped as InputsSerializer does.
+                        detail = error.detail
+                        if isinstance(detail, dict) and "input" in detail:
+                            detail = detail["input"]
+                        raise serializers.ValidationError({"inputs": {key: detail}})
             if not template:
                 if strict:
                     raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
