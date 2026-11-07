@@ -1,31 +1,27 @@
-# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
-# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product today
-# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product today
-# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
-category: Today
-feature: today
+category: UI customization
+feature: ui_customization
 url_prefix: /home
 ui_apps: {}
 tools:
-    today-analytics-sidebar-get:
-        operation: today_analytics_sidebar_retrieve
+    ui-customization-analytics-sidebar-get:
+        operation: ui_customization_analytics_sidebar_retrieve
         enabled: true
         title: Get the analytics sidebar
         description: >
             Get the layout of the person's Analytics pane: the sidebar of the Analytics section in the new navigation.
             It is the person's own layout, or the default when customized is false. Call it before you change the
-            sidebar, then send the whole changed layout to today-analytics-sidebar-update.
-        feature_flag: today-rail-nav
-    today-analytics-sidebar-reset:
-        operation: today_analytics_sidebar_destroy
+            sidebar, then send the whole changed layout to ui-customization-analytics-sidebar-update.
+        feature_flag: ui-customization
+    ui-customization-analytics-sidebar-reset:
+        operation: ui_customization_analytics_sidebar_destroy
         enabled: true
         title: Reset the analytics sidebar
         description: >
             Remove the person's own layout of the Analytics pane, so it shows the default again. Returns the default
             layout.
-        feature_flag: today-rail-nav
-    today-analytics-sidebar-update:
-        operation: today_analytics_sidebar_update
+        feature_flag: ui-customization
+    ui-customization-analytics-sidebar-update:
+        operation: ui_customization_analytics_sidebar_update
         enabled: true
         annotations:
             readOnly: false
@@ -39,4 +35,4 @@ tools:
             fills (pinned, recents, by_posthog). Get the IDs of insights, dashboards and notebooks from their tools
             first; never invent them. Keep the default sections the person did not ask to remove. A 400 error names each
             value that does not fit, so fix those values and send it again.
-        feature_flag: today-rail-nav
+        feature_flag: ui-customization

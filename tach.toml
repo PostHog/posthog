@@ -2024,3 +2024,17 @@ expose = [
 from = [
     "products.knowledge_writer",
 ]
+
+[[modules]]
+path = "products.ui_customization"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ui_customization",
+]

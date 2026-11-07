@@ -54,6 +54,7 @@ PRODUCTS_APPS = [
     "products.stamphog.backend.apps.StamphogConfig",
     "products.knowledge_writer.backend.apps.KnowledgeWriterConfig",
     "products.today.backend.apps.TodayConfig",
+    "products.ui_customization.backend.apps.UiCustomizationConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.aeo.backend.apps.AEOConfig",

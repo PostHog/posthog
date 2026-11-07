@@ -1,0 +1,220 @@
+from typing import TYPE_CHECKING
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team
+from posthog.models.personal_api_key import hash_key_value
+
+from products.ui_customization.backend.facade import api as customization_facade
+from products.ui_customization.backend.logic.analytics_sidebar import SIDEBAR_CONTEXT
+from products.ui_customization.backend.models import UserInterfaceFragment
+from products.ui_customization.backend.tests.conftest import UICustomizationTeamScopedTestMixin
+from products.ui_customization.backend.tests.test_analytics_sidebar import GROWTH_LAYOUT
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
+
+
+class TestAnalyticsSidebarAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
+    databases = {"default", "ui_customization_db_writer", "ui_customization_db_reader"}
+
+    def _call(self, method: str, body: dict | None = None, flag: bool = True) -> "_MonkeyPatchedResponse":
+        with patch(
+            "products.ui_customization.backend.facade.feature_flags.feature_enabled_or_false", return_value=flag
+        ):
+            return getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/ui_customization/analytics_sidebar/", body, format="json"
+            )
+
+    def _section_ids(self, response: "_MonkeyPatchedResponse") -> tuple[bool, list[str]]:
+        body = response.json()
+        return body["customized"], [section["id"] for section in body["layout"]["sections"]]
+
+    def test_a_person_saves_and_resets_their_own_layout_without_changing_anyone_elses(self) -> None:
+        other_fragment = UserInterfaceFragment.objects.create(
+            team_id=self.team.id, user_id=self.user.id, context="OtherSurface", content={"title": "Other surface"}
+        )
+        default = (False, ["browse", "pinned", "recents", "by-posthog", "monitor"])
+        before = self._section_ids(self._call("get"))
+        saved = self._call("put", {"layout": GROWTH_LAYOUT})
+        read = self._call("get")
+        self.client.force_login(self._create_user("teammate@example.com"))
+        teammate = self._section_ids(self._call("get"))
+        self.client.force_login(self.user)
+        reset = self._section_ids(self._call("delete"))
+        after = self._section_ids(self._call("get"))
+
+        assert (before, saved.json(), read.json(), teammate, reset, after) == (
+            default,
+            {"layout": GROWTH_LAYOUT, "customized": True},
+            {"layout": GROWTH_LAYOUT, "customized": True},
+            default,
+            default,
+            default,
+        )
+        other_fragment.refresh_from_db()
+        assert other_fragment.content == {"title": "Other surface"}
+
+    def test_child_environments_share_the_parent_team_layout(self) -> None:
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+        )
+        self._call("put", {"layout": GROWTH_LAYOUT})
+
+        assert (
+            customization_facade.get_analytics_sidebar(team=child, user=self.user).layout.model_dump(
+                mode="json", exclude_none=True
+            )
+            == GROWTH_LAYOUT
+        )
+        customization_facade.reset_analytics_sidebar(team=child, user=self.user)
+
+        assert self._call("get").json()["customized"] is False
+
+    def test_team_deletion_removes_all_fragment_contexts_and_users_only_for_that_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        teammate = self._create_user("fragment-teammate@example.com")
+        for team_id in [self.team.id, other_team.id]:
+            for user_id in [self.user.id, teammate.id]:
+                for context in [SIDEBAR_CONTEXT, "OtherSurface"]:
+                    UserInterfaceFragment.objects.for_team(team_id).create(
+                        team_id=team_id, user_id=user_id, context=context, content={"title": context}
+                    )
+
+        customization_facade.delete_fragments_for_teams([self.team.id])
+
+        assert not UserInterfaceFragment.objects.for_team(self.team.id).exists()
+        assert set(UserInterfaceFragment.objects.for_team(other_team.id).values_list("user_id", "context")) == {
+            (user_id, context)
+            for user_id in [self.user.id, teammate.id]
+            for context in [SIDEBAR_CONTEXT, "OtherSurface"]
+        }
+
+    def test_a_layout_outside_the_schema_is_rejected_and_names_the_value(self) -> None:
+        layout = {
+            "sections": [{"id": "x", "items": [{"type": "link", "to": {"kind": "url", "url": "https://example.com"}}]}]
+        }
+
+        response = self._call("put", {"layout": layout})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "sections.0.items.0.link.to" in response.json()["detail"]
+
+    def test_a_stored_layout_the_schema_no_longer_accepts_shows_the_default_and_stays_stored(self) -> None:
+        stored = {"sections": [{"id": "x", "items": [{"type": "retired_widget"}]}]}
+        UserInterfaceFragment.objects.create(
+            team_id=self.team.id, user_id=self.user.id, context=SIDEBAR_CONTEXT, content=stored
+        )
+
+        response = self._call("get")
+
+        assert (response.json()["customized"], UserInterfaceFragment.objects.get(user_id=self.user.id).content) == (
+            False,
+            stored,
+        )
+
+    @parameterized.expand([("get", None), ("put", {"layout": GROWTH_LAYOUT}), ("delete", None)])
+    def test_people_without_ui_customization_get_404(self, method: str, body: dict | None) -> None:
+        assert self._call(method, body, flag=False).status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("get", ["user:read"], 200),
+            ("put", ["user:read"], 403),
+            ("delete", ["user:read"], 403),
+            ("put", ["user:write"], 200),
+            ("delete", ["user:write"], 200),
+            ("get", ["today:read"], 403),
+            ("put", ["today:write"], 403),
+        ]
+    )
+    def test_scoped_keys_require_user_preference_scopes(self, method: str, scopes: list[str], expected: int) -> None:
+        raw_key = "synthetic_ui_customization_key"
+        PersonalAPIKey.objects.create(
+            user=self.user, label="UI customization", secure_value=hash_key_value(raw_key), scopes=scopes
+        )
+        self.client.logout()
+        with patch(
+            "products.ui_customization.backend.facade.feature_flags.feature_enabled_or_false", return_value=True
+        ):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/ui_customization/analytics_sidebar/",
+                {"layout": GROWTH_LAYOUT} if method == "put" else None,
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+            )
+        assert response.status_code == expected
+
+    @parameterized.expand(
+        [(method, restriction) for method in ["get", "put", "delete"] for restriction in ["project", "organization"]]
+    )
+    def test_scoped_keys_only_access_their_allowed_tenant(self, method: str, restriction: str) -> None:
+        other_org, _, other_team = Organization.objects.bootstrap(self.user)
+        if restriction == "project":
+            other_team = Team.objects.create(organization=self.organization, name="Other project")
+        raw_key = "synthetic_ui_customization_restricted_key"
+        key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Restricted customization",
+            secure_value=hash_key_value(raw_key),
+            scopes=["user:read", "user:write"],
+            scoped_teams=[other_team.id] if restriction == "project" else [],
+            scoped_organizations=[str(other_org.id)] if restriction == "organization" else [],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        body = {"layout": GROWTH_LAYOUT} if method == "put" else None
+
+        assert self._call(method, body).status_code == status.HTTP_403_FORBIDDEN
+        assert not UserInterfaceFragment.objects.for_team(self.team.id).exists()
+
+        key.scoped_teams = [self.team.id] if restriction == "project" else []
+        key.scoped_organizations = [str(self.organization.id)] if restriction == "organization" else []
+        key.save()
+
+        assert self._call(method, body).status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("get",), ("put",), ("delete",)])
+    def test_organization_personal_key_policy_applies_to_customization(self, method: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "Security settings"}
+        ]
+        self.organization.members_can_use_personal_api_keys = False
+        self.organization.save()
+        OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        raw_key = "synthetic_ui_customization_policy_key"
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Customization policy",
+            secure_value=hash_key_value(raw_key),
+            scopes=["user:read", "user:write"],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        body = {"layout": GROWTH_LAYOUT} if method == "put" else None
+
+        assert self._call(method, body).status_code == status.HTTP_403_FORBIDDEN
+        assert not UserInterfaceFragment.objects.for_team(self.team.id).exists()
+
+        self.organization.members_can_use_personal_api_keys = True
+        self.organization.save()
+
+        assert self._call(method, body).status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("get", None), ("put", {"layout": GROWTH_LAYOUT}), ("delete", None)])
+    def test_navigation_flag_alone_does_not_enable_customization(self, method: str, body: dict | None) -> None:
+        with patch(
+            "products.ui_customization.backend.facade.feature_flags.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "today-rail-nav",
+        ):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/ui_customization/analytics_sidebar/", body, format="json"
+            )
+        assert response.status_code == 404

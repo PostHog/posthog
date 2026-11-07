@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import serializers
 
-from products.today.backend.presentation.serializers import AnalyticsSidebarLayoutField
+from products.ui_customization.backend.presentation.serializers import AnalyticsSidebarLayoutField
 
 GROWTH_LAYOUT: dict[str, Any] = {
     "version": 1,

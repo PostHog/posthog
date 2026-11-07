@@ -62,9 +62,9 @@ import { GENERATED_TOOLS as streamlit_apps } from './streamlit_apps'
 import { GENERATED_TOOLS as subscriptions } from './subscriptions'
 import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as tasks } from './tasks'
-import { GENERATED_TOOLS as today } from './today'
 import { GENERATED_TOOLS as tracing } from './tracing'
 import { GENERATED_TOOLS as transactional_email_log } from './transactional_email_log'
+import { GENERATED_TOOLS as ui_customization } from './ui_customization'
 import { GENERATED_TOOLS as visual_review } from './visual_review'
 import { GENERATED_TOOLS as warehouse_destinations } from './warehouse_destinations'
 import { GENERATED_TOOLS as warehouse_sources } from './warehouse_sources'
@@ -135,9 +135,9 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...subscriptions,
     ...surveys,
     ...tasks,
-    ...today,
     ...tracing,
     ...transactional_email_log,
+    ...ui_customization,
     ...visual_review,
     ...warehouse_destinations,
     ...warehouse_sources,

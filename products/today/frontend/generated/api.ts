@@ -9,8 +9,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    AnalyticsSidebarApi,
-    AnalyticsSidebarRequestApi,
     ExcerptChoiceApi,
     ExcerptChoiceRequestApi,
     FigureMarksApi,
@@ -21,63 +19,6 @@ import type {
     TodayHighlightsRetrieveParams,
     TodayReportsKeyClausesRetrieveParams,
 } from './api.schemas'
-
-export const getTodayAnalyticsSidebarRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/today/analytics_sidebar/`
-}
-
-/**
- * The layout of the Analytics pane in the new navigation: the person's own layout, or the default when they have not saved one. Read it before you change it, so you keep the sections the person wants. 404 when the person does not have the new navigation.
- * @summary Get the person's analytics sidebar
- */
-export const todayAnalyticsSidebarRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<AnalyticsSidebarApi> => {
-    return apiMutator<AnalyticsSidebarApi>(getTodayAnalyticsSidebarRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTodayAnalyticsSidebarUpdateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/today/analytics_sidebar/`
-}
-
-/**
- * Replaces the layout of the person's Analytics pane. It changes only the person who calls it, in this project. The pane shows the new layout the next time it loads. 400 lists every value that does not fit the layout schema. 404 when the person does not have the new navigation.
- * @summary Set the person's analytics sidebar
- */
-export const todayAnalyticsSidebarUpdate = async (
-    projectId: string,
-    analyticsSidebarRequestApi: AnalyticsSidebarRequestApi,
-    options?: RequestInit
-): Promise<AnalyticsSidebarApi> => {
-    return apiMutator<AnalyticsSidebarApi>(getTodayAnalyticsSidebarUpdateUrl(projectId), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(analyticsSidebarRequestApi),
-    })
-}
-
-export const getTodayAnalyticsSidebarDestroyUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/today/analytics_sidebar/`
-}
-
-/**
- * Removes the person's own layout, so the Analytics pane shows the default again. Returns the default layout. 404 when the person does not have the new navigation.
- * @summary Reset the person's analytics sidebar
- */
-export const todayAnalyticsSidebarDestroy = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<AnalyticsSidebarApi> => {
-    return apiMutator<AnalyticsSidebarApi>(getTodayAnalyticsSidebarDestroyUrl(projectId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
 
 export const getTodayExcerptChoiceCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/today/excerpt_choice/`

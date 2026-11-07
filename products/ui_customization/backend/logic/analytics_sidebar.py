@@ -1,4 +1,4 @@
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, router, transaction
 from django.utils import timezone
 
 import structlog
@@ -18,7 +18,7 @@ from ..facade.enums import SidebarIcon, SidebarListSource, SidebarPage
 from ..models import UserInterfaceFragment
 
 logger = structlog.get_logger(__name__)
-SIDEBAR_CONTEXT = "TodayAnalyticsSidebar"
+SIDEBAR_CONTEXT = "analytics_sidebar"
 
 
 def _page(page: SidebarPage) -> SidebarLink:
@@ -63,7 +63,7 @@ def get_sidebar(*, team: Team, user_id: int) -> AnalyticsSidebar:
         return AnalyticsSidebar(layout=AnalyticsSidebarLayout.model_validate(row.content), customized=True)
     except ValidationError:
         # The row stays, so a rolled-back deploy that does not know a newer value gets the layout back on the next one.
-        logger.warning("today_analytics_sidebar_invalid", team_id=row.team_id, user_id=user_id)
+        logger.warning("ui_customization_analytics_sidebar_invalid", team_id=row.team_id, user_id=user_id)
         return DEFAULT
 
 
@@ -71,7 +71,7 @@ def set_sidebar(*, team: Team, user_id: int, layout: AnalyticsSidebarLayout) -> 
     team_id = _canonical(team)
     stored = layout.model_dump(mode="json", exclude_none=True)
     try:
-        with transaction.atomic():
+        with transaction.atomic(using=router.db_for_write(UserInterfaceFragment)):
             UserInterfaceFragment.objects.for_team(team_id, canonical=True).update_or_create(
                 team_id=team_id, user_id=user_id, context=SIDEBAR_CONTEXT, defaults={"content": stored}
             )

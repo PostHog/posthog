@@ -7,9 +7,9 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("today", "0005_todayhighlights_pins_key"),
-    ]
+    initial = True
+
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
                 "constraints": [
                     models.UniqueConstraint(
                         fields=("team_id", "user_id", "context"),
-                        name="today_ui_fragment_unique_context",
+                        name="ui_fragment_unique_context",
                     )
                 ],
             },

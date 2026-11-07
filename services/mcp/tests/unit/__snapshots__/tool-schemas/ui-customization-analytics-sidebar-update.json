@@ -1,14 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "additionalProperties": false,
     "properties": {
         "layout": {
-            "additionalProperties": false,
             "description": "The sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole sidebar, so send every section to keep.",
             "properties": {
                 "sections": {
                     "items": {
-                        "additionalProperties": false,
                         "properties": {
                             "icon": {
                                 "anyOf": [
@@ -54,7 +51,6 @@
                                 "items": {
                                     "anyOf": [
                                         {
-                                            "additionalProperties": false,
                                             "description": "A row that opens a page or an object.",
                                             "properties": {
                                                 "icon": {
@@ -107,7 +103,6 @@
                                                 "to": {
                                                     "anyOf": [
                                                         {
-                                                            "additionalProperties": false,
                                                             "description": "A PostHog page. It has its own label and icon.",
                                                             "properties": {
                                                                 "kind": {
@@ -133,7 +128,6 @@
                                                             "type": "object"
                                                         },
                                                         {
-                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "kind": {
                                                                     "const": "insight",
@@ -149,7 +143,6 @@
                                                             "type": "object"
                                                         },
                                                         {
-                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "id": {
                                                                     "description": "The dashboard's numeric ID.",
@@ -165,7 +158,6 @@
                                                             "type": "object"
                                                         },
                                                         {
-                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "kind": {
                                                                     "const": "notebook",
@@ -192,7 +184,6 @@
                                             "type": "object"
                                         },
                                         {
-                                            "additionalProperties": false,
                                             "description": "A button that opens a page or an object. Use it for an action, such as a new insight.",
                                             "properties": {
                                                 "icon": {
@@ -236,7 +227,6 @@
                                                 "to": {
                                                     "anyOf": [
                                                         {
-                                                            "additionalProperties": false,
                                                             "description": "A PostHog page. It has its own label and icon.",
                                                             "properties": {
                                                                 "kind": {
@@ -262,7 +252,6 @@
                                                             "type": "object"
                                                         },
                                                         {
-                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "kind": {
                                                                     "const": "insight",
@@ -278,7 +267,6 @@
                                                             "type": "object"
                                                         },
                                                         {
-                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "id": {
                                                                     "description": "The dashboard's numeric ID.",
@@ -294,7 +282,6 @@
                                                             "type": "object"
                                                         },
                                                         {
-                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "kind": {
                                                                     "const": "notebook",
@@ -326,7 +313,6 @@
                                             "type": "object"
                                         },
                                         {
-                                            "additionalProperties": false,
                                             "description": "The latest value of a trends insight, with a sparkline of its first series. Opens the insight.",
                                             "properties": {
                                                 "insight": {
@@ -350,7 +336,6 @@
                                             "type": "object"
                                         },
                                         {
-                                            "additionalProperties": false,
                                             "description": "A list that PostHog fills, such as the items the person pinned.",
                                             "properties": {
                                                 "source": {
