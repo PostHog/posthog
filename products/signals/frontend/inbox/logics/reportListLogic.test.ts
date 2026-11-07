@@ -191,6 +191,25 @@ describe('reportListLogic', () => {
             expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
         })
 
+        // The flat list merges the states by merge key, so a state loaded after a rebuild must use the
+        // ranking of the states already on screen.
+        it('loads a later state from the personal ranking the loaded states use', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
+                [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
+            })
+            inboxFiltersLogic.actions.setSort('personal', 'asc')
+            await expectLogic(logic).toFinishAllListeners()
+            const laterLogic = reportListLogic(sectionListLogicProps('monitoring'))
+            laterLogic.mount()
+            requestedRankingIds = []
+
+            laterLogic.actions.ensureLoaded()
+            await expectLogic(laterLogic).toFinishAllListeners()
+
+            expect(requestedRankingIds).toEqual(['personal-ranking-1'])
+            laterLogic.unmount()
+        })
+
         it.each([
             { scope: INBOX_SCOPE_FOR_YOU, suggested_reviewers: MOCK_USER_UUID, assignee: undefined },
             { scope: INBOX_SCOPE_CLAIMED_BY_YOU, suggested_reviewers: undefined, assignee: 'mine' },

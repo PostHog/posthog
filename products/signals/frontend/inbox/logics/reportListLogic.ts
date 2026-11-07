@@ -31,6 +31,7 @@ import { createdAfterForWindow } from '../filterOptions'
 import { captureInboxReportAction, type InboxReportActionSurface, setInboxServedRanker } from '../inboxAnalytics'
 import {
     INBOX_PRIMARY_REPORT_SECTION_KEY,
+    INBOX_REPORT_SECTION_KEYS,
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_CLAIMED_BY_YOU,
     INBOX_SCOPE_FOR_YOU,
@@ -117,6 +118,21 @@ export const INBOX_REPORT_SECTION_LIST_PARAMS: Record<InboxReportSectionKey, Rep
 /** Logic props for one report state's keyed instance, shared by the flat Reports list consumers. */
 export function sectionListLogicProps(sectionKey: InboxReportSectionKey): ReportListLogicProps {
     return { sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] }
+}
+
+/**
+ * The personal ranking a state already loaded with. The flat list merges the states by
+ * `inbox_merge_key`, and keys from two rankings do not compare. A state that loads later, such as one
+ * the user selects after a rebuild, must request the same ranking as the states already on screen.
+ */
+function loadedPersonalRankingId(): string | undefined {
+    for (const sectionKey of INBOX_REPORT_SECTION_KEYS) {
+        const response = reportListLogic.findMounted(sectionListLogicProps(sectionKey))?.values.reportsResponse
+        if (response?.requestContext?.sortField === 'personal' && response.ranking_id) {
+            return response.ranking_id
+        }
+    }
+    return undefined
 }
 
 function teammateUuidFromScope(scope: string): string | undefined {
@@ -678,6 +694,7 @@ export const reportListLogic = kea<reportListLogicType>([
                         ...listRequestParams(params),
                         offset: 0,
                         limit: PAGE_SIZE,
+                        ranking_id: requestContext.sortField === 'personal' ? loadedPersonalRankingId() : undefined,
                     })
                     // A newer first-page request for a changed query supersedes this one.
                     breakpoint()
