@@ -117,10 +117,12 @@ describe('reportListLogic', () => {
         const FIRST_PAGE = Array.from({ length: 10 }, (_, i) => makeReport(`page-1-${i}`))
         const SECOND_PAGE = [makeReport('page-2-0')]
         let requestedOffsets: (string | null)[]
+        let requestedRankingIds: (string | null)[]
         let logic: ReturnType<typeof reportListLogic.build>
 
         beforeEach(async () => {
             requestedOffsets = []
+            requestedRankingIds = []
             useMocks({
                 get: {
                     // Reviewer scope loads alongside the list; an empty map keeps it out of the way.
@@ -131,6 +133,7 @@ describe('reportListLogic', () => {
                         // The header count fires a separate count-only request; not a page.
                         if (searchParams.get('limit') !== '1') {
                             requestedOffsets.push(offset)
+                            requestedRankingIds.push(searchParams.get('ranking_id'))
                         }
                         const firstPage = offset === '0' || offset === null
                         return [
@@ -141,6 +144,7 @@ describe('reportListLogic', () => {
                                 next: firstPage ? 'http://localhost/api/projects/997/signals/reports/?offset=50' : null,
                                 previous: null,
                                 results: firstPage ? FIRST_PAGE : SECOND_PAGE,
+                                ranking_id: 'personal-ranking-1',
                             },
                         ]
                     },
@@ -177,6 +181,8 @@ describe('reportListLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
+            // A personal ranking rebuilt between pages must not reorder the rows already on screen.
+            expect(requestedRankingIds).toEqual([null, 'personal-ranking-1'])
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
 
             // The second page came back with `next: null`, so a further loadMore fires no request.

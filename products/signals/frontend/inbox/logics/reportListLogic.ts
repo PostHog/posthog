@@ -71,10 +71,10 @@ export interface ReportListRequestContext {
 
 /** A list response stamped with the query params and display context that produced it (see the loader). */
 export type ReportListResponse = CountedPaginatedResponse<SignalReport> &
-    Pick<PaginatedSignalReportListListApi, 'count_is_capped'> & {
-        /** The ranker the server used for `sort=recommended`. Null for every other sort. */
+    Pick<PaginatedSignalReportListListApi, 'count_is_capped' | 'ranking_id'> & {
+        /** The ranker the server used for `sort=recommended` or `sort=personal`. Null for every other sort. */
         ranker?: string | null
-        /** Whether the client shows a ranking score pill on each card, for `sort=recommended`. Null for every other sort. */
+        /** Whether the client shows a ranking score pill on each card, for `sort=recommended` or `sort=personal`. Null for every other sort. */
         ranking_pill?: boolean | null
         requestParams?: Record<string, unknown>
         requestContext?: ReportListRequestContext
@@ -234,6 +234,7 @@ export interface reportListLogicValues {
     listApiParams: any
     livePrReportIds: string[]
     loadedContext: ReportListRequestContext | null
+    loadedPersonalFallback: boolean
     loadedQueryKey: string | null
     loadedRanker: string | null
     loadedRankingPill: boolean
@@ -505,6 +506,7 @@ export interface reportListLogicMeta {
         loadedContext: (reportsResponse: ReportListResponse | null) => ReportListRequestContext | null
         loadedRanker: (reportsResponse: ReportListResponse | null) => string | null
         loadedRankingPill: (reportsResponse: ReportListResponse | null) => boolean
+        loadedPersonalFallback: (reportsResponse: ReportListResponse | null) => boolean
     }
 }
 
@@ -700,6 +702,8 @@ export const reportListLogic = kea<reportListLogicType>([
                         ...listRequestParams(params),
                         offset: current.length,
                         limit: PAGE_SIZE,
+                        // A personal ranking rebuilt between pages would reorder the pages already on screen.
+                        ranking_id: values.reportsResponse?.ranking_id ?? undefined,
                     })
                     // A first-page load for a changed query started meanwhile. Its rows win, so this
                     // page of the old query must not land on top of them.
@@ -956,15 +960,25 @@ export const reportListLogic = kea<reportListLogicType>([
             (reportsResponse: ReportListResponse | null): ReportListRequestContext | null =>
                 reportsResponse?.requestContext ?? null,
         ],
-        // The ranker the server used for a Recommended list: `priority` or a model head. Null for other sorts.
+        // The ranker the server used for a Recommended or Personalized list: `priority`, a model head or
+        // `personal`. Null for other sorts.
         loadedRanker: [
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): string | null => reportsResponse?.ranker ?? null,
         ],
-        // Whether the server put this user in a Recommended arm that shows score pills on the cards.
+        // Whether the cards show score pills: the server put this user in a Recommended arm that shows
+        // them, or the list is Personalized, which shows them to everyone.
         loadedRankingPill: [
             (s) => [s.reportsResponse],
-            (reportsResponse: ReportListResponse | null): boolean => reportsResponse?.ranking_pill === true,
+            (reportsResponse: ReportListResponse | null): boolean =>
+                reportsResponse?.ranking_pill === true || reportsResponse?.requestContext?.sortField === 'personal',
+        ],
+        // The user asked for the Personalized sort, but they have no stored personal ranking, so the
+        // server answered with the Recommended order.
+        loadedPersonalFallback: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): boolean =>
+                reportsResponse?.requestContext?.sortField === 'personal' && reportsResponse.ranker !== 'personal',
         ],
     }),
 

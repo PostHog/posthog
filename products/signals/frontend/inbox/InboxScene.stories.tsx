@@ -194,6 +194,36 @@ export const ReportsNarrow: Story = {
     },
 }
 
+// The user picked Personalized, but the server has no personal ranking for them, so it answers with
+// the Recommended order.
+export const PersonalizedSortFallback: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [
+                    200,
+                    {
+                        results: allReports,
+                        count: allReports.length,
+                        next: null,
+                        previous: null,
+                        ranker: 'priority',
+                        ranking_id: null,
+                        ranking_pill: false,
+                    },
+                ],
+            },
+        }),
+        routeTo(urls.inbox('reports'), { sort: 'personal:asc' }),
+    ],
+    play: async ({ canvas }) => {
+        await canvas.findByText("Your personalized list isn't ready yet, so this is the Recommended order.")
+    },
+}
+
 export const WithValueSummary: Story = {
     parameters: {
         featureFlags: {
