@@ -543,6 +543,8 @@ INSERT_PERSON_STATIC_COHORT = (
 )
 
 DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s"
+# A replace's prune: one mutation removes every row older than the run's marker.
+DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND _timestamp < %(marker)s"
 
 #
 # Copying demo data

@@ -971,6 +971,8 @@ def _populate_static_cohort(
         insert_cohort_people_into_pg,
         mint_population_marker,
         population_marker_is_current,
+        prune_members_absent_from_replace,
+        prune_static_cohort_rows_before_marker,
     )
 
     # The cohort this attempt marked is_calculating. Only that attempt finalizes the flag, so a
@@ -1056,6 +1058,16 @@ def _populate_static_cohort(
             insert_cohort_people_into_pg(cohort, team_id=team_id, min_rows=rows_written, replace_marker=marker)
             if not population_marker_is_current(cohort_id, marker):
                 raise PopulationSuperseded(cohort_id)
+            # Postgres first: the flags service reads it, and it now holds every new member, so the prune
+            # never leaves it short of a member the query matches. Both prunes can be replayed by a retry.
+            removed = prune_members_absent_from_replace(cohort, team_id=team_id, marker=marker)
+            if not population_marker_is_current(cohort_id, marker):
+                raise PopulationSuperseded(cohort_id)
+            prune_static_cohort_rows_before_marker(cohort_id, team_id=team_id, marker=marker)
+            if not population_marker_is_current(cohort_id, marker):
+                raise PopulationSuperseded(cohort_id)
+            cohort._refresh_count(team_id=team_id)
+            logger.info(f"{log_prefix}_replace_pruned", cohort_id=cohort_id, team_id=team_id, removed=removed)
         else:
             insert_cohort_people_into_pg(cohort, team_id=team_id, min_rows=rows_written, written_since=written_since)
         logger.info(

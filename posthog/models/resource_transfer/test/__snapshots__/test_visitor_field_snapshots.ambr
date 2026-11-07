@@ -523,6 +523,7 @@
     '_meta',
     '_person_shape_changed',
     '_refresh_count',
+    '_replace_in_flight',
     '_required_backfill_stamps',
     '_safe_reset_calculating_state',
     '_safe_save_cohort_state',
