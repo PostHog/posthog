@@ -2736,7 +2736,7 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         person_actor = next(actor for actor in response.json() if actor["type"] == "person")
         self.assertEqual(person_actor["name"], "p1")
 
-    def _restrict_nested_group_property(self) -> None:
+    def _restrict_nested_group_property(self, customer: Any = None) -> None:
         nested_def = PropertyDefinition.objects.create(
             team=self.team, name="customer.tax_id", type=PropertyDefinition.Type.GROUP, group_type_index=0
         )
@@ -2747,12 +2747,22 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
             group_type_index=0,
             group_key="org:2",
-            properties={"customer": {"tax_id": "T-1", "tier": "gold"}, "customer.tax_id": "T-1", "plan": "pro"},
+            properties={
+                "customer": customer if customer is not None else {"tax_id": "T-1", "tier": "gold"},
+                "customer.tax_id": "T-1",
+                "plan": "pro",
+            },
         )
 
-    def test_find_hides_restricted_nested_group_property(self) -> None:
-        self._restrict_nested_group_property()
-        self.assertEqual(self._find_properties(0, "org:2"), {"customer": {"tier": "gold"}, "plan": "pro"})
+    @parameterized.expand(
+        [
+            ("object", {"tax_id": "T-1", "tier": "gold"}, {"tier": "gold"}),
+            ("array", [{"tax_id": "T-1", "tier": "gold"}, "x"], [{"tier": "gold"}, "x"]),
+        ]
+    )
+    def test_find_hides_restricted_nested_group_property(self, _name: str, customer: Any, expected: Any) -> None:
+        self._restrict_nested_group_property(customer)
+        self.assertEqual(self._find_properties(0, "org:2"), {"customer": expected, "plan": "pro"})
 
     @parameterized.expand([("parent", "customer"), ("child", "customer.tax_id")])
     @mock.patch("products.groups.backend.presentation.views.capture_internal")

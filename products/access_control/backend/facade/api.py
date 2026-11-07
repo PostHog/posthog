@@ -297,18 +297,26 @@ def property_key_overlaps_restriction(key: str, restricted_names: Collection[str
 
 
 def redact_restricted_properties(properties: Mapping[str, Any], restricted_names: Collection[str]) -> dict[str, Any]:
-    """Drop restricted properties, following dot paths into nested objects the way HogQL masks them."""
-    if not restricted_names:
-        return dict(properties)
+    """Drop restricted properties, following dot paths into nested objects and arrays the way HogQL masks them."""
+    return _redact_object(properties, restricted_names)
+
+
+def _redact_object(properties: Mapping[str, Any], restricted_names: Collection[str]) -> dict[str, Any]:
     redacted: dict[str, Any] = {}
     for key, value in properties.items():
         if any(key == name or key.startswith(f"{name}.") for name in restricted_names):
             continue
         children = [name[len(key) + 1 :] for name in restricted_names if name.startswith(f"{key}.")]
-        if children and isinstance(value, Mapping):
-            value = redact_restricted_properties(value, children)
-        redacted[key] = value
+        redacted[key] = _redact_value(value, children) if children else value
     return redacted
+
+
+def _redact_value(value: Any, restricted_names: Collection[str]) -> Any:
+    if isinstance(value, Mapping):
+        return _redact_object(value, restricted_names)
+    if isinstance(value, list):
+        return [_redact_value(item, restricted_names) for item in value]
+    return value
 
 
 def team_has_public_sharing_access_rules(*, team_id: int) -> bool:
