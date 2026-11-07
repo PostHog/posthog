@@ -1060,10 +1060,12 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
     )
 
 
-# MCP integrations that share the app's client count their `$mcp_*` events. @posthog/mcp labels its whole
-# client `posthog-node-mcp`, so every event from that client counts as node MCP usage (see `sdk_metrics`).
+# MCP usage is the `$mcp_*` events of an SDK, under its base `$lib` or its `-mcp` label. Some MCP
+# integrations stamp the `-mcp` label on every event of the client (@posthog/mcp does), others only on
+# their MCP events, and an app can set its own `$lib`. So the label alone does not identify MCP usage,
+# and `sdk_metrics` counts every other `-mcp` event as usage of the plain SDK.
 MCP_SDK_EVENT_METRICS: dict[str, tuple[str, ...]] = {
-    "node_mcp_events": ("posthog-node",),
+    "node_mcp_events": ("posthog-node", "posthog-node-mcp"),
     "python_mcp_events": ("posthog-python", "posthog-python-mcp"),
     "rust_mcp_events": ("posthog-rs", "posthog-rs-mcp"),
     "go_mcp_events": ("posthog-go", "posthog-go-mcp"),
@@ -1097,7 +1099,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-node", "posthog-ai", "posthog_ai_events"),
         ("posthog-node-mcp", "posthog-ai", "posthog_ai_events"),
         ("posthog-node", None, "node_events"),
-        ("posthog-node-mcp", None, "node_mcp_events"),
+        ("posthog-node-mcp", None, "node_events"),
         ("posthog-python-mcp", "posthog-ai", "posthog_python_ai_events"),
         ("posthog-python-mcp", None, "python_events"),
         ("posthog-rs-mcp", None, "rust_events"),

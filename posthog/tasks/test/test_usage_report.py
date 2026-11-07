@@ -731,8 +731,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "event_count_from_helicone_in_period": 1,
                     "web_events_count_in_period": 37,
                     "web_lite_events_count_in_period": 1,
-                    "node_events_count_in_period": 1,
-                    "node_mcp_events_count_in_period": 1,
+                    "node_events_count_in_period": 2,
+                    "node_mcp_events_count_in_period": 0,
                     "python_mcp_events_count_in_period": 0,
                     "rust_mcp_events_count_in_period": 0,
                     "go_mcp_events_count_in_period": 0,
@@ -838,8 +838,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "event_count_from_helicone_in_period": 1,
                             "web_events_count_in_period": 25,
                             "web_lite_events_count_in_period": 1,
-                            "node_events_count_in_period": 1,
-                            "node_mcp_events_count_in_period": 1,
+                            "node_events_count_in_period": 2,
+                            "node_mcp_events_count_in_period": 0,
                             "python_mcp_events_count_in_period": 0,
                             "rust_mcp_events_count_in_period": 0,
                             "go_mcp_events_count_in_period": 0,
@@ -1857,12 +1857,15 @@ class TestQueryUsageReportSQL:
         assert "'posthog-aspnetcore'" in main_query
         assert "'posthog-rs'" in main_query
         assert "lib_expr = 'posthog-laravel', 'laravel_events'" in main_query
-        assert "startsWith(event, '$mcp_') AND lib_expr IN ('posthog-node'), 'node_mcp_events'" in main_query
+        assert (
+            "startsWith(event, '$mcp_') AND lib_expr IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events'"
+            in main_query
+        )
         assert (
             "startsWith(event, '$mcp_') AND lib_expr IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events'"
             in main_query
         )
-        assert "lib_expr = 'posthog-node-mcp', 'node_mcp_events'" in main_query
+        assert "lib_expr = 'posthog-node-mcp', 'node_events'" in main_query
         assert "lib_expr = 'posthog-rs-mcp', 'rust_events'" in main_query
         assert "lib_expr = 'posthog-godot', 'godot_events'" in main_query
         assert "lib_expr = 'posthog-unreal', 'unreal_events'" in main_query
@@ -6619,19 +6622,38 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
     @parameterized.expand(
         [
-            ("posthog-node", "node_mcp_events", 1, "node_events", 1),
-            ("posthog-node-mcp", "node_mcp_events", 2, "node_events", None),
-            ("posthog-python", "python_mcp_events", 1, "python_events", 1),
-            ("posthog-python-mcp", "python_mcp_events", 1, "python_events", 1),
-            ("posthog-rs", "rust_mcp_events", 1, "rust_events", 1),
-            ("posthog-go", "go_mcp_events", 1, "go_events", 1),
-            ("posthog-rails", "ruby_mcp_events", 1, "ruby_events", 1),
+            (
+                "node",
+                "posthog-node",
+                "posthog-node-mcp",
+                "node_mcp_events",
+                "node_events",
+                ["$exception", "feedback_submitted"],
+            ),
+            ("python", "posthog-python", "posthog-python-mcp", "python_mcp_events", "python_events", ["$exception"]),
+            ("rust", "posthog-rs", "posthog-rs-mcp", "rust_mcp_events", "rust_events", []),
+            ("go", "posthog-go", "posthog-go-mcp", "go_mcp_events", "go_events", []),
+            ("ruby", "posthog-ruby", "posthog-ruby-mcp", "ruby_mcp_events", "ruby_events", []),
+            ("rails", "posthog-rails", "posthog-ruby-mcp", "ruby_mcp_events", "ruby_events", []),
         ]
     )
-    def test_mcp_usage_counts_mcp_events_or_every_event_of_a_dedicated_mcp_client(
-        self, lib: str, mcp_metric: str, mcp_count: int, base_metric: str, base_count: int | None
+    def test_mcp_usage_counts_only_mcp_events_under_either_label(
+        self,
+        _name: str,
+        base_lib: str,
+        mcp_lib: str,
+        mcp_metric: str,
+        base_metric: str,
+        non_mcp_events_under_mcp_lib: list[str],
     ) -> None:
-        for event in ["$mcp_tool_call", "$pageview"]:
+        events = [
+            ("$mcp_tool_call", base_lib),
+            ("$mcp_tool_call", mcp_lib),
+            ("$pageview", base_lib),
+            ("$pageview", mcp_lib),
+            *((event, mcp_lib) for event in non_mcp_events_under_mcp_lib),
+        ]
+        for event, lib in events:
             _create_event(
                 event=event,
                 team=self.team,
@@ -6643,8 +6665,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         event_metrics = get_all_event_metrics_in_period(self.begin, self.end)
 
-        self.assertEqual(dict(event_metrics[mcp_metric]).get(self.team.id), mcp_count)
-        self.assertEqual(dict(event_metrics[base_metric]).get(self.team.id), base_count)
+        self.assertEqual(dict(event_metrics[mcp_metric]).get(self.team.id), 2)
+        self.assertEqual(dict(event_metrics[base_metric]).get(self.team.id), 2 + len(non_mcp_events_under_mcp_lib))
 
     @parameterized.expand(
         [
