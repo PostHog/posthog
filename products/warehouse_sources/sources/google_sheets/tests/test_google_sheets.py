@@ -363,19 +363,13 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
     assert mock_worksheet.get.call_count == 2
 
 
-def _read_sheet(
-    header_row: list[str],
-    data_rows: list[list[Any]],
-    worksheet: Any = None,
-    locale: str = "en_US",
-    grid_header_row: list[Any] | None = None,
-) -> list[Any]:
+def _read_sheet(header_row: list[str], data_rows: list[list[str]], locale: str = "en_US") -> list[Any]:
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
-    mock_worksheet = worksheet or mock.MagicMock()
+    mock_worksheet = mock.MagicMock()
     mock_worksheet.spreadsheet.locale = locale
     mock_worksheet.get_all_values.return_value = [header_row]
-    mock_worksheet.get.return_value = [header_row if grid_header_row is None else grid_header_row, *data_rows]
+    mock_worksheet.get.return_value = [header_row, *data_rows]
 
     with (
         mock.patch(
@@ -396,7 +390,7 @@ def _read_sheet(
 def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_text():
     tables = _read_sheet(
         ["id", "code"],
-        [[1, "spring sale"], [2, "1,200"], [3, ""], [4, "42"], [5, 0.5], [6, True]],
+        [["1", "spring sale"], ["2", "1,200"], ["3", ""], ["4", "42"]],
     )
 
     assert tables[0].to_pylist() == [
@@ -404,45 +398,24 @@ def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_tex
         {"id": 2, "code": "1,200"},
         {"id": 3, "code": None},
         {"id": 4, "code": "42"},
-        {"id": 5, "code": "0.5"},
-        {"id": 6, "code": "TRUE"},
     ]
 
 
 @pytest.mark.parametrize(
     "locale,cells,expected",
     [
-        pytest.param("de_DE", [0.5, 1234.5], [0.5, 1234.5], id="number_cell"),
-        pytest.param("de_DE", ["15.01.2024"], ["15.01.2024"], id="date_stays_formatted_text"),
-        pytest.param("de_DE", [True, False], ["TRUE", "FALSE"], id="boolean"),
-        pytest.param("de_DE", ["0,5", "1.200", "1.234,5"], [0.5, 1200, 1234.5], id="decimal_comma_text_cell"),
-        pytest.param("de_DE", ["1.5", "2,5"], ["1.5", "2,5"], id="decimal_comma_ambiguous_text_cell_stays_text"),
-        pytest.param("en_US", ["1,200", "1.5"], [1200, 1.5], id="decimal_point_text_cell_drops_group_commas"),
+        pytest.param("de_DE", ["0,5", "1.200", "1.234,5"], [0.5, 1200, 1234.5], id="decimal_comma"),
+        pytest.param("de_DE", ["1.5", "2,5"], ["1.5", "2,5"], id="ambiguous_text_keeps_the_column_as_text"),
+        pytest.param("de_DE", ["15.01.2024"], ["15.01.2024"], id="date_stays_text"),
+        pytest.param("de_DE", ["50 %", "1.234,50 €"], ["50 %", "1.234,50 €"], id="percent_and_currency_stay_text"),
+        pytest.param("en_US", ["1,200", "1.5"], [1200, 1.5], id="decimal_point_drops_group_commas"),
         pytest.param("xx_UNKNOWN", ["1,200"], [1200], id="unknown_locale_parses_as_decimal_point"),
     ],
 )
-def test_google_sheets_source_reads_unformatted_cell_values(locale, cells, expected):
-    worksheet = mock.MagicMock()
-    tables = _read_sheet(["value"], [[cell] for cell in cells], worksheet, locale=locale)
+def test_google_sheets_source_parses_cell_text_in_the_spreadsheet_locale(locale, cells, expected):
+    tables = _read_sheet(["value"], [[cell] for cell in cells], locale=locale)
 
     assert tables[0].column("value").to_pylist() == expected
-    assert worksheet.get.call_args.kwargs["value_render_option"] == gspread.utils.ValueRenderOption.unformatted
-    assert worksheet.get.call_args.kwargs["date_time_render_option"] == gspread.utils.DateTimeOption.formatted_string
-
-
-@pytest.mark.parametrize(
-    "header_row,grid_header_row,expected_columns",
-    [
-        pytest.param(["id", "50%"], ["id", 0.5], ["id", "50%"], id="number_header_keeps_its_displayed_text"),
-        pytest.param(["id"], ["id", "", ""], ["id", "column_2", "column_3"], id="trailing_blank_headers"),
-    ],
-)
-def test_google_sheets_source_names_columns_from_the_formatted_header_row(
-    header_row, grid_header_row, expected_columns
-):
-    tables = _read_sheet(header_row, [[1] * len(grid_header_row)], grid_header_row=grid_header_row)
-
-    assert sorted(tables[0].column_names) == sorted(expected_columns)
 
 
 @pytest.mark.parametrize(

@@ -14,7 +14,7 @@ from cachetools import Cache, TTLCache, cached
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
-from gspread.utils import DateTimeOption, ValueRenderOption, absolute_range_name, fill_gaps, numericise
+from gspread.utils import absolute_range_name, fill_gaps, numericise
 
 from products.warehouse_sources.sources.google_sheets._config import GoogleSheetsSourceConfig
 from products.warehouse_sources.sources.sdk import (
@@ -208,6 +208,8 @@ def _spreadsheet_locale(worksheet: gspread.Worksheet) -> Locale | None:
 
 def _parse_number_text(text: str, locale: Locale | None) -> int | float | str | None:
     if locale is None or get_decimal_symbol(locale) == ".":
+        # default_blank defaults to "", which turns empty cells into strings and breaks numeric
+        # columns that legitimately have gaps. None lets blank cells import as null instead.
         return numericise(text, default_blank=None)
     if text == "":
         return None
@@ -222,31 +224,13 @@ def _parse_number_text(text: str, locale: Locale | None) -> int | float | str | 
     return float(number)
 
 
-def _cell_text(cell: Any) -> str | None:
-    if cell is None or cell == "":
-        return None
-    if isinstance(cell, bool):
-        return "TRUE" if cell else "FALSE"
-    return str(cell)
-
-
-def _cell_value(cell: Any, locale: Locale | None) -> Any:
-    if isinstance(cell, bool):
-        return _cell_text(cell)
-    if isinstance(cell, str):
-        return _parse_number_text(cell, locale)
-    return cell
-
-
-def _records_from_grid(grid: list[list[Any]], header_row: list[str], locale: Locale | None) -> list[dict[str, Any]]:
+def _records_from_grid(grid: list[list[str]], locale: Locale | None) -> list[dict[str, Any]]:
     if not grid or grid == [[]]:
         return []
 
-    # The header read drops trailing blank cells, but the grid pads every row to the widest one.
-    padding = [""] * (len(grid[0]) - len(header_row))
-    column_names = _resolve_column_names([*header_row, *padding])
+    column_names = _resolve_column_names(list(grid[0]))
 
-    records = [dict(zip(column_names, [_cell_value(cell, locale) for cell in row])) for row in grid[1:]]
+    records = [dict(zip(column_names, [_parse_number_text(cell, locale) for cell in row])) for row in grid[1:]]
 
     # A column that holds both numbers and text must stay text. The pipeline JSON-encodes a column
     # of mixed Python types, which stores each text cell wrapped in double quotes.
@@ -254,7 +238,7 @@ def _records_from_grid(grid: list[list[Any]], header_row: list[str], locale: Loc
         if len({isinstance(record[name], str) for record in records if record.get(name) is not None}) > 1:
             for raw_row, record in zip(grid[1:], records):
                 if name in record:
-                    record[name] = _cell_text(raw_row[index])
+                    record[name] = raw_row[index] or None
 
     return records
 
@@ -593,19 +577,10 @@ def google_sheets_source(
         # Read the raw grid and build the records ourselves rather than calling
         # `get_all_records`, which can't cope with a blank header cell. `pad_values=True` mirrors
         # what `get_all_records` asks for, so every row is the same width as the widest one.
-        # Number cells come unformatted because formatted text depends on the spreadsheet locale.
-        # Dates stay formatted, because their unformatted value is a day serial number.
+        # Cells stay formatted so that percent and currency cells keep the text the sheet shows.
+        # The number text is then parsed in the spreadsheet locale, because it uses that locale's separators.
         try:
-            grid = cast(
-                list[list[Any]],
-                _retry_on_transient_api_error(
-                    lambda: worksheet.get(
-                        pad_values=True,
-                        value_render_option=ValueRenderOption.unformatted,
-                        date_time_render_option=DateTimeOption.formatted_string,
-                    )
-                ),
-            )
+            grid = cast(list[list[str]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True)))
         except gspread.exceptions.APIError as e:
             # Same deterministic 400 handled above for the header/incremental-field reads (e.g. an
             # empty sheet, or a sheet resized to have no columns) — this call has no explicit range,
@@ -615,8 +590,7 @@ def google_sheets_source(
                 grid = []
             else:
                 raise
-        header_row = headers[0] if headers else [_cell_text(cell) or "" for cell in (grid[0] if grid else [])]
-        values = _records_from_grid(grid, header_row, _spreadsheet_locale(worksheet))
+        values = _records_from_grid(grid, _spreadsheet_locale(worksheet))
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
