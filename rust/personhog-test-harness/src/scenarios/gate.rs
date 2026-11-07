@@ -11,7 +11,7 @@ use sqlx::postgres::PgPool;
 use personhog_coordination::types::MigrationPhase;
 use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 
-use crate::cli::{GateArgs, DEFAULT_KEYS_PER_PERSON};
+use crate::cli::{GateArgs, PropertyStorage, DEFAULT_KEYS_PER_PERSON};
 use crate::client::{HarnessClient, IdentityClient};
 use crate::pool::TargetPool;
 use crate::publish;
@@ -47,6 +47,7 @@ enum ChaosEvent {
     IdentityCrash,
     Migrate,
     MigrateAgain,
+    FlipToSlatedb,
 }
 
 impl fmt::Display for ChaosEvent {
@@ -73,6 +74,9 @@ impl fmt::Display for ChaosEvent {
             ChaosEvent::IdentityCrash => write!(f, "identity crash-restart"),
             ChaosEvent::Migrate => write!(f, "changelog migration"),
             ChaosEvent::MigrateAgain => write!(f, "second changelog migration"),
+            ChaosEvent::FlipToSlatedb => {
+                write!(f, "rolling flip of leaders to SlateDB")
+            }
         }
     }
 }
@@ -137,6 +141,9 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
     }
     if let Some(after) = args.identity_crash_after {
         events.push((after, ChaosEvent::IdentityCrash));
+    }
+    if let Some(after) = args.flip_to_slatedb_after {
+        events.push((after, ChaosEvent::FlipToSlatedb));
     }
     events.sort_by_key(|(after, _)| *after);
     events
@@ -239,6 +246,9 @@ pub async fn run(args: GateArgs) -> Result<()> {
     {
         bail!("--migrate-again-after needs --migrate-again-to-partitions >= 1");
     }
+    if args.flip_to_slatedb_after.is_some() && args.property_storage != PropertyStorage::Dual {
+        bail!("--flip-to-slatedb-after needs --property-storage dual: leaders read SlateDB only once the writer fills it");
+    }
     if args.migrate_kill_coordinator && args.routers < 3 {
         bail!("--migrate-kill-coordinator requires --routers >= 3");
     }
@@ -319,6 +329,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 Stack::up(StackConfig {
                     bin_dir,
                     leaders: args.leaders,
+                    writers: args.writers,
+                    property_storage: args.property_storage,
                     routers: args.routers,
                     partitions: args.partitions,
                     kafka_hosts: args.kafka_hosts.clone(),
@@ -742,6 +754,11 @@ async fn run_gate(
                 stack.crash_restart_identity().await?;
                 None
             }
+            ChaosEvent::FlipToSlatedb => {
+                let step_deadline = Duration::from_secs(args.leader_lease_ttl as u64 + 30);
+                stack.roll_leaders_to_slatedb(step_deadline).await?;
+                None
+            }
             ChaosEvent::Migrate | ChaosEvent::MigrateAgain => {
                 let chaos = match event {
                     ChaosEvent::Migrate => MigrationChaos {
@@ -883,9 +900,44 @@ async fn run_gate(
     let merged_ids = state.merged_source_ids().await;
     let journal = state.snapshot().await;
     let merged = state.snapshot_merged().await;
+    // In slatedb mode Postgres holds no properties, so SlateDB answers for them.
+    let postgres_properties = args.property_storage != PropertyStorage::Slatedb;
     violations.extend(
-        verify_postgres(pool, &args.pg_target_table, args.team_id, &journal, &merged).await?,
+        verify_postgres(
+            pool,
+            &args.pg_target_table,
+            args.team_id,
+            &journal,
+            &merged,
+            postgres_properties,
+        )
+        .await?,
     );
+    if args.property_storage.writes_slatedb() {
+        let reader = crate::property_verify::store_reader()?;
+        let store_violations =
+            crate::property_verify::verify_store_against_journal(&reader, args.team_id, &journal)
+                .await;
+        reader.close().await;
+        let store_violations = store_violations?;
+        println!(
+            "  SlateDB holds every acked write: {}",
+            if store_violations.is_empty() {
+                "yes"
+            } else {
+                "NO"
+            }
+        );
+        violations.extend(store_violations);
+        if let Some(stack) = stack.as_ref() {
+            let loads = crate::property_verify::load_violations(&stack.leader_metrics().await?);
+            println!(
+                "  Leader property loads as designed: {}",
+                if loads.is_empty() { "yes" } else { "NO" }
+            );
+            violations.extend(loads);
+        }
+    }
 
     // The publish plane: once the outbox has drained, the topics must hold
     // the Postgres mappings and the journaled merges. This pass compares
