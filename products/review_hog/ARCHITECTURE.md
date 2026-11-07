@@ -10,8 +10,9 @@ The comment is the primary GitHub-side trigger.
 Requesting the `posthog-review` GitHub team as a reviewer is an optional shortcut (`review_team_requests.py`, trigger source `review_request`).
 It takes no options: it starts a Standard review, or a Deep review once the pull request has a published Deep review.
 The team has no members, and ReviewHog removes its request afterwards, so requesting it again asks for the next review.
-GitHub offers the team in the reviewer picker only on repositories it can access, so each repository needs that access granted.
-The shortcut is internal until an explicit per-repository or per-installation opt-in exists, because the team slug matches on every installation.
+The shortcut is off until a project admin turns team requests on for the repository (`ReviewRepository.review_team_requests`), because the team slug matches on every installation and an organization can have a `posthog-review` team of its own.
+On a repository that did not turn it on, ReviewHog neither replies nor removes the request: the webhook prefilter drops it before the task, and the task checks the setting again.
+GitHub offers the team in the reviewer picker only on repositories it can access, so each repository needs that access granted as well. Nothing syncs that access with the setting.
 
 The UI and the text PostHog Review posts use the user-facing names. Code, API values, and stored data use the internal names.
 

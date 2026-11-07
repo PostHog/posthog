@@ -202,6 +202,13 @@ export interface reviewHogRepositoriesLogicActions {
         entry: ReviewRepositoryOverviewEntryApi
         reviewDrafts: boolean
     }
+    setRepositoryTeamRequests: (
+        entry: ReviewRepositoryOverviewEntryApi,
+        reviewTeamRequests: boolean
+    ) => {
+        entry: ReviewRepositoryOverviewEntryApi
+        reviewTeamRequests: boolean
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -282,6 +289,10 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
         setRepositoryDrafts: (entry: ReviewRepositoryOverviewEntryApi, reviewDrafts: boolean) => ({
             entry,
             reviewDrafts,
+        }),
+        setRepositoryTeamRequests: (entry: ReviewRepositoryOverviewEntryApi, reviewTeamRequests: boolean) => ({
+            entry,
+            reviewTeamRequests,
         }),
         addExceptionPerson: (
             entry: ReviewRepositoryOverviewEntryApi,
@@ -603,6 +614,23 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
                 )
                 if (saved) {
                     posthog.capture('review hog repository drafts changed', { review_drafts: reviewDrafts })
+                }
+            },
+            setRepositoryTeamRequests: async ({ entry, reviewTeamRequests }) => {
+                const saved = await writeRepository(
+                    entry,
+                    async () => {
+                        await reviewHogRepositoriesCreate(currentProjectId(), {
+                            ...repositoryRef(entry),
+                            review_team_requests: reviewTeamRequests,
+                        })
+                    },
+                    'Could not save the team request setting. Try again.'
+                )
+                if (saved) {
+                    posthog.capture('review hog repository team requests changed', {
+                        review_team_requests: reviewTeamRequests,
+                    })
                 }
             },
             addExceptionPerson: async ({ entry, userId, kind }) => {

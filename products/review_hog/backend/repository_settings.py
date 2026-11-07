@@ -303,6 +303,7 @@ class ProjectRepositories:
         new_selected: bool,
         new_flash_for: str | None,
         new_review_drafts: bool,
+        new_review_team_requests: bool,
     ) -> None:
         """Refuse a write that turns the repository's reviews down or reaches past this project."""
         if claim is None:
@@ -310,6 +311,7 @@ class ProjectRepositories:
         old_selected = row is not None and row.selected
         old_flash_for = row.flash_for if row is not None else None
         old_review_drafts = row is not None and row.review_drafts
+        old_review_team_requests = row is not None and row.review_team_requests
         if new_selected != old_selected:
             if not new_selected:
                 raise AdminOnlyChangeError("Only project admins can remove a repository from the project.")
@@ -329,6 +331,9 @@ class ProjectRepositories:
                 )
         if old_review_drafts and not new_review_drafts:
             raise AdminOnlyChangeError("Only project admins can turn off draft reviews.")
+        if old_review_team_requests != new_review_team_requests:
+            # Turning it on lets anyone who can write to the repository start reviews for this project.
+            raise AdminOnlyChangeError("Only project admins can change whether the posthog-review team starts reviews.")
 
     def save_repository(
         self,
@@ -337,9 +342,11 @@ class ProjectRepositories:
         selected: bool | None = None,
         flash_for: str | None | Unset = UNSET,
         review_drafts: bool | None = None,
+        review_team_requests: bool | None = None,
         raise_only: bool = False,
     ) -> RepositoryWriteResult:
-        """Include or remove a repository, set or clear its exception, or turn its draft reviews on or off.
+        """Include or remove a repository, set or clear its exception, or turn its draft reviews or its
+        team requests on or off.
 
         Omitted fields keep their value. With `raise_only`, the write may only turn the repository's reviews up.
         """
@@ -361,8 +368,15 @@ class ProjectRepositories:
             else:
                 new_flash_for = flash_for
             new_review_drafts = review_drafts if review_drafts is not None else row is not None and row.review_drafts
+            new_review_team_requests = (
+                review_team_requests
+                if review_team_requests is not None
+                else row is not None and row.review_team_requests
+            )
             if raise_only:
-                self._check_raise_only(ref, row, claim, new_selected, new_flash_for, new_review_drafts)
+                self._check_raise_only(
+                    ref, row, claim, new_selected, new_flash_for, new_review_drafts, new_review_team_requests
+                )
 
             if not new_selected and not takes_all:
                 if isinstance(flash_for, str):
@@ -371,10 +385,16 @@ class ProjectRepositories:
                     raise RepositorySettingsError(
                         "Include the repository in this project before you turn on draft reviews."
                     )
-                # The repository leaves the project, so its exception and its draft setting go too.
+                if review_team_requests:
+                    raise RepositorySettingsError(
+                        "Include the repository in this project before you let the posthog-review team start reviews."
+                    )
+                # The repository leaves the project, so its exception, its draft setting and its team
+                # requests go too.
                 new_flash_for = None
                 new_review_drafts = False
-            if not new_selected and new_flash_for is None and not new_review_drafts:
+                new_review_team_requests = False
+            if not new_selected and new_flash_for is None and not new_review_drafts and not new_review_team_requests:
                 if row is not None:
                     row.delete()
                 return RepositoryWriteResult(repository=None, taken_from=None)
@@ -405,6 +425,7 @@ class ProjectRepositories:
             row.selected = new_selected
             row.flash_for = new_flash_for
             row.review_drafts = new_review_drafts
+            row.review_team_requests = new_review_team_requests
             try:
                 with transaction.atomic():
                     row.save()
@@ -553,14 +574,19 @@ class RepositoryOverview:
 
     @staticmethod
     def follows_project(entry: OverviewEntry) -> bool:
-        """No exception, no draft reviews and no own choice, so the entry gets what every other such entry gets."""
+        """No exception, no draft reviews, no team requests and no own choice.
+
+        Such an entry gets what every other such entry gets.
+        """
         has_exception = entry.repository is not None and entry.repository.flash_for is not None
         reviews_drafts = entry.repository is not None and entry.repository.review_drafts
+        takes_team_requests = entry.repository is not None and entry.repository.review_team_requests
         return (
             entry.owner == RepositoryOwnerKind.THIS_PROJECT
             and entry.in_project
             and not has_exception
             and not reviews_drafts
+            and not takes_team_requests
             and entry.my_choice is None
         )
 

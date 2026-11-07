@@ -10,6 +10,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import Integration
 
 from products.review_hog.backend.models import ReviewInstallationClaim, ReviewReport, ReviewRepository
+from products.review_hog.backend.ownership import OwnedRepositoryPrefilter
 from products.review_hog.backend.review_team_requests import ReviewTeamRequest
 from products.review_hog.backend.tasks import process_review_team_request
 
@@ -41,11 +42,15 @@ class TestReviewTeamRequest(BaseTest):
             config={"installation_id": _INSTALLATION_ID, "account": {"name": "PostHog"}},
             created_by=self.user,
         )
-        ReviewInstallationClaim.objects.for_team(self.team.id).create(
+        self.claim = ReviewInstallationClaim.objects.for_team(self.team.id).create(
             team=self.team, installation_id=_INSTALLATION_ID, scope=ReviewInstallationClaim.Scope.SELECTED
         )
-        ReviewRepository.objects.for_team(self.team.id).create(
-            team=self.team, installation_id=_INSTALLATION_ID, full_name="PostHog/posthog", selected=True
+        self.repository = ReviewRepository.objects.for_team(self.team.id).create(
+            team=self.team,
+            installation_id=_INSTALLATION_ID,
+            full_name="PostHog/posthog",
+            selected=True,
+            review_team_requests=True,
         )
         self.github_link = UserSocialAuth.objects.create(user=self.user, provider="github", uid=str(_REQUESTER_ID))
         self.github = MagicMock()
@@ -75,6 +80,39 @@ class TestReviewTeamRequest(BaseTest):
         assert self.start.call_args.kwargs["review_mode"] == "flash"
         assert self._replies() == []
         assert self._team_request_removed()
+
+    @parameterized.expand([("selected_repository", False), ("all_repositories_without_a_row", True)])
+    def test_a_repository_that_did_not_turn_team_requests_on_keeps_the_request_and_gets_no_reply(
+        self, _name: str, takes_all: bool
+    ) -> None:
+        # An organization can have a `posthog-review` team of its own, so the request may be meant for it.
+        if takes_all:
+            self.claim.scope = ReviewInstallationClaim.Scope.ALL
+            self.claim.save()
+            self.repository.delete()
+        else:
+            self.repository.review_team_requests = False
+            self.repository.save()
+
+        process_review_team_request.run(**dataclasses.asdict(_REQUEST))
+
+        self.start.assert_not_called()
+        self.github.get_collaborator_permission.assert_not_called()
+        assert self._replies() == []
+        assert not self._team_request_removed()
+
+    def test_the_webhook_prefilter_lists_only_repositories_that_turned_team_requests_on(self) -> None:
+        ReviewRepository.objects.for_team(self.team.id).create(
+            team=self.team, installation_id=_INSTALLATION_ID, full_name="PostHog/posthog-js", selected=True
+        )
+        self.repository.github_repo_id = _REPO_ID
+        self.repository.save()
+
+        summary = OwnedRepositoryPrefilter.load(_INSTALLATION_ID)
+
+        assert summary["names"] == ["posthog/posthog", "posthog/posthog-js"]
+        assert summary["team_request_names"] == ["posthog/posthog"]
+        assert summary["team_request_ids"] == [_REPO_ID]
 
     @parameterized.expand(
         [

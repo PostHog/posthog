@@ -9,7 +9,8 @@ A repository belongs to at most one project, like GitHub's install picker:
 
 `resolve_owner` is pure. `RepositoryOwnership` loads the rows across projects, because ownership is
 a question about every project that shares the installation. `OwnedRepositoryPrefilter` lets the
-webhook handler drop events of repositories nobody reviews before it queues a task.
+webhook handler drop events of repositories nobody reviews, and requests for the `posthog-review`
+team on repositories that did not turn them on, before it queues a task.
 """
 
 import logging
@@ -162,6 +163,14 @@ class RepositoryOwnership:
         return None
 
 
+def _lowercase_names(rows: Iterable[dict[str, Any]]) -> list[str]:
+    return sorted({row["full_name"].lower() for row in rows})
+
+
+def _repo_ids(rows: Iterable[dict[str, Any]]) -> list[int]:
+    return sorted({row["github_repo_id"] for row in rows if row["github_repo_id"] is not None})
+
+
 class OwnedRepositoryPrefilter:
     """A cached summary of which repositories of an installation any project reviews.
 
@@ -184,12 +193,19 @@ class OwnedRepositoryPrefilter:
         takes_all = ReviewInstallationClaim.objects.unscoped().filter(
             installation_id=installation_id, scope=ReviewInstallationClaim.Scope.ALL
         )
-        selected = ReviewRepository.objects.unscoped().filter(installation_id=installation_id, selected=True)
-        rows = list(selected.values_list("full_name", "github_repo_id"))
+        rows = list(
+            ReviewRepository.objects.unscoped()
+            .filter(Q(selected=True) | Q(review_team_requests=True), installation_id=installation_id)
+            .values("full_name", "github_repo_id", "selected", "review_team_requests")
+        )
+        selected = [row for row in rows if row["selected"]]
+        team_requests = [row for row in rows if row["review_team_requests"]]
         return {
             "all": takes_all.exists(),
-            "names": sorted({full_name.lower() for full_name, _ in rows}),
-            "ids": sorted({github_repo_id for _, github_repo_id in rows if github_repo_id is not None}),
+            "names": _lowercase_names(selected),
+            "ids": _repo_ids(selected),
+            "team_request_names": _lowercase_names(team_requests),
+            "team_request_ids": _repo_ids(team_requests),
         }
 
     @classmethod
@@ -199,21 +215,41 @@ class OwnedRepositoryPrefilter:
             return cls.load(installation_id)
 
     @classmethod
-    def may_be_owned(cls, ref: RepositoryRef) -> bool:
+    def _summary(cls, installation_id: str) -> dict[str, Any] | None:
+        """The cached summary, or None when it cannot be read."""
         try:
             summary = cache.get_or_set(
-                cls.cache_key(ref.installation_id), lambda: cls.load_bounded(ref.installation_id), cls.TTL_SECONDS
+                cls.cache_key(installation_id), lambda: cls.load_bounded(installation_id), cls.TTL_SECONDS
             )
             if not isinstance(summary, dict):
-                summary = cls.load_bounded(ref.installation_id)
+                summary = cls.load_bounded(installation_id)
         except Exception:
-            # Fail open: the task checks ownership again, and a Redis blip must not stop reviews.
             logger.warning("Could not read the owned ReviewHog repositories; queueing the event", exc_info=True)
+            return None
+        return summary
+
+    @classmethod
+    def may_be_owned(cls, ref: RepositoryRef) -> bool:
+        summary = cls._summary(ref.installation_id)
+        if summary is None:
+            # Fail open: the task checks ownership again, and a Redis blip must not stop reviews.
             return True
         return (
             bool(summary.get("all"))
             or ref.full_name.lower() in summary.get("names", [])
             or ref.github_repo_id in summary.get("ids", [])
+        )
+
+    @classmethod
+    def may_take_team_requests(cls, ref: RepositoryRef) -> bool:
+        """Whether a project may have turned on requests for the `posthog-review` team on this repository."""
+        summary = cls._summary(ref.installation_id)
+        if summary is None:
+            # Fail open: the task checks the setting again.
+            return True
+        # A summary cached before the setting existed has no keys for it, and no repository had it on.
+        return ref.full_name.lower() in summary.get("team_request_names", []) or (
+            ref.github_repo_id in summary.get("team_request_ids", [])
         )
 
     @classmethod

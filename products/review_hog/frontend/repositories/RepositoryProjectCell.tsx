@@ -11,6 +11,7 @@ import type {
 
 import { FLASH_FOR_OPTIONS, canTakeFromOtherProject, projectName } from './repositoryChoices'
 import { RepositoryDraftsSwitch } from './RepositoryDraftsSwitch'
+import { RepositoryTeamRequestsSwitch } from './RepositoryTeamRequestsSwitch'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 import { RuleControls } from './RuleControls'
@@ -70,7 +71,7 @@ export function RepositoryProjectCell({
     const takeable = canTakeFromOtherProject(entry, installation)
     const canInclude = canIncludeRepository(entry, installation, canEdit, takeable)
     const canRemove = canEdit && entry.in_project && entry.selected && installation?.scope !== 'all'
-    // An exception row puts the switch on the line of its select, so each row keeps one draft control.
+    // An exception row puts the switches on the line of its select, so each row keeps one of each.
     const draftsOnStatusLine = entry.in_project && entry.exception === null
 
     const include = (): void => {
@@ -136,6 +137,7 @@ export function RepositoryProjectCell({
                     {(canInclude || canRemove || draftsOnStatusLine) && (
                         <span className="ml-auto flex items-center gap-2">
                             {draftsOnStatusLine && <RepositoryDraftsSwitch entry={entry} />}
+                            {draftsOnStatusLine && <RepositoryTeamRequestsSwitch entry={entry} />}
                             {canInclude ? (
                                 <LemonButton
                                     size="xsmall"
@@ -179,6 +181,7 @@ export function RepositoryProjectCell({
                                 Exception
                             </LemonTag>
                             <RepositoryDraftsSwitch entry={entry} />
+                            <RepositoryTeamRequestsSwitch entry={entry} />
                         </span>
                     }
                     removeException={canEdit ? { projectFlashFor, onRemove: () => clearException(entry) } : undefined}
