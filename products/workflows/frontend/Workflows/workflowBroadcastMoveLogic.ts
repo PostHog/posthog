@@ -32,6 +32,27 @@ export function sendsFromSandboxSender(workflow: HogFlow, sandboxSenderIds: numb
     return emailSenderIds(workflow).some((id) => ids.has(id))
 }
 
+/**
+ * Whether a new workflow can be offered to be created as a broadcast when it is first saved.
+ * `unlistedSandboxSenderIds` holds sandbox senders that the project's sender list can lack.
+ */
+export function canOfferBroadcastConversion(
+    workflow: HogFlow,
+    integrations: IntegrationType[] | null,
+    unlistedSandboxSenderIds: number[] = []
+): boolean {
+    return (
+        // The broadcast editor always saves this exit condition, so any other one would be lost.
+        workflow.exit_condition === 'exit_only_at_end' &&
+        isBroadcastShaped(workflow.actions) &&
+        canEditInWizard(workflow.actions, workflow.edges) &&
+        // Broadcasts can't send through the sandbox sender, so the wizard would refuse to launch it.
+        // Until the senders load, a sandbox sender can't be told apart from any other.
+        integrations !== null &&
+        !sendsFromSandboxSender(workflow, [...listedSandboxSenderIds(integrations), ...unlistedSandboxSenderIds])
+    )
+}
+
 /** Mirrors is_convertible_to_broadcast on the server, which still checks on the move. */
 export function canMoveToBroadcasts(workflow: HogFlow | null, integrations: IntegrationType[] | null): boolean {
     if (!workflow || !integrations) {
