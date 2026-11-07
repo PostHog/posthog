@@ -1,0 +1,119 @@
+.DotMatrixUserCell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    padding: 8px 6px;
+    font-size: 12px;
+    line-height: 17px;
+    color: var(--color-text-primary);
+
+    &__name {
+        max-width: 100%;
+        padding: 0 3px;
+        margin-left: -3px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        border-radius: 4px;
+
+        &:hover,
+        &:focus-visible {
+            background: var(--color-accent-highlight-primary);
+        }
+    }
+
+    &__empty {
+        padding: 8px 6px;
+        color: var(--color-text-tertiary);
+    }
+
+    &__more.LemonButton {
+        --lemon-button-height: 17px;
+        --lemon-button-padding-horizontal: 0;
+        --lemon-button-padding-vertical: 0;
+        --lemon-button-color: var(--link, var(--color-accent));
+
+        min-height: 17px;
+        padding: 0;
+        margin: 0 !important;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 17px;
+        color: var(--link, var(--color-accent));
+
+        .LemonButton__chrome,
+        .LemonButton__content {
+            min-height: 17px;
+            padding: 0;
+            font-family: var(--font-sans);
+            font-size: 12px;
+            font-weight: 400;
+            line-height: 17px;
+            color: var(--link, var(--color-accent));
+        }
+    }
+
+    &__tooltip,
+    &__all {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 12px;
+    }
+
+    &__tooltip {
+        gap: 8px;
+        width: 282px;
+        line-height: 16px;
+    }
+
+    &__title {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+
+        strong {
+            font-size: 13px;
+            font-weight: 600;
+        }
+    }
+
+    &__pages {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        padding-left: 10px;
+
+        .DotMatrixUserCell__detail {
+            font-size: 11px;
+        }
+    }
+
+    &__action {
+        font-family: var(--font-mono);
+        font-size: 11px;
+    }
+
+    &__detail {
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
+    }
+
+    &__section {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--color-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+}
+
+.Tooltip__popup.DotMatrix__tooltip:has(.DotMatrixUserCell__tooltip) {
+    width: 310px;
+
+    .DotMatrixUserCell__tooltip {
+        width: 100%;
+    }
+}
