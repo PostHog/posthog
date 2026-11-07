@@ -3540,6 +3540,10 @@
             "description": "Fires when a workflow email reaches the recipient's inbox, confirmed by their mail server accepting it.",
             "label": "Workflow email delivered"
         },
+        "$workflows_email_delivery_delayed": {
+            "description": "Fires when the recipient's mail server has not accepted a workflow email yet and the email provider keeps retrying. A later delivered or bounced event follows for the same email.",
+            "label": "Workflow email delivery delayed"
+        },
         "$workflows_email_failed": {
             "description": "Fires when a workflow email could not be sent. This covers a failed call to the email provider, a template that did not render, a message the provider rejected for containing a virus, and a misconfigured email step, such as a sender that no longer exists or a domain that is not verified.",
             "label": "Workflow email failed"
