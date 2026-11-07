@@ -7,9 +7,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { actionsLogic } from '~/toolbar/shared/actions/actionsLogic'
 import { toolbarLogic } from '~/toolbar/shared/bar/toolbarLogic'
-import { toolbarApi } from '~/toolbar/shared/toolbarApi'
+import { extractErrorDetail, toolbarApi } from '~/toolbar/shared/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
+import { ToolbarRequestError } from '~/toolbar/shared/toolbarRequestError'
 import { ActionDraftType, ActionForm } from '~/toolbar/shared/types'
 import { urls } from '~/toolbar/shared/urls'
 import {
@@ -21,6 +22,7 @@ import {
 import { AccessControlLevel, ActionType, ElementType } from '~/types'
 
 import type { ToolbarUserIntent } from '../../../types'
+import { DUPLICATE_ACTION_NAME_ERROR, isActionNameTaken, isDuplicateActionNameResponse } from './actionNameErrors'
 import type { ActionStepPropertyKey } from './ActionStep'
 
 function newAction(
@@ -369,9 +371,23 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
     forms(({ values, actions }) => ({
         actionForm: {
             defaults: { name: null, steps: [{}] } as ActionForm,
-            errors: ({ name }) => ({
-                name: !name || !name.length ? 'Must name this action' : undefined,
-            }),
+            errors: [
+                (s) => [s.actionForm, s.allActions, s.selectedActionId, s.automaticActionCreationEnabled],
+                (
+                    { name }: ActionForm,
+                    allActions: ActionType[],
+                    selectedActionId: number | 'new' | null,
+                    automaticActionCreationEnabled: boolean
+                ) => {
+                    if (!name || !name.length) {
+                        return { name: 'Must name this action' }
+                    }
+                    // Automatic creation picks a free name at submit time, so a clash here is expected.
+                    const isDuplicate =
+                        !automaticActionCreationEnabled && isActionNameTaken(name, allActions, selectedActionId)
+                    return { name: isDuplicate ? DUPLICATE_ACTION_NAME_ERROR : undefined }
+                },
+            ],
             submit: async (formValues, breakpoint) => {
                 const actionToSave = {
                     ...formValues,
@@ -394,18 +410,20 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
 
                 const isUpdate = selectedActionId && selectedActionId !== 'new'
                 const result = isUpdate
-                    ? await toolbarApi.actions.update(selectedActionId, actionToSave, {
-                          context: 'save_action',
-                          toastOnError: 'Failed to save action',
-                      })
-                    : await toolbarApi.actions.create(actionToSave, {
-                          context: 'save_action',
-                          toastOnError: 'Failed to save action',
-                      })
+                    ? await toolbarApi.actions.update(selectedActionId, actionToSave, { context: 'save_action' })
+                    : await toolbarApi.actions.create(actionToSave, { context: 'save_action' })
 
                 if (!result.ok) {
+                    // The loaded action list can be stale, so the server still catches some duplicates.
+                    if (isDuplicateActionNameResponse(result.error.body)) {
+                        actions.setActionFormManualErrors({ name: DUPLICATE_ACTION_NAME_ERROR })
+                        throw new ToolbarRequestError(DUPLICATE_ACTION_NAME_ERROR, result.error.status)
+                    }
+                    lemonToast.error(
+                        extractErrorDetail(result.error.body, result.error.status, 'Failed to save action')
+                    )
                     // Throwing makes the form report a failure instead of a successful submit.
-                    throw new Error(result.error.detail)
+                    throw new ToolbarRequestError(result.error.detail, result.error.status)
                 }
                 const response = result.data
                 breakpoint() // guard against stale async after unmount

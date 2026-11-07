@@ -112,6 +112,63 @@ describe('actionsTabLogic form submission', () => {
             .toNotHaveDispatchedActions(['submitActionFormSuccess'])
     })
 
+    it('shows a duplicate name error from the server on the name field', async () => {
+        global.fetch = jest.fn(() =>
+            Promise.resolve({
+                ok: false,
+                status: 400,
+                json: () =>
+                    Promise.resolve({
+                        type: 'validation_error',
+                        code: 'unique',
+                        attr: 'name',
+                        detail: 'This project already has an action with this name, ID 7',
+                    }),
+            } as any as Response)
+        )
+
+        logic.actions.newAction()
+        logic.actions.setActionFormValue('name', 'Taken Name')
+
+        await expectLogic(logic, () => {
+            logic.actions.submitActionForm()
+        })
+            .delay(0)
+            .toDispatchActions(['submitActionForm', 'setActionFormManualErrors', 'submitActionFormFailure'])
+            .toNotHaveDispatchedActions(['submitActionFormSuccess'])
+
+        expect(logic.values.actionFormErrors.name).toBe(
+            'An action with this name already exists. Pick a different name.'
+        )
+    })
+
+    it.each([
+        ['blocks a new action that reuses an existing name', 'new' as const, false],
+        ['allows an existing action to keep its own name', 42, true],
+    ])('%s', async (_, actionId, shouldSave) => {
+        global.fetch = jest.fn(() =>
+            Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(mockAction),
+            } as any as Response)
+        )
+        actionsLogic.actions.updateAction({ action: mockAction as any })
+
+        if (actionId === 'new') {
+            logic.actions.newAction()
+        } else {
+            logic.actions.selectAction(actionId)
+        }
+        logic.actions.setActionFormValue('name', mockAction.name)
+        expect(logic.values.actionFormValidationErrors.name).toBe(
+            shouldSave ? undefined : 'An action with this name already exists. Pick a different name.'
+        )
+
+        logic.actions.submitActionForm()
+        await expectLogic(logic).delay(0)
+        expect(global.fetch).toHaveBeenCalledTimes(shouldSave ? 1 : 0)
+    })
+
     it('handles error response when json parsing fails', async () => {
         global.fetch = jest.fn(() =>
             Promise.resolve({
