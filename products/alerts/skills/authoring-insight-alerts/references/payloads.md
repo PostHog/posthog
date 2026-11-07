@@ -3,6 +3,23 @@
 Exact shapes for `posthog:alert-create` and `posthog:alert-simulate`.
 Every example uses invented IDs.
 
+## Contents
+
+- [Fields every create needs](#fields-every-create-needs)
+- [Threshold alerts](#threshold-alerts)
+  - [Fixed bound on a trends insight](#fixed-bound-on-a-trends-insight)
+  - [Silence check: the metric stops](#silence-check-the-metric-stops)
+  - [Relative change](#relative-change)
+- [Detector alerts](#detector-alerts)
+  - [Statistical detector parameters](#statistical-detector-parameters)
+  - [Ensemble](#ensemble)
+  - [AI detector](#ai-detector)
+- [Config by insight kind](#config-by-insight-kind)
+  - [SQL insight (`HogQLQuery`)](#sql-insight-hogqlquery)
+  - [Funnel insight (`FunnelsQuery`)](#funnel-insight-funnelsquery)
+- [`alert-simulate`](#alert-simulate)
+- [Common refusals](#common-refusals)
+
 ## Fields every create needs
 
 | Field                  | Shape                                                                                                                                |
