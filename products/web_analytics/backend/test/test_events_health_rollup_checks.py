@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
+from posthog.models import EventDefinition
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 from posthog.temporal.health_checks.rollups.tests.helpers import window_ending_yesterday
@@ -79,3 +80,27 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events()
 
         self.assertEqual(self._flagged(NoLiveEventsCheck(), []), expected)
+
+    @parameterized.expand(
+        [
+            ("web_project_gone_silent", True, "$pageview", True, True),
+            ("app_project_gone_silent", True, "$screen", True, True),
+            ("nothing_ingested_yet", False, None, False, True),
+            ("server_only_project", True, "$mcp_tool_call", True, False),
+            ("pageview_placeholder_never_seen", True, "$pageview", False, False),
+        ]
+    )
+    def test_no_live_events_skips_projects_that_never_sent_web_events(
+        self, _name: str, ingested_event: bool, defined_event: str | None, seen: bool, expected: bool
+    ) -> None:
+        self.team.ingested_event = ingested_event
+        self.team.save()
+        if defined_event:
+            EventDefinition.objects.create(
+                team=self.team,
+                project_id=self.team.project_id,
+                name=defined_event,
+                last_seen_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=90) if seen else None,
+            )
+
+        self.assertEqual(self.team.id in NoLiveEventsCheck().detect([self.team.id]), expected)

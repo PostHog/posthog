@@ -15,6 +15,7 @@ from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
 from products.web_analytics.backend.models.health_rollups import EventsHealthDaily
 from products.web_analytics.backend.temporal.health_checks.rollup_reads import events_health_totals
+from products.web_analytics.backend.temporal.health_checks.web_projects import teams_expecting_web_events
 
 NO_LIVE_EVENTS_LOOKBACK_DAYS = 30
 NO_LIVE_EVENTS_SQL = """
@@ -87,6 +88,9 @@ class NoLiveEventsCheck(RollupHealthCheck):
             weight=_SEVERITY_WEIGHT[issue.severity],
             extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
         )
+
+    def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
+        return super().detect(teams_expecting_web_events(team_ids))
 
     def detect_from_rollup(self, team_ids: list[int], window: RollupWindow) -> dict[int, list[HealthCheckResult]]:
         silent_team_ids = [
