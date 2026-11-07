@@ -53,6 +53,7 @@ products/signals/backend/test/test_report_check_final_metrics.py
 products/signals/backend/test/test_anomaly_scoring_tick.py
 products/signals/backend/test/test_first_report_evals.py
 products/web_analytics/backend/hogql_queries
+products/workflows/skills/measuring-email-performance/tests
 
 # Code outside HogQL that builds events SQL itself and branches on the schema
 posthog/dags/tests/test_deletes.py
