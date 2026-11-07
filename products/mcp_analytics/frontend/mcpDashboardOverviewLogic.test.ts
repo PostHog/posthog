@@ -2,17 +2,24 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BUCKET_FORMAT } from 'lib/utils/timeBuckets'
 import { urls } from 'scenes/urls'
 
-import { MCPDashboardQuery, MCPDashboardSection } from '~/queries/schema/schema-general'
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { MCPDashboardQuery, MCPDashboardSection, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { HARNESS_BY_LABEL, harnessMark } from './dashboard/harnessRegistry'
+import { mcpLeaderboardHomeLogic } from './leaderboardHome/mcpLeaderboardHomeLogic'
 import {
     type ActivityRow,
     type BucketRow,
@@ -20,7 +27,9 @@ import {
     buildKPIs,
     rankToolsByErrorRate,
     buildToolDailySeries,
+    type DashboardLayout,
     deltaPct,
+    MCP_DASHBOARD_DATA_COLLECTION_ID,
     mcpDashboardOverviewLogic,
     pickNotableSessions,
     type SessionRow,
@@ -29,6 +38,7 @@ import {
 } from './mcpDashboardOverviewLogic'
 
 jest.mock('lib/api')
+jest.mock('posthog-js')
 jest.mock('./generated/api', () => ({
     mcpAnalyticsIntentClustersRetrieve: jest.fn().mockResolvedValue({ status: 'idle', clusters: [] }),
     mcpAnalyticsIntentClustersRecompute: jest.fn(),
@@ -38,19 +48,74 @@ const mockApi = api as jest.Mocked<typeof api>
 
 type Answer = unknown[] | Error
 
-function mockSections(respond: (section: MCPDashboardSection) => Answer = () => []): void {
-    mockApi.query.mockImplementation(async (node: any) => ({
+function failedRequest(status: number, message: string): Error {
+    return Object.assign(new Error(message), { status })
+}
+
+function sectionResponse(sections: MCPDashboardSection[], respond: (section: MCPDashboardSection) => Answer): object {
+    const answers = sections.map((section) => [section, respond(section)] as const)
+    const failure = answers.find(([, answer]) => answer instanceof Error)?.[1]
+    // The server computes a one-section query by itself, so the section's failure fails the request.
+    if (sections.length === 1 && failure instanceof Error) {
+        throw failedRequest(500, failure.message)
+    }
+    return {
         results: Object.fromEntries(
-            (node as MCPDashboardQuery).sections.map((section) => {
-                const answer = respond(section)
-                return [section, answer instanceof Error ? { error: answer.message } : { results: answer }]
-            })
+            answers.map(([section, answer]) => [
+                section,
+                answer instanceof Error ? { error: answer.message } : { results: answer },
+            ])
         ),
-    }))
+    }
+}
+
+function mockSections(respond: (section: MCPDashboardSection) => Answer = () => []): void {
+    mockApi.query.mockImplementation(async (node: any) =>
+        sectionResponse((node as MCPDashboardQuery).sections, respond)
+    )
+}
+
+interface PendingQueries {
+    answer: (section: MCPDashboardSection, rows: unknown[]) => void
+    answerAt: (index: number) => void
+    answerAll: () => void
+}
+
+function deferQueries(): PendingQueries {
+    const pending: { sections: MCPDashboardSection[]; resolve: (rows: unknown[]) => void }[] = []
+    mockApi.query.mockImplementation(
+        (node: any) =>
+            new Promise((resolve) => {
+                const { sections } = node as MCPDashboardQuery
+                pending.push({ sections, resolve: (rows) => resolve(sectionResponse(sections, () => rows)) })
+            })
+    )
+    return {
+        answer: (section, rows) => pending.find((query) => query.sections.join() === section)?.resolve(rows),
+        answerAt: (index) => pending[index].resolve([]),
+        answerAll: () => pending.forEach((query) => query.resolve([])),
+    }
 }
 
 function queriesSince(callIndex: number): MCPDashboardQuery[] {
     return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as MCPDashboardQuery)
+}
+
+function useLayout(layout: DashboardLayout, batched = true): void {
+    const flags: Record<string, boolean> = {
+        [FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME]: layout === 'leaderboard',
+        [FEATURE_FLAGS.MCP_ANALYTICS_DASHBOARD_BATCH]: batched,
+    }
+    featureFlagLogic.actions.setFeatureFlags(
+        Object.keys(flags).filter((flag) => flags[flag]),
+        flags
+    )
+}
+
+function timeToSeeDataEvents(): Record<string, any>[] {
+    return (posthog.capture as jest.Mock).mock.calls
+        .filter(([event]) => event === 'time to see data')
+        .map(([, payload]) => payload)
 }
 
 function session(overrides: Partial<SessionRow> & { session_id: string }): SessionRow {
@@ -403,79 +468,364 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('kpiIncompleteTail', () => {
+    describe('loading the dashboard', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
-            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+            useLayout('overview')
+            mockSections()
+        })
+
+        async function mountDashboard(): Promise<ReturnType<typeof mcpDashboardOverviewLogic.build>> {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            return logic
+        }
+
+        // The leaderboard renders its own protocol facet, so it must not pay for the overview-only
+        // breakdowns. It keeps modelRows as the model chart's fallback.
+        it.each([
+            {
+                layout: 'overview' as const,
+                includes: [
+                    MCPDashboardSection.Kpis,
+                    MCPDashboardSection.PeriodTotals,
+                    MCPDashboardSection.ToolDailyRows,
+                ],
+                excludes: [] as MCPDashboardSection[],
+            },
+            {
+                layout: 'leaderboard' as const,
+                includes: [MCPDashboardSection.Kpis, MCPDashboardSection.ModelRows],
+                excludes: [MCPDashboardSection.ProtocolVersionRows, MCPDashboardSection.ToolDailyRows],
+            },
+        ])('loads the $layout layout in one request', async ({ layout, includes, excludes }) => {
+            useLayout(layout)
+            await mountDashboard()
+
+            const queries = queriesSince(0)
+            expect(queries).toHaveLength(1)
+            expect(queries[0].sections).toEqual(expect.arrayContaining(includes))
+            expect(queries[0].sections.filter((section) => excludes.includes(section))).toEqual([])
+        })
+
+        it.each([
+            { layout: 'overview' as const, requests: 9 },
+            { layout: 'leaderboard' as const, requests: 7 },
+        ])('sends one request per section in the $layout baseline arm', async ({ layout, requests }) => {
+            useLayout(layout, false)
+            mockSections((section) => (section === MCPDashboardSection.PeriodTotals ? [[42, 30, 900, 600]] : []))
+            const logic = await mountDashboard()
+
+            const queries = queriesSince(0)
+            expect(queries).toHaveLength(requests)
+            expect(queries.every((query) => query.sections.length === 1)).toBe(true)
+            expect(logic.values.periodTotals.users.value).toBe(42)
+            expect(timeToSeeDataEvents().map((event) => event.status)).toEqual(['success'])
+        })
+
+        it('shows a section in the baseline arm while slower sections are still loading', async () => {
+            useLayout('overview', false)
+            const pending = deferQueries()
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+
+            pending.answer(MCPDashboardSection.PeriodTotals, [[42, 30, 900, 600]])
+            await expectLogic(logic).delay(0)
+
+            expect(logic.values.periodTotals.users.value).toBe(42)
+            expect(logic.values.loadingSections).not.toHaveProperty(MCPDashboardSection.PeriodTotals)
+            expect(logic.values.loadingSections[MCPDashboardSection.Kpis]).toBe(true)
+            expect(timeToSeeDataEvents()).toEqual([])
+
+            pending.answerAll()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.dashboardLoading).toBe(false)
+            expect(timeToSeeDataEvents().map((event) => event.status)).toEqual(['success'])
+        })
+
+        // A period with no calls compares zero with zero, so its tiles show a 0% change rather than none.
+        it.each([
+            { rows: [[42, 30, 900, 600]], users: [42, 30, 40], p95: [900, 600, 50] },
+            { rows: [], users: [0, 0, 0], p95: [0, 0, 0] },
+        ])('maps the period totals columns to the users and p95 metrics: $rows', async ({ rows, users, p95 }) => {
+            mockSections((section) => (section === MCPDashboardSection.PeriodTotals ? rows : []))
+            const logic = await mountDashboard()
+
+            const [value, previousValue, delta] = users
+            expect(logic.values.periodTotals.users).toMatchObject({
+                value,
+                previousValue,
+                deltaPct: delta,
+                goodDirection: 'up',
+            })
+            expect(logic.values.headlineKpis.p95LatencyMs).toMatchObject({
+                value: p95[0],
+                previousValue: p95[1],
+                deltaPct: p95[2],
+                goodDirection: 'down',
+            })
+        })
+
+        it.each(
+            [
+                { failing: MCPDashboardSection.Kpis, toasts: false },
+                { failing: MCPDashboardSection.PeriodTotals, toasts: false },
+                { failing: MCPDashboardSection.ToolRows, toasts: false },
+                { failing: MCPDashboardSection.SessionRows, toasts: false },
+                { failing: MCPDashboardSection.HarnessRows, toasts: false },
+                { failing: MCPDashboardSection.ModelRows, toasts: true },
+                { failing: MCPDashboardSection.ProtocolVersionRows, toasts: true },
+                { failing: MCPDashboardSection.ActivityRows, toasts: false },
+                { failing: MCPDashboardSection.ToolDailyRows, toasts: false },
+            ].flatMap((row) => [
+                { ...row, batched: true, captured: 0 },
+                { ...row, batched: false, captured: 1 },
+            ])
+        )(
+            'flags and retries only the $failing card when its section fails (batched $batched)',
+            async ({ failing, toasts, batched, captured }) => {
+                useLayout('overview', batched)
+                const toastError = jest.spyOn(lemonToast, 'error')
+                const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
+                    [MCPDashboardSection.PeriodTotals]: [[42, 30, 900, 600]],
+                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
+                }
+                mockSections((section) => (section === failing ? new Error('Query failed') : (answers[section] ?? [])))
+                const logic = await mountDashboard()
+
+                expect(logic.values.failedLoads).toEqual({ [failing]: true })
+                expect(logic.values.periodTotals.users.value).toBe(
+                    failing === MCPDashboardSection.PeriodTotals ? 0 : 42
+                )
+                expect(logic.values.toolRows).toHaveLength(failing === MCPDashboardSection.ToolRows ? 0 : 1)
+                expect(toastError).toHaveBeenCalledTimes(toasts ? 1 : 0)
+                expect(posthog.captureException).toHaveBeenCalledTimes(captured)
+
+                const callsBefore = mockApi.query.mock.calls.length
+                const pending = deferQueries()
+                logic.actions.loadSections([failing])
+                expect(queriesSince(callsBefore).map((query) => query.sections)).toEqual([[failing]])
+                expect(logic.values.loadingSections).toEqual({ [failing]: true })
+                expect(logic.values.failedLoads).toEqual({})
+                expect(logic.values.toolRows).toHaveLength(failing === MCPDashboardSection.ToolRows ? 0 : 1)
+
+                pending.answerAll()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.dashboardLoading).toBe(false)
+                expect(logic.values.failedLoads).toEqual({})
+            }
+        )
+
+        it.each([
+            { batched: true, error: new Error('Failed to fetch') },
+            { batched: true, error: { status: 403, detail: 'You do not have access.' } },
+            { batched: true, error: { status: 500, detail: 'Server error' } },
+            { batched: false, error: new Error('Failed to fetch') },
+            { batched: false, error: { status: 403, detail: 'You do not have access.' } },
+        ])(
+            'clears the previous rows without a toast when the request fails: batched $batched, $error',
+            async ({ batched, error }) => {
+                useLayout('overview', batched)
+                const toastError = jest.spyOn(lemonToast, 'error')
+                mockSections((section) =>
+                    section === MCPDashboardSection.ToolRows ? [['search_docs', 4, 1, 25, 120]] : []
+                )
+                const logic = await mountDashboard()
+                expect(logic.values.toolRows).toHaveLength(1)
+
+                mockApi.query.mockRejectedValue(error)
+                await expectLogic(logic, () => logic.actions.setDateFilter('-30d', null)).toFinishAllListeners()
+
+                expect(logic.values.toolRows).toEqual([])
+                expect(Object.keys(logic.values.failedLoads)).toHaveLength(9)
+                expect(toastError).not.toHaveBeenCalled()
+                expect(timeToSeeDataEvents().map((event) => event.status)).toEqual(['success', 'failure'])
+            }
+        )
+
+        it.each([
+            { batched: true, requests: 1 },
+            { batched: false, requests: 9 },
+        ])(
+            'ignores the failure of a request a newer load replaced (batched $batched)',
+            async ({ batched, requests }) => {
+                useLayout('overview', batched)
+                const rejects: ((error: Error) => void)[] = []
+                mockApi.query.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)))
+                const logic = mcpDashboardOverviewLogic()
+                logic.mount()
+                logic.actions.reloadAll()
+
+                rejects.slice(0, requests).forEach((reject) => reject(new Error('Gateway timeout')))
+                await expectLogic(logic).delay(0)
+
+                expect(logic.values.dashboardLoading).toBe(true)
+                expect(logic.values.failedLoads).toEqual({})
+                expect(posthog.captureException).not.toHaveBeenCalled()
+                expect(timeToSeeDataEvents()).toEqual([])
+            }
+        )
+
+        it('reloads with the leaderboard sections when its flag resolves after mount', async () => {
+            await mountDashboard()
+
+            await expectLogic(mcpDashboardOverviewLogic, () => useLayout('leaderboard')).toFinishAllListeners()
+
+            const queries = queriesSince(1)
+            expect(queries).toHaveLength(1)
+            expect(queries[0].sections).not.toContain(MCPDashboardSection.ToolDailyRows)
+        })
+
+        it('stops counting the sections of a replaced layout as loading', async () => {
+            const pending = deferQueries()
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+
+            useLayout('leaderboard')
+            pending.answerAt(1)
+            await expectLogic(logic).delay(0)
+
+            expect(logic.values.loadingSections).toEqual({})
+            expect(logic.values.dashboardLoading).toBe(false)
+        })
+
+        it.each([{ searchParams: {} }, { searchParams: { date_from: '-30d' } }])(
+            'reports a load the dashboard leaves unfinished as cancelled: $searchParams',
+            async ({ searchParams }) => {
+                router.actions.push(urls.mcpAnalyticsDashboard(), searchParams)
+                deferQueries()
+                const logic = mcpDashboardOverviewLogic()
+                logic.mount()
+                await expectLogic(logic).delay(0)
+
+                logic.unmount()
+
+                expect(timeToSeeDataEvents()).toEqual([
+                    expect.objectContaining({ status: 'cancelled', cancel_reason: 'navigated_away' }),
+                ])
+            }
+        )
+
+        it.each([
+            { leaderboard: 'loads', status: 'success' },
+            { leaderboard: 'fails', status: 'failure' },
+            { leaderboard: 'unmounts mid-load', status: 'cancelled' },
+        ])('reports time to see data as $status when the leaderboard $leaderboard', async ({ leaderboard, status }) => {
+            useLayout('leaderboard')
+            const leaderboardQueries: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+            mockApi.query.mockImplementation((node: any) =>
+                node.kind === NodeKind.MCPDashboardQuery
+                    ? Promise.resolve(sectionResponse(node.sections, () => []))
+                    : new Promise((resolve, reject) => leaderboardQueries.push({ resolve, reject }))
+            )
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            mcpLeaderboardHomeLogic.mount()
+            await expectLogic(logic).delay(0)
+
+            expect(logic.values.dashboardLoading).toBe(false)
+            expect(timeToSeeDataEvents()).toEqual([])
+
+            if (leaderboard === 'unmounts mid-load') {
+                mcpLeaderboardHomeLogic.unmount()
+            } else {
+                leaderboardQueries.forEach((query) =>
+                    leaderboard === 'fails' ? query.reject(new Error('Query failed')) : query.resolve({ results: [] })
+                )
+                await expectLogic(mcpLeaderboardHomeLogic).toFinishAllListeners()
+            }
+
+            expect(timeToSeeDataEvents()).toEqual([expect.objectContaining({ status, insights_fetched: 3 })])
+            const collection = dataNodeCollectionLogic.findMounted({ key: MCP_DASHBOARD_DATA_COLLECTION_ID })
+            expect(collection?.values.areAnyLoading).toBe(false)
+        })
+
+        // The time to see data event carries the flag's value when it is sent, so the load it measures must
+        // be the batched one, not the baseline load the late flag replaced.
+        it('reloads in one request when the batch flag resolves after mount', async () => {
+            useLayout('overview', false)
+            const pending = deferQueries()
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            expect(queriesSince(0)).toHaveLength(9)
+
+            useLayout('overview', true)
+            const reload = queriesSince(9)
+            expect(reload).toHaveLength(1)
+            expect(reload[0].sections).toHaveLength(9)
+
+            pending.answerAt(9)
+            await expectLogic(logic).delay(0)
+            expect(timeToSeeDataEvents().map((event) => event.status)).toEqual(['success'])
+
+            pending.answerAll()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(timeToSeeDataEvents()).toHaveLength(1)
+        })
+
+        it.each([
+            { batched: true, failing: null, status: 'success' },
+            { batched: true, failing: MCPDashboardSection.HarnessRows, status: 'failure' },
+            { batched: false, failing: null, status: 'success' },
+            { batched: false, failing: MCPDashboardSection.HarnessRows, status: 'failure' },
+        ])('reports time to see data as $status once per load (batched $batched)', async (row) => {
+            useLayout('overview', row.batched)
+            mockSections((section) => (section === row.failing ? new Error('Query failed') : []))
+            await mountDashboard()
+
+            expect(timeToSeeDataEvents()).toEqual([
+                expect.objectContaining({
+                    context: 'mcp-analytics-dashboard',
+                    action: 'initial_load',
+                    status: row.status,
+                    insights_fetched: 1,
+                }),
+            ])
         })
 
         // Reads the sparkline's own labels rather than the zero-filled axis: on a day with no calls
         // yet the KPI series stops at yesterday, which is settled, so dashing its last point would
         // mark a complete bucket as in progress.
         it('tracks the KPI sparkline labels, not the chart axis', async () => {
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
+            const logic = await mountDashboard()
             const bucket = (daysAgo: number): string =>
                 dayjs().tz(logic.values.timezone).subtract(daysAgo, 'day').startOf('day').format(BUCKET_FORMAT)
-            const row = (daysAgo: number): BucketRow => ({
-                bucket: bucket(daysAgo),
-                sessions: 3,
-                tool_calls: 30,
-                errors: 1,
-                p95: 100,
-            })
+            const row = (daysAgo: number): unknown[] => [bucket(daysAgo), 3, 30, 1, 100]
+            const load = (rows: unknown[][], currentStartBucket: string): void =>
+                logic.actions.sectionsLoaded({ [MCPDashboardSection.Kpis]: { results: rows, currentStartBucket } })
 
-            logic.actions.loadKPIsSuccess(buildKPIs([row(1), row(0)], bucket(1)))
+            load([row(1), row(0)], bucket(1))
             expect(logic.values.kpiIncompleteTail).toBe(true)
 
-            logic.actions.loadKPIsSuccess(buildKPIs([row(3), row(2)], bucket(3)))
+            load([row(3), row(2)], bucket(3))
             expect(logic.values.kpiIncompleteTail).toBe(false)
         })
-    })
-
-    describe('model visibility', () => {
-        beforeEach(() => {
-            jest.clearAllMocks()
-            initKeaTests()
-            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
-        })
 
         it.each([
-            { rows: [], visible: false },
-            { rows: [{ model: 'Unknown', total_calls: 12 }], visible: true },
-            { rows: [{ model: 'gpt-5.6-sol', total_calls: 1 }], visible: true },
-            { rows: [{ model: 'claude-sonnet-5', total_calls: 0 }], visible: false },
-        ])('shows model coverage when calls exist: $rows', async ({ rows, visible }) => {
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
+            { section: MCPDashboardSection.ModelRows, rows: [], visible: false },
+            { section: MCPDashboardSection.ModelRows, rows: [{ model: 'Unknown', total_calls: 12 }], visible: true },
+            {
+                section: MCPDashboardSection.ModelRows,
+                rows: [{ model: 'claude-sonnet-5', total_calls: 0 }],
+                visible: false,
+            },
+            { section: MCPDashboardSection.ProtocolVersionRows, rows: [], visible: false },
+            {
+                section: MCPDashboardSection.ProtocolVersionRows,
+                rows: [{ protocol_version: 'Unknown', is_current: false, total_calls: 12 }],
+                visible: true,
+            },
+        ])('shows $section coverage only when calls exist: $rows', async ({ section, rows, visible }) => {
+            mockSections((requested) => (requested === section ? rows : []))
+            const logic = await mountDashboard()
 
-            logic.actions.loadModelRowsSuccess(rows)
-            expect(logic.values.hasModelData).toBe(visible)
-        })
-    })
-
-    describe('protocol version visibility', () => {
-        beforeEach(() => {
-            jest.clearAllMocks()
-            initKeaTests()
-            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
-        })
-
-        it.each([
-            { rows: [], visible: false },
-            { rows: [{ protocol_version: 'Unknown', is_current: false, total_calls: 12 }], visible: true },
-            { rows: [{ protocol_version: '2026-07-28', is_current: true, total_calls: 1 }], visible: true },
-        ])('shows protocol version coverage when any call exists: $rows', async ({ rows, visible }) => {
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.actions.loadProtocolVersionRowsSuccess(rows)
-            expect(logic.values.hasProtocolVersionData).toBe(visible)
+            const shown =
+                section === MCPDashboardSection.ModelRows
+                    ? logic.values.hasModelData
+                    : logic.values.hasProtocolVersionData
+            expect(shown).toBe(visible)
         })
     })
 
@@ -483,82 +833,11 @@ describe('mcpDashboardOverviewLogic', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
+            useLayout('overview')
             mockSections()
         })
 
-        it('maps the period totals columns to the users and p95 metrics', async () => {
-            mockSections((section) => (section === MCPDashboardSection.PeriodTotals ? [[42, 30, 900, 600]] : []))
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.periodTotals.users).toMatchObject({
-                value: 42,
-                previousValue: 30,
-                deltaPct: 40,
-                goodDirection: 'up',
-            })
-            expect(logic.values.headlineKpis.p95LatencyMs).toMatchObject({
-                value: 900,
-                previousValue: 600,
-                deltaPct: 50,
-                goodDirection: 'down',
-            })
-        })
-
-        // Each card reads its own flag, so a reducer that marks the wrong loader puts the error on
-        // the wrong card, and one that never clears leaves a card stuck after a successful retry.
-        it.each([
-            [MCPDashboardSection.Kpis, 'loadKPIs'],
-            [MCPDashboardSection.PeriodTotals, 'loadPeriodTotals'],
-            [MCPDashboardSection.ToolRows, 'loadToolRows'],
-            [MCPDashboardSection.SessionRows, 'loadSessionRows'],
-            [MCPDashboardSection.HarnessRows, 'loadHarnessRows'],
-            [MCPDashboardSection.ModelRows, 'loadModelRows'],
-            [MCPDashboardSection.ProtocolVersionRows, 'loadProtocolVersionRows'],
-            [MCPDashboardSection.ActivityRows, 'loadActivityRows'],
-            [MCPDashboardSection.ToolDailyRows, 'loadToolDailyRows'],
-        ] as const)('flags only %s when its section fails, and clears it on retry', async (section, retry) => {
-            mockSections((requested) => (requested === section ? new Error('Query timed out') : []))
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(Object.entries(logic.values.failedLoads).filter(([, failed]) => failed)).toEqual([[section, true]])
-            expect(logic.values.feedbackLoadFailed).toBe(true)
-
-            mockSections()
-            await expectLogic(logic, () => {
-                logic.actions[retry]()
-            }).toFinishAllListeners()
-
-            expect(logic.values.failedLoads[section]).toBe(false)
-            expect(logic.values.feedbackLoadFailed).toBe(false)
-        })
-
-        it('ignores a failure from a request that a newer load already replaced', async () => {
-            let rejectFirst: (error: unknown) => void = () => {}
-            let periodTotalsCalls = 0
-            mockApi.query.mockImplementation((node: any) => {
-                const [section] = (node as MCPDashboardQuery).sections
-                if (section === MCPDashboardSection.PeriodTotals && ++periodTotalsCalls === 1) {
-                    return new Promise((_, reject) => (rejectFirst = reject)) as any
-                }
-                return Promise.resolve({ results: { [section]: { results: [] } } }) as any
-            })
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic, () => {
-                logic.actions.setDateFilter('-30d', null)
-            }).toDispatchActions(['loadPeriodTotalsSuccess'])
-
-            rejectFirst({ status: 504, detail: 'Query timed out' })
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.failedLoads.periodTotals).toBeFalsy()
-        })
-
-        it('reloads every tile when the date filter changes', async () => {
+        it('reloads every section when the date filter changes', async () => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -568,23 +847,12 @@ describe('mcpDashboardOverviewLogic', () => {
                 logic.actions.setDateFilter('-30d', null)
             }).toFinishAllListeners()
 
-            const reloads = queriesSince(callsBefore)
-            expect(reloads.flatMap((query) => query.sections).sort()).toEqual(
-                [
-                    MCPDashboardSection.Kpis,
-                    MCPDashboardSection.PeriodTotals,
-                    MCPDashboardSection.ToolRows,
-                    MCPDashboardSection.SessionRows,
-                    MCPDashboardSection.HarnessRows,
-                    MCPDashboardSection.ModelRows,
-                    MCPDashboardSection.ProtocolVersionRows,
-                    MCPDashboardSection.ActivityRows,
-                    MCPDashboardSection.ToolDailyRows,
-                ].sort()
-            )
-            expect(reloads.every((query) => query.dateRange.date_from === '-30d')).toBe(true)
-            // The KPI and users tiles compare against an absolute window one period earlier.
-            expect(reloads.every((query) => dayjs(query.comparison.dateFrom).isValid())).toBe(true)
+            const queries = queriesSince(callsBefore)
+            expect(queries).toHaveLength(1)
+            expect(queries[0].sections).toHaveLength(9)
+            expect(queries[0].dateRange).toEqual({ date_from: '-30d', date_to: null })
+            // The KPI tiles compare against an absolute window one period earlier.
+            expect(dayjs(queries[0].comparison.dateFrom).isValid()).toBe(true)
         })
 
         // The server caches a query by its exact filters, so a window that moves with the clock makes
@@ -593,22 +861,15 @@ describe('mcpDashboardOverviewLogic', () => {
             jest.useFakeTimers({ now: new Date('2026-11-06T14:23:41.517Z'), advanceTimers: true })
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
-            const windowOf = (callIndex: number): MCPDashboardQuery['comparison'][] =>
-                queriesSince(callIndex)
-                    .filter((query) =>
-                        [MCPDashboardSection.Kpis, MCPDashboardSection.PeriodTotals].includes(query.sections[0])
-                    )
-                    .map((query) => query.comparison)
 
             await expectLogic(logic, () => logic.actions.setDateFilter(dateFrom, null)).toFinishAllListeners()
-            const first = windowOf(mockApi.query.mock.calls.length - 9)
+            const first = queriesSince(mockApi.query.mock.calls.length - 1)[0].comparison
             jest.setSystemTime(new Date('2026-11-06T14:23:58.004Z'))
             const callsBefore = mockApi.query.mock.calls.length
             await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
             jest.useRealTimers()
 
-            expect(first).toHaveLength(2)
-            expect(windowOf(callsBefore)).toEqual(first)
+            expect(queriesSince(callsBefore).map((query) => query.comparison)).toEqual([first])
         })
 
         // A previous period longer than the selected one makes flat traffic read as a drop. Sub-day ranges
@@ -623,11 +884,9 @@ describe('mcpDashboardOverviewLogic', () => {
             const now = dayjs()
             jest.useRealTimers()
 
-            const totals = queriesSince(callsBefore).find(
-                (query) => query.sections[0] === MCPDashboardSection.PeriodTotals
-            )!
-            const selectedStart = dayjs.tz(totals.comparison.currentStartBucket, logic.values.timezone)
-            const previousMs = selectedStart.diff(dayjs(totals.comparison.dateFrom))
+            const { comparison } = queriesSince(callsBefore)[0]
+            const selectedStart = dayjs.tz(comparison.currentStartBucket, logic.values.timezone)
+            const previousMs = selectedStart.diff(dayjs(comparison.dateFrom))
             expect(Math.abs(previousMs - now.diff(selectedStart))).toBeLessThan(60_000)
         })
 
@@ -642,15 +901,11 @@ describe('mcpDashboardOverviewLogic', () => {
                 logic.actions.setDateFilter('2026-11-06T14:00:00Z', '2026-11-06T14:30:00Z')
             ).toFinishAllListeners()
 
-            const windows = queriesSince(callsBefore)
-                .filter((query) =>
-                    [MCPDashboardSection.Kpis, MCPDashboardSection.PeriodTotals].includes(query.sections[0])
-                )
-                .map((query) => dayjs(query.comparison.dateFrom).toISOString())
-            expect(windows).toEqual(['2026-11-06T13:30:00.000Z', '2026-11-06T13:30:00.000Z'])
+            const windows = queriesSince(callsBefore).map((query) => dayjs(query.comparison.dateFrom).toISOString())
+            expect(windows).toEqual(['2026-11-06T13:30:00.000Z'])
         })
 
-        it.each([[false], [true]])('passes filterTestAccounts=%s to every tile', async (enabled) => {
+        it.each([[false], [true]])('passes filterTestAccounts=%s to the dashboard query', async (enabled) => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -663,9 +918,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 }).toFinishAllListeners()
             }
 
-            const reloads = queriesSince(callsBefore)
-            expect(reloads.length).toBe(9)
-            expect(reloads.every((query) => query.filterTestAccounts === enabled)).toBe(true)
+            expect(queriesSince(callsBefore).map((query) => query.filterTestAccounts)).toEqual([enabled])
         })
 
         it('defaults the filter from the team test_account_filters_default_checked setting', async () => {
@@ -675,10 +928,9 @@ describe('mcpDashboardOverviewLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
-            // No explicit toggle, yet every tile filters internal users because the team default is on.
-            const reloads = queriesSince(0)
-            expect(reloads.length).toBeGreaterThanOrEqual(9)
-            expect(reloads.every((query) => query.filterTestAccounts === true)).toBe(true)
+            const queries = queriesSince(0)
+            expect(queries.length).toBeGreaterThanOrEqual(1)
+            expect(queries.every((query) => query.filterTestAccounts === true)).toBe(true)
         })
 
         const EVENT_FILTER: AnyPropertyFilter = {
@@ -691,7 +943,7 @@ describe('mcpDashboardOverviewLogic', () => {
         it.each([
             { label: 'shared filters', params: {}, dateFrom: '-7d' },
             { label: 'date and shared filters', params: { date_from: '-30d' }, dateFrom: '-30d' },
-        ])('reloads tiles once when the URL changes the $label', async ({ params, dateFrom }) => {
+        ])('reloads once when the URL changes the $label', async ({ params, dateFrom }) => {
             router.actions.push(urls.mcpAnalyticsDashboard())
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
@@ -706,17 +958,13 @@ describe('mcpDashboardOverviewLogic', () => {
                 })
             }).toFinishAllListeners()
 
-            const reloads = queriesSince(callsBefore)
-            expect(reloads).toHaveLength(9)
-            expect(reloads).toEqual(
-                reloads.map(() =>
-                    expect.objectContaining({
-                        dateRange: { date_from: dateFrom, date_to: null },
-                        properties: [EVENT_FILTER],
-                        filterTestAccounts: true,
-                    })
-                )
-            )
+            expect(queriesSince(callsBefore)).toEqual([
+                expect.objectContaining({
+                    dateRange: { date_from: dateFrom, date_to: null },
+                    properties: [EVENT_FILTER],
+                    filterTestAccounts: true,
+                }),
+            ])
         })
 
         it('opens a tool report on the dashboard window with the shared filters', async () => {
@@ -750,7 +998,7 @@ describe('mcpDashboardOverviewLogic', () => {
         it.each([
             ['event property', EVENT_FILTER],
             ['feature flag', FLAG_FILTER],
-        ])('passes %s filters to every tile', async (_label, filter) => {
+        ])('passes %s filters to the dashboard query', async (_label, filter) => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -760,9 +1008,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 logic.actions.setPropertyFilters([filter])
             }).toFinishAllListeners()
 
-            const reloads = queriesSince(callsBefore)
-            expect(reloads.length).toBe(9)
-            expect(reloads.every((query) => JSON.stringify(query.properties) === JSON.stringify([filter]))).toBe(true)
+            expect(queriesSince(callsBefore).map((query) => query.properties)).toEqual([[filter]])
         })
 
         it.each(['date', 'property', 'test accounts'])(
