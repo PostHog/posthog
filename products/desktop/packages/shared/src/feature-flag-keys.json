@@ -17,6 +17,7 @@
   "DESKTOP_WORK_LAYOUT_FLAG": "desktop-work-layout",
   "DISCOVERY_RUN_FLAG": "posthog-code-discovery-run",
   "FAST_MODE_FLAG": "posthog-desktop-fast-mode",
+  "GITLAB_INTEGRATION_FLAG": "posthog-desktop-gitlab-integration",
   "LOCAL_MCP_IMPORT_FLAG": "posthog-code-local-mcp-import",
   "LOOPS_FLAG": "loops",
   "MCP_GATEWAY_FLAG": "mcp-gateway",

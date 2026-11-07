@@ -83,7 +83,11 @@ import {
 import { inboxCoreModule } from "@posthog/core/inbox/inbox.module";
 import { selectModelFromOptions } from "@posthog/core/inbox/reportTaskCreation";
 import { githubConnectModule } from "@posthog/core/integrations/githubConnect.module";
+import { GitProviderService } from "@posthog/core/integrations/gitProviderService";
 import {
+  GIT_PROVIDER_CLIENT,
+  GIT_PROVIDER_SERVICE,
+  type GitProviderClient,
   GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
@@ -248,6 +252,7 @@ import {
 } from "@posthog/ui/features/git-interaction/gitInteractionAdapter";
 import {
   UiGithubConnectClient,
+  UiGitProviderClient,
   UiRepositoriesClient,
 } from "@posthog/ui/features/integrations/integrationsClientImpl";
 import { McpAppHost } from "@posthog/ui/features/mcp-apps/components/McpAppHost";
@@ -386,6 +391,8 @@ interface WebBindings {
   [ONBOARDING_GITHUB_CONNECT_CLIENT]: OnboardingGithubConnectContract;
   [REPOSITORIES_CLIENT]: RepositoriesClient;
   [REPOSITORIES_SERVICE]: RepositoriesService;
+  [GIT_PROVIDER_CLIENT]: GitProviderClient;
+  [GIT_PROVIDER_SERVICE]: GitProviderService;
   [HOST_CAPABILITIES]: HostCapabilities;
   [TASK_SERVICE]: TaskServiceType;
   [WORKSPACE_SETUP_SAGA]: WorkspaceSetupSaga;
@@ -622,6 +629,8 @@ container
   .toConstantValue(new OnboardingGithubConnectClient());
 container.bind(REPOSITORIES_CLIENT).toConstantValue(new UiRepositoriesClient());
 container.bind(REPOSITORIES_SERVICE).to(RepositoriesService).inSingletonScope();
+container.bind(GIT_PROVIDER_CLIENT).toConstantValue(new UiGitProviderClient());
+container.bind(GIT_PROVIDER_SERVICE).to(GitProviderService).inSingletonScope();
 
 // ── Task list + creation (TASK_SERVICE at the task views) ──
 // TaskService/WorkspaceSetupSaga are portable core (taskDetailModule). The
