@@ -71,7 +71,8 @@ describe('playerMetaLogic', () => {
 
         it.each([
             ['session properties over person properties', { $geoip_country_code: 'DE' }, 'DE'],
-            ['person properties when the session has none loaded', {}, 'US'],
+            ['no person country before session properties load', {}, '-'],
+            ['no person country when session country is null', { $geoip_country_code: null }, '-'],
         ])('shows %s', async (_, sessionProperties, expected) => {
             useMocks({
                 get: {
@@ -87,6 +88,7 @@ describe('playerMetaLogic', () => {
             logic.actions.loadPropertiesForSessionsSuccess([{ id: metaId, properties: sessionProperties }])
 
             expect(countryItem()?.value).toBe(expected)
+            expect(logic.values.locationDisplay).toBe(expected === 'DE' ? 'Germany' : '')
         })
     })
 

@@ -15,15 +15,15 @@ export function gatherIconProperties(
     recordingProperties: Record<string, any> | undefined,
     recording?: SessionRecordingType
 ): GatheredProperty[] {
-    const iconProperties =
-        recordingProperties && Object.keys(recordingProperties).length > 0
-            ? recordingProperties
-            : recording?.person?.properties || {}
+    const hasRecordingProperties = recordingProperties && Object.keys(recordingProperties).length > 0
+    const iconProperties = hasRecordingProperties ? recordingProperties : recording?.person?.properties || {}
 
     const deviceType = iconProperties['$device_type'] || iconProperties['$initial_device_type']
     const iconPropertyKeys = deviceType === 'Mobile' ? mobileIconPropertyKeys : browserIconPropertyKeys
 
+    // Person country can belong to a different session; keep the other icon fallbacks.
     return iconPropertyKeys
+        .filter((property) => property !== '$geoip_country_code' || hasRecordingProperties)
         .flatMap((property) => {
             const value = property === '$device_type' ? deviceType : iconProperties[property]
             const label = property === '$geoip_country_code' ? countryTitleFrom(iconProperties) : value

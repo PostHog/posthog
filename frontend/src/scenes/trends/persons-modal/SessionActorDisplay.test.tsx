@@ -1,12 +1,14 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 
 import { PersonActorType, SessionActorType } from '~/types'
 
 import { SessionActorDisplay } from './SessionActorDisplay'
 
 describe('SessionActorDisplay', () => {
+    afterEach(cleanup)
+
     const baseSession: SessionActorType = {
         type: 'session',
         id: 'session-abc-123',
@@ -15,6 +17,36 @@ describe('SessionActorDisplay', () => {
         matched_recordings: [],
         value_at_data_point: null,
     }
+
+    it.each([{}, { $geoip_country_code: null }])('does not show person country for session %p', (properties) => {
+        const actor: SessionActorType = {
+            ...baseSession,
+            properties,
+            person: {
+                type: 'person',
+                id: 'person-1',
+                properties: { $geoip_country_code: 'US', $browser: 'Chrome' },
+            } as PersonActorType,
+        }
+        render(<SessionActorDisplay actor={actor} />)
+        expect(screen.queryByText('United States')).not.toBeInTheDocument()
+        expect(screen.getByText('Chrome')).toBeInTheDocument()
+    })
+
+    it.each(['AR', 'DE'])('uses country %s from each session rather than the person', (country) => {
+        const actor: SessionActorType = {
+            ...baseSession,
+            properties: { $geoip_country_code: country },
+            person: {
+                type: 'person',
+                id: 'person-1',
+                properties: { $geoip_country_code: 'US' },
+            } as PersonActorType,
+        }
+        render(<SessionActorDisplay actor={actor} />)
+        expect(screen.getByText(country === 'AR' ? 'Argentina' : 'Germany')).toBeInTheDocument()
+        expect(screen.queryByText('United States')).not.toBeInTheDocument()
+    })
 
     it('renders session timestamp', () => {
         render(<SessionActorDisplay actor={baseSession} />)
