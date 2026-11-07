@@ -401,9 +401,18 @@ impl RawProxyInner {
         };
         let new_path = format!("{REPLICA_PREFIX}{method}");
 
+        let affinity_key = replica_affinity_key(&parts.headers);
+
         let _in_flight = ClientInFlightGuard::new("replica");
-        self.forward_with_retry(&self.replica, &parts, &body_bytes, &new_path, method)
-            .await
+        self.forward_with_retry(
+            &self.replica,
+            &parts,
+            &body_bytes,
+            &new_path,
+            method,
+            affinity_key.as_deref(),
+        )
+        .await
     }
 
     /// Forward an identity-server request (identity or lifecycle service)
@@ -443,7 +452,7 @@ impl RawProxyInner {
         };
 
         let _in_flight = ClientInFlightGuard::new("identity");
-        self.forward_with_retry(identity, &parts, &body_bytes, path, method)
+        self.forward_with_retry(identity, &parts, &body_bytes, path, method, None)
             .await
     }
 
@@ -473,12 +482,18 @@ impl RawProxyInner {
         body_bytes: &Bytes,
         path: &str,
         method: Arc<str>,
+        affinity_key: Option<&[u8]>,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         let mut delay_ms = self.retry_config.initial_backoff_ms;
         let client = current_client_name();
 
         for attempt in 0..=self.retry_config.max_retries {
-            let mut channel = backend.channel();
+            // A retry leaves the pinned pod, which may be the one failing.
+            let mut channel = if attempt == 0 {
+                backend.channel_for(affinity_key)
+            } else {
+                backend.channel()
+            };
 
             let ready_start = Instant::now();
             let ready_channel = match channel.ready().await {
@@ -725,6 +740,19 @@ async fn retry_backoff(
 /// body; the leader independently validates them against the decoded body.
 const TEAM_ID_HEADER: &str = "x-team-id";
 const PERSON_ID_HEADER: &str = "x-person-id";
+/// Binary metadata, because a distinct id is arbitrary bytes and plain metadata must be ASCII.
+const DISTINCT_ID_HEADER: &str = "x-distinct-id-bin";
+
+/// A replica read stamped with `x-team-id` and `x-distinct-id-bin` keeps landing on one pod.
+fn replica_affinity_key(headers: &http::HeaderMap) -> Option<Vec<u8>> {
+    let team_id = headers.get(TEAM_ID_HEADER)?;
+    let distinct_id = headers.get(DISTINCT_ID_HEADER)?;
+    let mut key = Vec::with_capacity(team_id.len() + 1 + distinct_id.len());
+    key.extend_from_slice(team_id.as_bytes());
+    key.push(b':');
+    key.extend_from_slice(distinct_id.as_bytes());
+    Some(key)
+}
 
 /// Extract the `(team_id, person_id)` routing key from request headers.
 /// A missing or malformed header means the client predates the header
@@ -973,6 +1001,17 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    /// A team alone would send a whole team's reads to one pod.
+    #[test]
+    fn replica_affinity_needs_the_team_and_the_distinct_id() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(TEAM_ID_HEADER, "1".parse().unwrap());
+        assert_eq!(replica_affinity_key(&headers), None);
+
+        headers.insert(DISTINCT_ID_HEADER, "dXNlcg".parse().unwrap());
+        assert_eq!(replica_affinity_key(&headers), Some(b"1:dXNlcg".to_vec()));
     }
 
     /// Well-formed routing-key headers yield the `(team_id, person_id)`

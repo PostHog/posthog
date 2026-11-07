@@ -10,6 +10,7 @@ pub mod migration;
 pub mod person_update;
 pub mod pg;
 pub mod producer_stats;
+pub mod property_read;
 pub mod recovery;
 pub mod service;
 pub mod settle;

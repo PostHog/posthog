@@ -8,6 +8,7 @@ publish = false
 personhog-proto = { path = "../personhog-proto" }
 personhog-common = { path = "../personhog-common" }
 personhog-coordination = { path = "../personhog-coordination" }
+personhog-property-store = { path = "../personhog-property-store" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 common-kafka = { path = "../common/kafka" }
 common-ingestion-warnings = { path = "../common/ingestion_warnings" }
@@ -35,6 +36,7 @@ rdkafka = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
@@ -54,6 +56,7 @@ personhog-coordination = { path = "../personhog-coordination", features = ["test
 health = { path = "../common/health" }
 personhog-leader = { path = ".", features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }
+tempfile = "3"
 tokio-stream = "0.1"
 tokio-util = { workspace = true }
 
