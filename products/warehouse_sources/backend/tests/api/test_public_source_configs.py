@@ -117,9 +117,10 @@ class TestCatalogCacheConnection(SimpleTestCase):
     @parameterized.expand([("default", "warehouse_source_catalog"), ("warehouse_source_catalog", "default")])
     def test_catalog_timeout_does_not_change_default_pool(self, first: str, second: str) -> None:
         url = "redis://localhost:6379/15?socket_connect_timeout=5&socket_timeout=5"
-        ConnectionFactory._pools.pop(url, None)
+        default_pools = ConnectionFactory({})._pools
+        default_pools.pop(url, None)
         WarehouseSourceCatalogConnectionFactory._pools.pop(url, None)
-        self.addCleanup(ConnectionFactory._pools.pop, url, None)
+        self.addCleanup(default_pools.pop, url, None)
         self.addCleanup(WarehouseSourceCatalogConnectionFactory._pools.pop, url, None)
         default = {
             "BACKEND": "django_redis.cache.RedisCache",
