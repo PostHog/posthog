@@ -795,7 +795,18 @@ export interface infiniteListLogicMeta {
             count: number
             first: boolean | undefined
             queryChanged: boolean | undefined
-            results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+            results: (
+                | ActionType
+                | CohortType
+                | DataWarehouseTableForInsight
+                | EventDefinition
+                | HiddenEventStandIn
+                | MaxContextTaxonomicFilterOption
+                | PersonProperty
+                | PropertyDefinition
+                | QuickFilterItem
+                | SkeletonItem
+            )[]
             searchQuery: string | undefined
             syntheticSelectedCount: number
         }) => number
@@ -813,7 +824,18 @@ export interface infiniteListLogicMeta {
             count: number
             first: boolean | undefined
             queryChanged: boolean | undefined
-            results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+            results: (
+                | ActionType
+                | CohortType
+                | DataWarehouseTableForInsight
+                | EventDefinition
+                | HiddenEventStandIn
+                | MaxContextTaxonomicFilterOption
+                | PersonProperty
+                | PropertyDefinition
+                | QuickFilterItem
+                | SkeletonItem
+            )[]
             searchQuery: string | undefined
             syntheticSelectedCount: number
         }) => QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
@@ -844,7 +866,18 @@ export interface infiniteListLogicMeta {
                 count: number
                 first: boolean | undefined
                 queryChanged: boolean | undefined
-                results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                results: (
+                    | ActionType
+                    | CohortType
+                    | DataWarehouseTableForInsight
+                    | EventDefinition
+                    | HiddenEventStandIn
+                    | MaxContextTaxonomicFilterOption
+                    | PersonProperty
+                    | PropertyDefinition
+                    | QuickFilterItem
+                    | SkeletonItem
+                )[]
                 searchQuery: string | undefined
                 syntheticSelectedCount: number
             }
