@@ -22,7 +22,7 @@ export function TodayAnalyticsSidebarCustomize(): JSX.Element | null {
     // Only the PostHog AI that runs in a sandbox has the tools that save a layout.
     const canCustomize = !!featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]
 
-    if (!sidebarLayout || (!canCustomize && !sidebarCustomized)) {
+    if (!canCustomize && !sidebarCustomized) {
         return null
     }
     return (
