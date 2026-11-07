@@ -302,8 +302,9 @@ def fetch_app_metric_totals_by_source(
     before: Optional[datetime] = None,
     name: Optional[list[str]] = None,
     hour_aligned: bool = False,
+    app_source_ids: Optional[list[str]] = None,
 ) -> dict[str, dict[str, int]]:
-    """Per-`app_source_id` metric totals for a whole team in one grouped query.
+    """Per-`app_source_id` metric totals for a whole team, or for `app_source_ids`, in one grouped query.
 
     Unlike `fetch_app_metric_totals` (single object), this drops the `app_source_id`
     filter and groups by it, so callers get counts for every object at once — e.g. a
@@ -326,6 +327,7 @@ def fetch_app_metric_totals_by_source(
         "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
         "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
         "name": name,
+        "app_source_ids": app_source_ids,
     }
 
     clickhouse_query = f"""
@@ -336,6 +338,7 @@ def fetch_app_metric_totals_by_source(
         FROM app_metrics2
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
+        {"AND app_source_id IN %(app_source_ids)s" if app_source_ids else ""}
         {f"AND {bound_expr} >= toDateTime64(%(after)s, 6)" if after else ""}
         {f"AND {bound_expr} {before_op} toDateTime64(%(before)s, 6)" if before else ""}
         AND metric_name IN %(name)s

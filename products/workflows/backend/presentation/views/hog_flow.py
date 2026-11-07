@@ -246,8 +246,10 @@ from products.workflows.backend.facade.proposals import (
     HOG_FLOW_VERSION_APP_SOURCE,
     PROPOSAL_MERGE_BY_ID_FIELDS,
     absolute_window,
+    aims_at_conversion_without_goal,
     approve_proposal,
     as_the_serializer_stores_it,
+    conversions_by_version,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -6284,6 +6286,10 @@ class HogFlowViewSet(
         # `measured` is the server's word, so a producer's own copy of that key never survives a failed read.
         evidence = dict(params.get("evidence") or {})
         evidence.pop("measured", None)
+        if aims_at_conversion_without_goal(evidence, snapshot_flow_content(instance).get("conversion")):
+            raise exceptions.ValidationError(
+                {"evidence": "This workflow has no conversion goal, so its conversion rate cannot be measured."}
+            )
         measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
         if measured is not None:
             evidence["measured"] = measured
@@ -6471,6 +6477,9 @@ class HogFlowViewSet(
                 before=before_date,
                 step_id=step_id,
                 target=target_metric_in(evidence),
+                conversions=conversions_by_version(
+                    hog_flow.id, snapshot_flow_content(hog_flow).get("conversion"), [base_version]
+                ),
             )
         except Exception:
             logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
