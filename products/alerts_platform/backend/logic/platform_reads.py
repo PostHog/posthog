@@ -129,15 +129,17 @@ def list_configurations(
     )
 
 
-def list_native_configurations(
+def native_configuration_keys(
     *, team_id: int, source_kind: str, created_by_uuid: UUID | None = None
-) -> tuple[PlatformAlertConfigurationView, ...]:
-    """Every configuration of a kind with no source row, newest first. With `created_by_uuid`, only the
-    ones that user created."""
-    readable = _readable(team_id, [source_kind]).filter(legacy_configuration_id__isnull=True)
+) -> tuple[tuple[datetime, UUID], ...]:
+    """`(created_at, id)` of every configuration of a kind with no source row, newest first, without
+    loading the rest of each row. With `created_by_uuid`, only the ones that user created."""
+    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind, legacy_configuration_id__isnull=True
+    )
     if created_by_uuid is not None:
-        readable = readable.filter(created_by__uuid=created_by_uuid)
-    return tuple(_configuration_view(row) for row in readable)
+        rows = rows.filter(created_by__uuid=created_by_uuid)
+    return tuple(rows.order_by("-created_at", "-id").values_list("created_at", "id"))
 
 
 def count_configurations(

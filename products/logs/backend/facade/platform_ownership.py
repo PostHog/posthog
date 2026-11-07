@@ -13,6 +13,7 @@ from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.native_alerts import (
     create_native,
     delete_native,
+    native_alert_keys,
     native_alert_view,
     native_alert_views,
     update_native,
@@ -23,6 +24,7 @@ __all__ = [
     "creates_native_alert",
     "delete_alert",
     "delete_native",
+    "native_alert_keys",
     "native_alert_view",
     "native_alert_views",
     "on_created",

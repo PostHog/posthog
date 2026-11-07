@@ -4,7 +4,7 @@ Each function takes ids and returns the platform's view, so the logs API present
 `LogsAlertConfiguration.from_platform_view` and never holds a row it could save.
 """
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime
 from typing import Any, Final
 from uuid import UUID
@@ -15,7 +15,8 @@ from products.alerts_platform.backend.facade.api import (
     create_configuration,
     delete_configuration,
     get_configuration,
-    list_native_configurations,
+    list_configurations,
+    native_configuration_keys,
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import Grouping, PlatformAlertConfigurationView, SourceKind
@@ -32,10 +33,19 @@ def native_alert_view(*, team_id: int, alert_id: UUID, lock: bool = False) -> Pl
     return view if view is not None and view.legacy_configuration_id is None else None
 
 
-def native_alert_views(
-    team_id: int, *, created_by_uuid: UUID | None = None
-) -> tuple[PlatformAlertConfigurationView, ...]:
-    return list_native_configurations(team_id=team_id, source_kind=SourceKind.LOGS, created_by_uuid=created_by_uuid)
+def native_alert_keys(team_id: int, *, created_by_uuid: UUID | None = None) -> tuple[tuple[datetime, UUID], ...]:
+    """`(created_at, id)` of each of the team's logs alerts with no logs row, for paging them beside logs rows."""
+    return native_configuration_keys(team_id=team_id, source_kind=SourceKind.LOGS, created_by_uuid=created_by_uuid)
+
+
+def native_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[PlatformAlertConfigurationView, ...]:
+    """The named logs alerts with no logs row, in no particular order."""
+    if not alert_ids:
+        return ()
+    page = list_configurations(
+        team_id=team_id, source_kinds=_LOGS, limit=len(alert_ids), offset=0, configuration_ids=alert_ids
+    )
+    return tuple(view for view in page.configurations if view.legacy_configuration_id is None)
 
 
 def create_native(

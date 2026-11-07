@@ -116,6 +116,7 @@ from products.logs.backend.facade.platform_ownership import (
     creates_native_alert,
     delete_alert,
     delete_native,
+    native_alert_keys,
     native_alert_view,
     native_alert_views,
     on_created,
@@ -1496,23 +1497,27 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return query.validated_data.get("created_by")
 
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:
-        # An alert with no logs row has no row in the queryset, so the page is merged here. It pages on
-        # each logs row's sort key alone, then loads only the page's rows with their event history.
+        # An alert with no logs row has no row in the queryset, so the page is merged here. Both kinds
+        # page on their sort keys alone, and only the page's alerts are loaded.
         rows = self.filter_queryset(self.get_queryset())
-        natives = [
-            _listed_alert(view, team_id=self.team_id)
-            for view in native_alert_views(self.team_id, created_by_uuid=self._list_created_by)
-        ]
-        keys: list[tuple[datetime, UUID, LogsAlertConfiguration | None]] = [
-            *((created_at, alert_id, None) for created_at, alert_id in rows.values_list("created_at", "id")),
-            *((alert.created_at, alert.id, alert) for alert in natives),
+        keys: list[tuple[datetime, UUID, bool]] = [
+            *((created_at, alert_id, False) for created_at, alert_id in rows.values_list("created_at", "id")),
+            *(
+                (created_at, alert_id, True)
+                for created_at, alert_id in native_alert_keys(self.team_id, created_by_uuid=self._list_created_by)
+            ),
         ]
         keys.sort(key=lambda key: (key[0], key[1]), reverse=True)
         page = self.paginate_queryset(keys)
         listed = keys if page is None else page
-        loaded = {row.id: row for row in rows.filter(id__in=[key[1] for key in listed if key[2] is None])}
-        # A row deleted since its key was read drops out of the page rather than failing it.
-        alerts = [alert for _, alert_id, native in listed if (alert := native or loaded.get(alert_id)) is not None]
+        loaded: dict[UUID, LogsAlertConfiguration] = {
+            row.id: row for row in rows.filter(id__in=[alert_id for _, alert_id, native in listed if not native])
+        }
+        native_ids = [alert_id for _, alert_id, native in listed if native]
+        for view in native_alert_views(self.team_id, native_ids):
+            loaded[view.id] = _listed_alert(view, team_id=self.team_id)
+        # An alert deleted since its key was read drops out of the page rather than failing it.
+        alerts = [loaded[alert_id] for _, alert_id, _ in listed if alert_id in loaded]
         data = self.get_serializer(alerts, many=True).data
         return Response(data) if page is None else self.get_paginated_response(data)
 
