@@ -1197,6 +1197,24 @@ describe('EmailService', () => {
                     }
                 )
 
+                it('keeps the daily caps when SES throttles a send the SDK retried', async () => {
+                    service = createSandboxService(true, {
+                        senderSettings: { dailyTeamCap: 1, dailyRecipientCap: 1 },
+                    })
+                    sendEmailSpy.mockRejectedValueOnce(
+                        Object.assign(new ThrottlingException('Rate exceeded'), { $metadata: { attempts: 3 } })
+                    )
+
+                    const throttled = await send(false)
+                    expect(throttled.finished).toBe(false)
+                    expectCapSkip(
+                        await service.executeSendEmail(throttled.invocation, false),
+                        false,
+                        TEAM_CAP_REACHED,
+                        'project_cap_reached'
+                    )
+                })
+
                 it.each([
                     [
                         'gives the claim back when SES rejects the send',
@@ -1204,6 +1222,11 @@ describe('EmailService', () => {
                         true,
                     ],
                     ['keeps the claim when SES may have accepted the send', new Error('socket hang up'), false],
+                    [
+                        'keeps the claim when SES rejects a send the SDK retried',
+                        new MessageRejected({ $metadata: { attempts: 2 }, message: 'Rejected' }),
+                        false,
+                    ],
                 ])('%s', async (_case, error, returned) => {
                     service = createSandboxService(true, {
                         senderSettings: { dailyTeamCap: 1, dailyRecipientCap: 1 },

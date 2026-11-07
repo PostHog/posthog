@@ -179,18 +179,33 @@ function isWorkflowEmailStep(invocation: CyclotronJobInvocationHogFunction): boo
 export class SESThrottleError extends Error {
     public readonly errorCode: SesThrottleErrorName
     public readonly retryAfterMs: number
+    public readonly retriedBySdk: boolean
 
-    constructor(errorCode: SesThrottleErrorName, retryAfterMs: number, message: string) {
+    constructor(errorCode: SesThrottleErrorName, retryAfterMs: number, message: string, retriedBySdk = false) {
         super(message)
         this.name = 'SESThrottleError'
         this.errorCode = errorCode
         this.retryAfterMs = retryAfterMs
+        this.retriedBySdk = retriedBySdk
     }
 }
 
 // SES answered with a client fault, so it did not accept the message. Other failures, such as a timeout or a
 // missing message ID, leave open whether the email went out.
-class SesRejectedError extends Error {}
+class SesRejectedError extends Error {
+    constructor(
+        message: string,
+        public readonly retriedBySdk: boolean
+    ) {
+        super(message)
+    }
+}
+
+// The SDK retries a send after a timeout or a transient error, so the final answer of a retried send says
+// nothing about whether an earlier attempt delivered the email.
+function sesRetriedSend(error: unknown): boolean {
+    return ((error as { $metadata?: { attempts?: number } } | null)?.$metadata?.attempts ?? 1) > 1
+}
 
 class EmailAttachmentsUnavailableError extends Error {
     constructor(cause: unknown) {
@@ -1314,7 +1329,7 @@ export class EmailService {
         try {
             await this.sendEmailWithSES(result, params, from, false, isTest, queueWait, files, route)
         } catch (error) {
-            if (error instanceof SESThrottleError || error instanceof SesRejectedError) {
+            if ((error instanceof SESThrottleError || error instanceof SesRejectedError) && !error.retriedBySdk) {
                 await sender.returnDailyCaps(capGrant)
             }
             throw error
@@ -1738,11 +1753,11 @@ export class EmailService {
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
             if (isSesThrottleError(error)) {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })
-                throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
+                throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message, sesRetriedSend(error))
             }
             const message = `Failed to send email via SES: ${error instanceof Error ? error.message : String(error)}`
             throw error instanceof SESv2ServiceException && error.$fault === 'client'
-                ? new SesRejectedError(message)
+                ? new SesRejectedError(message, sesRetriedSend(error))
                 : new Error(message)
         }
     }
