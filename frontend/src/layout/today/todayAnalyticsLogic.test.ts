@@ -289,9 +289,9 @@ describe('todayAnalyticsLogic', () => {
         expect(logic.values.recentAnalytics).toEqual([])
     })
 
-    it('shows the saved layout, and puts it back after a reset when asked', async () => {
+    it.each([false, true])('restores the saved layout through Undo, left pane=%s', async (leftPane) => {
         const successToast = jest.spyOn(toast, 'success')
-        const logic = todayAnalyticsLogic()
+        let logic = todayAnalyticsLogic()
         logic.mount()
         const shown = (): [boolean, string[] | undefined] => [
             logic.values.sidebarCustomized,
@@ -308,7 +308,22 @@ describe('todayAnalyticsLogic', () => {
         const undo = successToast.mock.calls.find(([options]) => options.title === 'Sidebar reset to the default')?.[0]
             .action
         expect(undo?.label).toBe('Undo')
-        await expectLogic(logic, () => undo?.onClick()).toDispatchActions(['requestSidebarSuccess'])
+        const projectId = String(logic.values.currentProjectId)
+        const restore = jest.spyOn(sidebarApi, 'todayAnalyticsSidebarUpdate').mockResolvedValue(CUSTOM_SIDEBAR)
+        if (leftPane) {
+            logic.unmount()
+        }
+        await undo?.onClick()
+        if (!leftPane) {
+            await expectLogic(logic).toFinishAllListeners()
+        }
+        expect(restore).toHaveBeenCalledWith(projectId, { layout: CUSTOM_SIDEBAR.layout })
+        expect(todayAnalyticsLogic.isMounted()).toBe(!leftPane)
+        if (leftPane) {
+            logic = todayAnalyticsLogic()
+            logic.mount()
+        }
+        await expectLogic(logic).toFinishAllListeners()
 
         expect([loaded, reset, shown()]).toEqual([
             [true, ['growth']],

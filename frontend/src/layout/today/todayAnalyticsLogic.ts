@@ -382,11 +382,25 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
         restoreSidebar: ({ layout }) => asyncActions.requestSidebar({ operation: 'restore', layout }),
         requestSidebarSuccess: ({ payload }) => {
             if (payload?.operation === 'reset') {
+                const projectId = values.currentProjectId
                 // pinned: analytics event name. Renaming it breaks dashboards.
                 posthog.capture('analytics sidebar reset')
                 toast.success({
                     title: 'Sidebar reset to the default',
-                    action: { label: 'Undo', onClick: () => actions.restoreSidebar(payload.previous) },
+                    action: {
+                        label: 'Undo',
+                        onClick: async () => {
+                            const logic = todayAnalyticsLogic()
+                            const unmount = logic.mount()
+                            try {
+                                if (logic.values.currentProjectId === projectId) {
+                                    await logic.asyncActions.restoreSidebar(payload.previous)
+                                }
+                            } finally {
+                                unmount()
+                            }
+                        },
+                    },
                 })
             }
             if (!cache.sidebarPendingWrites && cache.sidebarReloadAfterWrite) {
