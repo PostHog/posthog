@@ -203,10 +203,17 @@ by the mobile footer change:
 
 ## Session replay
 
-- **No player.** The phone shows the summary, chapter frames and the event timeline. Watching the recording is
-  "Open full replay", the web player in the browser. No inspector, console or network panes.
-- **No clip video.** Replay Vision renders an MP4 with idle time cut, but playing it needs `expo-video`, a native
-  module the app does not ship. Adding it needs a new native build, not an over-the-air update.
+- **No player with `mobile-replay-video` off.** The phone shows the summary, chapter frames and the event timeline.
+  Watching the recording is "Open full replay", the web player in the browser.
+- **The video is pixels only.** Watch replay plays an MP4, so it has no DOM inspection, console or network panes, and no event markers on the scrubber.
+  Those stay in the web player, which More and the player's error state open as Open in PostHog.
+- **The first watch waits for a render.** Rendering takes a few minutes, and the app polls only while the player is open.
+  No push says the video is ready.
+- **Renders spend the export cap.** Each first watch of a session counts against the team's monthly video export cap.
+  At the cap, the player offers only the web player.
+  A video expires after 30 days, and the next watch renders and counts again.
+- **Recordings longer than 3 hours do not play in the app.** A render the server cut short plays with a note that it stops early.
+- **Replay Vision's own MP4 is not played.** Replay Vision renders an MP4 with idle time cut, but the player plays the Export to MP4 render, so a summarized session still renders an export on its first watch.
 - **No push when a summary is ready.** The screen polls for two minutes while it is open. Backend ask: a hook on scan
   completion that sends a mobile push with the session id, so a tap opens `/replay/{sessionId}`.
 - **Frames need two requests.** The thumbnail endpoint answers with a redirect to a signed URL, so each frame costs an
