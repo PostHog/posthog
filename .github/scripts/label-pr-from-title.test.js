@@ -93,7 +93,7 @@ const PATH_RULES = [
         labels: ['feature/agent-infra'],
     },
     {
-        paths: ['services/sized/'],
+        paths: ['services/sized/', 'nodejs/src/ingestion/pipelines/ai/costs/providers/'],
         minLines: 10,
         minFiles: 3,
         labels: ['feature/sized'],
@@ -139,7 +139,10 @@ const LABELS_FOR_FILES_CASES = [
         description: 'a sized rule ignores lockfile lines',
     },
     {
-        files: [changed('services/sized/a.py', 2), changed('services/sized/frontend/generated/api.ts', 80)],
+        files: [
+            changed('services/sized/a.py', 2),
+            changed('nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts', 80),
+        ],
         expected: [],
         description: 'a sized rule ignores generated file lines',
     },
