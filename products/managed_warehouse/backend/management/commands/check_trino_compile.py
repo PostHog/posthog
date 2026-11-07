@@ -25,7 +25,6 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", type=int, required=True)
         parser.add_argument("--saved-query-ids", help="Comma-separated saved query UUIDs. Defaults to all.")
         parser.add_argument("--explain", action="store_true", help="Also send EXPLAIN to the team's Trino.")
-        parser.add_argument("--explain-timeout", type=int, default=30, help="Planning time limit in seconds.")
         parser.add_argument("--limit", type=int, help="Check at most this many saved queries.")
         parser.add_argument("--format", choices=["table", "json"], default="table")
 
@@ -40,7 +39,6 @@ class Command(BaseCommand):
             saved_query_ids=[value.strip() for value in ids.split(",") if value.strip()] if ids else None,
             explain=options["explain"],
             limit=options["limit"],
-            explain_timeout_seconds=options["explain_timeout"],
         )
         if options["format"] == "json":
             self.stdout.write(json.dumps(_as_json(report), indent=2))
