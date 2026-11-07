@@ -232,6 +232,9 @@ const meta: Meta = {
                 '/api/projects/:team_id/file_system/': fileSystemHandler,
                 '/api/projects/:team_id/tags/': ['finance', 'growth', 'onboarding', 'weekly'],
             },
+            post: {
+                '/api/projects/:team_id/file_system/home_folder/': { id: 'home-folder', path: 'Home' },
+            },
         }),
     ],
     parameters: {
