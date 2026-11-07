@@ -7,6 +7,7 @@ import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/qu
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
+import { NavSwitchToggle } from 'lib/components/NavSwitchToggle/NavSwitchToggle'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -42,30 +43,38 @@ export function TodaySidebarFooter(): JSX.Element {
     )
 
     return (
-        <div className="grid flex-none grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-t border-[var(--border)] px-2 pt-2 pb-2">
-            {sidebarVisible ? (
-                <NewAccountMenu side="top" align="start" sideOffset={12} renderTrigger={renderTrigger} />
-            ) : (
-                renderTrigger({})
+        <div className="flex-none border-t border-[var(--border)]">
+            {/* The old navigation's sidebar footer holds the same toggle, so it sits in the same place either way. */}
+            {sidebarVisible && (
+                <div className="px-2 pt-2">
+                    <NavSwitchToggle surface="today_sidebar" />
+                </div>
             )}
-            <Tooltip>
-                <TooltipTrigger
-                    delay={0}
-                    render={
-                        <Button
-                            size="icon-lg"
-                            className={TRIGGER_CLASSES}
-                            aria-label="Settings"
-                            nativeButton={false}
-                            render={<LinkPrimitive to={urls.settings('project')} />}
-                            data-attr="today-settings"
-                        />
-                    }
-                >
-                    <IconGear className="size-4.5" />
-                </TooltipTrigger>
-                <TooltipContent>Settings</TooltipContent>
-            </Tooltip>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-2 pt-2 pb-2">
+                {sidebarVisible ? (
+                    <NewAccountMenu side="top" align="start" sideOffset={12} renderTrigger={renderTrigger} />
+                ) : (
+                    renderTrigger({})
+                )}
+                <Tooltip>
+                    <TooltipTrigger
+                        delay={0}
+                        render={
+                            <Button
+                                size="icon-lg"
+                                className={TRIGGER_CLASSES}
+                                aria-label="Settings"
+                                nativeButton={false}
+                                render={<LinkPrimitive to={urls.settings('project')} />}
+                                data-attr="today-settings"
+                            />
+                        }
+                    >
+                        <IconGear className="size-4.5" />
+                    </TooltipTrigger>
+                    <TooltipContent>Settings</TooltipContent>
+                </Tooltip>
+            </div>
         </div>
     )
 }

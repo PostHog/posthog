@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
  * A visible on/off switch between the navigations. On means the new navigation, and flipping it swaps
  * the chrome in place: the enrollment update rewrites the flag locally, so no reload is needed.
  */
-export function NavSwitchToggle({ surface }: { surface: 'today_top_bar' | 'navbar' }): JSX.Element | null {
+export function NavSwitchToggle({ surface }: { surface: 'today_sidebar' | 'navbar' }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
@@ -44,7 +44,7 @@ export function NavSwitchToggle({ surface }: { surface: 'today_top_bar' | 'navba
             }}
             label="New navigation"
             size="small"
-            bordered
+            fullWidth
             data-attr="nav-switch-toggle"
         />
     )

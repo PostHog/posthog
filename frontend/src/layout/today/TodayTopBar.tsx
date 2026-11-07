@@ -1,5 +1,3 @@
-import { NavSwitchToggle } from 'lib/components/NavSwitchToggle/NavSwitchToggle'
-
 import { TodayOrgMenu } from './TodayOrgMenu'
 import { TodayProjectMenu } from './TodayProjectMenu'
 import { TodayTopBarPanelTabs } from './TodayTopBarPanelTabs'
@@ -26,8 +24,7 @@ export function TodayTopBar(): JSX.Element {
             <div className="mx-2 min-w-0">
                 <TodayTopBarSearch />
             </div>
-            <div className="flex min-w-0 items-center justify-end gap-2">
-                <NavSwitchToggle surface="today_top_bar" />
+            <div className="flex min-w-0 items-center justify-end">
                 <TodayTopBarPanelTabs />
             </div>
         </header>
