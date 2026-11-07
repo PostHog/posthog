@@ -25,8 +25,6 @@ const ProviderSettings = z.object({
     docs_url: z.string(),
     condition_presets: z.array(Preset),
     required_condition_claims: z.array(z.string()).default([]),
-    can_resolve_subject: z.boolean(),
-    subject_lookup_conditions: z.record(z.string(), z.string()).default({}),
     setup_snippet: z.string(),
 })
 
@@ -64,12 +62,5 @@ export function requiredPresets(settings: ProviderSettings): Preset[] {
     const required = new Set(settings.required_condition_claims)
     return settings.condition_presets.filter((preset) =>
         Object.keys(preset.conditions).some((claim) => required.has(claim))
-    )
-}
-
-export function canLookUpSubject(settings: ProviderSettings, conditions: Record<string, string>): boolean {
-    return (
-        settings.can_resolve_subject &&
-        Object.entries(settings.subject_lookup_conditions).every(([claim, value]) => conditions[claim] === value)
     )
 }

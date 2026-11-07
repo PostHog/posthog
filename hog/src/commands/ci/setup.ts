@@ -1,6 +1,5 @@
 import { CI_SETUP_COMMAND, policyRequestFlow, policyRequestWait, resolveSubject } from '@/ci/policy-request'
 import {
-    canLookUpSubject,
     presetConditions,
     providerSettings,
     requiredPresets,
@@ -323,13 +322,6 @@ export default defineCommand({
             return collected
         }
         const { conditions } = collected
-        if (!options.subjectId && !canLookUpSubject(settings, conditions)) {
-            throw usage(
-                'missing_subject_id',
-                `PostHog can't look up the repository ID for these ${settings.name} conditions.`,
-                'Pass --subject-id with the repository ID, and --repository with its name.'
-            )
-        }
         const subject = options.subjectId
             ? { subject: options.subjectId, subject_name: subjectName }
             : await resolveSubject(api, projectId, settings, subjectName)
