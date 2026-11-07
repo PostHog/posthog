@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 
 from products.posthog_ai.backend.conversation_mirror import MirrorResult
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -131,14 +132,23 @@ class TestCopiedChatsHiddenWithoutSandboxMode(ConversationTaskTestMixin):
         assert listed == detail
         return listed
 
-    def test_a_user_without_sandbox_mode_sees_no_copied_chat(self) -> None:
+    @parameterized.expand(
+        [
+            ("without_sandbox_mode", False, None, False),
+            ("with_sandbox_mode", True, "grandfathered", True),
+        ]
+    )
+    def test_task_reads_share_one_flag_lookup_to_hide_copied_chats(
+        self, _name: str, flag_enabled: bool, variant: str | None, sees_copied_chat: bool
+    ) -> None:
         copied, continued, plain = self._tasks()
-        with patch(f"{RECEIVERS}._has_posthog_ai_access", return_value=False):
-            assert self._visible_ids() == {continued.id, plain.id}
-
-    def test_a_user_with_sandbox_mode_sees_the_copies(self) -> None:
-        copied, continued, plain = self._tasks()
-        assert self._visible_ids() == {copied.id, continued.id, plain.id}
+        access_flag = FeatureFlagResult(
+            key="phai-2-beta", enabled=flag_enabled, variant=variant, payload=None, reason=None
+        )
+        with patch("posthoganalytics.get_feature_flag_result", return_value=access_flag) as flag_lookup:
+            visible = self._visible_ids()
+        assert visible == ({copied.id} if sees_copied_chat else set()) | {continued.id, plain.id}
+        assert flag_lookup.call_count == 1
 
     def test_a_build_without_ee_hides_nothing_and_still_serves_task_reads(self) -> None:
         copied, continued, plain = self._tasks()
