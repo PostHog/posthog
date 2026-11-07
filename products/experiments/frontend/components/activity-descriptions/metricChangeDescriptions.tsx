@@ -5,10 +5,15 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
-import { getDefaultMetricTitle } from '~/scenes/experiments/MetricsView/shared/utils'
+import {
+    formatMetricTypeName,
+    formatQuantileLevel,
+    getDefaultMetricTitle,
+} from '~/scenes/experiments/MetricsView/shared/utils'
 
 const getOutlierHandlingChanges = (metricBefore: ExperimentMetric, metricAfter: ExperimentMetric): string | null => {
     // bail if it's a metric type change
@@ -105,6 +110,20 @@ const getRatioChanges = (metricBefore: ExperimentMetric, metricAfter: Experiment
 
     return null
 }
+const getQuantileChanges = (metricBefore: ExperimentMetric, metricAfter: ExperimentMetric): string[] => {
+    if (!isExperimentQuantileMetric(metricBefore) || !isExperimentQuantileMetric(metricAfter)) {
+        return []
+    }
+    const changes: string[] = []
+    if (metricBefore.quantile !== metricAfter.quantile) {
+        changes.push(`set the percentile to ${formatQuantileLevel(metricAfter.quantile)}`)
+    }
+    if (!equal(metricBefore.source, metricAfter.source)) {
+        changes.push(`changed the source event`)
+    }
+    return changes
+}
+
 export const getMetricChanges = (
     before: ExperimentMetric[],
     after: ExperimentMetric[]
@@ -145,8 +164,8 @@ export const getMetricChanges = (
     if (metricAfter.metric_type !== metricBefore.metric_type) {
         changes.push(
             <span>
-                changed the type from <LemonTag>{metricBefore.metric_type}</LemonTag> to{' '}
-                <LemonTag>{metricAfter.metric_type}</LemonTag>
+                changed the type from <LemonTag>{formatMetricTypeName(metricBefore.metric_type)}</LemonTag> to{' '}
+                <LemonTag>{formatMetricTypeName(metricAfter.metric_type)}</LemonTag>
             </span>
         )
     }
@@ -206,6 +225,8 @@ export const getMetricChanges = (
     ) {
         changes.push(`changed the source event`)
     }
+
+    changes.push(...getQuantileChanges(metricBefore, metricAfter))
 
     // check numerator and denominator changes for ratio metrics
     const ratioChanges = getRatioChanges(metricBefore, metricAfter)

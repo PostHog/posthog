@@ -21,6 +21,7 @@ import {
     NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
@@ -31,6 +32,7 @@ import {
     formatIntervalPercent,
     formatMetricValue,
     formatPValue,
+    formatQuantileLevel,
     getIntervalLabel,
     isBayesianResult,
     isFrequentistResult,
@@ -145,13 +147,26 @@ export function ResultDetails({
                 "Exposures counted by this metric's query, so the count can differ from the Exposures panel. With 'Require completed conversion or retention window' enabled, users whose window hasn't elapsed are excluded.",
             render: (_, item) => humanFriendlyNumber(item.number_of_samples),
         },
+        ...(isExperimentQuantileMetric(metric)
+            ? [
+                  {
+                      key: 'events',
+                      title: 'Events',
+                      tooltip: 'Events with a value for the property. The percentile is taken over these events.',
+                      render: (_: unknown, item: ExperimentVariantResult & { key: string }) =>
+                          humanFriendlyNumber(item.denominator_sum ?? 0),
+                  },
+              ]
+            : []),
         {
             key: 'value',
             title: isExperimentMeanMetric(metric)
                 ? 'Mean'
                 : isExperimentRatioMetric(metric)
                   ? 'Ratio'
-                  : 'Conversion rate',
+                  : isExperimentQuantileMetric(metric)
+                    ? formatQuantileLevel(metric.quantile)
+                    : 'Conversion rate',
             render: (_, item) => formatMetricValue(item, metric),
         },
         {
