@@ -1,4 +1,5 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from django.conf import settings
@@ -111,22 +112,31 @@ def _apply_sandbox_tenant_state(state: SandboxSenderTenantState, sending_status:
     transaction.on_commit(lambda: reload_sandbox_sender_state_on_workers(tenant_name), robust=True)
 
 
+@contextmanager
+def _counted_state_row_failures() -> Iterator[None]:
+    try:
+        yield
+    except OperationalError as error:
+        SANDBOX_TENANT_SYNC_FAILURES.labels(
+            kind="busy" if isinstance(error.__cause__, LockNotAvailable) else "error"
+        ).inc()
+        raise
+
+
 def sync_sandbox_tenant_state() -> None:
     tenant_name = settings.SES_SANDBOX_TENANT_NAME
     if not tenant_name:
         return
+    # The row commits before the lock transaction starts. An insert inside that transaction stays
+    # uncommitted during the SES read, and an overlapping first sync would wait on it, not fail with NOWAIT.
+    with _counted_state_row_failures():
+        SandboxSenderTenantState.objects.get_or_create(tenant_name=tenant_name)
     with transaction.atomic():
-        try:
-            SandboxSenderTenantState.objects.get_or_create(tenant_name=tenant_name)
+        with _counted_state_row_failures():
             # The lock serializes SES reads, so a stale sweep cannot overwrite a newer pause. NOWAIT
             # makes an overlapping sync fail at once, and its task retries with backoff. A waiting
             # sync would hold a Celery worker and a database connection while the holder waits on SES.
             state = SandboxSenderTenantState.objects.select_for_update(nowait=True).get(tenant_name=tenant_name)
-        except OperationalError as error:
-            SANDBOX_TENANT_SYNC_FAILURES.labels(
-                kind="busy" if isinstance(error.__cause__, LockNotAvailable) else "error"
-            ).inc()
-            raise
         try:
             tenant = SESProvider().get_tenant_sending_state(tenant_name)
         except Exception as error:
