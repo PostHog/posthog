@@ -206,6 +206,9 @@ const inboxReportActionsRun = (): ToolBase<
         if (params.suggested_prompt_index !== undefined) {
             body['suggested_prompt_index'] = params.suggested_prompt_index
         }
+        if (params.suggested_prompt_text !== undefined) {
+            body['suggested_prompt_text'] = params.suggested_prompt_text
+        }
         if (params.message !== undefined) {
             body['message'] = params.message
         }
