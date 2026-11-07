@@ -1,5 +1,3 @@
-//! Only the interface of `metric-rules-cache.ts` is ported, not its Postgres-backed cache.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

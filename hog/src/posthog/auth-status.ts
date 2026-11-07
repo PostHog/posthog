@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import type { StoreChoice } from '@/posthog/credential-store/types'
@@ -48,10 +50,10 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
     const { key, source } = credentials
     const { host, projectId } = key
     const { kind, scopes, expiresAt, rejected } = key.status()
-    const api = await ctx.posthog()
+    const api = (await ctx.posthog()).withoutStepUp()
     const [user, project] = await Promise.allSettled([
-        api.get<{ email: string; first_name?: string }>('/api/users/@me/'),
-        api.get<{ name: string }>(''),
+        api.get('/api/users/@me/', z.looseObject({ email: z.string(), first_name: z.string().nullish() })),
+        api.get('', z.looseObject({ name: z.string().nullish() })),
     ])
     const failures = [user, project].flatMap((outcome) => (outcome.status === 'rejected' ? [outcome.reason] : []))
     if (failures.some((failure) => failure instanceof ApiError && failure.status === 401)) {
@@ -73,7 +75,7 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         authenticated: true,
         host,
         projectId,
-        projectName: project.status === 'fulfilled' ? project.value.name : null,
+        projectName: project.status === 'fulfilled' ? (project.value.name ?? null) : null,
         kind,
         source,
         store: credentials.source === 'store' ? credentials.store : null,

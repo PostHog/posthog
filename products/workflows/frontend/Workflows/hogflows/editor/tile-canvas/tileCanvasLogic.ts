@@ -126,15 +126,23 @@ function frameOrigin(layout: CanvasLayout | null, group: PathGroup): Point {
     return box ? { x: box.x + box.width / 2, y: box.y + 40 } : { x: 0, y: 0 }
 }
 
-function captureStepAdded(source: StepAddSource, stepType: string): void {
-    posthog.capture('workflows tile canvas step added', { source, step_type: stepType })
+const snappedProperty = (snapped: boolean | undefined): { snapped?: boolean } =>
+    snapped !== undefined ? { snapped } : {}
+
+function captureStepAdded(source: StepAddSource, stepType: string, snapped?: boolean): void {
+    posthog.capture('workflows tile canvas step added', { source, step_type: stepType, ...snappedProperty(snapped) })
 }
 
-function captureStepDragEnded(outcome: StepDragOutcome, stepType: string, dropEffect?: string | null): void {
+function captureStepDragEnded(
+    outcome: StepDragOutcome,
+    stepType: string,
+    { dropEffect, snapped }: { dropEffect?: string | null; snapped?: boolean } = {}
+): void {
     posthog.capture('workflows tile canvas step drag ended', {
         outcome,
         step_type: stepType,
         ...(dropEffect !== undefined ? { drop_effect: dropEffect } : {}),
+        ...snappedProperty(snapped),
     })
 }
 
@@ -307,8 +315,12 @@ export interface tileCanvasLogicActions {
     collapsePath: (groupId: string) => {
         groupId: string
     }
-    dropAt: (edge: HogFlowEdge) => {
+    dropAt: (
+        edge: HogFlowEdge,
+        snapped?: boolean
+    ) => {
         edge: HogFlowEdge
+        snapped: boolean | undefined
     }
     endDraggingNewStep: () => {
         value: true
@@ -552,7 +564,7 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
         addStepAt: (step: CreateActionType, edge: HogFlowEdge) => ({ step, edge }),
         placeAt: (edge: HogFlowEdge) => ({ edge }),
         setDropTargetEdgeKey: (edgeKey: string | null) => ({ edgeKey }),
-        dropAt: (edge: HogFlowEdge) => ({ edge }),
+        dropAt: (edge: HogFlowEdge, snapped?: boolean) => ({ edge, snapped }),
         startDraggingStep: (actionId: string) => ({ actionId }),
         endDraggingStep: (dropEffect: string | null = null) => ({ dropEffect }),
         startDraggingNewStep: (step: CreateActionType) => ({ step }),
@@ -824,18 +836,18 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
             actions.setOpenPathIds([...new Set([...values.openPathIds, ...containing.map((group) => group.id)])])
             actions.focusPathAfterLayout(innermost.id)
         }
-        const recordStepDrop = (outcome: StepDragOutcome): void => {
+        const recordStepDrop = (outcome: StepDragOutcome, snapped?: boolean): void => {
             const drag = cache.stepDrag as StepDrag | null | undefined
             if (drag && !drag.dropped) {
                 drag.dropped = true
-                captureStepDragEnded(outcome, drag.stepType)
+                captureStepDragEnded(outcome, drag.stepType, { snapped })
             }
         }
-        const placeExistingStep = (edge: HogFlowEdge, source: StepMoveSource): void => {
+        const placeExistingStep = (edge: HogFlowEdge, source: StepMoveSource, snapped?: boolean): void => {
             const dropzone = values.dropzoneNodes.find((zone) => zone.data.edge.id === getEdgeId(edge))
             if (!dropzone) {
                 if (source === 'drag') {
-                    recordStepDrop('no_matching_spot')
+                    recordStepDrop('no_matching_spot', snapped)
                 }
                 return
             }
@@ -845,7 +857,7 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 actions.moveNodeToHighlightedDropzone()
                 posthog.capture('workflows tile canvas step moved', { source, step_type: stepType })
                 if (source === 'drag') {
-                    recordStepDrop('moved')
+                    recordStepDrop('moved', snapped)
                 }
             } else {
                 actions.copyNodeToHighlightedDropzone()
@@ -939,7 +951,7 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 const drag = cache.stepDrag as StepDrag | null | undefined
                 // The browser reports dropEffect "none" when no drop target accepted the drag.
                 if (drag && !drag.dropped) {
-                    captureStepDragEnded('let_go_elsewhere', drag.stepType, dropEffect)
+                    captureStepDragEnded('let_go_elsewhere', drag.stepType, { dropEffect })
                 }
                 cache.stepDrag = null
             },
@@ -957,13 +969,13 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                     actions.closeQuickAdd()
                 }
             },
-            dropAt: ({ edge }) => {
+            dropAt: ({ edge, snapped }) => {
                 const step = values.nodeToBeAdded
                 if (values.isMovingNode) {
-                    placeExistingStep(edge, 'drag')
+                    placeExistingStep(edge, 'drag', snapped)
                 } else if (step) {
                     actions.onDrop(undefined, edge)
-                    captureStepAdded('drag', 'data' in step ? step.data.type : step.type)
+                    captureStepAdded('drag', 'data' in step ? step.data.type : step.type, snapped)
                     // A drop on the + that opened the add window removes that window, so its dragend never fires.
                     if (values.isDraggingNewStep) {
                         actions.endDraggingNewStep()
@@ -1073,7 +1085,7 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
         },
     })),
     afterMount(({ actions, values, cache }) => {
-        // The step can be picked before the canvas mounts, from the tree view or a link to the step.
+        // The step can be picked before the canvas mounts, from a link to the step.
         if (values.selectedNodeId) {
             actions.revealStep(values.selectedNodeId)
         }

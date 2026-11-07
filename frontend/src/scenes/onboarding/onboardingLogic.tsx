@@ -217,10 +217,7 @@ export interface onboardingLogicMeta {
             currentStepProductKey: ProductKey | null,
             secondaryProductKeys: ProductKey[]
         ) => string
-        onCompleteOnboardingRedirectUrl: (
-            productKey: ProductKey | null,
-            onCompleteOnboardingRedirectUrlOverride: string | null
-        ) => string
+        onCompleteOnboardingRedirectUrl: (onCompleteOnboardingRedirectUrlOverride: string | null) => string
     }
 }
 
@@ -650,16 +647,16 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 }).url
             },
         ],
+        // Single decision point for where a user lands after onboarding completes or is skipped.
+        // An explicit `?next=` override wins, and everything else goes home. Products do not choose
+        // their own landing target.
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
-            (productKey: ProductKey | null, onCompleteOnboardingRedirectUrlOverride: string | null): string => {
+            (s) => [s.onCompleteOnboardingRedirectUrlOverride],
+            (onCompleteOnboardingRedirectUrlOverride: string | null): string => {
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
-                if (!productKey) {
-                    return urls.default()
-                }
-                return onboardingProviderRegistry[productKey]?.completeRedirectUrl?.() ?? urls.default()
+                return urls.projectHomepage()
             },
         ],
     }),

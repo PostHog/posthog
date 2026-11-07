@@ -241,6 +241,21 @@ class TestRoutineInsights(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
+        self.enterContext(
+            patch.object(
+                routine,
+                "viewable_insight_definitions",
+                side_effect=lambda short_ids, **_: {
+                    short_id: SavedInsightDefinition(
+                        id=i,
+                        short_id=short_id,
+                        name=short_id,
+                        query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+                    )
+                    for i, short_id in enumerate(short_ids)
+                },
+            )
+        )
 
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
     def test_an_insight_opened_most_days_shows_its_last_week_in_the_pulse(self) -> None:
@@ -301,8 +316,8 @@ class TestRoutineInsights(BaseTest):
                 "a session",
                 None,
                 [
-                    ("insight:signups", "/dashboard/7", "Growth", 3, TODAY - timedelta(days=1)),
                     ("insight:old", "/insights/old", None, 1, TODAY - timedelta(days=13)),
+                    ("insight:signups", "/dashboard/7", "Growth", 3, TODAY - timedelta(days=1)),
                 ],
             ),
             (
@@ -377,69 +392,6 @@ class TestRoutineInsights(BaseTest):
             pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
 
         self.assertEqual([m.key for m in pulse], ["insight:habit"])
-
-    @parameterized.expand(
-        [
-            ("first_insight", "a", ["b", "c", "d"]),
-            ("dashboard_tile", "slow", ["a", "b", "c", "d"]),
-        ]
-    )
-    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
-    def test_suggestions_skip_pins_and_keep_fast_results_when_an_earlier_query_uses_the_deadline(
-        self, _name: str, slow_ref: str, expected: list[str]
-    ) -> None:
-        for age, (kind, ref) in enumerate(
-            (("insight", "pinned"), ("insight", "a"), ("dashboard", "7"), ("insight", "c"), ("insight", "d")), start=1
-        ):
-            FileSystemViewLog.objects.create(
-                team=self.team,
-                user=self.user,
-                type=kind,
-                ref=ref,
-                view_days=[TODAY - timedelta(days=age + extra) for extra in (0, 1, 2)],
-                viewed_at=datetime.combine(TODAY - timedelta(days=age), time(12), tzinfo=UTC),
-            )
-        growth = DashboardInsights(
-            dashboard_id=7,
-            name="Growth",
-            filters={},
-            variables=None,
-            tiles=(
-                DashboardInsightTile(insight_short_id="slow", filters_overrides=None),
-                DashboardInsightTile(insight_short_id="b", filters_overrides=None),
-            ),
-        )
-        points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
-        queried: list[tuple[str, bool, float | None, float]] = []
-        started: set[str] = set()
-        clock = [0.0]
-
-        def series(**kwargs: Any) -> InsightSeries | None:
-            ref = kwargs["short_id"]
-            queried.append((ref, kwargs["blocking"], kwargs["wait_until"], clock[0]))
-            if ref not in started:
-                started.add(ref)
-                return None
-            if ref == slow_ref and kwargs["blocking"]:
-                clock[0] = routine.BLOCKING_SECONDS + 10
-            if ref in ("slow", slow_ref):
-                return None
-            return insight({"opened": points}, short_id=ref, name=ref)
-
-        with (
-            patch.object(routine, "dashboard_insights", return_value=growth),
-            patch.object(routine, "get_insight_series", side_effect=series),
-            patch.object(routine, "monotonic", side_effect=lambda: clock[0]),
-        ):
-            pulse = routine.find(
-                Context(self.team, self.user, TODAY, pinned=frozenset({"insight:pinned", "signup_event"}))
-            ).pulse
-
-        self.assertEqual([metric.key for metric in pulse], [f"insight:{ref}" for ref in expected])
-        self.assertEqual({ref for ref, _, _, _ in queried}, {"a", "slow", "b", "c", "d"})
-        self.assertTrue(all(deadline == routine.BLOCKING_SECONDS for _, _, deadline, _ in queried))
-        self.assertTrue(any(blocking for _, blocking, _, _ in queried))
-        self.assertTrue(all(not blocking for _, blocking, _, at in queried if at > routine.BLOCKING_SECONDS))
 
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
     def test_the_pulse_mixes_repeated_watched_and_built_insights_without_popular_ones(self) -> None:

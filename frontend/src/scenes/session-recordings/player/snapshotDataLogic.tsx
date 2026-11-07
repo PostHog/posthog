@@ -20,7 +20,7 @@ import posthog from 'posthog-js'
 import { keyForSource } from '@posthog/replay-shared'
 import { SnapshotSourceType, SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
-import api, { ApiError, RecordingDeletedError } from 'lib/api'
+import api, { ApiError, NotAReplayBlockError, RecordingDeletedError } from 'lib/api'
 import 'lib/dayjs'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
@@ -252,6 +252,24 @@ export type snapshotDataLogicType = MakeLogicType<
     snapshotDataLogicMeta
 >
 
+// A fixed set of causes, so the fallback event groups by why the direct read failed.
+function directBlockFallbackReason(e: unknown): string {
+    if (e instanceof ApiError) {
+        return 'http_error'
+    }
+    if (e instanceof NotAReplayBlockError) {
+        return 'not_a_block'
+    }
+    if (e instanceof DOMException && e.name === 'AbortError') {
+        return 'timeout'
+    }
+    // fetch rejects with a TypeError when the request never got a response.
+    if (e instanceof TypeError) {
+        return 'network'
+    }
+    return 'unknown'
+}
+
 // Reads a batch straight from recording-api when the listing gave every block a url, so the browser caches each
 // block. Returns null to use the snapshots endpoint instead, which serves every recording.
 async function loadBlocksDirectly(
@@ -286,7 +304,7 @@ async function loadBlocksDirectly(
         // Without this, a broken rollout looks healthy while every batch pays for a failed download.
         posthog.capture('replay direct block fetch fell back', {
             status: status ?? null,
-            reason: e instanceof Error ? e.name : 'unknown',
+            reason: directBlockFallbackReason(e),
             block_count: urls.length,
         })
         return null

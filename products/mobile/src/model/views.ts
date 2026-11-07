@@ -9,8 +9,11 @@ export type PinKind = Extract<ViewKind, 'dashboard' | 'insight'>
 
 export type PinDisplayMode = 'row' | 'number' | 'chart'
 
-/** Where a view was opened from, for `mobile_view_opened`. `dashboard`: a tile on a dashboard screen. */
-export type ViewEntry = 'pinned' | 'recent' | 'browse' | 'search' | 'deep_link' | 'dashboard'
+/**
+ * Where a view was opened from, for `mobile_view_opened`. `dashboard`: a tile on a dashboard screen. `widget`: the
+ * Chart home screen widget.
+ */
+export type ViewEntry = 'pinned' | 'recent' | 'browse' | 'search' | 'deep_link' | 'dashboard' | 'widget'
 
 export interface ViewRef {
     kind: ViewKind
@@ -95,7 +98,13 @@ export interface NumberDelta {
 export interface InsightSeriesView {
     key: string
     label: string
-    points: MetricPoint[]
+    points: (MetricPoint & { label?: string })[]
+    color?: string
+    chartKind?: MetricChartKind
+    axis?: 'left' | 'right'
+    startAtZero?: boolean
+    area?: boolean
+    format?: InsightPresentation | null
     /** `previous` marks the compare series of the period before. */
     compare: 'current' | 'previous' | null
     /** The series index in the trends query, for the actors query. */
@@ -198,6 +207,7 @@ export interface RankingView {
 }
 
 export interface InsightCapabilities {
+    chartReason?: string | null
     number: boolean
     chart: boolean
     /** "View people" and "Watch recordings" at a point. */

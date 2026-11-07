@@ -42,7 +42,6 @@ function openedSubject(metric: HighlightMetricApi): string {
 
 const FIXED_WHY: Partial<Record<NonNullable<HighlightMetricApi['reason']>, string>> = {
     key_metric: 'It is a key metric for this project, set in Customer analytics.',
-    popular: 'People in this project open this insight often.',
     watched: 'You get an alert or a subscription for this insight.',
     built: 'You created or edited this insight recently.',
 }

@@ -31,4 +31,20 @@ describe('ThreadTurn', () => {
 
         expect(getByText('Two seats were added.').closest('.opacity-50') !== null).toBe(faded)
     })
+
+    test.each([
+        ['cuts a bubble taller than the window', null, 1],
+        ['shows a bubble that holds the search query in full', 'seats', 0],
+    ])('%s', (_name, highlightQuery, readMoreCount) => {
+        const height = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(window.innerHeight + 1)
+        try {
+            const { queryAllByText } = render(
+                <ThreadTurn turn={turn} isActive={false} onSelectMessage={() => {}} highlightQuery={highlightQuery} />
+            )
+
+            expect(queryAllByText('Show more')).toHaveLength(readMoreCount)
+        } finally {
+            height.mockRestore()
+        }
+    })
 })

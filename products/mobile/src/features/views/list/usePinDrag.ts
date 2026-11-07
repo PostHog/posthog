@@ -1,6 +1,6 @@
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppState, type View } from 'react-native'
-import { Gesture, type PanGesture } from 'react-native-gesture-handler'
+import { AppState, type ViewInstance } from 'react-native'
+import { Gesture, type LegacyPanGesture as PanGesture } from 'react-native-gesture-handler'
 import { type SharedValue, useSharedValue } from 'react-native-reanimated'
 import { scheduleOnUI } from 'react-native-worklets'
 
@@ -38,9 +38,9 @@ interface Drag {
 /** The recognizer belongs to the list, so recycling the source tile cannot end an edge-scrolling drag. */
 export interface PinDrag {
     gesture: PanGesture
-    root: RefObject<View | null>
+    root: RefObject<ViewInstance | null>
     dragged: PinView | null
-    register: (id: string, node: View | null) => void
+    register: (id: string, node: ViewInstance | null) => void
     measureAll: () => void
     x: SharedValue<number>
     y: SharedValue<number>
@@ -53,9 +53,9 @@ export interface PinDrag {
 export function usePinDrag(options: Options): PinDrag {
     const latest = useRef(options)
     latest.current = options
-    const nodes = useRef(new Map<string, View>())
+    const nodes = useRef(new Map<string, ViewInstance>())
     const frames = useRef(new Map<string, PinFrame & { offset: number }>())
-    const root = useRef<View>(null)
+    const root = useRef<ViewInstance>(null)
     const origin = useRef({ x: 0, y: 0 })
     const candidate = useRef<string | null>(null)
     const active = useRef<Drag | null>(null)
@@ -77,7 +77,7 @@ export function usePinDrag(options: Options): PinDrag {
         })
     }, [])
     const register = useCallback(
-        (id: string, node: View | null): void => {
+        (id: string, node: ViewInstance | null): void => {
             if (node) {
                 nodes.current.set(id, node)
                 measure(id)

@@ -125,6 +125,7 @@ class TestComputeSettlement(BaseTest):
         assert body["charge_kind"] == "compute"
         assert body["product"] == "posthog_code"
         assert body["amount_usd"] == "0.770400"
+        assert body["strict"] is True
         detail = body["detail"]
         assert detail["window_end"] == session.ttl_expires_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         assert detail["attributed_seconds"] == 1800.0
@@ -144,6 +145,26 @@ class TestComputeSettlement(BaseTest):
         [
             ("conflict", _response(409, {"error": "reference reused"}), SettlementOutcome.CONFLICT, [], "http_409"),
             ("unexpected", _response(418), SettlementOutcome.CONFLICT, [], "unexpected_status"),
+            (
+                "insufficient_credits",
+                _response(
+                    402,
+                    {
+                        "code": "insufficient_credits",
+                        "message": "reported spend refused: team wallet has insufficient funds",
+                    },
+                ),
+                SettlementOutcome.INSUFFICIENT_CREDITS,
+                [],
+                "http_402",
+            ),
+            (
+                "payment_required_other_code",
+                _response(402, {"code": "cap_exceeded", "message": "team hard spend cap exceeded"}),
+                SettlementOutcome.CONFLICT,
+                [],
+                "unexpected_status",
+            ),
             (
                 "validation",
                 _response(400, {"error": "bad"}),
@@ -226,6 +247,14 @@ class TestComputeSettlement(BaseTest):
             compute_settle_body=frozen_body,
             compute_settle_attempted_at=parked_at,
         )
+        refused = self._session(
+            compute_settle_conflict_at=parked_at,
+            compute_settle_park_reason="http_402",
+            compute_settle_error="HTTP 402: insufficient_credits",
+            compute_settle_attempts=1,
+            compute_settle_body=frozen_body,
+            compute_settle_attempted_at=parked_at,
+        )
         reused = self._session(
             compute_settle_conflict_at=parked_at,
             compute_settle_park_reason="http_409",
@@ -249,6 +278,7 @@ class TestComputeSettlement(BaseTest):
         assert self._reload(reused).compute_settle_park_reason == "http_409"
         assert self._reload(older).compute_settle_conflict_at is not None
         assert self._reload(exhausted).compute_settle_park_reason == "attempts_exhausted"
+        assert self._reload(refused).compute_settle_park_reason == "http_402"
 
         assert unpark_sandbox_compute("attempts_exhausted", self.now - timedelta(days=1), self.now) == 1
 
@@ -257,6 +287,17 @@ class TestComputeSettlement(BaseTest):
         assert row.compute_settle_attempts == 0
         assert row.compute_settle_body == frozen_body
         assert row.compute_settle_attempted_at is None
+
+        assert unpark_sandbox_compute("http_402", self.now - timedelta(days=1), self.now) == 1
+
+        row = self._reload(refused)
+        assert row.compute_settle_conflict_at is None
+        assert row.compute_settle_park_reason == ""
+        assert row.compute_settle_error == ""
+        assert row.compute_settle_attempts == 0
+        assert row.compute_settle_body == frozen_body
+        assert row.compute_settle_attempted_at is None
+        assert self._reload(reused).compute_settle_park_reason == "http_409"
 
     def test_deployment_error_raises_and_leaves_the_row_untouched(self) -> None:
         session = self._session()
@@ -323,6 +364,60 @@ class TestComputeSettlement(BaseTest):
         untouched = self._reload(hogland_open)
         assert untouched.ended_at is None
         assert untouched.compute_settled_at is None
+
+    @parameterized.expand([("flag_on", True, 1), ("flag_off", False, 0)])
+    def test_sweep_pushes_gauges_after_settling(self, _name: str, enabled: bool, expected_unsettled: int) -> None:
+        overdue_at = self.now - timedelta(minutes=90)
+        self._session(ended_at=overdue_at)
+        stuck = self._session(ended_at=overdue_at)
+        broke = self._session(ended_at=overdue_at)
+        self._session(ended_at=overdue_at, compute_settled_at=overdue_at, compute_settled_usd=Decimal(0))
+        self._session(ended_at=overdue_at, compute_settle_conflict_at=overdue_at, compute_settle_park_reason="http_409")
+        self._session(ended_at=overdue_at, user_attributed_at=None)
+        self._session(ended_at=self.now - timedelta(minutes=30))
+        self._session(
+            ended_at=None, ended_reason=None, sandbox_backend="hogland", created_at=self.now - timedelta(days=2)
+        )
+        self._session(
+            ended_at=None, ended_reason=None, sandbox_backend="hogland", created_at=self.now - timedelta(hours=20)
+        )
+
+        def respond(_url: str, **kwargs: Any) -> httpx.Response:
+            if kwargs["json"]["reference"] == f"compute:{stuck.id}":
+                return _response(503)
+            if kwargs["json"]["reference"] == f"compute:{broke.id}":
+                return _response(402, {"code": "insufficient_credits", "message": "team wallet has insufficient funds"})
+            return _ok()
+
+        with (
+            override_settings(GATEWAY_COMPUTE_DEBIT_ENABLED=enabled),
+            patch(HTTPX_POST, side_effect=respond),
+            patch("posthog.metrics.push_registry") as push,
+        ):
+            settle_overdue_sandbox_compute(self.now)
+
+        push.assert_called_once()
+        assert push.call_args.args[0] == "tasks_compute_settlement"
+        registry = push.call_args.args[1]
+        assert registry.get_sample_value("posthog_tasks_hogland_sandbox_sessions_open_over_day") == 1
+        assert registry.get_sample_value("posthog_tasks_sandbox_sessions_unsettled_over_hour") == expected_unsettled
+        assert registry.get_sample_value("posthog_tasks_sandbox_sessions_parked", {"reason": "http_402"}) == int(
+            enabled
+        )
+        assert registry.get_sample_value("posthog_tasks_sandbox_sessions_parked", {"reason": "http_409"}) == 1
+        assert registry.get_sample_value("posthog_tasks_sandbox_sessions_parked", {"reason": "attempts_exhausted"}) == 0
+
+    def test_sweep_settles_when_the_gauge_push_fails(self) -> None:
+        session = self._session()
+        with (
+            override_settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway.internal"),
+            patch(HTTPX_POST, return_value=_ok()),
+            patch("posthog.metrics.push_to_gateway", side_effect=OSError("refused")) as push,
+        ):
+            assert settle_overdue_sandbox_compute(self.now) == [SettlementOutcome.SETTLED]
+
+        push.assert_called_once()
+        assert self._reload(session).compute_settled_at is not None
 
     @parameterized.expand(
         [("settles", _ok(), SettlementOutcome.SETTLED), ("retries", _response(503), SettlementOutcome.RETRY)]
