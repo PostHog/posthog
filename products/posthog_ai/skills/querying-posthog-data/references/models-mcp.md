@@ -178,7 +178,8 @@ FROM (
             h = 'claude-code claude-vscode', 'Claude Code (VS Code)',
             startsWith(h, 'claude-code sdk'), 'Claude Agent SDK',
             startsWith(h, 'claude-code'), 'Claude Code',
-            h IN ('claude-ai', 'anthropic/claudeai', 'claude-user'), 'Claude.ai',
+            h IN ('claude-ai', 'anthropic/claudeai', 'claude-user', 'claude'), 'Claude.ai',
+            h = 'claudeartifacts', 'Claude Artifacts',
             h = 'anthropic/api', 'Anthropic API',
             h = 'cowork', 'Cowork',
             h = 'claude-design', 'Claude Design',
@@ -202,7 +203,8 @@ FROM (
             startsWith(h, 'notion'), 'Notion',
             startsWith(h, 'linear'), 'Linear',
             position(h, 'librechat') > 0, 'LibreChat',
-            startsWith(h, 'pi-client'), 'Pi',
+            h = 'pi' OR startsWith(h, 'pi-client'), 'Pi',
+            h IN ('omp', 'omp-coding-agent'), 'Oh My Pi',
             startsWith(h, 'kimchi'), 'Kimchi',
             startsWith(h, 'antigravity'), 'Antigravity',
             h = 'poke', 'Poke',
@@ -210,6 +212,25 @@ FROM (
             startsWith(h, 'kiro'), 'Kiro',
             startsWith(h, 'desktop-commander'), 'Desktop Commander',
             h = 'posthog-cli', 'PostHog CLI',
+            h = 'posthog-wizard', 'PostHog Wizard',
+            h = 'posthog-webmcp', 'PostHog WebMCP',
+            h = 'posthog-harness-mcp', 'PostHog Harness',
+            startsWith(h, 'devin'), 'Devin',
+            startsWith(h, 'amp-'), 'Amp',
+            startsWith(h, 'copilot-cli'), 'Copilot CLI',
+            startsWith(h, 'gemini-cli'), 'Gemini CLI',
+            startsWith(h, 'openclaw'), 'OpenClaw',
+            h = 'hermes-agent', 'Hermes Agent',
+            h = 'mcporter', 'MCPorter',
+            h IN ('executor-mcp', 'executor-apps'), 'Executor',
+            h = 'paperclip', 'Paperclip',
+            startsWith(h, 'perplexity'), 'Perplexity',
+            startsWith(h, 'cloudflare-mcp-portal'), 'Cloudflare MCP Portal',
+            -- SDK defaults: clients that never set their own name.
+            h = 'ai-sdk-mcp-client', 'Vercel AI SDK',
+            h = '@langchain/mcp-adapters', 'LangChain',
+            startsWith(h, 'python-httpx'), 'Python MCP SDK',
+            h = 'rmcp', 'Rust MCP SDK',
             -- Ranked top-N lists name an unrecognized client verbatim instead
             -- (`harness_label_or_token_sql`); "Other" is for callers that need the label
             -- confined to the bounded set, e.g. one aggregated into a per-row array.
@@ -233,13 +254,15 @@ FROM (
                     if(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')) = 'claude-code',
                        trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
                        NULL),
-                    -- grok.com Connectors carries `grok-` only in the UA; its clientInfo.name
-                    -- is the generic "connectors-manager", so promote the grok UA above it.
-                    if(startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'grok'),
-                       trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
-                       NULL),
-                    -- Kimchi likewise names itself only in the UA (clientInfo.name is pi-mcp's generic one).
-                    if(startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'kimchi'),
+                    -- The Wizard reports pi-mcp's generic `pi-mcp-posthog`; only its UA names it.
+                    if(startsWith(lower(toString(properties.$mcp_client_user_agent)), 'posthog/wizard'), 'posthog-wizard', NULL),
+                    -- These clients report a generic or library clientInfo.name ("connectors-manager",
+                    -- `pi-mcp-<server>`, "rmcp", "mcp-client", "cli"), so their UA outranks the name.
+                    if(startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'grok')
+                       OR startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'kimchi')
+                       OR startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'devin')
+                       OR startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'cloudflare-mcp-portal')
+                       OR startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'opencode'),
                        trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
                        NULL),
                     nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),

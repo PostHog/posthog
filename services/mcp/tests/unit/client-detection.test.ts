@@ -4,124 +4,19 @@ import {
     ANTHROPIC_CLIENT_NAME_FRAGMENTS,
     ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS,
     ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS,
-    CODING_AGENT_CLIENT_NAME_FRAGMENTS,
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
     OPENAI_RENDER_UI_CLIENT_NAMES,
     POSTHOG_CODE_CONSUMER,
     TOOLS_MODE_CLIENT_NAME_FRAGMENTS,
     TOOLS_MODE_USER_AGENT_FRAGMENTS,
-    isCliModeEnabledClient,
     isLegacyDialectOnlyClient,
     isPostHogCodeConsumer,
     isToolsModeClient,
     resolveEffectiveClientName,
 } from '@/lib/client-detection'
 
-describe('isCliModeEnabledClient', () => {
-    describe('detects known coding-agent clients', () => {
-        it.each([
-            // Exact names from the fragment list.
-            ['claude-code'],
-            ['cline'],
-            ['roo-code'],
-            ['roo-cline'],
-            ['continue'],
-            ['codex'],
-            ['windsurf'],
-            ['zed'],
-            ['aider'],
-            ['copilot'],
-            ['devin'],
-            ['librechat'],
-            ['notion'],
-            ['opencode'],
-            ['amp-mcp-client'],
-            ['poke'],
-            ['grok'],
-            ['ando-mcp-gateway'],
-        ])('returns true for %s', (clientName) => {
-            expect(isCliModeEnabledClient(clientName)).toBe(true)
-        })
-
-        it.each([
-            // Realistic variants MCP servers actually see.
-            ['Claude Code'],
-            ['CLAUDE-CODE'],
-            ['claude-code-cli'],
-            ['claude-code/1.2.3'],
-            ['cline-bot'],
-            ['roo-code-editor'],
-            ['Continue'],
-            ['github.copilot'],
-            ['GitHub Copilot Chat'],
-            ['zed-editor'],
-            ['Codex CLI'],
-            ['LibreChat'],
-            ['libre-chat'],
-            ['LibreChat/1.2.3'],
-            ['notion-mcp-client'],
-            ['Notion'],
-            ['Devin'],
-            ['OpenCode'],
-            ['opencode/1.2.3'],
-            ['Amp MCP Client'],
-            ['Poke'],
-            ['Grok'],
-            ['grok-build'],
-            ['Grok/1.2.3'],
-        ])('returns true for variant %s (case-insensitive substring match)', (clientName) => {
-            expect(isCliModeEnabledClient(clientName)).toBe(true)
-        })
-    })
-
-    describe('does not match non-coding clients', () => {
-        it.each([
-            ['Claude Desktop'],
-            ['claude-desktop'],
-            ['mcp-inspector'],
-            ['Slack'],
-            ['some-random-tool'],
-            ['PostHog'],
-            [''],
-        ])('returns false for %s', (clientName) => {
-            expect(isCliModeEnabledClient(clientName)).toBe(false)
-        })
-    })
-
-    describe('explicitly excluded clients', () => {
-        // Cursor sends content[].text to the model and displays structuredContent in UI,
-        // so the formatted-results suppression isn't needed. Guard against someone
-        // adding it to the coding-agent list.
-        it('returns false for cursor (intentionally excluded)', () => {
-            expect(isCliModeEnabledClient('cursor')).toBe(false)
-            expect(isCliModeEnabledClient('Cursor')).toBe(false)
-            expect(isCliModeEnabledClient('cursor-editor')).toBe(false)
-        })
-    })
-
-    describe('edge cases', () => {
-        it('returns false for undefined', () => {
-            expect(isCliModeEnabledClient(undefined)).toBe(false)
-        })
-
-        it('returns false for empty string', () => {
-            expect(isCliModeEnabledClient('')).toBe(false)
-        })
-
-        it('treats whitespace-only as non-match', () => {
-            expect(isCliModeEnabledClient('   ')).toBe(false)
-        })
-    })
-
-    it('keeps the fragment list non-empty and lowercased', () => {
-        expect(CODING_AGENT_CLIENT_NAME_FRAGMENTS.length).toBeGreaterThan(0)
-        for (const fragment of CODING_AGENT_CLIENT_NAME_FRAGMENTS) {
-            expect(fragment).toBe(fragment.toLowerCase())
-            expect(fragment.length).toBeGreaterThan(0)
-        }
-    })
-
+describe('ANTHROPIC_CLIENT_NAME_FRAGMENTS', () => {
     it('keeps the Anthropic client fragment list non-empty, lowercased, and separator-free', () => {
         // Fragments are compared against the normalized header value (separators
         // stripped, lowercased), so they must be pre-normalized to match.
@@ -248,104 +143,43 @@ describe('isToolsModeClient', () => {
 })
 
 describe('MCPClientProfile', () => {
-    describe('isCliModeEnabled()', () => {
-        it.each([
-            ['claude-code'],
-            ['Claude Code'],
-            ['claude-code-cli'],
-            ['claude-code/1.2.3'],
-            ['cline'],
-            ['cline-bot'],
-            ['continue'],
-            ['codex'],
-            ['Codex CLI'],
-            ['windsurf'],
-            ['zed'],
-            ['zed-editor'],
-            ['aider'],
-            ['github.copilot'],
-            ['GitHub Copilot Chat'],
-            ['LibreChat'],
-            ['libre-chat'],
-            ['notion-mcp-client'],
-        ])('returns true for %s', (clientName) => {
-            expect(new MCPClientProfile({ clientName }).isCliModeEnabled()).toBe(true)
-        })
-
-        it.each([['Claude Desktop'], ['claude-desktop'], ['cursor'], ['mcp-inspector'], [''], ['   ']])(
-            'returns false for %s',
+    describe('prefersFormattedText()', () => {
+        // The default: a client nobody has classified reads text only, so it gets the
+        // formatted table without the duplicate structured copy.
+        it.each([['codex-mcp-client'], ['opencode'], ['some-new-agent'], ['Claude Desktop'], ['']])(
+            'returns true for text client %s',
             (clientName) => {
-                expect(new MCPClientProfile({ clientName }).isCliModeEnabled()).toBe(false)
+                expect(new MCPClientProfile({ clientName }).prefersFormattedText()).toBe(true)
             }
         )
 
-        it('returns false when clientName is undefined', () => {
-            expect(new MCPClientProfile({}).isCliModeEnabled()).toBe(false)
+        it('returns true when the client sends no identity at all', () => {
+            expect(new MCPClientProfile({}).prefersFormattedText()).toBe(true)
         })
 
-        describe('Anthropic vendor client', () => {
-            it.each([['ClaudeCode'], ['ClaudeAI'], ['Cowork'], ['Anthropic/ClaudeAI']])(
-                'enables CLI mode for known Anthropic client %s regardless of clientName',
-                (vendorClient) => {
-                    // Anthropic pools MCP transports across all its products and
-                    // reports the live one in `x-anthropic-client`. Every known
-                    // Anthropic client runs in CLI mode, even when the initialize
-                    // body's clientName looks non-coding (e.g. the pool owner).
-                    expect(
-                        new MCPClientProfile({ clientName: 'Claude Desktop', vendorClient }).isCliModeEnabled()
-                    ).toBe(true)
-                }
+        it.each([
+            [{ clientName: 'cursor-vscode' }],
+            [{ userAgent: 'Cursor/3.1.15 (darwin arm64)' }],
+            [{ clientName: 'openai-mcp' }],
+            [{ clientName: 'some-new-agent', uiSupported: true }],
+        ])('returns false for a client that renders structuredContent: %o', (input) => {
+            expect(new MCPClientProfile(input).prefersFormattedText()).toBe(false)
+        })
+
+        it('returns true for a known render-ui host that declares no MCP Apps support', () => {
+            expect(new MCPClientProfile({ clientName: 'openai-mcp', uiSupported: false }).prefersFormattedText()).toBe(
+                true
             )
+        })
 
-            it('does not enable CLI mode for an unknown vendorClient value', () => {
-                // Detection matches the known-header list, not mere presence.
-                expect(
-                    new MCPClientProfile({
-                        clientName: 'Claude Desktop',
-                        vendorClient: 'SomeUnknownClient',
-                    }).isCliModeEnabled()
-                ).toBe(false)
-            })
-
-            it('falls back to clientName for coding agents when vendorClient is unknown', () => {
-                expect(
-                    new MCPClientProfile({
-                        clientName: 'claude-code',
-                        vendorClient: 'SomeUnknownClient',
-                    }).isCliModeEnabled()
-                ).toBe(true)
-            })
-
-            it('falls back to clientName when vendorClient is missing', () => {
-                expect(new MCPClientProfile({ clientName: 'claude-code' }).isCliModeEnabled()).toBe(true)
-            })
-
-            it('uses clientName for non-Anthropic clients (no vendorClient)', () => {
-                expect(new MCPClientProfile({ clientName: 'Claude Desktop' }).isCliModeEnabled()).toBe(false)
-            })
-
-            it('enables CLI mode for the ClaudeDesign vendor header', () => {
-                expect(new MCPClientProfile({ vendorClient: 'ClaudeDesign' }).isCliModeEnabled()).toBe(true)
-            })
-
-            it.each([['Claude-User'], ['claude-user'], ['Claude_User']])(
-                'enables CLI mode via the %s user-agent when the vendor header is absent',
-                (userAgent) => {
-                    // Claude.ai web/desktop and some internal Anthropic tools connect
-                    // without x-anthropic-client, identifying only via this user-agent.
-                    expect(new MCPClientProfile({ userAgent }).isCliModeEnabled()).toBe(true)
-                }
-            )
-
-            it.each([['Anthropic/ClaudeAI'], ['Anthropic/Toolbox'], ['anthropic/claudeai']])(
-                'enables CLI mode via the pooled %s clientInfo.name when the vendor header is absent',
-                (clientName) => {
-                    // Header-less Anthropic sessions report only the pooled Anthropic/*
-                    // pool-owner name. Matching it for CLI mode is safe (unlike UI-host
-                    // detection) because every Anthropic product belongs in CLI mode.
-                    expect(new MCPClientProfile({ clientName }).isCliModeEnabled()).toBe(true)
-                }
-            )
+        it.each([
+            [{ vendorClient: 'ClaudeCode' }],
+            [{ vendorClient: 'ClaudeAI' }],
+            [{ vendorClient: 'Cowork' }],
+            [{ userAgent: 'Claude-User' }],
+            [{ clientName: 'Anthropic/ClaudeAI' }],
+        ])('returns true for Anthropic client %o, including render-ui hosts', (input) => {
+            expect(new MCPClientProfile(input).prefersFormattedText()).toBe(true)
         })
     })
 
@@ -412,9 +246,9 @@ describe('MCPClientProfile', () => {
             expect(profile.isRenderUiHost()).toBe(true)
         })
 
-        it('Claude Code stays a coding agent and is not a UI host', () => {
+        it('Claude Code prefers formatted text and is not a UI host', () => {
             const profile = new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode' })
-            expect(profile.isCliModeEnabled()).toBe(true)
+            expect(profile.prefersFormattedText()).toBe(true)
             expect(profile.isRenderUiHost()).toBe(false)
         })
 
@@ -528,16 +362,12 @@ describe('MCPClientProfile', () => {
     it('exposes constructor inputs as readonly fields', () => {
         const profile = new MCPClientProfile({
             clientName: 'claude-code',
-            clientVersion: '1.2.3',
             consumer: POSTHOG_CODE_CONSUMER,
-            oauthClientName: 'Lovable',
             vendorClient: 'ClaudeCode',
             userAgent: 'Claude-User',
         })
         expect(profile.clientName).toBe('claude-code')
-        expect(profile.clientVersion).toBe('1.2.3')
         expect(profile.consumer).toBe(POSTHOG_CODE_CONSUMER)
-        expect(profile.oauthClientName).toBe('Lovable')
         expect(profile.vendorClient).toBe('ClaudeCode')
         expect(profile.userAgent).toBe('Claude-User')
     })

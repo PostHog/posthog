@@ -106,8 +106,8 @@ interface ExecMetricState {
  * Whether a direct `tools/call` response should drop `structuredContent` and leave the
  * formatted table in the text channel to stand alone.
  *
- * CLI-mode clients read `content[].text`, so for them the structured copy only adds
- * tokens. A render-ui host in single-exec mode is the exception, because there
+ * Clients that prefer formatted text read `content[].text`, so for them the structured
+ * copy only adds tokens. A render-ui host in single-exec mode is the exception, because there
  * `buildAdvertisedTools` offers `exec` and `render-ui` only, and `handleToolCall` routes
  * both of those before this path. Any other tool name that reaches here is therefore the
  * render-ui app calling `callServerTool` to load its own data. That app reads
@@ -123,12 +123,12 @@ interface ExecMetricState {
  * tool that has a UI resource, without widening what the model reads.
  */
 function shouldSuppressStructuredContent(args: {
-    isCliModeEnabled: boolean
+    prefersFormattedText: boolean
     useSingleExec: boolean
     renderUiEnabled: boolean
 }): boolean {
     const isRenderUiHostInSingleExec = args.useSingleExec && args.renderUiEnabled
-    return args.isCliModeEnabled && !isRenderUiHostInSingleExec
+    return args.prefersFormattedText && !isRenderUiHostInSingleExec
 }
 
 // A private response must not suppress another call sharing this JSON-RPC batch or token.
@@ -528,7 +528,7 @@ export class ToolExecutor {
                     params: validation.data,
                     includeAppData: state.clientProfile.consumer === 'posthog_ai',
                     suppressStructuredContentForFormattedResults: shouldSuppressStructuredContent({
-                        isCliModeEnabled: state.clientProfile.isCliModeEnabled(),
+                        prefersFormattedText: state.clientProfile.prefersFormattedText(),
                         useSingleExec: state.useSingleExec,
                         renderUiEnabled: state.renderUiEnabled,
                     }),
@@ -740,7 +740,7 @@ export class ToolExecutor {
                       toolMeta: resolved._meta,
                       toolName: 'exec',
                       params: validation.data,
-                      suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
+                      suppressStructuredContentForFormattedResults: state.clientProfile.prefersFormattedText(),
                       distinctId: undefined,
                   })
 

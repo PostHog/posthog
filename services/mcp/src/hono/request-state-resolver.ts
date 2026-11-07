@@ -224,10 +224,7 @@ export class RequestStateResolver {
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
-        const [oauthClientName, oauthClientId] = await Promise.all([
-            reqCtx.tokenCache.get('clientName'),
-            reqCtx.tokenCache.get('oauthClientId'),
-        ])
+        const oauthClientId = await reqCtx.tokenCache.get('oauthClientId')
         props.suppressAnalytics = _apiKey?.suppress_analytics === true
         const liveClient = getEffectiveMCPClientIdentity(requestContext, sessionContext)
         const source = resolveEventSource({
@@ -285,9 +282,7 @@ export class RequestStateResolver {
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
-            clientVersion: clientContext.mcpClientVersion,
             consumer: clientContext.mcpConsumer,
-            oauthClientName: oauthClientName || undefined,
             vendorClient: clientContext.mcpVendorClient,
             userAgent: props.clientUserAgent,
             uiSupported: requestContext.mcpUiSupported ?? sessionContext?.mcpUiSupported,
