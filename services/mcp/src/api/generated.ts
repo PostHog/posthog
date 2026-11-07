@@ -80390,6 +80390,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `github_actions` - GitHub Actions
+     */
+    export type WorkloadProviderKeyEnum = typeof WorkloadProviderKeyEnum[keyof typeof WorkloadProviderKeyEnum];
+
+
+    export const WorkloadProviderKeyEnum = {
+      GithubActions: 'github_actions',
+    } as const;
+
+    /**
      * The label of each condition claim the provider allows, keyed by claim name.
      */
     export type WorkloadClaimLabelsConditions = {[key: string]: string};
@@ -80420,11 +80430,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       issuer: string;
-      /**
-         * The key of the workload provider the issuer belongs to.
-         * @nullable
-         */
-      readonly provider: string | null;
+      /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+       *
+       * * `github_actions` - GitHub Actions */
+      readonly provider: WorkloadProviderKeyEnum;
       /**
          * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
          * @maxLength 255
@@ -80492,11 +80501,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       issuer: string;
-      /**
-         * The key of the workload provider the issuer belongs to.
-         * @nullable
-         */
-      readonly provider: string | null;
+      /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+       *
+       * * `github_actions` - GitHub Actions */
+      readonly provider: WorkloadProviderKeyEnum;
       /**
          * The display name of the workload provider, or null.
          * @nullable
@@ -91127,11 +91135,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       issuer?: string;
-      /**
-         * The key of the workload provider the issuer belongs to.
-         * @nullable
-         */
-      readonly provider?: string | null;
+      /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+       *
+       * * `github_actions` - GitHub Actions */
+      readonly provider?: WorkloadProviderKeyEnum;
       /**
          * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
          * @maxLength 255
@@ -119030,19 +119037,7 @@ export namespace Schemas {
       project_id: number;
       /** Whether hog reads the host from posthog.json. It does only for PostHog Cloud, so other hosts need HOG_HOST. */
       host_in_posthog_json: boolean;
-      /** The posthog.json keys a job needs, as JSON. */
-      posthog_json: string;
     }
-
-    /**
-     * * `github_actions` - GitHub Actions
-     */
-    export type WorkloadProviderKeyEnum = typeof WorkloadProviderKeyEnum[keyof typeof WorkloadProviderKeyEnum];
-
-
-    export const WorkloadProviderKeyEnum = {
-      GithubActions: 'github_actions',
-    } as const;
 
     export interface WorkloadProvider {
       /** Stable identifier of the provider.
@@ -119067,7 +119062,7 @@ export namespace Schemas {
       condition_companions: ConditionCompanions[];
       /** Whether PostHog can look up the subject from its name with resolve_subject. */
       readonly can_resolve_subject: boolean;
-      /** The CI config a job of this project needs, empty when the provider has none. */
+      /** The CI config a job needs to get a token for PostHog, empty when the provider has none. */
       readonly setup_snippet: string;
     }
 

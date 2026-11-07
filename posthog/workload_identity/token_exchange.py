@@ -43,12 +43,13 @@ from posthog.models.workload_trust_policy import (
 )
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 from posthog.workload_identity.providers import (
-    AudienceCheck,
     WorkloadClaim,
     WorkloadProvider,
+    expected_audience,
     get_supported_workload_providers,
     get_workload_provider_by_issuer,
     normalize_issuer,
+    workload_site_url,
 )
 
 logger = structlog.get_logger(__name__)
@@ -72,6 +73,7 @@ class WorkloadExchangeErrorCode(StrEnum):
     INVALID_REQUEST = "workload_invalid_request"
     ISSUER_NOT_ALLOWED = "workload_issuer_not_allowed"
     TOKEN_INVALID = "workload_token_invalid"
+    AUDIENCE_MISMATCH = "workload_audience_mismatch"
     NO_MATCHING_POLICY = "workload_no_matching_policy"
     POLICY_REQUEST_PENDING = "workload_policy_request_pending"
     NO_USABLE_SCOPES = "workload_no_usable_scopes"
@@ -126,14 +128,17 @@ class VerifiedWorkload:
     # The claims an activity log entry records, with the same rules.
     recorded_claims: dict[str, str]
 
-    def match_filter(self, issuer: str) -> dict[str, Any]:
+    def match_filter(self, provider: WorkloadProvider) -> dict[str, Any]:
         """The lookup a policy or a pending request must pass to match this workload.
 
+        The stored provider and issuer must both name the provider that verified the token, so a row written
+        for another provider, or for one no longer in the registry, never matches.
         `conditions <@ token claims` holds only when each stored key is present in the token with the same
         string value, so a condition can never be skipped, and a token that lacks a condition claim matches
         nothing that sets it."""
         return {
-            "issuer": issuer,
+            "provider": provider.key,
+            "issuer": normalize_issuer(provider.issuer),
             "subject": self.subject,
             "subject_name": self.subject_name,
             "conditions__contained_by": self.condition_claims,
@@ -167,7 +172,7 @@ def _not_configured() -> WorkloadExchangeError:
 
 
 def _site_url() -> str:
-    site_url = (settings.SITE_URL or "").rstrip("/")
+    site_url = workload_site_url()
     if not site_url:
         raise _not_configured()
     return site_url
@@ -259,11 +264,10 @@ def _signing_key(provider: WorkloadProvider, subject_token: str) -> PyJWK:
 
 
 def _expected_audience(provider: WorkloadProvider) -> str:
-    match provider.audience_check:
-        case AudienceCheck.SITE_URL:
-            return _site_url()
-        case _:
-            raise _not_configured()
+    audience = expected_audience(provider)
+    if not audience:
+        raise _not_configured()
+    return audience
 
 
 def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tuple[VerifiedWorkload, int]:
@@ -285,7 +289,7 @@ def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tup
         raise WorkloadExchangeError(WorkloadExchangeErrorCode.TOKEN_INVALID, "The OIDC token has expired.")
     except jwt.InvalidAudienceError:
         raise WorkloadExchangeError(
-            WorkloadExchangeErrorCode.TOKEN_INVALID,
+            WorkloadExchangeErrorCode.AUDIENCE_MISMATCH,
             f"The OIDC token's audience must be {audience}. Ask your provider for a token with that audience.",
         )
     except jwt.MissingRequiredClaimError as e:
@@ -328,23 +332,27 @@ def _charge_exchange(policy: WorkloadTrustPolicy) -> None:
             )
 
 
-def find_matching_policy(team_id: int, issuer: str, workload: VerifiedWorkload) -> WorkloadTrustPolicy | None:
+def find_matching_policy(
+    team_id: int, provider: WorkloadProvider, workload: VerifiedWorkload
+) -> WorkloadTrustPolicy | None:
     """The project's enabled policy for this subject whose every condition equals the token's claim.
 
     When several match, the one with more conditions wins, then the oldest, so adding a broader policy
     never changes which policy an existing workload runs under.
     """
-    candidates = WorkloadTrustPolicy.objects.for_team(team_id).filter(**workload.match_filter(issuer), enabled=True)
+    candidates = WorkloadTrustPolicy.objects.for_team(team_id).filter(**workload.match_filter(provider), enabled=True)
     matching = list(candidates)
     matching.sort(key=lambda policy: (-len(policy.conditions), policy.created_at))
     return matching[0] if matching else None
 
 
-def _pending_request_for(team_id: int, issuer: str, workload: VerifiedWorkload) -> WorkloadTrustPolicyRequest | None:
+def _pending_request_for(
+    team_id: int, provider: WorkloadProvider, workload: VerifiedWorkload
+) -> WorkloadTrustPolicyRequest | None:
     return (
         WorkloadTrustPolicyRequest.objects.for_team(team_id)
         .filter(
-            **workload.match_filter(issuer),
+            **workload.match_filter(provider),
             status=WorkloadTrustPolicyRequest.Status.PENDING,
             expires_at__gt=timezone.now(),
         )
@@ -393,13 +401,12 @@ def exchange_workload_token(*, subject_token: str, subject_token_type: str, reso
         # Policies live on a project's own team, so an environment id never has one.
         team = None
 
-    issuer = normalize_issuer(provider.issuer)
     # A project that doesn't exist, or an environment id, reads like a project without a matching policy,
     # so the exchange can't be used to find out which ids exist.
-    policy = find_matching_policy(team.id, issuer, workload) if team is not None else None
+    policy = find_matching_policy(team.id, provider, workload) if team is not None else None
     if team is None or policy is None:
         claims_sent = workload.claims_sent(provider)
-        pending = _pending_request_for(team.id, issuer, workload) if team is not None else None
+        pending = _pending_request_for(team.id, provider, workload) if team is not None else None
         if pending is not None:
             approval_url = workload_trust_policy_request_url(team_id, str(pending.pk))
             raise WorkloadExchangeError(

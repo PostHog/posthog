@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import string
 from enum import StrEnum
+from typing import assert_never
 
+from django.conf import settings
 from django.db import models
 
 from posthog.dataclasses import frozen
@@ -35,7 +37,6 @@ class WorkloadClaim:
 
 PRESET_VALUE = "{value}"
 SNIPPET_HOST = "{host}"
-SNIPPET_PROJECT_ID = "{project_id}"
 
 
 @frozen
@@ -100,11 +101,11 @@ class WorkloadProvider:
     resolve_subject: SubjectResolver | None = None
     condition_presets: tuple[ConditionPreset, ...] = ()
     condition_companions: tuple[ConditionCompanions, ...] = ()
-    # The CI config that gives a job an OIDC token, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
+    # The CI config that gives a job an OIDC token, with SNIPPET_HOST where the PostHog host goes.
     setup_snippet: str = ""
 
-    def setup_snippet_for(self, *, host: str, project_id: int) -> str:
-        return self.setup_snippet.replace(SNIPPET_HOST, host).replace(SNIPPET_PROJECT_ID, str(project_id))
+    def setup_snippet_for(self, host: str) -> str:
+        return self.setup_snippet.replace(SNIPPET_HOST, host)
 
     def __post_init__(self) -> None:
         condition_names = [claim.name for claim in self.condition_claims]
@@ -275,3 +276,18 @@ def get_workload_provider_by_key(key: str) -> WorkloadProvider | None:
         if provider.key == key:
             return provider
     return None
+
+
+def workload_site_url() -> str:
+    """This deployment's address without a trailing slash, or empty when SITE_URL is unset."""
+    return (settings.SITE_URL or "").rstrip("/")
+
+
+def expected_audience(provider: WorkloadProvider) -> str:
+    """The `aud` a token from this provider must carry. The exchange checks it and setup instructions show
+    it, so the two can't drift apart. Empty when this deployment has no address."""
+    match provider.audience_check:
+        case AudienceCheck.SITE_URL:
+            return workload_site_url()
+        case _:
+            assert_never(provider.audience_check)

@@ -48,7 +48,7 @@ const PROVIDER = {
     ],
     condition_companions: [],
     can_resolve_subject: true,
-    setup_snippet: 'HOG_HOST: {host}\nHOG_PROJECT_ID: "{project_id}"',
+    setup_snippet: 'HOG_HOST: {host}',
 } as WorkloadProviderApi
 
 describe('workload condition presets', () => {

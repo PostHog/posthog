@@ -91,6 +91,46 @@ class TestResolveGitHubRepository(SimpleTestCase):
 
         assert public.called is not (isinstance(integration, MagicMock) and integration.status_code == 200)
 
+    def test_a_repository_the_integration_already_listed_needs_no_github_call(self) -> None:
+        github = MagicMock()
+        github.list_all_cached_repositories.return_value = [{"id": 1234, "name": "Web", "full_name": "Acme/Web"}]
+        with (
+            patch(
+                "posthog.workload_identity.resolvers.IntegrationManager.github.oauth.list", return_value=[MagicMock()]
+            ),
+            patch("posthog.workload_identity.resolvers.GitHubIntegration", return_value=github),
+            patch("posthog.workload_identity.resolvers.github_request") as public,
+        ):
+            resolved = resolve_github_repository(1, "acme/web")
+
+        assert resolved == ResolvedWorkloadSubject(
+            subject="1234", subject_name="Acme/Web", found_via="your GitHub integration"
+        )
+        github.list_all_cached_repositories.assert_called_once_with(allow_refresh=False)
+        assert not github.api_request.called
+        assert not public.called
+
+    def test_the_lookup_stops_asking_github_once_its_deadline_passes(self) -> None:
+        github = MagicMock()
+        github.api_request.return_value = _response(404, {})
+        with (
+            patch(
+                "posthog.workload_identity.resolvers.IntegrationManager.github.oauth.list",
+                return_value=[MagicMock(), MagicMock()],
+            ),
+            patch("posthog.workload_identity.resolvers.GitHubIntegration", return_value=github),
+            patch("posthog.workload_identity.resolvers.github_request") as public,
+            patch("posthog.workload_identity.resolvers.time") as clock,
+        ):
+            clock.monotonic.side_effect = [0.0, 3.0, 100.0, 100.0]
+            with self.assertRaises(WorkloadSubjectLookupUnavailable):
+                resolve_github_repository(1, "acme/web")
+
+        assert github.api_request.call_count == 1
+        assert github.api_request.call_args.kwargs["timeout"] == 10
+        assert github.api_request.call_args.kwargs["retry_transient"] is False
+        assert not public.called
+
     def test_refuses_a_name_that_could_reach_another_github_endpoint(self) -> None:
         with (
             patch("posthog.workload_identity.resolvers.IntegrationManager.github.oauth.list") as integration,

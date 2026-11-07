@@ -7,6 +7,7 @@ stores the repository ID the token carries, so nobody has to find that ID by han
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 from django.conf import settings
@@ -31,6 +32,9 @@ logger = structlog.get_logger(__name__)
 GITHUB_EGRESS_SOURCE = "workload_identity"
 GITHUB_REPOSITORY_ENDPOINT = "/repos/{owner}/{repo}"
 GITHUB_UNAVAILABLE = "GitHub didn't answer. Try again in a minute, or enter the repository ID by hand."
+# The whole lookup runs inside one API request, so it gets one deadline however many integrations it asks.
+GITHUB_LOOKUP_DEADLINE_SECONDS = 15
+GITHUB_REQUEST_TIMEOUT_SECONDS = 10
 
 
 def _github_subject(body: Any, found_via: str) -> ResolvedWorkloadSubject:
@@ -46,14 +50,45 @@ def _repository_json(response: requests.Response) -> Any:
         raise WorkloadSubjectLookupUnavailable(GITHUB_UNAVAILABLE)
 
 
-def _through_integration(team_id: int, repository: str) -> tuple[ResolvedWorkloadSubject | None, bool]:
+def _seconds_left(deadline: float) -> int:
+    return min(GITHUB_REQUEST_TIMEOUT_SECONDS, int(deadline - time.monotonic()))
+
+
+def _cached_repository(integrations: list[GitHubIntegration], repository: str) -> ResolvedWorkloadSubject | None:
+    """A repository the integrations already listed. A repository ID never changes, so a stale list is safe."""
+    wanted = repository.lower()
+    for github in integrations:
+        for cached in github.list_all_cached_repositories(allow_refresh=False):
+            if cached["full_name"].lower() == wanted:
+                return ResolvedWorkloadSubject(
+                    subject=str(cached["id"]), subject_name=cached["full_name"], found_via="your GitHub integration"
+                )
+    return None
+
+
+def _through_integration(team_id: int, repository: str, deadline: float) -> tuple[ResolvedWorkloadSubject | None, bool]:
     """Ask GitHub through the team's GitHub integrations, which also see the private repositories they were
     installed on. Also says whether an installation couldn't answer, because then a miss proves nothing."""
+    integrations = [
+        GitHubIntegration(integration, source=GITHUB_EGRESS_SOURCE, priority=Priority.NORMAL)
+        for integration in IntegrationManager.github.oauth.list(team_id)
+    ]
+    cached = _cached_repository(integrations, repository)
+    if cached is not None:
+        return cached, False
     unavailable = False
-    for integration in IntegrationManager.github.oauth.list(team_id):
-        github = GitHubIntegration(integration, source=GITHUB_EGRESS_SOURCE, priority=Priority.NORMAL)
+    for github in integrations:
+        timeout = _seconds_left(deadline)
+        if timeout <= 0:
+            return None, True
         try:
-            response = github.api_request("GET", f"/repos/{repository}", endpoint=GITHUB_REPOSITORY_ENDPOINT)
+            response = github.api_request(
+                "GET",
+                f"/repos/{repository}",
+                endpoint=GITHUB_REPOSITORY_ENDPOINT,
+                timeout=timeout,
+                retry_transient=False,
+            )
         except (EgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError):
             unavailable = True
             continue
@@ -63,10 +98,13 @@ def _through_integration(team_id: int, repository: str) -> tuple[ResolvedWorkloa
     return None, unavailable
 
 
-def _public(repository: str) -> ResolvedWorkloadSubject:
+def _public(repository: str, deadline: float) -> ResolvedWorkloadSubject:
     """Ask GitHub for a public repository, with PostHog's own token when the deployment has one. Without a
     token GitHub allows few requests per IP, so the lookup can fail and the person enters the ID by hand."""
     headers = {"Authorization": f"Bearer {settings.GITHUB_TOKEN}"} if settings.GITHUB_TOKEN else {}
+    timeout = _seconds_left(deadline)
+    if timeout <= 0:
+        raise WorkloadSubjectLookupUnavailable(GITHUB_UNAVAILABLE)
     try:
         response = github_request(
             "GET",
@@ -75,7 +113,7 @@ def _public(repository: str) -> ResolvedWorkloadSubject:
             headers=headers,
             priority=Priority.NORMAL,
             endpoint=GITHUB_REPOSITORY_ENDPOINT,
-            timeout=10,
+            timeout=timeout,
         )
     except requests.RequestException:
         raise WorkloadSubjectLookupUnavailable(GITHUB_UNAVAILABLE)
@@ -104,11 +142,12 @@ def resolve_github_repository(team_id: int, name: str) -> ResolvedWorkloadSubjec
     # The name goes into an authenticated GitHub URL, so anything but owner/repo could reach another endpoint.
     if not _is_safe_github_repo_path(repository):
         raise WorkloadSubjectNotFound("Enter the repository as owner/repo, like posthog/posthog.")
-    found, integration_unavailable = _through_integration(team_id, repository)
+    deadline = time.monotonic() + GITHUB_LOOKUP_DEADLINE_SECONDS
+    found, integration_unavailable = _through_integration(team_id, repository, deadline)
     if found:
         return found
     try:
-        return _public(repository)
+        return _public(repository, deadline)
     except WorkloadSubjectNotFound:
         # A private repository an installation would have seen looks missing while that installation is down.
         if integration_unavailable:
