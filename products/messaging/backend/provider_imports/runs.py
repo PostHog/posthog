@@ -45,6 +45,10 @@ class ProviderImportAlreadyRunning(Exception):
     pass
 
 
+class InvalidImportSettings(Exception):
+    pass
+
+
 class InvalidImportSteps(Exception):
     pass
 
@@ -64,24 +68,30 @@ class _StepClaim:
 
 
 def start_run(
-    team_id: int, provider_key: str, steps: list[str], api_key: str | None, created_by_id: int | None
+    team_id: int,
+    provider_key: str,
+    steps: list[str],
+    api_key: str | None,
+    created_by_id: int | None,
+    settings: Mapping[str, str] | None = None,
 ) -> ProviderImportRun:
     """Check the credentials, claim a queued run, store the credentials, and start the run's workflow.
 
-    Raises UnknownImportProvider, InvalidImportSteps, ProviderImportAlreadyRunning, the ImportCredentials* errors and
-    ImportProviderUnavailable.
+    Raises UnknownImportProvider, InvalidImportSteps, InvalidImportSettings, ProviderImportAlreadyRunning, the
+    ImportCredentials* errors and ImportProviderUnavailable.
     """
     provider = get_provider(provider_key)
     ordered_steps = _order_steps(provider, steps)
+    resolved_settings = _resolve_settings(provider, settings or {})
 
     _fail_stale_runs(team_id)
     if _runs(team_id).filter(provider=provider.key, status__in=ACTIVE_IMPORT_STATUSES).exists():
         raise ProviderImportAlreadyRunning(f"A {provider.label} import is already running.")
 
-    credentials = provider.check_credentials(team_id, api_key)
+    credentials = provider.check_credentials(team_id, api_key, resolved_settings, ordered_steps)
     progress = {step: _new_step_progress() for step in ordered_steps}
     if provider.resumes_after_failure:
-        _continue_failed_steps(team_id, provider.key, progress)
+        _continue_failed_steps(team_id, provider.key, progress, resolved_settings)
     try:
         with transaction.atomic():
             # Create the run before storing the credentials. A concurrent start then waits on the active-run index
@@ -92,6 +102,7 @@ def start_run(
                 steps=ordered_steps,
                 created_by_id=created_by_id,
                 progress=progress,
+                settings=resolved_settings,
             )
             if provider.retains_credentials:
                 run.integration_id = provider.store_credentials(team_id, credentials, created_by_id)
@@ -128,6 +139,7 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         created_by_id=run.created_by_id,
         integration_id=run.integration_id,
         api_key=run.temporary_api_key,
+        settings=run.settings,
     )
     try:
         for page in provider.run_step(step, context, claim.checkpoint):
@@ -189,9 +201,27 @@ def _order_steps(provider: ImportProvider, steps: list[str]) -> list[str]:
     return [key for key in known if key in steps]
 
 
-def _continue_failed_steps(team_id: int, provider_key: str, progress: dict[str, dict[str, Any]]) -> None:
+def _resolve_settings(provider: ImportProvider, settings: Mapping[str, str]) -> dict[str, str]:
+    specs = {spec.key: spec for spec in provider.settings}
+    if unknown := sorted(set(settings) - set(specs)):
+        raise InvalidImportSettings(f"{provider.label} has no setting named {', '.join(unknown)}.")
+    resolved: dict[str, str] = {}
+    for key, spec in specs.items():
+        value = settings.get(key, spec.default)
+        if value is None:
+            raise InvalidImportSettings(f"Choose a value for {spec.label}.")
+        if value not in {choice.value for choice in spec.choices}:
+            raise InvalidImportSettings(f"{value} isn't a valid value for {spec.label}.")
+        resolved[key] = value
+    return resolved
+
+
+def _continue_failed_steps(
+    team_id: int, provider_key: str, progress: dict[str, dict[str, Any]], settings: Mapping[str, str]
+) -> None:
     latest = _runs(team_id).filter(provider=provider_key).order_by("-created_at").first()
-    if latest is None or latest.status != ProviderImportStatus.FAILED:
+    # A checkpoint only makes sense for the settings that wrote it, such as the Mailgun region it was reading.
+    if latest is None or latest.status != ProviderImportStatus.FAILED or latest.settings != settings:
         return
     for step, step_progress in progress.items():
         step_progress["checkpoint"] = latest.progress.get(step, {}).get("checkpoint")

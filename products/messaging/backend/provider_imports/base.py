@@ -6,7 +6,7 @@ together with the step's progress, and resumes a retried step from the last save
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import field
 from typing import ClassVar, Literal
 
@@ -51,6 +51,24 @@ class ImportStepSpec:
 
 
 @frozen
+class ImportSettingChoice:
+    value: str
+    label: str
+
+
+@frozen
+class ImportSettingSpec:
+    """A choice the person makes before a run, beyond its steps and API key."""
+
+    key: str
+    label: str
+    help: str
+    choices: tuple[ImportSettingChoice, ...]
+    # None means the person has to choose.
+    default: str | None = None
+
+
+@frozen
 class ImportCredentials:
     api_key: str = field(repr=False)
 
@@ -62,6 +80,7 @@ class ImportContext:
     integration_id: int | None
     # The key a provider with `retains_credentials = False` reads for this run only.
     api_key: str | None = field(default=None, repr=False)
+    settings: Mapping[str, str] = field(default_factory=dict)
 
 
 ImportItemStatus = Literal["created", "skipped", "failed", "listed"]
@@ -118,10 +137,14 @@ class ImportProvider(ABC):
     not_imported: ClassVar[str] = ""
     # What the person does once the import has finished, in order.
     next_steps: ClassVar[tuple[str, ...]] = ()
+    settings: ClassVar[tuple[ImportSettingSpec, ...]] = ()
 
     @abstractmethod
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
-        """Choose the API key to import with and check it with the provider. Without `api_key`, use the stored key.
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
+        """Choose the API key to import with and check it can read the selected `steps`. Without `api_key`, use the
+        stored key.
 
         This runs before the import claims its run, so it must not store anything. Raises the ImportCredentials*
         errors, or ImportProviderUnavailable when the provider can't answer.
