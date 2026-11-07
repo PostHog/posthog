@@ -66,7 +66,7 @@ class AccountPersonsCatalog:
             return False
         try:
             for column in query.select:
-                if column.split("--")[0].strip() in {"person_display_name", "person.$delete"}:
+                if column.split("--")[0].strip() == "person_display_name" or column == "person.$delete":
                     continue
                 if not AccountPersonsCatalog.supports_expression(parse_expr(column)):
                     return False

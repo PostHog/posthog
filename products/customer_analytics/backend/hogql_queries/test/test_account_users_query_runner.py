@@ -52,6 +52,9 @@ class TestAccountPersonsQueryValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ({}, True),
+            ({"select": ["person.$delete"]}, True),
+            ({"select": ["person.$delete -- Label"]}, False),
+            ({"select": ["person.$delete -- Label\n + (SELECT count() FROM warehouse_table)"]}, False),
             ({"select": ["persons.id", "properties.`a.b` AS value", "source.distinct_ids"]}, True),
             ({"orderBy": ["person_display_name DESC"]}, True),
             ({"select": ["persons.revenue_analytics.mrr"]}, False),
