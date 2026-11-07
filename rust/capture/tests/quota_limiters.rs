@@ -18,7 +18,7 @@ use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::{
-    is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
+    is_exception_event, is_llm_event, is_mcp_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
 use capture::router::router;
 use capture::sinks::sink::SinkResult;
@@ -106,6 +106,7 @@ async fn setup_router_with_limits(
         QuotaResource::Exceptions,
         QuotaResource::Surveys,
         QuotaResource::LLMEvents,
+        QuotaResource::MCPEvents,
     ] {
         let key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, resource.as_str());
 
@@ -124,7 +125,8 @@ async fn setup_router_with_limits(
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
         .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
         .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
-        .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
+        .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event)
+        .add_scoped_limiter(QuotaResource::MCPEvents, is_mcp_event);
 
     let app = router(
         timesource,
@@ -269,6 +271,38 @@ async fn test_llm_predicate() {
 }
 
 #[tokio::test]
+async fn test_mcp_predicate() {
+    let should_accept_names = vec![
+        "$mcp_",
+        "$mcp_tool_call",
+        "$mcp_initialize",
+        "$mcp_tools_list",
+    ];
+    for name in should_accept_names {
+        let info = EventInfo {
+            name,
+            has_product_tour_id: false,
+        };
+        assert!(is_mcp_event(info), "event {name} should be accepted");
+    }
+
+    let should_reject_names = vec![
+        "$pageview",
+        "$ai_generation",
+        "$mcp",
+        "$mcpx",
+        "mcp_tool_call",
+    ];
+    for name in should_reject_names {
+        let info = EventInfo {
+            name,
+            has_product_tour_id: false,
+        };
+        assert!(!is_mcp_event(info), "event {name} should not be accepted");
+    }
+}
+
+#[tokio::test]
 async fn test_survey_predicate() {
     // Regular survey events (no product tour) should be accepted
     let should_accept_names = vec!["survey sent", "survey shown", "survey dismissed"];
@@ -327,12 +361,13 @@ async fn test_billing_limit_retains_only_scoped_limiter_events() {
     // of these events, only the event types that are
     // associated with a scoped limiter should be retained.
     // in this case, those should be:
-    // "$exception", "$ai_generation" and "survey sent"
+    // "$exception", "$ai_generation", "$mcp_tool_call" and "survey sent"
     let events = [
         "$exception",
         "pageview",
         "$something_else",
         "$ai_generation",
+        "$mcp_tool_call",
         "survey sent",
         "pageleave",
     ];
@@ -350,12 +385,13 @@ async fn test_billing_limit_retains_only_scoped_limiter_events() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 3);
+    assert_eq!(captured_events.len(), 4);
 
     // check the events we expect are captured not filtered away
     let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"$exception".to_string()));
     assert!(event_names.contains(&"$ai_generation".to_string()));
+    assert!(event_names.contains(&"$mcp_tool_call".to_string()));
     assert!(event_names.contains(&"survey sent".to_string()));
 }
 
