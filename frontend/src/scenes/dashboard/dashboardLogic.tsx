@@ -163,6 +163,11 @@ import {
     UNGROUPED_TILES_TAB_KEY,
     getTileGroupSectionKey,
 } from 'products/dashboards/frontend/dashboardTileSections'
+import { streamDashboardQueryResults } from 'products/dashboards/frontend/streamDashboardQueryResults'
+import {
+    type DashboardSharingDebugRun,
+    summarizeSharingDebug,
+} from 'products/dashboards/frontend/summarizeSharingDebug'
 import { TileFiltersOverride } from 'products/dashboards/frontend/TileFiltersOverride'
 import { calculateDuplicateLayout, calculateLayouts } from 'products/dashboards/frontend/tileLayouts'
 import { tileLogic } from 'products/dashboards/frontend/tileLogic'
@@ -177,6 +182,7 @@ import { createDashboardWidgetTileRefreshScheduler } from 'products/dashboards/f
 import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
 
+import type { DashboardSharingDebugApi } from '../../../../products/dashboards/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
@@ -197,6 +203,8 @@ import {
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
     AUTO_PREVIEW_TILE_LIMIT,
+    RATE_LIMITED_ERROR_CODE,
+    RATE_LIMIT_ERROR_MESSAGE,
     isEffectiveRefreshStale,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
@@ -839,6 +847,8 @@ export interface dashboardLogicValues {
     projectTreeRef: ProjectTreeRef
     queryLoadQueue: TaskQueue
     readOnly: boolean
+    querySharingDebug: DashboardSharingDebugRun | null
+    querySharingDebugSummary: ReturnType<typeof summarizeSharingDebug> | null
     refreshEligibilityTick: number
     refreshMetrics: {
         completed: number
@@ -1058,6 +1068,13 @@ export interface dashboardLogicActions {
             tile: DashboardTile
         }
     }
+    finishQuerySharingDebug: (
+        batchId: string,
+        status: DashboardSharingDebugRun['status']
+    ) => {
+        batchId: string
+        status: 'aborted' | 'complete' | 'partial' | 'running' | 'skipped'
+    }
     forceRefreshIfStale: () => {
         value: true
     }
@@ -1201,6 +1218,19 @@ export interface dashboardLogicActions {
     }
     previewDashboardChangesFailure: () => {
         value: true
+    }
+    receiveQuerySharingDebug: (
+        batchId: string,
+        tileId: number,
+        result: DashboardSharingDebugRun['results'][number]
+    ) => {
+        batchId: string
+        result: {
+            cached: boolean
+            debug?: DashboardSharingDebugApi | undefined
+            failed: boolean
+        }
+        tileId: number
     }
     receiveTileFromStream: (data: { order: number; tile: any }) => {
         order: number
@@ -1489,6 +1519,9 @@ export interface dashboardLogicActions {
     setProperties: (properties: AnyPropertyFilter[] | null) => {
         properties: AnyPropertyFilter[] | null
     }
+    setQuerySharingDebug: (run: DashboardSharingDebugRun) => {
+        run: DashboardSharingDebugRun
+    }
     setRefreshError: (
         shortId: InsightShortId,
         error?: Error
@@ -1711,6 +1744,9 @@ export interface dashboardLogicMeta {
         ) => void | Promise<void>
     }
     __keaTypeGenInternalSelectorTypes: {
+        querySharingDebugSummary: (
+            querySharingDebug: DashboardSharingDebugRun | null
+        ) => ReturnType<typeof summarizeSharingDebug> | null
         filterEditModeActive: (dashboardEditing: DashboardEditing | null) => boolean
         layoutEditMode: (dashboardEditing: DashboardEditing | null) => boolean
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
@@ -1951,7 +1987,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (
@@ -2099,6 +2135,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
     actions(() => ({
         revealHighlightedInsight: true,
+        setQuerySharingDebug: (run: DashboardSharingDebugRun) => ({ run }),
+        receiveQuerySharingDebug: (
+            batchId: string,
+            tileId: number,
+            result: DashboardSharingDebugRun['results'][number]
+        ) => ({ batchId, tileId, result }),
+        finishQuerySharingDebug: (batchId: string, status: DashboardSharingDebugRun['status']) => ({ batchId, status }),
         /**
          * Dashboard loading and dashboard tile refreshes.
          */
@@ -2831,6 +2874,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 copyGroupToDashboard: () => true,
                 copyGroupToDashboardFinished: () => false,
+            },
+        ],
+        querySharingDebug: [
+            null as DashboardSharingDebugRun | null,
+            {
+                setQuerySharingDebug: (_, { run }) => run,
+                receiveQuerySharingDebug: (state, { batchId, tileId, result }) =>
+                    state?.batchId === batchId && state.status === 'running'
+                        ? { ...state, results: { ...state.results, [tileId]: result } }
+                        : state,
+                finishQuerySharingDebug: (state, { batchId, status }) =>
+                    state?.batchId === batchId && state.status === 'running' ? { ...state, status } : state,
+                abortAnyRunningQuery: (state) =>
+                    state?.status === 'running' ? { ...state, status: 'aborted' } : state,
             },
         ],
         dashboardLoading: [
@@ -3651,6 +3708,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
     selectors(({ cache }) => ({
         queryLoadQueue: [() => [], (): TaskQueue => tileLoadQueue(cache)],
+        querySharingDebugSummary: [
+            (s) => [s.querySharingDebug],
+            (run: DashboardSharingDebugRun | null): ReturnType<typeof summarizeSharingDebug> | null =>
+                run ? summarizeSharingDebug(run) : null,
+        ],
         filterEditModeActive: [
             (s) => [s.dashboardEditing],
             (dashboardEditing: DashboardEditing | null): boolean => dashboardEditing?.filters === true,
@@ -5657,6 +5719,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let tilesErroredCount = 0
             let tilesAbortedCount = 0
 
+            if (
+                values.featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true &&
+                values.placement === DashboardPlacement.Dashboard &&
+                !isSharedView() &&
+                (sortedTilesToRefresh.length < 2 || sortedTilesToRefresh.length > 32)
+            ) {
+                actions.setQuerySharingDebug({
+                    batchId: uuid(),
+                    status: 'skipped',
+                    reason:
+                        sortedTilesToRefresh.length === 0
+                            ? 'No insight tiles needed a refresh. Existing results were kept.'
+                            : 'Sharing requires between 2 and 32 insight tiles in one refresh. Tiles use the normal refresh path.',
+                    tiles: [],
+                    results: {},
+                })
+            }
+
             if (sortedTilesToRefresh.length > 0) {
                 // Mark tiles as queued before the breakpoint's await, so there's no render gap
                 // between the refreshDashboardItems reducer wiping refreshStatus to {} and it
@@ -5698,11 +5778,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const savedMetricVariables = values.savedDashboardSettings.filters.metricVariables ?? []
                 const urlVariables = settingsToRefresh.variables
 
+                const refreshFilters = withCompactMetricVariables(effectiveRefreshFilters, savedMetricVariables)
                 const tileRefresh: InsightTileRefresh = {
                     actions,
                     dashboardId,
                     currentTeamId,
-                    filters: withCompactMetricVariables(effectiveRefreshFilters, savedMetricVariables),
+                    filters: refreshFilters,
                     variables: urlVariables,
                     urlFilters,
                     forceRefresh: !!forceRefresh,
@@ -5712,8 +5793,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tileLoads: tileLoads(cache),
                 }
                 const loadingHere = (cache.refreshingTileIds = new Set(sortedTilesToRefresh.map((tile) => tile.id)))
-                const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
-                    const outcome = await refreshInsightTile(tile, tileRefresh)
+                const settleTile = (
+                    tile: DashboardTile & { insight: InsightModel },
+                    outcome: InsightTileRefreshOutcome
+                ): void => {
                     loadingHere.delete(tile.id)
                     if (outcome === 'refreshed' || outcome === 'cached') {
                         if (waiting.tileIds.includes(tile.id)) {
@@ -5727,7 +5810,162 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tilesAbortedCount += outcome === 'aborted' ? 1 : 0
                         tilesErroredCount += outcome === 'errored' ? 1 : 0
                     }
-                })
+                }
+
+                const streamedTiles = new Set<number>()
+                if (
+                    values.featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true &&
+                    values.placement === DashboardPlacement.Dashboard &&
+                    !isSharedView() &&
+                    currentTeamId &&
+                    sortedTilesToRefresh.length >= 2 &&
+                    sortedTilesToRefresh.length <= 32
+                ) {
+                    const sharingController = cache.abortController
+                    const refreshSignal = sharingController.signal
+                    const { signal, finish: finishBatch } = tileLoads(cache).start(
+                        sortedTilesToRefresh.map((tile) => tile.id),
+                        refreshSignal,
+                        { forceRefresh: !!forceRefresh, settings: settingsToRefresh }
+                    )
+                    const capacityRetries: Promise<void>[] = []
+                    const batchQueryId = uuid()
+                    const startedAt = performance.now()
+                    actions.setQuerySharingDebug({
+                        batchId: batchQueryId,
+                        status: 'running',
+                        tiles: sortedTilesToRefresh.map((tile) => ({
+                            id: tile.id,
+                            name: getDashboardTileDisplayName(tile),
+                        })),
+                        results: {},
+                    })
+                    cache.disposables.add(
+                        () => () => {
+                            if (!refreshSignal.aborted) {
+                                sharingController.abort()
+                            }
+                        },
+                        'dashboard-query-sharing',
+                        { pauseOnPageHidden: false }
+                    )
+                    try {
+                        await streamDashboardQueryResults(
+                            currentTeamId,
+                            dashboardId,
+                            {
+                                tile_ids: sortedTilesToRefresh.map((tile) => tile.id).join(','),
+                                client_query_id: batchQueryId,
+                                debug: true,
+                                refresh: forceRefresh ? 'force_blocking' : 'blocking',
+                                filters_override: JSON.stringify(refreshFilters),
+                                variables_override: JSON.stringify(urlVariables),
+                            },
+                            signal,
+                            (result, debug) => {
+                                if (signal.aborted || cache.disposables.isDisposed) {
+                                    return
+                                }
+                                const tile = sortedTilesToRefresh.find((candidate) => candidate.id === result.id)
+                                if (!tile || streamedTiles.has(tile.id)) {
+                                    return
+                                }
+                                actions.receiveQuerySharingDebug(batchQueryId, tile.id, {
+                                    cached: result.insight?.is_cached === true,
+                                    failed:
+                                        'error' in result ||
+                                        !result.insight ||
+                                        !!getInsightQueryError(result.insight as unknown as InsightModel),
+                                    debug,
+                                })
+                                if ('error' in result || !result.insight) {
+                                    streamedTiles.add(tile.id)
+                                    actions.setRefreshError(tile.insight.short_id)
+                                    settleTile(tile, 'errored')
+                                    return
+                                }
+                                const refreshedInsight = result.insight as unknown as InsightModel
+                                if (
+                                    isRefreshRejectionStub(refreshedInsight) ||
+                                    refreshedInsight.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
+                                    refreshedInsight.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
+                                ) {
+                                    streamedTiles.add(tile.id)
+                                    capacityRetries.push(
+                                        refreshInsightTile(tile, tileRefresh).then((outcome) =>
+                                            settleTile(tile, outcome)
+                                        )
+                                    )
+                                    return
+                                }
+                                streamedTiles.add(tile.id)
+                                const queryError = getInsightQueryError(refreshedInsight)
+                                if (queryError) {
+                                    actions.setRefreshError(
+                                        tile.insight.short_id,
+                                        queryError.code ? queryError : undefined
+                                    )
+                                    settleTile(tile, 'errored')
+                                    return
+                                }
+                                dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                                actions.setRefreshStatus(tile.insight.short_id)
+                                reportDashboardTileRefreshed(
+                                    dashboardId,
+                                    tile,
+                                    urlFilters,
+                                    urlVariables,
+                                    Math.floor(performance.now() - startedAt),
+                                    false,
+                                    undefined
+                                )
+                                settleTile(tile, refreshedInsight.is_cached ? 'cached' : 'refreshed')
+                            }
+                        )
+                    } catch {
+                        if (!signal.aborted) {
+                            posthog.capture('dashboard query sharing transport failed', { dashboard_id: dashboardId })
+                        }
+                    } finally {
+                        finishBatch()
+                    }
+                    if (refreshSignal.aborted) {
+                        loadingHere.clear()
+                        actions.finishQuerySharingDebug(batchQueryId, 'aborted')
+                        return
+                    }
+                    if (signal.aborted) {
+                        // tileLoads stopped the batch, so the tiles it had not delivered wait for their tab to show again.
+                        for (const tile of sortedTilesToRefresh) {
+                            if (!streamedTiles.has(tile.id)) {
+                                streamedTiles.add(tile.id)
+                                actions.abortQuery({
+                                    queryId: batchQueryId,
+                                    queryStartTime: startedAt,
+                                    shortId: tile.insight.short_id,
+                                })
+                                settleTile(tile, 'deferred')
+                            }
+                        }
+                    }
+                    await Promise.all(capacityRetries)
+                    actions.finishQuerySharingDebug(
+                        batchQueryId,
+                        signal.aborted
+                            ? 'aborted'
+                            : streamedTiles.size === sortedTilesToRefresh.length && capacityRetries.length === 0
+                              ? 'complete'
+                              : 'partial'
+                    )
+                    breakpoint()
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
+                }
+
+                const fetchSyncInsightFunctions = sortedTilesToRefresh
+                    .filter((tile) => !streamedTiles.has(tile.id))
+                    .map((tile) => async () => settleTile(tile, await refreshInsightTile(tile, tileRefresh)))
 
                 await Promise.all(fetchSyncInsightFunctions.map((fetchInsight) => fetchInsight()))
                 breakpoint()

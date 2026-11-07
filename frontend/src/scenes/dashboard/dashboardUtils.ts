@@ -41,8 +41,8 @@ import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstan
 
 // The backend labels every transient capacity failure with this code, whatever its message: PostHog's
 // own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
-const RATE_LIMITED_ERROR_CODE = 'rate_limited'
-const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+export const RATE_LIMITED_ERROR_CODE = 'rate_limited'
+export const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 const RATE_LIMIT_USER_MESSAGE = 'Too many queries are running right now.'
 
 export function getInsightQueryError(insight: InsightModel): ApiError | null {
