@@ -38,6 +38,17 @@ const SETTINGS_SECTION_ALIASES: Record<string, SettingSectionId> = {
     // in-app assistant has suggested. Keep it even once those links age out; it only becomes wrong
     // if members ever become project-scoped.
     'project-members': 'organization-members',
+    privacy: 'project-privacy',
+    // "General" is the title of the section whose id is `project-details`, so the guess follows the title.
+    'project-general': 'project-details',
+    // Never a real section. The AI provider consent and AI training settings are in the organization's
+    // General section. Remove this alias if AI settings get their own organization section, because
+    // this entry would shadow it.
+    'organization-ai': 'organization-details',
+    // `redirects` in scenes.ts also rewrites this id, but that is only enough before this logic mounts.
+    // After that, this logic still receives the old URL, selects the old id and pushes the old URL again,
+    // which overflows the stack.
+    'organization-rbac': 'organization-roles',
 }
 
 // Settings that moved to a different section, keyed by setting id. Deep links to the old
@@ -70,7 +81,7 @@ const canonicalSettingsSection = (section: string): string => {
         return SETTINGS_SECTION_ALIASES[section]
     }
 
-    if (section.startsWith('environment') && !section.endsWith('-details') && !section.endsWith('-danger-zone')) {
+    if (section.startsWith('environment')) {
         return section.replace(/^environment/, 'project')
     }
 
