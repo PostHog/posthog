@@ -5715,6 +5715,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["timeseries"] == {start.date().isoformat(): {"variant_results": []}}
+        assert response.json()["configuration_by_day"] == {start.date().isoformat(): "current"}
 
     @parameterized.expand([("stale_client_definition", {"fingerprint": "0" * 64}), ("uuid_only", {})])
     def test_recalculate_timeseries_backfills_the_experiment_definition_under_its_key(

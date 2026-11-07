@@ -60,7 +60,7 @@ export type RecalculationPayload = Omit<ExperimentMetricsRecalculationJobApi, 'i
     Partial<
         Pick<ExperimentMetricsRecalculationRunApi, 'metric_retries' | 'results' | 'rows_read' | 'estimated_rows_total'>
     > &
-    Partial<Pick<ExperimentMetricsRecalculationLatestApi, 'result_source'>>
+    Partial<Pick<ExperimentMetricsRecalculationLatestApi, 'result_source' | 'exceeds_recalculation_age_limit'>>
 
 /**
  * This logic can only handle state when an experiment is present.
@@ -308,6 +308,7 @@ export interface experimentMetricsLogicValues {
     queuedRerun: ExperimentMetricsRecalculationRequestTriggerEnumApi | null
     recalculatingMetricUuids: string[]
     recalculationAbandoned: boolean
+    recalculationAgeLimitExceeded: boolean
     recalculationDisplayState: 'cold' | 'initial' | 'partial' | 'refreshing' | 'resting'
     recalculationLoading: boolean
     recalculationProgress: {
@@ -316,6 +317,7 @@ export interface experimentMetricsLogicValues {
     }
     recalculationRejectionMessage: string | null
     refreshEligibilityTick: number
+    resultConfigurationNotice: 'previous' | 'unknown' | null
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: (unknown | null)[]
     totalMetricsCount: number
@@ -375,6 +377,7 @@ export interface experimentMetricsLogicActions {
 export interface experimentMetricsLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
+        resultConfigurationNotice: (currentRecalculation: RecalculationPayload | null) => 'previous' | 'unknown' | null
         isRecalculating: (
             recalculationLoading: boolean,
             currentRecalculation: RecalculationPayload | null,
@@ -386,6 +389,7 @@ export interface experimentMetricsLogicMeta {
         }
         totalMetricsCount: (arg: any) => number
         recalculationRejectionMessage: (currentRecalculation: RecalculationPayload | null) => string | null
+        recalculationAgeLimitExceeded: (currentRecalculation: RecalculationPayload | null) => boolean
         lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         nextAllowedManualRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         isManualRefreshBlocked: (
@@ -529,6 +533,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         ],
     }),
     selectors({
+        resultConfigurationNotice: [
+            (s) => [s.currentRecalculation],
+            (recalc: RecalculationPayload | null): 'previous' | 'unknown' | null => {
+                const statuses = (recalc?.results ?? [])
+                    .filter((result) => result.status === 'completed')
+                    .map((result) => result.configuration_status)
+                return statuses.includes('previous') ? 'previous' : statuses.includes('unknown') ? 'unknown' : null
+            },
+        ],
         // True while a recalculation is being fetched or is still running.
         isRecalculating: [
             (s) => [s.recalculationLoading, s.currentRecalculation, s.recalculationAbandoned],
@@ -561,6 +574,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         recalculationRejectionMessage: [
             (s) => [s.currentRecalculation],
             (recalc: RecalculationPayload | null): string | null => (recalc ? rejectionMessage(recalc) : null),
+        ],
+        // Only the latest payload carries the field, so a rejected run marks the limit too.
+        recalculationAgeLimitExceeded: [
+            (s) => [s.currentRecalculation],
+            (recalc: RecalculationPayload | null): boolean =>
+                !!recalc && (recalc.exceeds_recalculation_age_limit === true || rejectionMessage(recalc) !== null),
         ],
         lastRefresh: [
             (s) => [s.currentRecalculation],
@@ -882,6 +901,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 })
             },
             setCurrentRecalculation: () => {
+                const notice = values.resultConfigurationNotice
+                if (notice && cache.reportedConfigurationNotice !== notice) {
+                    cache.reportedConfigurationNotice = notice
+                    posthog.capture('experiment results configuration notice shown', {
+                        experiment_id: props.experiment.id,
+                        notice,
+                        age_limit_exceeded: values.recalculationAgeLimitExceeded,
+                    })
+                }
                 // Re-enable the reload button the moment the window closes, not on the next data load.
                 cache.disposables.dispose('manualRefreshEligibility')
                 const nextAllowed = values.nextAllowedManualRefresh

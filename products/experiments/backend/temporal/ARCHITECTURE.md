@@ -73,7 +73,7 @@ Every metric in a single recalc shares one `query_to` timestamp, stamped by the 
 
 Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `MetricCalculationConfig.calculation_key()` in `metric_calculation/config.py`. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
 
-Two key versions exist, and `calculation_key()` returns the one of `settings.key_version`. `resolve_calculation_key_version` decides the version when an operation starts; queued work carries it in its key, so a worker never re-decides it. Key version 1 (`legacy_key()`) hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants.
+Two key versions exist, and `calculation_key()` returns the one of `settings.key_version`. `resolve_calculation_key_version` decides the version when an operation starts, from the team's `experiment-calculation-key-v2` flag evaluated locally; queued work carries it in its key, so a worker never re-decides it. Key version 1 (`legacy_key()`) hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants.
 
 A metrics recalculation run carries its version in the `calculation_key_version` workflow input, and the workflow passes it to the calc activity only when it is not 1. It is the seventh positional argument, after the precompute mode, so a version 2 calc sends the mode too, as `None` for AUTO. Every worker in a region must run that code before any team uses version 2: an older activity worker rejects the extra argument with a `TypeError`, and an older workflow worker drops the field and runs the run as version 1.
 
@@ -83,7 +83,7 @@ Key version 2 reads the exposure criteria as stored, with the product defaults a
 
 Rows keep the key they were written with. Readers find a config's rows under both key versions. The newest compatible row wins, and rows under the current settings win only a tie, while `has_completed` requires the active key. A version 1 row's exact analytical settings are unknown, so no conversion may assign it a version 2 key without recomputing it.
 
-Writes can also store the version 1 key in `display_key`, salted for run rows. The chart, current outcome and significance baseline use it to preserve history across project setting changes. Ended experiments also use it for `for_run` and cold-start display, so a project edit does not create a gap that automatically overwrites their decided result. Running experiments still recompute.
+Writes can also store the version 1 key in `display_key`, salted for run rows. The chart, current outcome and significance baseline use it to preserve history across project setting changes. Ended experiments also use it for `for_run` and cold-start display, so a project edit does not create a gap that automatically overwrites their decided result. Running experiments still recompute. Results carry `configuration_status` (`current`, `previous`, or `unknown`) and charts carry the same information in `configuration_by_day`. The page offers an explicit recalculation for earlier or unrecorded settings.
 
 The display key omits confidence, baseline and CUPED settings as well as project settings, so it must never authorize calculation reuse. Metric definition, start date, stats method, stored exposure criteria, maturity and excluded-variant edits change the display key too and hide incompatible history.
 
@@ -105,7 +105,7 @@ So every run of a stopped experiment uses the same `(experiment, metric_uuid, qu
 
 - **Same config, completed row:** the reload skips the query and keeps the row. It never recomputes the fixed window, so late events and data warehouse corrections for that window do not reach the stored result.
 - **Same config, failed row:** the reload recomputes the metric and updates the row in place.
-- **Config or stats change:** the fingerprint changes, so no completed row matches and the reload recomputes. The unique key `(experiment, metric_uuid, query_to)` does not include the fingerprint, so the new result replaces the old row in place, fingerprint included.
+- **Config or stats change:** the fingerprint changes, so no completed row matches and the reload recomputes. The unique key `(experiment, metric_uuid, query_to)` does not include the fingerprint, so the new result replaces the old row in place, fingerprint included. A failure keeps the old completed row and goes to `metric_errors` only, so the run still reads the earlier result.
 
 The snapshot for such an experiment is the one row at `end_date` for the current config, not a distinct frozen copy per `recalculation_id`.
 
@@ -127,14 +127,14 @@ Every writer (the calc activity, the daily activities, the backfill and the time
 A row that holds the window under another fingerprint is therefore updated in place, so no write can fail on the unique constraint or create a second row for a window.
 A daily write and a recalculation share a window only when an experiment stops while its daily run is in flight, so both use `end_date`.
 A successful daily write then takes over the recalculation's row, and the next reload recomputes that metric.
-A failed daily write leaves a completed row under another fingerprint in place, because it has no result to replace it with.
+A failed write leaves a completed row under another fingerprint in place, because it has no result to replace it with. A failed recalculation also leaves a completed row under its own key in place, while a failed daily point replaces it, so the chart shows the latest attempt.
 The calc activity's write keeps its lock order and its terminal-run guard (see [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md)).
 
 Backfill requests lock the experiment while checking for an active job by metric UUID, deleting its daily results, and creating the new job in one transaction. Failed job creation preserves the existing results. The active-job unique index includes the metric UUID as well as the experiment and calculation key, so equivalent metrics can backfill independently. Keeping the key in the index allows existing jobs for one UUID under different keys to coexist during a rolling deployment; the locked UUID lookup prevents new requests from adding another job for that metric.
 
 ### Counters are derived, not stored
 
-`completed_metrics` and `failed_metrics` aren't columns on the recalc row. They're computed at read time from `ExperimentMetricResult` rows (`status=COMPLETED` for completed, `status=FAILED` plus discovery-step failures from `metric_errors` for failed). This eliminates a class of bug: when Temporal retries an activity, there's no counter to double-increment. The only thing that matters is whether the result row exists.
+`completed_metrics` and `failed_metrics` aren't columns on the recalc row. They're computed at read time from `ExperimentMetricResult` rows and `metric_errors`: a metric with a `status=FAILED` row or a `metric_errors` entry counts as failed, and any other metric with a `status=COMPLETED` row counts as completed. A failed calculation keeps the completed row that held its window, so its `metric_errors` entry is what counts it as failed. A rejected run carries the earlier run's rows, so its error counts only for a metric without a row. This eliminates a class of bug: when Temporal retries an activity, there's no counter to double-increment.
 
 ### Idempotency + concurrency at the API boundary
 
