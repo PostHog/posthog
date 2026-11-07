@@ -654,9 +654,7 @@ class HyperCache:
         The method removes the expiry tracking member even when a delete fails. With
         tracked_expiry_score, it removes the member only after every delete succeeds and only while
         the member still holds that score. The caller must pass a score that _track_expiry cannot
-        write. _track_expiry writes whole seconds, so a score with a fractional part is safe. A write
-        during the delete then re-scores the member. The member stays, and the caller finds the
-        rewritten entry again.
+        write. A write during the delete then re-scores the member, and the member stays.
         """
         kinds = kinds or ["redis", "s3"]
         redis_error: Exception | None = None

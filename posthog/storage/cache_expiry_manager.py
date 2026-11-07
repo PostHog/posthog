@@ -475,7 +475,10 @@ def _retrack_if_still_stored(
     """
     cache_key = hypercache.get_cache_key(identifier)
     secondary = hypercache.secondary_cache_client
-    still_stored = True
+
+    def retrack() -> None:
+        redis_client.zadd(sorted_set_key, {str(identifier): retry_score}, nx=True)
+
     try:
         still_stored = (
             hypercache.cache_client.has_key(cache_key)
@@ -487,10 +490,12 @@ def _retrack_if_still_stored(
                 and object_storage.head_object_strict(cache_key) is not None
             )
         )
-        return still_stored
-    finally:
-        if still_stored:
-            redis_client.zadd(sorted_set_key, {str(identifier): retry_score}, nx=True)
+    except Exception:
+        retrack()
+        raise
+    if still_stored:
+        retrack()
+    return still_stored
 
 
 def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
@@ -501,13 +506,10 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
     that loaded a team before the team was deleted can write the entry again after the delete
     path cleared it. The object-storage copy has no TTL. This cleanup deletes it.
 
-    Before the deletes, the cleanup re-scores the member to a retry score that no writer produces.
-    The member leaves the sorted set only after every delete succeeds and only while it still
-    holds that score. Every writer stores the entry before it adds the member, so a rewrite during
-    the cleanup re-scores the member and keeps it. A failed delete or a failed remove leaves the
-    member at the retry score, outside the refresh window, and the next cleanup retries it. After
-    the member leaves, the cleanup checks every tier and re-adds the member when a tier still
-    holds the entry.
+    Before the deletes, the cleanup moves the member to a retry score outside the refresh window.
+    The member leaves the sorted set only after every delete succeeds and only while it still holds
+    that score. A tier that still holds the entry afterward gets the member back. Any failure leaves
+    the member at the retry score, and the next cleanup retries it.
 
     Args:
         config: HyperCache management config specifying which cache to clean up
