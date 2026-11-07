@@ -7,8 +7,11 @@ from unittest.mock import patch
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
@@ -152,6 +155,33 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         seen.append(self.client.get(f"{self.base_url}{alert_id}/").status_code)
         seen.append(HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).count())
         return seen
+
+    def test_an_object_level_deny_treats_both_kinds_of_alert_alike(self, *_: object) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        with_row = self._create_with_logs_row()
+        without_row = self._create_without_logs_row()
+        member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
+        membership = member.organization_memberships.get(organization=self.organization)
+        for alert_id in (with_row, without_row):
+            AccessControl.objects.create(
+                team=self.team,
+                resource="logs",
+                resource_id=alert_id,
+                access_level="none",
+                organization_member=membership,
+            )
+        self.client.force_login(member)
+
+        listed = {alert["id"] for alert in self.client.get(self.base_url).json()["results"]}
+        seen = {
+            alert_id: (alert_id in listed, self.client.get(f"{self.base_url}{alert_id}/").status_code)
+            for alert_id in (with_row, without_row)
+        }
+
+        assert seen[without_row] == seen[with_row]
 
     def test_a_list_page_interleaves_both_kinds_of_alert_newest_first(self, *_: object) -> None:
         created = []
