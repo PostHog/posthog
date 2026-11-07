@@ -23,9 +23,15 @@ import type {
     TeamType,
     UserBasicType,
 } from '../../../../../frontend/src/types'
-import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
+import {
+    DefaultEmailSender,
+    resolveDefaultEmailSender,
+    teamDefaultEmailSenderId,
+} from '../../Channels/defaultEmailSender'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
+import { insertedStepNeedsSenderLookup, resolveInsertedStepSender, stepTakesSender } from '../firstRunSender'
+import { takesOwnSender, withStepSender } from '../workflowEmailPrefill'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { getEdgeId } from './edgeId'
 import { getTeamUtmDefaults, newEmailUtmConfig, utmKeysFollowingSavedDefault } from './steps/components/utmDefaults'
@@ -2028,6 +2034,9 @@ export interface hogFlowEditorLogicActions {
               }
         payload?: any
     } // workflowLogic
+    rememberSandboxSender: (integrationId: number | null) => {
+        integrationId: number | null
+    } // workflowLogic
     setWorkflowAction: (
         actionId: string,
         action: HogFlowAction
@@ -2055,6 +2064,9 @@ export interface hogFlowEditorLogicActions {
     setWorkflowInfo: (workflow: Partial<HogFlow>) => {
         workflow: Partial<HogFlow>
     } // workflowLogic
+    assignInsertedStepSender: (actionId: string) => {
+        actionId: string
+    }
     clearPanelWidth: () => {
         value: true
     }
@@ -2176,6 +2188,11 @@ export type hogFlowEditorLogicType = MakeLogicType<
     hogFlowEditorLogicMeta
 >
 
+function captureSenderPreselected(sender: DefaultEmailSender): void {
+    // pinned: analytics event name
+    posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
+}
+
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
@@ -2193,12 +2210,19 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
         actions: [
             workflowLogic,
-            ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
+            [
+                'setWorkflowInfo',
+                'setWorkflowAction',
+                'setWorkflowActionEdges',
+                'loadWorkflowSuccess',
+                'rememberSandboxSender',
+            ],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],
     })),
     actions({
+        assignInsertedStepSender: (actionId: string) => ({ actionId }),
         onNodesDelete: (deleted: HogFlowActionNode[]) => ({ deleted }),
         setDropzoneNodes: (dropzoneNodes: DropzoneNode[]) => ({
             dropzoneNodes,
@@ -2381,7 +2405,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => {
+    listeners(({ values, actions, cache }) => {
         return {
             resetFlowFromHogFlow: ({ hogFlow }) => {
                 try {
@@ -2425,6 +2449,24 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
             },
 
+            assignInsertedStepSender: async ({ actionId }) => {
+                const inserted = values.workflow.actions.find((action) => action.id === actionId)
+                const sender = inserted
+                    ? await resolveInsertedStepSender(inserted, values.workflow).catch(() => null)
+                    : null
+                if (cache.disposables.isDisposed) {
+                    return
+                }
+                const step = values.workflow.actions.find((action) => action.id === actionId)
+                if (!sender || !step || !stepTakesSender(step, values.workflow, sender)) {
+                    return
+                }
+                if (sender.reason === 'sandbox_sender') {
+                    actions.rememberSandboxSender(sender.integrationId)
+                }
+                actions.setWorkflowAction(actionId, withStepSender(step, sender.integrationId))
+                captureSenderPreselected(sender)
+            },
             onNodesDelete: ({ deleted }) => {
                 if (deleted.some((node) => node.id === values.selectedNodeId)) {
                     actions.setSelectedNodeId(null)
@@ -2598,35 +2640,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
-                    if (!isHogFlowActionNode && 'template_id' in config && config.template_id === 'template-email') {
-                        const emailInput = config.inputs?.email
-                        const team = values.currentTeam
-                        const sender = resolveDefaultEmailSender(
-                            values.integrations,
-                            team && 'workflows_config' in team
-                                ? team.workflows_config?.default_email_integration_id
-                                : null
-                        )
-                        if (sender && emailInput?.value && !emailInput.value.from?.integrationId) {
-                            config = {
-                                ...config,
-                                inputs: {
-                                    ...config.inputs,
-                                    email: {
-                                        ...emailInput,
-                                        value: {
-                                            ...emailInput.value,
-                                            from: { ...emailInput.value.from, integrationId: sender.integrationId },
-                                        },
-                                    },
-                                },
-                            }
-                            // pinned: analytics event name
-                            posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
-                        }
-                    }
-
-                    const newAction = {
+                    const builtAction = {
                         id: isHogFlowActionNode
                             ? (values.nodeToBeAdded as HogFlowActionNode).id
                             : `action_${partialNewAction.type}_${uuid()}`,
@@ -2643,6 +2657,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             ? { on_error: (partialNewAction as CreateActionType).on_error }
                             : {}),
                     } as HogFlowAction
+
+                    const sender =
+                        !isHogFlowActionNode && takesOwnSender(builtAction)
+                            ? resolveDefaultEmailSender(
+                                  values.integrations,
+                                  teamDefaultEmailSenderId(values.currentTeam)
+                              )
+                            : null
+                    const newAction = sender ? withStepSender(builtAction, sender.integrationId) : builtAction
+                    if (sender) {
+                        captureSenderPreselected(sender)
+                    }
 
                     const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
 
@@ -2743,6 +2769,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     actions.setWorkflowInfo({ actions: newActions, edges: newEdges, variables: updatedVariables })
                     actions.setNodeToBeAdded(null)
                     actions.setSelectedNodeId(newAction.id)
+                    if (
+                        !sender &&
+                        !isHogFlowActionNode &&
+                        insertedStepNeedsSenderLookup(newAction, values.workflow, values.integrations)
+                    ) {
+                        actions.assignInsertedStepSender(newAction.id)
+                    }
                 }
                 // We can clear the dropzones now
                 actions.hideDropzones()

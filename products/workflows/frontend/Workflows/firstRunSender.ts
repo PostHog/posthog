@@ -11,7 +11,12 @@ import type { IntegrationKind, IntegrationType } from '~/types'
 
 import { integrationsEmailSandboxSenderCreate, integrationsList } from 'products/integrations/frontend/generated/api'
 
-import { DefaultEmailSender, resolveDefaultEmailSender, verifiedOwnEmailSenders } from '../Channels/defaultEmailSender'
+import {
+    DefaultEmailSender,
+    resolveDefaultEmailSender,
+    teamDefaultEmailSenderId,
+    verifiedOwnEmailSenders,
+} from '../Channels/defaultEmailSender'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
 import { allowsSandboxSender, emailStepValue, takesOwnSender, withEmailSender } from './workflowEmailPrefill'
 
@@ -67,11 +72,6 @@ async function provisionSandboxSender(): Promise<number | null> {
     }
 }
 
-function teamDefaultSenderId(): number | null | undefined {
-    const team = teamLogic.findMounted()?.values.currentTeam
-    return team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
-}
-
 function sandboxApplies(integrations: IntegrationType[], sandboxAllowed: boolean): boolean {
     return sandboxAllowed && sandboxSenderEnabled() && verifiedOwnEmailSenders(integrations).length === 0
 }
@@ -80,7 +80,10 @@ async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmai
     try {
         const integrations = await loadEveryIntegrationPage()
         if (!sandboxApplies(integrations, allowSandbox)) {
-            return resolveDefaultEmailSender(integrations, teamDefaultSenderId())
+            return resolveDefaultEmailSender(
+                integrations,
+                teamDefaultEmailSenderId(teamLogic.findMounted()?.values.currentTeam)
+            )
         }
         const sandboxId = integrations.find(isSandboxEmailSender)?.id ?? (await provisionSandboxSender())
         return sandboxId === null ? null : { integrationId: sandboxId, reason: 'sandbox_sender' }
@@ -88,6 +91,29 @@ async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmai
         posthog.captureException(error, { feature: 'workflows-sandbox-sender', step: 'first-run sender' })
         throw error
     }
+}
+
+export function stepTakesSender(action: HogFlowAction, workflow: HogFlow, sender: DefaultEmailSender): boolean {
+    return sender.reason === 'sandbox_sender' ? takesSandboxSender(action, workflow) : takesOwnSender(action)
+}
+
+export async function resolveInsertedStepSender(
+    action: HogFlowAction,
+    workflow: HogFlow
+): Promise<DefaultEmailSender | null> {
+    return takesOwnSender(action) ? resolveFirstRunSender(takesSandboxSender(action, workflow)) : null
+}
+
+export function insertedStepNeedsSenderLookup(
+    action: HogFlowAction,
+    workflow: HogFlow,
+    integrations: IntegrationType[] | null
+): boolean {
+    return (
+        sandboxSenderEnabled() &&
+        takesOwnSender(action) &&
+        (integrations === null || sandboxApplies(integrations, takesSandboxSender(action, workflow)))
+    )
 }
 
 export async function withFirstRunSender(
@@ -100,10 +126,7 @@ export async function withFirstRunSender(
     if (!sender) {
         return { workflow, sender: null }
     }
-    const takesSender =
-        sender.reason === 'sandbox_sender'
-            ? (action: HogFlowAction): boolean => takesSandboxSender(action, workflow)
-            : takesOwnSender
+    const takesSender = (action: HogFlowAction): boolean => stepTakesSender(action, workflow, sender)
     const filled = withEmailSender(workflow, sender.integrationId, takesSender)
     return filled.filled ? { workflow: filled.workflow, sender } : { workflow, sender: null }
 }
