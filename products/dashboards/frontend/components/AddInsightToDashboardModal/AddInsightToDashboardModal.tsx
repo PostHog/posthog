@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconInsightFunnels, IconInsightRetention, IconInsightTrends } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -10,6 +9,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { metricsInsightAvailabilityLogic } from 'scenes/insights/metricsInsightAvailabilityLogic'
 import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import {
     INSIGHT_TYPES_METADATA,
@@ -57,8 +57,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
             !QUICK_CREATE_TYPES.some((qt) => qt.type === type)
     )
 
-    const metricsEnabled =
-        !!featureFlags[FEATURE_FLAGS.METRICS] && !!featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]
+    const { showMetricsInsight } = useValues(metricsInsightAvailabilityLogic)
     const MetricsIcon = QUERY_TYPES_METADATA[NodeKind.MetricsQuery].icon
 
     return (
@@ -130,7 +129,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                                     </LemonButton>
                                                 )
                                             })}
-                                            {metricsEnabled && (
+                                            {showMetricsInsight && (
                                                 <LemonButton
                                                     type="tertiary"
                                                     fullWidth
