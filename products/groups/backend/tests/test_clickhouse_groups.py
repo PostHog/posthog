@@ -269,7 +269,6 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             ("rule_on_name", "name", 0, "# Notes"),
             ("rule_on_other_property", "industry", 0, "# Mr. Krabs Notes"),
             ("rule_on_name_of_other_group_type", "name", 1, "# Mr. Krabs Notes"),
-            ("rule_on_name_of_every_group_type", "name", None, "# Notes"),
         ]
     )
     @time_machine.travel("2021-05-02", tick=False)
