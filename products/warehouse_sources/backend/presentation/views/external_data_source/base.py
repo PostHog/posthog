@@ -8,7 +8,7 @@ assembled viewset provides at runtime.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -107,6 +107,7 @@ if TYPE_CHECKING:
             source_id: str,
             source_schemas: list[SourceSchema],
             permission_errors: Mapping[str, str | None] | None = None,
+            only_tables: Collection[str] | None = None,
         ) -> dict | None: ...
 
         def _setup_cdc_resources(

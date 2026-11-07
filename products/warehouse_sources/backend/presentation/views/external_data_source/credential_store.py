@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 import dataclasses
 from typing import Any, cast
 from urllib.parse import quote
@@ -17,6 +18,7 @@ from rest_framework.response import Response
 from posthog.api.utils import action
 from posthog.models.user import User
 
+from products.warehouse_sources.backend.facade import warehouse_migration as migrations
 from products.warehouse_sources.backend.facade.models import PendingSourceCredential
 from products.warehouse_sources.backend.facade.source_management import known_source_key
 from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
@@ -241,7 +243,17 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                 location=OpenApiParameter.QUERY,
                 required=True,
                 description="The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').",
-            )
+            ),
+            OpenApiParameter(
+                name="migration_item_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Optional warehouse migration item. The connect page then shows the item's non-secret settings "
+                    "from the vendor, so the user only enters the secret."
+                ),
+            ),
         ],
         responses=SourceConnectLinkSerializer,
     )
@@ -274,18 +286,42 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
             f"connect their {source_type} account" if oauth_field else f"enter their {source_type} connection details"
         )
 
+        connect_url = (
+            f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
+        )
+        create_step = 'call data-warehouse-source-setup with {"credential_id": <id>} in the payload'
+        migration_item_id = request.query_params.get("migration_item_id")
+        if migration_item_id and not migrations.is_migration_import_enabled(
+            self.team, getattr(request.user, "distinct_id", None)
+        ):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Importing from Fivetran is not available to this project."},
+            )
+        if migration_item_id:
+            try:
+                item = migrations.find_migration_item(self.team_id, uuid.UUID(migration_item_id))
+            except ValueError:
+                item = None
+            if item is None:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Unknown migration_item_id '{migration_item_id}'"},
+                )
+            connect_url += f"&migration_id={item.migration_id}&migration_item_id={item.id}"
+            # The apply tool creates the source with the planned tables, prefix and schedule.
+            create_step = f'call warehouse-migration-item-apply with {{"item_id": "{item.id}", "credential_id": <id>}}'
+
         data = {
             "source_type": source_type,
             "auth_method": "oauth" if oauth_field else "credentials",
-            "connect_url": (
-                f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
-            ),
+            "connect_url": connect_url,
             "instructions": (
                 f"Share this link with the user. They {action_phrase} directly in PostHog — never ask them to "
                 "paste credentials or tokens into the chat. The page only stores the connection details; it does "
                 "not create the source. Once the user confirms they're done, find the stored credential id via "
-                f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and call "
-                'data-warehouse-source-setup with {"credential_id": <id>} in the payload. Stored credentials are '
+                f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and "
+                f"{create_step}. Stored credentials are "
                 "single-use, expire after 24 hours, and are only visible to and consumable by the PostHog user "
                 "who entered them — so the page must be filled by the same user this session authenticates as."
             ),
