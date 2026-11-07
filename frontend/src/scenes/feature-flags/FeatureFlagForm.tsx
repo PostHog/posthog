@@ -663,6 +663,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                         <FeatureFlagEvaluationContexts
                                                                             tags={formTags}
                                                                             evaluationContexts={formEvalContexts || []}
+                                                                            flagId={id}
                                                                             context="form"
                                                                             onChange={(
                                                                                 updatedTags,
