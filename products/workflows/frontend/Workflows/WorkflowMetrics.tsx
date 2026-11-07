@@ -34,7 +34,7 @@ const HedgehogGreek = pngHoggie(greekPng)
 
 const OVERVIEW_OPTION_VALUE = '__workflow_overview__'
 
-export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
+export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description?: string; color?: string }> = {
     succeeded: {
         name: 'Success',
         description: 'Total number of events processed successfully',
@@ -55,7 +55,23 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
         description: 'Total number of events that were triggered',
         color: METRIC_COLORS['Triggered'],
     },
+    filtered: { name: 'Skipped' },
+    early_exit: { name: 'Exited early' },
+    canceled: { name: 'Canceled' },
+    exited_workflow_changed: { name: 'Exited after workflow edit' },
+    redirected_workflow_changed: { name: 'Moved after workflow edit' },
+    billable_invocation: { name: 'Billable invocations' },
+    message_frequency_capped: { name: 'Frequency capped' },
+    message_frequency_cap_held: { name: 'Held by frequency cap' },
 }
+
+// Not all of METRIC_COLORS: its palette colors for labels like 'Skipped' would repeat the colors the chart
+// assigns by position to the other series.
+const STEP_SERIES_COLORS: Record<string, string> = Object.fromEntries(
+    Object.values(WORKFLOW_METRICS_INFO).flatMap(({ name, color }): [string, string][] =>
+        color ? [[name, color]] : []
+    )
+)
 
 function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     const logicKey = `hog-flow-metrics-${props.id}`
@@ -223,7 +239,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                     <AppMetricsTrends
                         appMetricsTrends={modifiedAppMetricsTrends}
                         loading={appMetricsTrendsLoading}
-                        seriesColors={METRIC_COLORS}
+                        seriesColors={STEP_SERIES_COLORS}
                     />
                 </>
             )}
@@ -377,7 +393,7 @@ function BatchJobMetrics({ job, requestedAction }: { job: HogFlowBatchJob; reque
                     <AppMetricsTrends
                         appMetricsTrends={modifiedAppMetricsTrends}
                         loading={appMetricsTrendsLoading}
-                        seriesColors={METRIC_COLORS}
+                        seriesColors={STEP_SERIES_COLORS}
                     />
                 </>
             )}
