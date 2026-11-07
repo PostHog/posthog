@@ -198,6 +198,7 @@ class MCPToolTopUsersQueryRunner(HarnessLabelQueryRunner[MCPToolTopUsersQueryRes
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_top_users_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -497,6 +498,7 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_stats_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -585,6 +587,7 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_daily_stats_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -655,6 +658,7 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_descriptions_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -730,6 +734,7 @@ class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleInten
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_sample_intents_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
