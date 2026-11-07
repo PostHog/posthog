@@ -66,6 +66,16 @@ describe('renderEmailHtml', () => {
         expect(html).toMatch(/\{% if a %\}<tr>.*Shown.*<\/tr>\{% endif %\}/s)
     })
 
+    it('colors a spacer, ignoring a color that could break out of the attribute', () => {
+        const spacer = (backgroundColor: string): JSONContent => ({
+            type: 'emailSpacer',
+            attrs: { height: 8, backgroundColor },
+        })
+
+        expect(renderEmailHtml(doc(spacer('#ff0000'), paragraph('x')))).toContain('bgcolor="#ff0000"')
+        expect(renderEmailHtml(doc(spacer('red"><script>'), paragraph('x')))).not.toContain('<script>')
+    })
+
     it('leaves out the empty line the editor keeps at the end', () => {
         const withTrailingLine = renderEmailHtml(doc(paragraph('Hi'), { type: 'paragraph' }))
 

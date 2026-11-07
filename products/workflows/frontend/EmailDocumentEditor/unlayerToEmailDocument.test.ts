@@ -77,6 +77,27 @@ describe('unlayerToEmailDocument', () => {
         expect(document?.doc.content?.[0].type).toEqual('paragraph')
     })
 
+    it.each([
+        { name: 'the body color', rowBackground: '', spacerAttrs: { height: 8 } },
+        {
+            name: 'a row color',
+            rowBackground: '#ff0000',
+            spacerAttrs: { height: 8, backgroundColor: '#ff0000' },
+        },
+    ])('shows $name in row padding around a columns color', ({ rowBackground, spacerAttrs }) => {
+        const { document } = unlayerToEmailDocument(
+            design([content('text', { text: '<p>x</p>' })], {
+                padding: '8px 0px',
+                backgroundColor: rowBackground,
+                columnsBackgroundColor: '#00ff00',
+            })
+        )
+
+        expect(document?.doc.content?.map((node) => node.type)).toEqual(['emailSpacer', 'emailColumns', 'emailSpacer'])
+        expect(document?.doc.content?.[0].attrs).toEqual(spacerAttrs)
+        expect(document?.doc.content?.[1].attrs?.emailStyle).toEqual({ backgroundColor: '#00ff00', columnGap: 0 })
+    })
+
     it('turns Liquid in copy into variables, keeping its fallback and the marks around it', () => {
         const { document } = unlayerToEmailDocument(
             design([

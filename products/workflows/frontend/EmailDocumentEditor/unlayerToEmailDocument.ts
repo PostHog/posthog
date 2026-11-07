@@ -771,12 +771,33 @@ export function unlayerToEmailDocument(
         const parsedRowPadding = parseSides(rowValues.padding)
         const rowPadding = parsedRowPadding ? { ...parsedRowPadding, left: 0, right: 0 } : undefined
         const rowHasPadding = rowPadding && (rowPadding.top || rowPadding.right || rowPadding.bottom || rowPadding.left)
+        const columnsBackground =
+            rowValues.columnsBackgroundColor && rowValues.columnsBackgroundColor !== 'transparent'
+                ? rowValues.columnsBackgroundColor
+                : ''
         const sectionBackground =
+            columnsBackground ||
             (rowValues.backgroundColor && rowValues.backgroundColor !== page.backgroundColor
                 ? rowValues.backgroundColor
                 : '') ||
-            rowValues.columnsBackgroundColor ||
             ''
+        // The old editor paints the columns color inside the row padding, so that padding shows the color behind the
+        // row. One section can't hold both colors, so the padding becomes spacers above and below it.
+        const behindRow = rowValues.backgroundColor || bodyValues.backgroundColor || '#ffffff'
+        const paddingAsSpacers =
+            !!rowHasPadding && !!columnsBackground && columnsBackground.toLowerCase() !== behindRow.toLowerCase()
+        const spacer = (height: number): JSONContent[] =>
+            height
+                ? [
+                      {
+                          type: 'emailSpacer',
+                          attrs: {
+                              height,
+                              ...(behindRow !== page.bodyBackgroundColor ? { backgroundColor: behindRow } : {}),
+                          },
+                      },
+                  ]
+                : []
 
         const rowWidth = bodyWidth
         const converted = columns.map((column, index) => {
@@ -809,6 +830,9 @@ export function unlayerToEmailDocument(
         })
 
         const plain = converted.length === 1 && !converted[0].style && !sectionBackground && !rowHasPadding
+        if (paddingAsSpacers) {
+            content.push(...spacer(rowPadding?.top ?? 0))
+        }
         if (plain) {
             content.push(...converted[0].blocks)
             continue
@@ -818,7 +842,7 @@ export function unlayerToEmailDocument(
             attrs: {
                 emailStyle: compact({
                     backgroundColor: sectionBackground || undefined,
-                    padding: rowHasPadding ? rowPadding : undefined,
+                    padding: rowHasPadding && !paddingAsSpacers ? rowPadding : undefined,
                     columnGap: 0,
                 }),
             },
@@ -828,6 +852,9 @@ export function unlayerToEmailDocument(
                 content: column.blocks.length ? column.blocks : [{ type: 'paragraph' }],
             })),
         })
+        if (paddingAsSpacers) {
+            content.push(...spacer(rowPadding?.bottom ?? 0))
+        }
     }
 
     // Only an email sent exactly as written stays that way. The old editor put anything else in its body.

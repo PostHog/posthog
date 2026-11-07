@@ -460,7 +460,8 @@ function renderBlock(node: JSONContent, parentCtx: RenderContext): string {
         }
         case 'emailSpacer': {
             const height = px(node.attrs?.height, 24)
-            return `<tr><td height="${height}" style="height:${height}px;font-size:1px;line-height:1px">&nbsp;</td></tr>`
+            const background = safeColor(node.attrs?.backgroundColor, '')
+            return `<tr><td height="${height}"${background ? ` bgcolor="${background}"` : ''} style="height:${height}px;font-size:1px;line-height:1px${background ? `;background-color:${background}` : ''}">&nbsp;</td></tr>`
         }
         case 'emailImage':
             return renderImage(node, ctx)

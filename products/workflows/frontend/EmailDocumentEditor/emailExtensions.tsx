@@ -235,6 +235,12 @@ export const EmailSpacer = Node.create({
                 parseHTML: (element) => Number(element.getAttribute('data-height')) || 24,
                 renderHTML: (attributes) => ({ 'data-height': attributes.height }),
             },
+            backgroundColor: {
+                default: null,
+                parseHTML: (element) => element.getAttribute('data-background-color'),
+                renderHTML: (attributes) =>
+                    attributes.backgroundColor ? { 'data-background-color': attributes.backgroundColor } : {},
+            },
         }
     },
     parseHTML() {
@@ -246,7 +252,9 @@ export const EmailSpacer = Node.create({
             mergeAttributes(HTMLAttributes, {
                 'data-email-spacer': '',
                 class: 'email-canvas-spacer',
-                style: `height:${node.attrs.height}px`,
+                style: `height:${node.attrs.height}px${
+                    node.attrs.backgroundColor ? `;background-color:${node.attrs.backgroundColor}` : ''
+                }`,
             }),
         ]
     },
