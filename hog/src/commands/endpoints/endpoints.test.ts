@@ -52,7 +52,7 @@ function server(endpoints: unknown[], extra: (url: string, body: unknown) => unk
     return (url: string, body: unknown) => {
         const reply = extra(url, body)
         if (reply) {
-            return reply as { status: number; body: unknown }
+            return reply as { status: number; body: unknown; headers?: Record<string, string> }
         }
         if (url.replace(/\?.*/, '') === `${BASE}endpoints/`) {
             return { status: 200, body: { results: endpoints } }
@@ -333,6 +333,23 @@ describe('hog endpoints', () => {
         })
         expect(result.error().code).toBe('confirmation_required')
         expect(result.requests.filter((request) => request.method !== 'GET')).toEqual([])
+    })
+
+    test('push stops with the step-up details when PostHog refuses a write for a missing scope', async () => {
+        const result = await runHog(['endpoints', 'push', 'new.yaml', '--yes'], {
+            env: AGENT,
+            files: { '/work/new.yaml': 'name: new\nquery: SELECT 1\n' },
+            respond: server([], (url, body) =>
+                url === `${BASE}endpoints/` && body
+                    ? {
+                          status: 403,
+                          body: { detail: 'missing scope' },
+                          headers: { 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="endpoint:write"' },
+                      }
+                    : undefined
+            ),
+        })
+        expect(result.error()).toMatchObject({ code: 'step_up_required', scopes: ['endpoint:write'] })
     })
 
     test('push creates the variables a file needs, then the endpoint, and skips files PostHog would reject', async () => {

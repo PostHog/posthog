@@ -8580,6 +8580,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "sensitivity": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sensitivity",
+                  "id": null,
+                  "name": "sensitivity",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "system.information_schema.columns",
@@ -23702,6 +23712,16 @@
                   "hogql_value": "max_value",
                   "id": null,
                   "name": "max_value",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "sensitivity": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sensitivity",
+                  "id": null,
+                  "name": "sensitivity",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
