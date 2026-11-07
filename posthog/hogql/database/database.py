@@ -593,7 +593,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
         )
     else:
         # The root and `posthog` share each node. `create_for` changes a table through its root name, such as the
-        # persons-on-events mode on `events`, and `posthog.events` must read the same fields.
+        # persons-on-events mode on `events`. `posthog.events` must read the same fields.
         root_tables = {
             name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()
         }
