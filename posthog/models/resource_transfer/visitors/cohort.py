@@ -33,6 +33,8 @@ class CohortVisitor(
         "count",
         "version",
         "pending_version",
+        "pending_population_mode",
+        "population_marker",
         "people",
         "groups",
     ],
