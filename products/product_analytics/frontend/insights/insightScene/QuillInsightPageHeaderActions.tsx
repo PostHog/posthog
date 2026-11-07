@@ -11,7 +11,6 @@ import {
 } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { isHomePinnable } from 'lib/components/AddToHome/homePinsLogic'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -27,7 +26,6 @@ import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemM
 import { insightModalsLogic } from 'products/product_analytics/frontend/insights/insightScene/insightModalsLogic'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
-import { AddToHomeMenuItem } from './AddToHomeMenuItem'
 import { InsightShareMenu, useInsightShareItems } from './InsightShareMenu'
 import { openInsightEditor } from './openInsightEditor'
 import { QuillInsightSaveButton } from './QuillInsightSaveButton'
@@ -114,7 +112,6 @@ export function QuillInsightPageHeaderActions({
                                 <IconPlus />
                                 Add to dashboard
                             </DropdownMenuItem>
-                            {isHomePinnable(insight) && <AddToHomeMenuItem insight={insight} />}
                             {canCreateAlertForInsight && (
                                 <DropdownMenuItem
                                     data-attr="insight-more-menu-alerts"
