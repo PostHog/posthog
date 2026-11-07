@@ -256,7 +256,6 @@ export default defineCommand({
             description:
                 'The scopes the job gets, like error_tracking:write. Separate several with commas, as in --scope error_tracking:write,query:read, or repeat the flag',
         },
-        name: { type: 'string', description: 'What to call the policy in PostHog' },
         wait: { type: 'boolean', description: 'Wait for the request an earlier run started to be approved' },
     },
     scopes: ['workload_trust_policy_request:write'],
@@ -334,7 +333,7 @@ export default defineCommand({
         const subject = options.subjectId
             ? { subject: options.subjectId, subject_name: subjectName }
             : await resolveSubject(api, projectId, settings, subjectName)
-        const name = options.name ?? `${subject.subject_name} on ${provider.name}`
+        const name = `${subject.subject_name} on ${provider.name}`
 
         const result = await runApproval(
             ctx,
