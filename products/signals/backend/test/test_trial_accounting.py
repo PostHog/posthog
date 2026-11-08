@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -20,6 +21,7 @@ from products.signals.backend.spend_billing import get_signals_spend_billing_cre
 from products.signals.backend.trial.limits import TrialLimits
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.usage import trial_usage
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, locked_task_run_spend
 from products.tasks.backend.facade.testing import create_completed_task_sandbox_session
 from products.tasks.backend.models import Task, TaskRun
@@ -102,14 +104,13 @@ class TestTrialAccounting(BaseTest):
                 strict=True,
             )
         grant.refresh_from_db()
-        assert grant.settled_microusd == 10_000_001
-        assert grant.incomplete_sources == 0
-        assert grant.exhaustion_reason == "cost_limit"
+        assert trial_usage(grant).spend_microusd == 10_000_001
+        assert trial_usage(grant).exhaustion_reason(grant) == "cost_limit"
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
         assert (spend.finalized_at is not None) is finalized
         assert spend.billing_exempt
 
-    def test_missing_cost_pauses_admission_then_recovers_without_regrant(self) -> None:
+    def test_pending_cost_does_not_freeze_admission_and_settles_without_regrant(self) -> None:
         grant = self.claim()
         signal_id = str(uuid4())
         record_llm_spend(
@@ -121,18 +122,14 @@ class TestTrialAccounting(BaseTest):
             trial_grant_id=str(grant.id),
             strict=True,
         )
-        SignalTrialGrant.objects.for_team(self.team.id).filter(id=grant.id).update(
-            incomplete_since=timezone.now() - timedelta(minutes=3)
-        )
-        with self.assertRaisesMessage(TrialRefused, "accounting_pending"):
-            self.policy.admit(paid_authorized=False)
+        with time_machine.travel(timezone.now() + timedelta(minutes=3), tick=False):
+            assert self.policy.admit(paid_authorized=False).grant_id == grant.id
         record_llm_spend(
             "late", team_id=self.team.id, signal_id=signal_id, stage="short", source_id="late", token_cost_microusd=101
         )
         assert self.policy.admit(paid_authorized=False).grant_id == grant.id
         grant.refresh_from_db()
-        assert grant.incomplete_sources == 0
-        assert grant.settled_microusd == 101
+        assert trial_usage(grant).spend_microusd == 101
 
     def test_trial_spend_is_exempt_but_later_paid_spend_is_billed(self) -> None:
         grant = self.claim()
@@ -167,8 +164,7 @@ class TestTrialAccounting(BaseTest):
                 strict=True,
             )
         grant.refresh_from_db()
-        assert grant.settled_microusd == 0
-        assert grant.incomplete_sources == 0
+        assert trial_usage(grant).spend_microusd == 0
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
         assert spend.trial_grant_id is None
         assert spend.spend == Decimal("0.0101")
@@ -179,10 +175,13 @@ class TestTrialAccounting(BaseTest):
     ) -> None:
         grant = self.claim()
         if prior_spend:
-            grant.settled_microusd = prior_spend
-            grant.exhausted_at = timezone.now()
-            grant.exhaustion_reason = "cost_limit"
-            grant.save(update_fields=["settled_microusd", "exhausted_at", "exhaustion_reason"])
+            record_llm_spend(
+                team_id=self.team.id,
+                signal_id=str(uuid4()),
+                stage="research",
+                token_cost_microusd=prior_spend,
+                trial_grant_id=str(grant.id),
+            )
         task = Task.objects.create(team=self.team, title="Trial research", origin_product="signal_report")
         run = TaskRun.objects.create(
             task=task,
@@ -210,7 +209,7 @@ class TestTrialAccounting(BaseTest):
             expected = 200_001 + 40_000 + cost.compute_cost_microusd
         grant.refresh_from_db()
         spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
-        assert grant.settled_microusd == prior_spend + (expected if trial else 0)
+        assert trial_usage(grant).spend_microusd == prior_spend + (expected if trial else 0)
         assert spend.spend == Decimal(expected) / 10_000
         assert spend.billing_exempt is trial
         assert spend.finalized_at is not None
@@ -235,7 +234,7 @@ class TestTrialAccounting(BaseTest):
         with self.assertRaisesMessage(TrialRefused, "cost_limit"):
             self.policy.admit(paid_authorized=False)
         grant.refresh_from_db()
-        assert grant.settled_microusd == grant.allowance_microusd + 200_000
+        assert trial_usage(grant).spend_microusd == grant.allowance_microusd + 200_000
         assert not SignalSpend.objects.for_team(self.team.id).filter(billing_exempt=False).exists()
         assert (
             get_signals_spend_billing_credits_by_team(
@@ -269,7 +268,6 @@ class TestTrialAccounting(BaseTest):
         assert spend.accounting_pending
         assert not spend.accounting_failed
         grant.refresh_from_db()
-        assert grant.incomplete_sources == 1
         with (
             patch("products.tasks.backend.facade.billing.process_pending_gateway_usage"),
             patch("products.signals.backend.spend.submit_signal_metadata_updates", new_callable=AsyncMock),
@@ -296,6 +294,5 @@ class TestTrialAccounting(BaseTest):
         assert spend.finalized_at is not None
         assert not spend.accounting_failed
         assert not spend.accounting_pending
-        assert grant.incomplete_sources == 0
-        assert grant.settled_microusd == 140_000
+        assert trial_usage(grant).spend_microusd == 140_000
         assert self.policy.admit(paid_authorized=False).grant_id == grant.id

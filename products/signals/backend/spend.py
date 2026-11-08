@@ -26,7 +26,6 @@ from products.signals.backend.spend_billing import (
     trial_spend_exempt,
     uses_spend_billing,
 )
-from products.signals.backend.trial.spend import save_trial_spend
 
 
 @frozen
@@ -160,7 +159,7 @@ def _save_ad_hoc_spend(spend: SignalSpend, *, finalize: bool = False) -> None:
         spend.finalization_requested_at = spend.finalization_requested_at or timezone.now()
     if spend.finalization_requested_at and not (spend.accounting_failed or spend.accounting_pending):
         spend.finalized_at = timezone.now()
-    save_trial_spend(spend)
+    spend.save()
 
 
 def record_llm_spend(
@@ -320,7 +319,7 @@ def record_task_spend(
         )
         spend.accounting_failed = spend.accounting_failed or run.accounting_failed
         spend.accounting_pending = not run.complete
-        save_trial_spend(spend)
+        spend.save()
         _save_scout_total(spend)
 
 
@@ -334,7 +333,7 @@ def record_task_cost_delta(
             return
         spend.spend += cost_to_spend(cost_delta_microusd)
         spend.accounting_failed = spend.accounting_failed or accounting_failed
-        save_trial_spend(spend)
+        spend.save()
         _save_scout_total(spend)
 
 
@@ -465,7 +464,7 @@ def complete_task_spend(
                 spend.accounting_pending = not run.complete
                 if run.is_terminal and run.complete:
                     spend.finalized_at = timezone.now()
-                save_trial_spend(spend)
+                spend.save()
                 _save_scout_total(spend)
         if spend.finalized_at is None and not spend.accounting_failed and not final_attempt:
             raise TaskTokenUsageUnavailable("Task usage is not settled yet")
@@ -488,6 +487,6 @@ def refresh_task_spend(*, team_id: int, run_id: str, strict: bool = False) -> st
             )
             spend.accounting_failed = spend.accounting_failed or run.accounting_failed
             spend.accounting_pending = not run.complete
-            save_trial_spend(spend)
+            spend.save()
             _save_scout_total(spend)
         return str(spend.id)
