@@ -146,6 +146,17 @@ describe('EmailSuppressionService', () => {
                 ],
                 0,
                 'temp 2',
+                true,
+            ],
+            [
+                'a team outside the allowlist stamps the write time, so the older delivery does not reset',
+                [
+                    ['bounce', 2],
+                    ['delivery', 1],
+                ],
+                1,
+                'temp 2',
+                false,
             ],
             [
                 'a late bounce does not move the last bounce back, so an older delivery cannot reset',
@@ -156,6 +167,7 @@ describe('EmailSuppressionService', () => {
                 ],
                 2,
                 'temp 1',
+                true,
             ],
             [
                 'a bounce without a parseable time falls back to now',
@@ -165,9 +177,13 @@ describe('EmailSuppressionService', () => {
                 ],
                 1,
                 'temp not-a-timestamp',
+                true,
             ],
-        ] as const)('%s', async (_label, events, expectedCount, expectedDiagnostic) => {
-            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+        ] as const)('%s', async (_label, events, expectedCount, expectedDiagnostic, teamUsesEventTime) => {
+            const svc = new EmailSuppressionService(hub.postgres, {
+                ...emailSuppressionConfigFromEnv(),
+                softBounceEventTimeTeams: teamUsesEventTime ? String(team.id) : '',
+            })
             const email = 'replayed@example.com'
             const hoursAgo = (offset: number | string): string =>
                 typeof offset === 'string' ? offset : new Date(Date.now() - offset * 60 * 60 * 1000).toISOString()

@@ -1,9 +1,11 @@
 import { Counter } from 'prom-client'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { isValidTeamId } from '~/common/utils/team-manager'
+import type { ValueMatcher } from '~/types'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
@@ -27,6 +29,7 @@ export type EmailSuppressionConfig = {
     // Consecutive soft bounces before auto-suppression.
     transientBounceThreshold: number
     globalHardBounceEnforce?: boolean
+    softBounceEventTimeTeams?: string
 }
 
 // Test helper — production paths take config from `CdpConfig`; tests that still mutate process.env
@@ -100,6 +103,7 @@ const LEGACY_HARD_BOUNCE_REASONS = [
 export class EmailSuppressionService {
     private readonly threshold: number
     private readonly globalHardBounceEnforce: boolean
+    private readonly stampsSoftBounceWithEventTime: ValueMatcher<number>
     // A key's active suppression, or false when it has none.
     private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
@@ -109,6 +113,7 @@ export class EmailSuppressionService {
     ) {
         this.threshold = config.transientBounceThreshold
         this.globalHardBounceEnforce = config.globalHardBounceEnforce ?? false
+        this.stampsSoftBounceWithEventTime = buildIntegerMatcher(config.softBounceEventTimeTeams, true)
         this.lazyLoader = new LazyLoader<SuppressionEntry | false>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
@@ -176,7 +181,7 @@ export class EmailSuppressionService {
             diag,
             LEGACY_HARD_BOUNCE_REASONS,
             GLOBAL_HARD_BOUNCE_DIAGNOSTIC,
-            toEventTime(bounceTimestamp),
+            this.stampsSoftBounceWithEventTime(teamId) ? toEventTime(bounceTimestamp) : null,
         ]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i

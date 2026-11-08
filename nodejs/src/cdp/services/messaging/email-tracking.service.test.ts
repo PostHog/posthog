@@ -856,6 +856,7 @@ describe('EmailTrackingService', () => {
 
         beforeEach(() => {
             hub.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = 1
+            hub.CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS = String(team.id)
 
             api = new CdpApi(hub, createCdpConsumerDeps(hub), {
                 hogQueue: createMockJobQueue(),
