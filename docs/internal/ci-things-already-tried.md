@@ -503,6 +503,9 @@ The Dagster path validator also uses a sparse checkout of every internal Python 
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
+The recording rasterizer image build keeps every source path copied by `Dockerfile.recording-rasterizer`, `.dockerignore`, and the local Docker metadata action.
+Keep these paths synchronized when changing the Dockerfile; verify that the sparse tree contains identical build inputs.
+
 Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.
 Validate its frozen install, workspace build, and agent tests from the sparse tree when changing those inputs.
 
