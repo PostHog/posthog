@@ -1008,19 +1008,21 @@ def _env_login_hint(coder_url: str) -> str:
     )
 
 
-def _coder_error(result: subprocess.CompletedProcess[str]) -> str:
-    errors = [line.strip() for line in result.stderr.splitlines() if line.strip().startswith("error:")]
-    return errors[0] if errors else f"`coder whoami` exited with status {result.returncode}."
+def _coder_error(whoami: subprocess.CompletedProcess[str]) -> str:
+    if whoami.returncode == 0:
+        return "`coder whoami` returned no user."
+    errors = [line.strip() for line in whoami.stderr.splitlines() if line.strip().startswith("error:")]
+    return errors[0] if errors else f"`coder whoami` exited with status {whoami.returncode}."
 
 
-def _fail_env_token_login(coder_url: str) -> NoReturn:
-    _fail(
-        f"Coder login with the CODER_SESSION_TOKEN set in this shell failed for {coder_url}:\n"
-        f"  {_coder_error(_coder_whoami())}\n"
-        f"  Check that CODER_URL is {coder_url}. If the token expired, get a new one at {coder_url}/cli-auth,\n"
-        "  or unset CODER_SESSION_TOKEN to use the login stored on disk.",
-        cause="coder_env_token_login_failed",
-    )
+def _fail_env_token_login(coder_url: str, whoami: subprocess.CompletedProcess[str]) -> NoReturn:
+    lines = [f"Coder login with the CODER_SESSION_TOKEN set in this shell failed for {coder_url}:"]
+    if not os.environ.get("CODER_URL"):
+        lines.append(f"  Set CODER_URL to {coder_url}. The Coder CLI needs it next to CODER_SESSION_TOKEN.")
+    lines.append(f"  {_coder_error(whoami)}")
+    lines.append(f"  If the token expired, get a new one at {coder_url}/cli-auth,")
+    lines.append("  or unset CODER_SESSION_TOKEN to use the login stored on disk.")
+    _fail("\n".join(lines), cause="coder_env_token_login_failed")
 
 
 def _stored_login_works() -> bool:
@@ -1055,11 +1057,10 @@ def _note_login_only_in_env() -> None:
     )
 
 
-def _fail_login_not_ready(message: str) -> NoReturn:
-    ensure_coder_reachable()
+def _fail_login_not_ready(message: str, whoami: subprocess.CompletedProcess[str]) -> NoReturn:
     coder_url = get_coder_url()
     if os.environ.get(_SESSION_TOKEN_ENV):
-        _fail_env_token_login(coder_url)
+        _fail_env_token_login(coder_url, whoami)
     if not sys.stdin.isatty():
         message += f"\n{_env_login_hint(coder_url)}"
     _fail(message, cause="coder_login_not_ready")
@@ -1067,19 +1068,20 @@ def _fail_login_not_ready(message: str) -> NoReturn:
 
 def ensure_coder_authenticated() -> None:
     """Run interactive login when needed."""
-    if coder_authenticated():
+    if not coder_installed():
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
+
+    whoami = _coder_whoami()
+    if whoami.returncode == 0:
         click.echo("Coder login is ready.")
         _note_login_only_in_env()
         return
-
-    if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     coder_url = get_coder_url()
     if os.environ.get(_SESSION_TOKEN_ENV):
         # `coder login` refuses to run while CODER_SESSION_TOKEN is set, so a
         # prompt cannot fix a rejected token.
-        _fail_env_token_login(coder_url)
+        _fail_env_token_login(coder_url, whoami)
     if not sys.stdin.isatty():
         # `coder login` asks for a token pasted from the browser and fails with
         # "paste token prompt: EOF" when stdin isn't a terminal.
@@ -1102,8 +1104,9 @@ def ensure_runtime_ready() -> None:
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
-    if not coder_authenticated():
-        _fail_login_not_ready(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}")
+    whoami = _coder_whoami()
+    if whoami.returncode != 0:
+        _fail_login_not_ready(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", whoami)
 
     _warn_version_mismatch()
 
@@ -1236,8 +1239,10 @@ def get_username() -> str:
     if username:
         return username.lower()
 
+    ensure_coder_reachable()
     _fail_login_not_ready(
-        f"Could not determine your Coder username from `coder whoami`.\n  Your login may have expired. {RUNTIME_SETUP_HINT}"
+        f"Could not determine your Coder username from `coder whoami`.\n  Your login may have expired. {RUNTIME_SETUP_HINT}",
+        _coder_whoami(),
     )
 
 

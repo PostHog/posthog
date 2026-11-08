@@ -594,7 +594,7 @@ class TestCoderVersion:
     def test_ensure_coder_authenticated_points_at_a_terminal_without_stdin(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(coder, "coder_authenticated", lambda: False)
+        monkeypatch.setattr(coder, "_coder_whoami", lambda: subprocess.CompletedProcess([], 1, "", ""))
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder, "coder_command_hint", lambda: "coder")
@@ -623,7 +623,7 @@ class TestCoderVersion:
         monkeypatch.setattr(coder, "get_coder_user_info", lambda: coder.CoderUserInfo())
         monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
-        monkeypatch.setattr(coder, "coder_authenticated", lambda: False)
+        monkeypatch.setattr(coder, "_coder_whoami", lambda: subprocess.CompletedProcess([], 1, "", ""))
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: False)
         monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
@@ -644,20 +644,33 @@ class TestCoderVersion:
             "error: GET https://coder.example.com/api/v2/users/me: unexpected status code 500: Internal error.",
         ],
     )
+    @pytest.mark.parametrize("coder_url_set", [True, False])
     def test_env_token_login_failure_shows_the_coder_error_instead_of_a_login_prompt(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], entrypoint: str, coder_error: str
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        entrypoint: str,
+        coder_error: str,
+        coder_url_set: bool,
     ) -> None:
         coder.get_username.cache_clear()
         monkeypatch.setattr(coder, "get_coder_user_info", lambda: coder.CoderUserInfo())
         monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
-        monkeypatch.setattr(coder, "coder_authenticated", lambda: False)
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: True)
         monkeypatch.setenv("CODER_SESSION_TOKEN", "expired-example-token")
+        if coder_url_set:
+            monkeypatch.setenv("CODER_URL", "https://coder.example.com")
+        else:
+            monkeypatch.delenv("CODER_URL", raising=False)
+        whoami_calls: list[str] = []
 
         def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             assert args[1] != "login", "coder login refuses to run while CODER_SESSION_TOKEN is set"
+            whoami_calls.append(args[1])
+            if len(whoami_calls) > 1:
+                return subprocess.CompletedProcess(args, 0, "[]", "")
             return subprocess.CompletedProcess(
                 args, 1, "", f"{coder_error}\nSuggestion: Try logging in using 'coder login'.\n"
             )
@@ -670,6 +683,10 @@ class TestCoderVersion:
         output = capsys.readouterr().out
         assert coder_error in output
         assert "rejected" not in output
+        set_url_hint = "Set CODER_URL to https://coder.example.com"
+        assert (set_url_hint in output) is not coder_url_set
+        if not coder_url_set:
+            assert output.index(set_url_hint) < output.index(coder_error)
         assert "unset CODER_SESSION_TOKEN to use the login stored on disk" in output
         assert "expired-example-token" not in output
 
@@ -687,7 +704,7 @@ class TestCoderVersion:
 
         output = capsys.readouterr().out
         assert "Coder is unreachable." in output
-        assert "rejected" not in output
+        assert "CODER_SESSION_TOKEN" not in output
 
     @pytest.mark.parametrize(
         "stored_url, expect_note",
