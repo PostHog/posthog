@@ -559,7 +559,6 @@ function socialIconsHtml(values: Record<string, any>): string {
     return `<table role="presentation" align="${align(values.align) ?? 'center'}" cellpadding="0" cellspacing="0" border="0"><tr>${cells}</tr></table>`
 }
 
-/** A row of links drawn the way the old editor's export draws it, as an HTML block, so the menu looks the same. */
 function menuHtml(values: Record<string, any>): string {
     const vertical = values.layout === 'vertical'
     const itemCss = [
@@ -588,7 +587,6 @@ function menuHtml(values: Record<string, any>): string {
     const between = separator
         ? `<span style="${itemCss};color:${color(values.textColor, '#444444')}">${escapeHtml(separator)}</span>`
         : ''
-    // The spaces between items are part of the old layout: inline items sit a space apart.
     return `<div style="text-align:${align(values.align) ?? 'center'}">${items.join(between ? ` ${between} ` : ' ')}</div>`
 }
 
