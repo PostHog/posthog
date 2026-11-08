@@ -103,7 +103,7 @@ Stops, starts, and `devbox:update` keep `/home`.
 ## Run commands on the box
 
 `hogli devbox:exec -- <command>` runs one command over SSH and returns its exit code.
-Wrap the command in `bash -lc '...'`.
+Without `--flox`, wrap the command in `bash -lc '...'`.
 A non-login shell doesn't reliably load the shell profile, so tools on a login-shell `PATH` such as `~/.local/bin` report "command not found".
 Project tools such as `pnpm`, `pytest` and the Python venv are on `PATH` only inside PostHog's flox environment.
 For those, add `--flox`, which runs the command in `~/posthog` inside `flox activate`: `hogli devbox:exec --flox -- pnpm --filter=@posthog/frontend typescript:check`.

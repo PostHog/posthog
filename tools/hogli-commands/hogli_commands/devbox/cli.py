@@ -1794,7 +1794,7 @@ def devbox_ssh(workspace: str | None) -> None:
 )
 @click.argument("command", nargs=-1, type=click.UNPROCESSED, required=True)
 def devbox_remote_exec(workspace_name: str | None, flox: bool, command: tuple[str, ...]) -> None:
-    """Run COMMAND in the devbox over `coder ssh` and propagate its exit code.
+    """Run COMMAND in the devbox over SSH and propagate its exit code.
 
     Unlike `devbox:ssh`, this runs a single command instead of opening an
     interactive shell, so agents and scripts can drive a devbox remotely:
