@@ -13,7 +13,7 @@ import time_machine
 
 from posthog.test.events_schema_prune import EventsSchemaPruner
 from posthog.test.junit import set_junit_report_location
-from posthog.test.prewarmed_test_db import wait_for_test_db_prewarm
+from posthog.test.prewarmed_test_db import hold_test_db_lock
 
 # The default MIXED mode reads naive strings as local time, so a non-UTC machine would
 # freeze at a different instant than CI does.
@@ -363,10 +363,13 @@ def pytest_cmdline_main(config: pytest.Config) -> Generator[None, int | pytest.E
 def django_db_modify_db_settings(
     request: pytest.FixtureRequest,
     django_db_modify_db_settings_parallel_suffix: None,
-) -> None:
+) -> Iterator[None]:
     capture = request.config.pluginmanager.getplugin("capturemanager")
     with capture.global_and_fixture_disabled() if capture else contextlib.nullcontext():
-        wait_for_test_db_prewarm()
+        lock = hold_test_db_lock()
+    yield
+    if lock is not None:
+        lock.close()
 
 
 @pytest.fixture(autouse=True)

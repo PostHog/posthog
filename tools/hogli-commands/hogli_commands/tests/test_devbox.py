@@ -1281,7 +1281,8 @@ class TestDevboxWorktreeCommand:
             pytest.param("unmerged-commit", False, id="unmerged-branch-code-does-not-run"),
             pytest.param("no-origin", False, id="no-origin-master-does-not-run"),
             pytest.param("branch-named-origin-master", False, id="a-local-origin-master-branch-is-not-master"),
-            pytest.param("stuck-mirror", False, id="a-mirror-that-never-flushes-skips-the-build"),
+            pytest.param("stuck-flush", False, id="a-mirror-that-never-flushes-skips-the-build"),
+            pytest.param("stuck-list", False, id="a-mutagen-daemon-that-never-answers-skips-the-build"),
         ],
     )
     def test_builds_the_test_database_only_for_code_on_origin_master(
@@ -1297,9 +1298,12 @@ class TestDevboxWorktreeCommand:
             _git(tmp_path, "branch", "origin/master")
         ran: list[str] = []
 
-        if head == "stuck-mirror":
+        if head.startswith("stuck-"):
+            stalled_verb = head.removeprefix("stuck-")
             silent_mutagen = tmp_path / "mutagen"
-            silent_mutagen.write_text("#!/bin/sh\nsleep 10\n")
+            silent_mutagen.write_text(
+                f'#!/bin/sh\n[ "$2" = {stalled_verb} ] && sleep 10\n[ "$2" = list ] && echo \'[{{"name": "ph-x"}}]\'\nexit 0\n'
+            )
             silent_mutagen.chmod(0o755)
             monkeypatch.setattr(devbox_worktree.mutagen, "_mutagen_bin", lambda: str(silent_mutagen))
             monkeypatch.setattr(devbox_worktree.mutagen, "mutagen_installed", lambda: True)

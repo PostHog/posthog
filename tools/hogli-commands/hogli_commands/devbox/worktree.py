@@ -78,14 +78,15 @@ _CONDUCTOR_SETUP_SCRIPT = "bin/devbox-worktree-hook created conductor"
 _CONDUCTOR_SCRIPTS = f'[scripts]\nsetup = "{_CONDUCTOR_SETUP_SCRIPT}"\narchive = "bin/devbox-worktree-hook archiving"\n'
 _TEST_DB_LOG = "~/.cache/hogli/test-db-prewarm.log"
 _TEST_DB_BRANCH_CANNOT_WAIT = 3
-# The root conftest waits on this lock, so keep both paths in sync. The lock is taken before `setsid -f`
-# detaches the build, so no test starts in between, and `setsid -f` stops ssh from waiting on the build.
+_TEST_DB_IN_USE = 4
+# Test runs hold this lock shared through the root conftest, so keep both paths in sync. The build skips while
+# a test run holds it, and takes it before `setsid -f` detaches, so no test starts in between.
 _TEST_DB_PREWARM_SCRIPT = f"""
 cd {_REMOTE_REPO_PATH} || exit 1
 [ -f posthog/test/prewarmed_test_db.py ] || exit {_TEST_DB_BRANCH_CANNOT_WAIT}
 mkdir -p ~/.cache/hogli
 exec 9>> ~/.cache/hogli/test-db-prewarm.lock
-flock --nonblock 9 || exit 0
+flock --nonblock 9 || exit {_TEST_DB_IN_USE}
 env -u SSH_AUTH_SOCK HOGLI_TEST_DB_PREWARM=1 setsid -f timeout 1h bash -lc \\
     'flox activate -- pytest -q posthog/api/test/test_comments.py::TestComments::test_creates_comment_successfully' \\
     >> {_TEST_DB_LOG} 2>&1 < /dev/null
@@ -556,6 +557,8 @@ def _prewarm_test_db(root: Path, workspace_name: str) -> None:
         result = None
     if result is not None and result.returncode == _TEST_DB_BRANCH_CANNOT_WAIT:
         click.echo("This branch's tests can't wait for a test database build, so the first backend test builds it.")
+    elif result is not None and result.returncode == _TEST_DB_IN_USE:
+        click.echo("A test run on the devbox is already setting up the test database, so the build is skipped.")
     elif result is None or result.returncode != 0:
         click.echo(
             click.style(

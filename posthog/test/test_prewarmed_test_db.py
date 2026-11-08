@@ -3,10 +3,11 @@ import sys
 import fcntl
 import threading
 from pathlib import Path
+from typing import IO
 
 import pytest
 
-from posthog.test.prewarmed_test_db import PREWARM_RUN_ENV, wait_for_test_db_prewarm
+from posthog.test.prewarmed_test_db import PREWARM_RUN_ENV, hold_test_db_lock
 
 
 class _SignallingStream(io.StringIO):
@@ -17,6 +18,21 @@ class _SignallingStream(io.StringIO):
     def write(self, text: str) -> int:
         self.written.set()
         return super().write(text)
+
+
+def _build_can_start(lock_path: Path) -> bool:
+    with lock_path.open("a") as build:
+        try:
+            fcntl.flock(build, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        return True
+
+
+@pytest.fixture(autouse=True)
+def _plain_test_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (PREWARM_RUN_ENV, "PYTEST_XDIST_WORKER"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.mark.parametrize(
@@ -30,16 +46,15 @@ class _SignallingStream(io.StringIO):
 def test_waits_only_while_the_prewarm_holds_its_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: dict[str, str], waits: bool
 ) -> None:
-    for name in (PREWARM_RUN_ENV, "PYTEST_XDIST_WORKER"):
-        monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
     stderr = _SignallingStream()
     monkeypatch.setattr(sys, "stderr", stderr)
     lock_path = tmp_path / "test-db-prewarm.lock"
+    held: list[IO[str] | None] = []
     with lock_path.open("w") as prewarm:
         fcntl.flock(prewarm, fcntl.LOCK_EX)
-        waiter = threading.Thread(target=wait_for_test_db_prewarm, args=(lock_path,), daemon=True)
+        waiter = threading.Thread(target=lambda: held.append(hold_test_db_lock(lock_path)), daemon=True)
         waiter.start()
         if waits:
             assert stderr.written.wait(timeout=5)
@@ -52,3 +67,17 @@ def test_waits_only_while_the_prewarm_holds_its_lock(
         fcntl.flock(prewarm, fcntl.LOCK_UN)
         waiter.join(timeout=5)
         assert not waiter.is_alive()
+    assert (held[0] is not None) == waits
+    if held[0] is not None:
+        held[0].close()
+
+
+def test_a_running_test_keeps_a_later_build_out_until_it_ends(tmp_path: Path) -> None:
+    lock_path = tmp_path / "not-yet-created" / "test-db-prewarm.lock"
+
+    test_run = hold_test_db_lock(lock_path)
+
+    assert test_run is not None
+    assert not _build_can_start(lock_path)
+    test_run.close()
+    assert _build_can_start(lock_path)
