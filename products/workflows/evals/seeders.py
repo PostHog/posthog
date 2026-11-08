@@ -65,7 +65,7 @@ MAIL_FROM_TAKEN_SENDER = f"hello@mail.helpdesk-{RUN_LABEL}.example.com"
 
 
 def domain_of(address: str) -> str:
-    return address.split("@", 1)[1]
+    return address.rpartition("@")[2]
 
 
 def _seeded(context: CustomPromptSandboxContext, sender: str, **extra: Any) -> dict[str, Any]:
