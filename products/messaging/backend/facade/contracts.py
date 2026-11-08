@@ -163,6 +163,9 @@ class TemplateSendOptions:
     sender: str | None
     reply_to: tuple[str, ...]
     capture_engagement: bool
+    cc: tuple[str, ...] = ()
+    bcc: tuple[str, ...] = ()
+    attachments: tuple[EmailAttachment, ...] = ()
 
 
 class DeliveryUnavailable(Exception):

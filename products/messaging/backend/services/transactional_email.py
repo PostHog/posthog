@@ -498,7 +498,7 @@ def send_transactional_email(
     timeout: float = 10,
     options: TemplateSendOptions | None = None,
 ) -> QueuedEmail:
-    _check_send_request(to, idempotency_key)
+    _check_send_request(to, idempotency_key, (*options.cc, *options.bcc) if options else ())
     with transactional_email_stage("workflow_lookup"):
         # A template passed in must be one of the team's templates that is not deleted, as this lookup returns.
         if isinstance(template, UUID):
@@ -571,13 +571,7 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
     }
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
-    if email.cc:
-        accepted["cc"] = list(email.cc)
-    if email.bcc:
-        accepted["bcc"] = list(email.bcc)
-    if email.attachments:
-        accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
-    return accepted
+    return {**accepted, **_accepted_copies_and_attachments(email)}
 
 
 def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
@@ -608,6 +602,17 @@ def _accepted_template_send(team_id: int, options: TemplateSendOptions) -> dict[
         accepted["from"] = _without_empty(_code_send_sender(team_id, options.sender))
     if options.reply_to:
         accepted["replyTo"] = list(options.reply_to)
+    return {**accepted, **_accepted_copies_and_attachments(options)}
+
+
+def _accepted_copies_and_attachments(email: CodeEmail | TemplateSendOptions) -> dict[str, Any]:
+    accepted: dict[str, Any] = {}
+    if email.cc:
+        accepted["cc"] = list(email.cc)
+    if email.bcc:
+        accepted["bcc"] = list(email.bcc)
+    if email.attachments:
+        accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
     return accepted
 
 

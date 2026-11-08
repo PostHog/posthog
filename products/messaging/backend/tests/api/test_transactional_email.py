@@ -991,6 +991,35 @@ class TestTransactionalEmail(APIBaseTest):
                 {"tracking": {"captureEngagement": False}, "hogFlowVersion": 1},
                 None,
             ),
+            (
+                "with_copies",
+                {"cc": "copy@example.com", "bcc": ["audit@example.com"]},
+                "transactional_email/send",
+                {
+                    "cc": ["copy@example.com"],
+                    "bcc": ["audit@example.com"],
+                    "tracking": {"captureEngagement": True},
+                    "hogFlowVersion": 1,
+                },
+                None,
+            ),
+            (
+                "with_attachments",
+                {
+                    "attachments": [
+                        {"filename": "receipt.pdf", "content": "JVBERg==", "content_type": "application/pdf"}
+                    ]
+                },
+                "transactional_email/send",
+                {
+                    "attachments": [
+                        {"filename": "receipt.pdf", "content": "JVBERg==", "contentType": "application/pdf"}
+                    ],
+                    "tracking": {"captureEngagement": True},
+                    "hogFlowVersion": 1,
+                },
+                None,
+            ),
         ]
     )
     def test_a_send_by_template_key_runs_the_templates_workflow(
@@ -1093,13 +1122,6 @@ class TestTransactionalEmail(APIBaseTest):
                 status.HTTP_400_BAD_REQUEST,
                 "invalid_input",
                 "capture_engagment",
-            ),
-            (
-                "copy_address",
-                {"cc": ["copy@example.com"]},
-                status.HTTP_400_BAD_REQUEST,
-                "invalid_request",
-                "cc",
             ),
             (
                 "unverified_sender",

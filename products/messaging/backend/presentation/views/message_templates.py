@@ -115,7 +115,6 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     AttachmentListField,
     field_not_accepted_refusal,
     template_send_refusal,
-    uploaded_template_send_refusal,
     validate_pipeline_address,
     with_code_send_reason,
 )
@@ -622,23 +621,20 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     cc = AddressListField(
         required=False,
         allow_null=True,
-        help_text="Addresses that get a visible copy of the email your code rendered: one address, or a list of up "
-        "to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send of a "
-        "template, which refuses any address here.",
+        help_text="Addresses that get a visible copy of the email: one address, or a list of up to 10. Each is a "
+        "bare address such as `jane@example.com`, with no name. Only a send with `template_key` takes it.",
     )
     bcc = AddressListField(
         required=False,
         allow_null=True,
-        help_text="Addresses that get a hidden copy of the email your code rendered: one address, or a list of up "
-        "to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send of a "
-        "template, which refuses any address here.",
+        help_text="Addresses that get a hidden copy of the email: one address, or a list of up to 10. Each is a "
+        "bare address such as `jane@example.com`, with no name. Only a send with `template_key` takes it.",
     )
     attachments = AttachmentListField(
         required=False,
         allow_null=True,
-        help_text="Files attached to the email your code rendered: up to 10, and at most 512 KB in total after "
-        "decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send of a "
-        "template, which refuses any file here.",
+        help_text="Files attached to the email: up to 10, and at most 512 KB in total after decoding. File types "
+        "mailbox providers block, such as `.exe`, are refused. Only a send with `template_key` takes it.",
     )
     capture_engagement = serializers.BooleanField(
         required=False,
@@ -687,7 +683,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
             return self._validate_template_id_send(data, sent)
         refuse_unknown_fields(sent, self.fields)
         if sends_uploaded_template(sent):
-            return self._validate_uploaded_template_send(data)
+            return data
         if "template_hash" in sent:
             raise serializers.ValidationError({"template_hash": TEMPLATE_HASH_REFUSAL})
         if "message_data" in sent:
@@ -705,11 +701,6 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         _drop_empty_extra_fields(data, template_send_refusal)
         if field := next((field for field in TEMPLATE_ID_REFUSED_FIELDS if field in sent), None):
             raise serializers.ValidationError({field: _refusal_on_a_template_id_send(field)})
-        return data
-
-    @staticmethod
-    def _validate_uploaded_template_send(data: dict[str, Any]) -> dict[str, Any]:
-        _drop_empty_extra_fields(data, uploaded_template_send_refusal)
         return data
 
 
@@ -1893,6 +1884,9 @@ def _template_send_options(data: Mapping[str, Any]) -> TemplateSendOptions:
         sender=data.get("from"),
         reply_to=tuple(data.get("reply_to", ())),
         capture_engagement=data.get("capture_engagement", True),
+        cc=tuple(data.get("cc") or ()),
+        bcc=tuple(data.get("bcc") or ()),
+        attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
     )
 
 
