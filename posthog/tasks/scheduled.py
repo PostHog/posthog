@@ -983,6 +983,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=300,
     )
 
+    # Lazy pre-aggregation reads the query heartbeat this poller writes to tell a running INSERT from a dead one.
+    sender.add_periodic_task(
+        QueryStatusManager.POLL_INTERVAL_SECONDS,
+        start_poll_query_performance.s(),
+        name="query performance heartbeat",
+    )
+
     # Everything below runs on PostHog Cloud and in local development, and not on self-hosted hobby
     # installs. These tasks only report metrics or drive infrastructure that exists only in PostHog
     # Cloud. Schedule a new task above this line only if a hobby install needs it.
@@ -1007,12 +1014,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/4"),
         sweep_queued_gateway_usage.s(),
         name="tasks queued gateway usage sweep",
-    )
-
-    sender.add_periodic_task(
-        QueryStatusManager.POLL_INTERVAL_SECONDS,
-        start_poll_query_performance.s(),
-        name="query performance heartbeat",
     )
 
     # Wizard abuse blocklist sweep - every 10 minutes. Consent already refuses a

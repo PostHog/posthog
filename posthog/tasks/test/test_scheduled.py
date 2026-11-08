@@ -55,13 +55,11 @@ class TestLLMGatewayQuotaReconcileScheduling(SimpleTestCase):
 class TestHobbySchedule(SimpleTestCase):
     @parameterized.expand(
         [
-            ("hobby", None, {"10 sec heartbeat": 60}),
+            ("hobby", None, {"10 sec heartbeat": 60, "query performance heartbeat": 20}),
             ("cloud", "US", {"10 sec heartbeat": 10, "query performance heartbeat": 20}),
         ]
     )
-    def test_hobby_keeps_a_slower_heartbeat_and_skips_cloud_only_tasks(
-        self, _name: str, deployment: str | None, expected: dict[str, int]
-    ) -> None:
+    def test_hobby_keeps_slower_heartbeats(self, _name: str, deployment: str | None, expected: dict[str, int]) -> None:
         sender = MagicMock()
         with self.settings(CLOUD_DEPLOYMENT=deployment, DEBUG=False):
             setup_periodic_tasks(sender)

@@ -939,11 +939,15 @@ class Polling:
     _SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
     NANOSECONDS_IN_SECOND = int(1e9)
     TIME_BETWEEN_RUNS_SECONDS = 2
+    # Hobby only needs the query heartbeat, which lives HEARTBEAT_TTL_SECONDS, not second-by-second progress.
+    # Stays below ASSUME_TASK_DEAD_SECONDS, or start_poll_query_performance would restart a healthy loop.
+    HOBBY_TIME_BETWEEN_RUNS_SECONDS = 10
     SOFT_TIME_LIMIT_SECONDS = 10
     HARD_TIME_LIMIT_SECONDS = 12
     ASSUME_TASK_DEAD_SECONDS = 14  # the time after which we start a new task
 
     TIME_BETWEEN_RUNS_NANOSECONDS = NANOSECONDS_IN_SECOND * TIME_BETWEEN_RUNS_SECONDS
+    HOBBY_TIME_BETWEEN_RUNS_NANOSECONDS = NANOSECONDS_IN_SECOND * HOBBY_TIME_BETWEEN_RUNS_SECONDS
     ASSUME_TASK_DEAD_NANOSECONDS = NANOSECONDS_IN_SECOND * ASSUME_TASK_DEAD_SECONDS
 
     @staticmethod
@@ -970,11 +974,9 @@ class Polling:
     time_limit=Polling.HARD_TIME_LIMIT_SECONDS,
 )
 def poll_query_performance(last_known_run_time_ns: int) -> None:
-    # Hobby does not schedule this poller, but the task reschedules itself after every run.
-    # Returning here without rescheduling ends a loop that started before the install upgraded.
-    if is_hobby():
-        return
-
+    time_between_runs_ns = (
+        Polling.HOBBY_TIME_BETWEEN_RUNS_NANOSECONDS if is_hobby() else Polling.TIME_BETWEEN_RUNS_NANOSECONDS
+    )
     start_time_ns = time.time_ns()
 
     try:
@@ -990,14 +992,14 @@ def poll_query_performance(last_known_run_time_ns: int) -> None:
         logger.exception("Poll query performance failed", error=e)
 
     elapsed_ns = time.time_ns() - start_time_ns
-    if elapsed_ns > Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
+    if elapsed_ns > time_between_runs_ns:
         # right again right away if more than time_between_runs has elapsed
         poll_query_performance.delay(start_time_ns)
     else:
         # delay until time_between_runs has elapsed
         poll_query_performance.apply_async(
             args=[start_time_ns],
-            countdown=((Polling.TIME_BETWEEN_RUNS_NANOSECONDS - elapsed_ns) / Polling.NANOSECONDS_IN_SECOND),
+            countdown=((time_between_runs_ns - elapsed_ns) / Polling.NANOSECONDS_IN_SECOND),
         )
 
 
