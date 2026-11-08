@@ -784,9 +784,9 @@ jobs:
         # creds for the same reason). GitHub warns against exposing a larger runner with a
         # static IP range to fork pull requests, so keep this runner's group off static IPs.
         runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-24.04-8core' }}
-        # Kea typegen invalidates on changes to any logic plus everything that depends on it.
+        # Kea typegen checks every logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is
-        # large, so the budget must fit a cache miss on top of the baseline build.
+        # large, so the budget must fit full generation on top of the baseline build.
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -810,31 +810,14 @@ jobs:
             - name: Prepare frontend
               run: bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Restore .typegen cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .typegen
-                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-typegen-
-
-            - name: Build products
-              run: pnpm --filter=@posthog/frontend build:products
-
             - name: Check if products.tsx and products.json are up to date
               run: pnpm --filter=@posthog/frontend build:products && git diff --exit-code
 
             - name: Kea typegen
-              run: pnpm --filter=@posthog/frontend typegen:write
+              run: pnpm --filter=@posthog/frontend typegen:write:no-cache
 
             - name: Re-format files after typegen
               run: pnpm exec oxfmt "./{products,frontend/src}/**/*.{ts,tsx}"
-
-            - name: Save .typegen cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .typegen
-                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
             - parallel:
                   - name: Run typescript check (tsgo)

@@ -7,15 +7,19 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
+import psycopg
 import psycopg.errors
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import (
+    WalPositionNotVisibleError,
     add_table_to_publication,
     cdc_pg_connection,
     get_max_slot_wal_keep_size_mb,
     get_publication_tables,
+    get_visible_wal_lsn,
     is_slot_invalidation_error,
     remove_table_from_publication,
 )
@@ -127,6 +131,31 @@ class TestGetMaxSlotWalKeepSizeMb:
         cursor.fetchone.return_value = row
 
         assert get_max_slot_wal_keep_size_mb(conn) == expected
+
+
+@pytest.mark.django_db
+def test_the_wal_position_waits_for_transactions_running_when_it_was_read():
+    from django.db import connection
+
+    settings = connection.settings_dict
+    params = {
+        "dbname": settings["NAME"],
+        "user": settings["USER"],
+        "password": settings["PASSWORD"],
+        "host": settings["HOST"],
+        "port": settings["PORT"],
+    }
+    with psycopg.connect(**params) as reader:
+        # Warms the per-transaction stats snapshot, which must not hide the connection opened next.
+        get_visible_wal_lsn(reader, timeout=5)
+        with psycopg.connect(**params) as other:
+            other.execute("SELECT pg_current_xact_id()")
+            with pytest.raises(WalPositionNotVisibleError):
+                get_visible_wal_lsn(reader, timeout=0.5)
+            reader.rollback()
+            other.commit()
+
+            assert PgLSN.deserialize(get_visible_wal_lsn(reader, timeout=5)).value > 0
 
 
 class TestGetPublicationTables:

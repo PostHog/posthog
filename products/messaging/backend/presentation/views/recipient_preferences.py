@@ -9,6 +9,7 @@ import structlog
 
 from posthog.api.capture import capture_internal
 from posthog.exceptions_capture import capture_exception
+from posthog.ip_restrictions import ip_restrictions_exempt
 from posthog.models import Team
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 
@@ -114,6 +115,7 @@ def report_workflows_email_tracking_consent_updated(team_id: int, identifier: st
         capture_exception(e)
 
 
+@ip_restrictions_exempt
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
@@ -232,6 +234,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     )
 
 
+@ip_restrictions_exempt
 @csrf_protect
 @require_http_methods(["POST"])
 def update_preferences(request: HttpRequest) -> JsonResponse:
