@@ -14,6 +14,7 @@ import {
     selectors,
 } from 'kea'
 import { router } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
@@ -116,6 +117,32 @@ export interface sidebarCustomizationLogicMeta {
         sidebarLayout: (shownSidebar: CustomizationApi) => CustomizationApi['layout']
         sidebarCustomized: (shownSidebar: CustomizationApi) => boolean
         sidebarLoading: (pendingRequests: number) => boolean
+    }
+    __keaTypeGenInternalReducerActions: {
+        'location changed (kea.router)': ({
+            method,
+            pathname,
+            search,
+            searchParams,
+            hash,
+            hashParams,
+            initial,
+            url,
+            routerState,
+        }: LocationChangedPayload) => {
+            payload: {
+                hash: string
+                hashParams: Record<string, any>
+                initial: boolean
+                method: 'POP' | 'PUSH' | 'REPLACE'
+                pathname: string
+                routerState: Record<string, any>
+                search: string
+                searchParams: Record<string, any>
+                url: string
+            }
+            type: 'location changed (kea.router)'
+        }
     }
 }
 
