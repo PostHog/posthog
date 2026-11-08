@@ -18,6 +18,15 @@ function clampWindowDays(windowDays: number | undefined): number | null {
     return Math.min(Math.max(Math.round(windowDays), 1), 30)
 }
 
+function ResultsField({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+    return (
+        <label className="flex flex-col gap-1">
+            <span className="text-xs text-secondary font-medium">{label}</span>
+            {children}
+        </label>
+    )
+}
+
 export function TransactionalEmailResults(): JSX.Element {
     const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults, templatesFailed } =
         useValues(transactionalEmailMetricsLogic)
@@ -26,14 +35,11 @@ export function TransactionalEmailResults(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
-                {/* Each part of the sentence keeps its label and control together, so a narrow page breaks between parts. */}
-                <span className="inline-flex items-center gap-2">
-                    <span className="whitespace-nowrap">Of everyone who got</span>
+            <div className="flex flex-wrap items-end gap-3">
+                <ResultsField label="Email sent">
                     <TransactionalEmailResultsEmailPicker />
-                </span>
-                <span className="inline-flex items-center gap-2">
-                    <span className="whitespace-nowrap">how many did</span>
+                </ResultsField>
+                <ResultsField label="Event done after">
                     <TaxonomicPopover
                         groupType={TaxonomicFilterGroupType.Events}
                         value={resultsQuery.event ?? undefined}
@@ -42,9 +48,8 @@ export function TransactionalEmailResults(): JSX.Element {
                         size="small"
                         data-attr="transactional-email-results-event"
                     />
-                </span>
-                <span className="inline-flex items-center gap-2">
-                    <span>within</span>
+                </ResultsField>
+                <ResultsField label="Within days">
                     <LemonInput
                         type="number"
                         size="small"
@@ -60,10 +65,8 @@ export function TransactionalEmailResults(): JSX.Element {
                         className="w-16"
                         data-attr="transactional-email-results-window"
                     />
-                    <span>days,</span>
-                </span>
-                <span className="inline-flex items-center gap-2">
-                    <span className="whitespace-nowrap">with revenue from</span>
+                </ResultsField>
+                <ResultsField label="Revenue from">
                     <TaxonomicPopover
                         groupType={TaxonomicFilterGroupType.EventProperties}
                         value={resultsQuery.revenueProperty ?? undefined}
@@ -75,7 +78,7 @@ export function TransactionalEmailResults(): JSX.Element {
                         size="small"
                         data-attr="transactional-email-results-revenue"
                     />
-                </span>
+                </ResultsField>
             </div>
             {templatesFailed && !templatesLoading ? (
                 <LemonBanner
