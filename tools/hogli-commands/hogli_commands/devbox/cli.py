@@ -198,7 +198,8 @@ def resolve_workspace_name(
     if live is None:
         _fail(
             f"This worktree's devbox '{record.workspace}' no longer exists. "
-            "Run `hogli devbox:worktree` to create it again, or pass `-n <label>` to choose a box."
+            f"Run `hogli devbox:worktree` to create it again, pass `-n <label>` to choose a box, "
+            f"or `-n @{get_username()}` for your default box."
         )
     if not record.may_adopt(live):
         _fail(
@@ -229,13 +230,10 @@ def current_worktree_box() -> WorktreeBoxRecord | None:
     return record if record is not None and record.provider == "coder" else None
 
 
-def resolve_default_workspace_name(
-    *, region: str | None = None, workspaces: list[dict[str, Any]] | None = None
-) -> tuple[str, list[dict[str, Any]]]:
+def resolve_default_workspace_name(*, region: str | None = None) -> tuple[str, list[dict[str, Any]]]:
     """Resolve the user's default workspace, ignoring the worktree the command runs in."""
     effective_region = region if region is not None else _preferred_region()
-    if workspaces is None:
-        workspaces = list_user_workspaces()
+    workspaces = list_user_workspaces()
 
     if len(workspaces) == 0:
         return get_workspace_name(region=effective_region), workspaces
@@ -358,6 +356,13 @@ def _workspace_arg_suffix(name: str) -> str:
     return f" @{get_username()}" if record is not None else ""
 
 
+def _create_box_hint(name: str) -> str:
+    record = current_worktree_box()
+    if record is not None and record.workspace == name:
+        return "Run `hogli devbox:worktree` to create it again."
+    return f"Run 'hogli devbox:start{_workspace_arg_suffix(name)}' to create one."
+
+
 _NOT_READY_REASONS = {
     "start_error": "A startup script failed, so some setup may be missing.",
     "start_timeout": "A startup script ran past its time limit, so some setup may be missing.",
@@ -390,7 +395,7 @@ def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = 
     workspace = get_workspace(name, workspaces)
     if workspace is not None:
         return workspace
-    _fail(f"No devbox found. Run 'hogli devbox:start{_workspace_arg_suffix(name)}' to create one.")
+    _fail(f"No devbox found. {_create_box_hint(name)}")
     raise SystemExit(1)  # unreachable; helps ty see the function doesn't fall through
 
 
@@ -2120,7 +2125,7 @@ def devbox_status(workspace: str | None) -> None:
 
     ws = get_workspace(name, workspaces)
     if ws is None:
-        click.echo(f"No devbox found. Run 'hogli devbox:start{_workspace_arg_suffix(name)}' to create one.")
+        click.echo(f"No devbox found. {_create_box_hint(name)}")
         return
 
     status = get_workspace_status(ws)

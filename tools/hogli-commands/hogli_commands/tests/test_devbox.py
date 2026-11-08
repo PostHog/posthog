@@ -2307,41 +2307,70 @@ class TestResolveWorkspaceName:
         assert devbox_cli.resolve_workspace_name("@test-user")[0] == "devbox-test-user"
 
     @pytest.mark.parametrize(
-        "args",
+        "args, deleted, expected",
         [
-            pytest.param(["devbox:status", "@test-user"], id="status"),
-            pytest.param(["devbox:cleanup:disk", "@test-user"], id="command-that-needs-the-box"),
+            pytest.param(
+                ["devbox:status", "@test-user"],
+                "devbox-test-user",
+                "Run 'hogli devbox:start @test-user' to create one.",
+                id="status",
+            ),
+            pytest.param(
+                ["devbox:cleanup:disk", "@test-user"],
+                "devbox-test-user",
+                "Run 'hogli devbox:start @test-user' to create one.",
+                id="command-that-needs-the-box",
+            ),
+            pytest.param(
+                ["devbox:status", "feat"],
+                "devbox-test-user-feat",
+                "Run `hogli devbox:worktree` to create it again.",
+                id="the-worktrees-own-box",
+            ),
         ],
     )
-    def test_missing_default_box_hint_keeps_the_explicit_target(
-        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, args: list[str]
+    def test_missing_box_hint_names_the_command_that_creates_it(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, args: list[str], deleted: str, expected: str
     ) -> None:
-        del devbox_cli.list_user_workspaces()[0]
+        workspaces = devbox_cli.list_user_workspaces()
+        workspaces[:] = [ws for ws in workspaces if ws["name"] != deleted]
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.chdir(worktree_with_box)
 
         result = runner.invoke(cli, args)
 
-        assert "Run 'hogli devbox:start @test-user' to create one." in result.output, result.output
+        assert expected in result.output, result.output
 
     @pytest.mark.parametrize(
-        "name, expected",
+        "args, expected",
         [
-            pytest.param("devbox-test-user-feat-eu", "", id="the-worktrees-box-needs-no-target"),
-            pytest.param("devbox-test-user-api", " api", id="another-labeled-box"),
-            pytest.param("devbox-test-user", " @test-user", id="the-default-box"),
+            pytest.param([], "Run `hogli devbox:update` to apply it.", id="the-worktrees-eu-box-needs-no-target"),
+            pytest.param(["api"], "Run `hogli devbox:update api` to apply it.", id="another-labeled-box"),
+            pytest.param(["@test-user"], "Run `hogli devbox:update @test-user` to apply it.", id="the-default-box"),
         ],
     )
     def test_printed_commands_target_the_box_they_describe(
-        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, name: str, expected: str
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, args: list[str], expected: str
     ) -> None:
+        workspaces = devbox_cli.list_user_workspaces()
+        workspaces.append(
+            {"name": "devbox-test-user-feat-eu", "id": "id-feat-eu", "template_name": coder.DEFAULT_TEMPLATE}
+        )
+        for workspace in workspaces:
+            workspace.update(latest_build={"status": "stopped"}, outdated=True)
         devbox_config.record_worktree_box(
             worktree_with_box,
-            devbox_config.WorktreeBoxRecord(workspace="devbox-test-user-feat-eu", git_dir="admin"),
+            devbox_config.WorktreeBoxRecord(
+                workspace="devbox-test-user-feat-eu", git_dir="admin", workspace_id="id-feat-eu"
+            ),
         )
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "_render_sync_status", lambda name: "not configured")
         monkeypatch.chdir(worktree_with_box)
 
-        assert devbox_cli._workspace_arg_suffix(name) == expected
+        result = runner.invoke(cli, ["devbox:status", *args])
+
+        assert expected in result.output, result.output
 
     def test_moved_worktree_keeps_its_box(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, worktree_with_box: Path
