@@ -46,6 +46,11 @@ export interface SidebarCustomizationProps {
 
 const SIDEBAR_REFRESH_INTERVAL_MS = 30_000
 
+const WRITE_FAILURE_TITLES: Record<'reset' | 'restore', string> = {
+    reset: 'Couldn’t reset the sidebar. Try again.',
+    restore: 'Couldn’t bring back your sidebar. Ask PostHog AI to build it again.',
+}
+
 type SidebarRequest =
     | { operation: 'load' }
     | { operation: 'reset'; previous: CustomizationApi['layout'] }
@@ -275,18 +280,8 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
                     if (!canApply()) {
                         return
                     }
-                    const run = (): Promise<CustomizationApi> => {
-                        if (!canApply()) {
-                            return Promise.resolve(props.configuration.defaults)
-                        }
-                        if (request.operation === 'reset') {
-                            return props.configuration.reset(props.projectId)
-                        }
-                        if (request.operation === 'restore') {
-                            return props.configuration.restore(props.projectId, request.layout)
-                        }
-                        return props.configuration.retrieve(props.projectId)
-                    }
+                    const run = (): Promise<CustomizationApi> =>
+                        canApply() ? sendSidebarRequest(props, request) : Promise.resolve(props.configuration.defaults)
                     const response = isWrite ? (cache.writeTail ?? Promise.resolve()).then(run) : run()
                     if (isWrite) {
                         // A failed write must not prevent a later Reset or Undo from reaching the server.
@@ -297,26 +292,7 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
                         actions.requestSidebarSuccess(sidebar, request)
                         if (request.operation === 'reset') {
                             posthog.capture(props.configuration.resetEvent)
-                            toast.success({
-                                title: 'Sidebar reset to the default',
-                                action: {
-                                    label: 'Undo',
-                                    onClick: async () => {
-                                        if (getContext() !== context) {
-                                            return
-                                        }
-                                        const instance = sidebarCustomizationLogic(props)
-                                        const unmount = instance.mount()
-                                        try {
-                                            if (instance.values.sidebarCustomizationEnabled) {
-                                                await instance.asyncActions.restoreSidebar(request.previous)
-                                            }
-                                        } finally {
-                                            unmount()
-                                        }
-                                    },
-                                },
-                            })
+                            showResetToast(props, context, request.previous)
                         }
                     }
                 } catch (error) {
@@ -325,12 +301,7 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
                             actions.sidebarReadFailed()
                         } else {
                             cache.reloadAfterWrite = true
-                            toast.error({
-                                title:
-                                    request.operation === 'reset'
-                                        ? 'Couldn’t reset the sidebar. Try again.'
-                                        : 'Couldn’t bring back your sidebar. Ask PostHog AI to build it again.',
-                            })
+                            toast.error({ title: WRITE_FAILURE_TITLES[request.operation] })
                         }
                         actions.requestSidebarFailure(String(error))
                     }
@@ -371,3 +342,42 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
             )
         }),
     ])
+
+function sendSidebarRequest(props: SidebarCustomizationProps, request: SidebarRequest): Promise<CustomizationApi> {
+    const { configuration, projectId } = props
+    switch (request.operation) {
+        case 'reset':
+            return configuration.reset(projectId)
+        case 'restore':
+            return configuration.restore(projectId, request.layout)
+        default:
+            return configuration.retrieve(projectId)
+    }
+}
+
+function showResetToast(
+    props: SidebarCustomizationProps,
+    context: ReturnType<typeof getContext>,
+    previous: CustomizationApi['layout']
+): void {
+    toast.success({
+        title: 'Sidebar reset to the default',
+        action: {
+            label: 'Undo',
+            onClick: async () => {
+                if (getContext() !== context) {
+                    return
+                }
+                const instance = sidebarCustomizationLogic(props)
+                const unmount = instance.mount()
+                try {
+                    if (instance.values.sidebarCustomizationEnabled) {
+                        await instance.asyncActions.restoreSidebar(previous)
+                    }
+                } finally {
+                    unmount()
+                }
+            },
+        },
+    })
+}

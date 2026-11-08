@@ -41,10 +41,10 @@ export function metricFromInsight(insight: InsightApi): TodayAnalyticsMetricValu
     const source = querySource(insight)
     const results = Array.isArray(insight.result) ? (insight.result as TrendResult[]) : undefined
     const series = selectCurrentSeries(results)
-    if (!source || !isTrendsInsight(insight) || !series || (series.count == null && series.aggregated_value == null)) {
+    if (!isTrendsInsight(insight) || !series || (series.count == null && series.aggregated_value == null)) {
         return null
     }
-    const trendsFilter = source.trendsFilter ?? null
+    const trendsFilter = source?.trendsFilter ?? null
     const summary = trendsFilter?.metricSummary ?? METRIC_SUMMARY_DEFAULT
     const current = { total: series.aggregated_value ?? series.count, data: series.data ?? [] }
     const previousSeries = results?.find((result) => result.compare_label === 'previous')
