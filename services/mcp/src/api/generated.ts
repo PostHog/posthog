@@ -13,6 +13,84 @@ export namespace Schemas {
     /**
      *
      */
+    /**
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown
+     */
+    export type BrandKindEnum = typeof BrandKindEnum[keyof typeof BrandKindEnum];
+
+
+    export const BrandKindEnum = {
+      Own: 'own',
+      Competitor: 'competitor',
+      Publisher: 'publisher',
+      Unknown: 'unknown',
+    } as const;
+
+    /**
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored
+     */
+    export type BrandStatusEnum = typeof BrandStatusEnum[keyof typeof BrandStatusEnum];
+
+
+    export const BrandStatusEnum = {
+      Suggested: 'suggested',
+      Confirmed: 'confirmed',
+      Ignored: 'ignored',
+    } as const;
+
+    /**
+     * * `citations` - Citations
+     * * `manual` - Manual
+     */
+    export type BrandSourceEnum = typeof BrandSourceEnum[keyof typeof BrandSourceEnum];
+
+
+    export const BrandSourceEnum = {
+      Citations: 'citations',
+      Manual: 'manual',
+    } as const;
+
+    export interface AEOBrand {
+      /** Brand id. */
+      id: string;
+      /** Brand name as people say it. Starts as a guess from the domain until someone edits it. */
+      name: string;
+      /** Registrable domain, for example 'amplitude.com'. Citations on its subdomains count for the brand. */
+      domain: string;
+      /** What the brand is to the project: 'own' (the project's site), 'competitor', 'publisher' (a review, community or media site) or 'unknown' (not labeled yet).
+       *
+       * * `own` - Own
+       * * `competitor` - Competitor
+       * * `publisher` - Publisher
+       * * `unknown` - Unknown */
+      kind: BrandKindEnum;
+      /** 'suggested' (added from citations, not reviewed), 'confirmed' or 'ignored'. Only people change it.
+       *
+       * * `suggested` - Suggested
+       * * `confirmed` - Confirmed
+       * * `ignored` - Ignored */
+      status: BrandStatusEnum;
+      /** How the brand entered the catalog: 'citations' or 'manual'.
+       *
+       * * `citations` - Citations
+       * * `manual` - Manual */
+      source: BrandSourceEnum;
+      /** Other names for the brand, used to find it in answer text. */
+      aliases: string[];
+      /** When the brand entered the catalog. */
+      created_at: string;
+      /**
+         * When a person last changed the brand.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
     export interface AEOPromptEngineCheck {
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
@@ -27383,6 +27461,37 @@ export namespace Schemas {
       Invalid: 'invalid',
     } as const;
 
+    export interface ConditionCompanions {
+      /** Condition claims a policy may set only with a companion. */
+      claims: string[];
+      /** Claims of which a policy must set at least one beside them. */
+      companions: string[];
+      /** Why the claims need a companion, to show the person. */
+      reason: string;
+    }
+
+    /**
+     * Claim name to value. {value} stands for what the person types into the preset's field.
+     */
+    export type ConditionPresetConditions = {[key: string]: string};
+
+    export interface ConditionPreset {
+      /** Stable identifier of the preset within its provider. */
+      key: string;
+      /** What the UI calls the preset, like Pushes to a branch. */
+      label: string;
+      /** What runs the preset matches. */
+      help_text: string;
+      /** Claim name to value. {value} stands for what the person types into the preset's field. */
+      readonly conditions: ConditionPresetConditions;
+      /** Whether the preset has a field to type a value into. */
+      takes_value: boolean;
+      /** An example value for the preset's field. */
+      placeholder: string;
+      /** The value the preset's field starts with. */
+      default_value: string;
+    }
+
     /**
      * * `high` - high
      * * `medium` - medium
@@ -35687,9 +35796,9 @@ export namespace Schemas {
       is_verified: boolean;
       /** The scopes the token will carry if the person approves. */
       scopes: string[];
-      /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+      /** The requested scopes the person can't leave out: the client's required scopes, the scopes the client marked as required when it started the grant, such as the new scopes of a step-up, and identity scopes such as `openid`. */
       required_scopes: string[];
-      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones. */
       granted_scopes: GrantedScopes[];
       /** When the code expires. */
       expires_at: string;
@@ -44093,11 +44202,52 @@ export namespace Schemas {
       rule: ExperimentHealthCheckRule | null;
     }
 
+    export interface ExperimentHealthReleaseCondition {
+      /** The share of the users matching the condition set's filters who get the flag, from 0 to 100. */
+      rollout_percentage: number;
+      /** The number of filters a user must match, such as properties and cohorts. 0 matches all users. */
+      property_count: number;
+      /**
+         * The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when it assigns them by user.
+         * @nullable
+         */
+      aggregation_group_type_index: number | null;
+    }
+
+    export interface ExperimentHealthSetup {
+      /** The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a request depends on the sets before it and on `early_exit`. */
+      release_conditions: ExperimentHealthReleaseCondition[];
+      /** Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the user out. Otherwise such a user goes on to the next set. */
+      early_exit: boolean;
+      /** The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.
+       *
+       * * `distinct_id` - User ID (default)
+       * * `device_id` - Device ID */
+      bucketing_identifier: BucketingIdentifierEnum;
+      /**
+         * The flag's own group type, which the exposure counts and the results use. A condition set can override it. Null for users.
+         * @nullable
+         */
+      aggregation_group_type_index: number | null;
+      /** The flag's `evaluation_runtime`. Null on the flag reads as all.
+       *
+       * * `server` - Server
+       * * `client` - Client
+       * * `all` - All */
+      evaluation_runtime: EvaluationRuntimeEnum;
+      /** The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag has none. */
+      evaluation_contexts: string[];
+      /** The flag's 'Persist flag across authentication steps' setting. */
+      ensure_experience_continuity: boolean;
+    }
+
     export interface ExperimentHealth {
       /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`. */
       findings: ExperimentHealthFinding[];
       /** The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`. */
       checks: ExperimentHealthCheckResult[];
+      /** The settings of the experiment's flag that decide which variant a user gets. Null when the experiment has no flag. */
+      setup?: ExperimentHealthSetup | null;
     }
 
     /**
@@ -65596,6 +65746,18 @@ export namespace Schemas {
       readonly error_type: string;
       /** HTTP status ($mcp_error_status) when the failure carried one, otherwise empty. */
       readonly error_status: string;
+      /** Command an exec-style server ran ($mcp_exec_verb), such as call, info, search or unrecognized. Empty for direct tool calls. */
+      readonly exec_verb: string;
+      /** Tool the exec command named ($mcp_exec_target_tool). Empty when the command named none. */
+      readonly exec_target_tool: string;
+      /** Argument names the client sent ($mcp_input_keys), without values. Empty when not captured. */
+      readonly input_keys: readonly string[];
+      /** Specific failure code ($mcp_error_code) when the server set one, otherwise empty. */
+      readonly error_code: string;
+      /** Argument the failure points at ($mcp_error_field), otherwise empty. */
+      readonly error_field: string;
+      /** Model that made the call ($mcp_llm_model), otherwise empty. */
+      readonly llm_model: string;
     }
 
     /**
@@ -71636,6 +71798,15 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface PaginatedAEOBrandList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AEOBrand[];
+    }
+
     export interface PaginatedAEOPromptCheckList {
       count: number;
       /** @nullable */
@@ -77106,6 +77277,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -80343,6 +80519,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI
+     */
+    export type WorkloadProviderKeyEnum = typeof WorkloadProviderKeyEnum[keyof typeof WorkloadProviderKeyEnum];
+
+
+    export const WorkloadProviderKeyEnum = {
+      GithubActions: 'github_actions',
+      Gitlab: 'gitlab',
+      DepotCi: 'depot_ci',
+    } as const;
+
+    /**
      * The label of each condition claim the provider allows, keyed by claim name.
      */
     export type WorkloadClaimLabelsConditions = {[key: string]: string};
@@ -80373,11 +80563,12 @@ export namespace Schemas {
          * @maxLength 255
          */
       issuer: string;
-      /**
-         * The key of the workload provider the issuer belongs to.
-         * @nullable
-         */
-      readonly provider: string | null;
+      /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `gitlab` - GitLab
+       * * `depot_ci` - Depot CI */
+      readonly provider: WorkloadProviderKeyEnum;
       /**
          * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
          * @maxLength 255
@@ -80445,11 +80636,12 @@ export namespace Schemas {
          * @maxLength 255
          */
       issuer: string;
-      /**
-         * The key of the workload provider the issuer belongs to.
-         * @nullable
-         */
-      readonly provider: string | null;
+      /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `gitlab` - GitLab
+       * * `depot_ci` - Depot CI */
+      readonly provider: WorkloadProviderKeyEnum;
       /**
          * The display name of the workload provider, or null.
          * @nullable
@@ -80710,6 +80902,33 @@ export namespace Schemas {
          * @nullable
          */
       success_rate: number | null;
+    }
+
+    export interface PatchedAEOBrandUpdateRequest {
+      /**
+         * Brand name as people say it.
+         * @maxLength 200
+         */
+      name?: string;
+      /** What the brand is to the project: 'own', 'competitor', 'publisher' or 'unknown'.
+       *
+       * * `own` - Own
+       * * `competitor` - Competitor
+       * * `publisher` - Publisher
+       * * `unknown` - Unknown */
+      kind?: BrandKindEnum;
+      /** 'confirmed' to accept the brand, 'ignored' to hide it, 'suggested' to put it back for review.
+       *
+       * * `suggested` - Suggested
+       * * `confirmed` - Confirmed
+       * * `ignored` - Ignored */
+      status?: BrandStatusEnum;
+      /**
+         * Replaces the brand's other names. Names are trimmed, and repeated names are dropped.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      aliases?: string[];
     }
 
     export interface PatchedAEOPromptUpdateRequest {
@@ -84645,12 +84864,12 @@ export namespace Schemas {
     }
 
     /**
-     * Map of hog function UUIDs to their new execution_order values.
+     * Map of hog function UUIDs to their new execution_order values, from 0 to 32767.
      */
     export type PatchedHogFunctionRearrangeOrders = {[key: string]: number};
 
     export interface PatchedHogFunctionRearrange {
-      /** Map of hog function UUIDs to their new execution_order values. */
+      /** Map of hog function UUIDs to their new execution_order values, from 0 to 32767. */
       orders?: PatchedHogFunctionRearrangeOrders;
     }
 
@@ -89504,7 +89723,7 @@ export namespace Schemas {
        * * `external_survey` - external survey
        * * `api` - api */
       type?: SurveyTypeEnum;
-      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
        *
        * * `once` - once
        * * `recurring` - recurring
@@ -89669,7 +89888,7 @@ export namespace Schemas {
          */
       responses_limit?: number | null;
       /**
-         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
          * @minimum 1
          * @maximum 500
          * @nullable
@@ -89682,6 +89901,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -91075,11 +91299,12 @@ export namespace Schemas {
          * @maxLength 255
          */
       issuer?: string;
-      /**
-         * The key of the workload provider the issuer belongs to.
-         * @nullable
-         */
-      readonly provider?: string | null;
+      /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `gitlab` - GitLab
+       * * `depot_ci` - Depot CI */
+      readonly provider?: WorkloadProviderKeyEnum;
       /**
          * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
          * @maxLength 255
@@ -101704,6 +101929,15 @@ export namespace Schemas {
       notes: string;
     }
 
+    export interface ResolvedWorkloadSubject {
+      /** The workload's immutable ID, for the policy's subject. */
+      subject: string;
+      /** The provider's exact spelling of the name, which the token carries, for the policy's subject name. */
+      subject_name: string;
+      /** Where PostHog found the workload, to show the user. */
+      found_via: string;
+    }
+
     /**
      * * `picked_up` - picked_up
      * * `acted_on` - acted_on
@@ -111200,6 +111434,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -111257,7 +111496,7 @@ export namespace Schemas {
        * * `external_survey` - external survey
        * * `api` - api */
       type: SurveyTypeEnum;
-      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
        *
        * * `once` - once
        * * `recurring` - recurring
@@ -111422,7 +111661,7 @@ export namespace Schemas {
          */
       responses_limit?: number | null;
       /**
-         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
          * @minimum 1
          * @maximum 500
          * @nullable
@@ -111435,6 +111674,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -118948,11 +119192,31 @@ export namespace Schemas {
       label: string;
       /** A hint that says where to find the claim's value. */
       help_text: string;
+      /** An example value to show in an empty field. */
+      placeholder: string;
     }
 
+    export interface WorkloadJobSettings {
+      /** The PostHog address a job sends its token to, which is its audience. */
+      host: string;
+      /** The project a job's token works in. */
+      project_id: number;
+      /** Whether hog reads the host from posthog.json. It does only for PostHog Cloud, so other hosts need HOG_HOST. */
+      host_in_posthog_json: boolean;
+    }
+
+    /**
+     * Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works.
+     */
+    export type WorkloadProviderSubjectLookupConditions = {[key: string]: string};
+
     export interface WorkloadProvider {
-      /** Stable identifier of the provider. */
-      key: string;
+      /** Stable identifier of the provider.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `gitlab` - GitLab
+       * * `depot_ci` - Depot CI */
+      key: WorkloadProviderKeyEnum;
       /** Display name of the provider. */
       name: string;
       /** OIDC issuer a policy for this provider uses. */
@@ -118965,6 +119229,24 @@ export namespace Schemas {
       subject_name_claim: WorkloadClaim;
       /** The claims a policy can require an exact value for, in display order. */
       condition_claims: WorkloadClaim[];
+      /** Condition claims every policy for this provider must set. */
+      required_condition_claims: string[];
+      /** Condition claims that name the account and match every run, so they never limit which runs get a token. */
+      account_condition_claims: string[];
+      /** Common choices of conditions to offer before the raw claims, in display order. */
+      condition_presets: ConditionPreset[];
+      /** Rules for condition claims that a policy may set only together with another claim. */
+      condition_companions: ConditionCompanions[];
+      /** Keys of the presets that set a condition claim every policy must set. */
+      required_presets: string[];
+      /** Keys of the presets a new policy starts with, in display order. */
+      default_presets: string[];
+      /** Whether PostHog can look up the subject from its name with resolve_subject. */
+      readonly can_resolve_subject: boolean;
+      /** Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works. */
+      readonly subject_lookup_conditions: WorkloadProviderSubjectLookupConditions;
+      /** The CI config a job needs to get a token for PostHog, empty when the provider has none. */
+      readonly setup_snippet: string;
     }
 
     /**
@@ -118975,6 +119257,8 @@ export namespace Schemas {
     export interface WorkloadProvidersResponse {
       /** Providers a policy can trust. */
       supported: WorkloadProvider[];
+      /** Where a job's host and project come from: posthog.json first, or HOG_HOST and HOG_PROJECT_ID. */
+      job_settings: WorkloadJobSettings;
       /** Every scope a policy's ceiling may hold. */
       grantable_scopes: string[];
       /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
@@ -123821,6 +124105,56 @@ export namespace Schemas {
 
     export const AdvancedActivityLogsListSchema = {
       Ocsf: 'ocsf',
+    } as const;
+
+    export type AeoBrandsListParams = {
+    /**
+     * Only list brands of this kind.
+     *
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown
+     * @minLength 1
+     */
+    kind?: AeoBrandsListKind;
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only list brands with this review status.
+     *
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored
+     * @minLength 1
+     */
+    status?: AeoBrandsListStatus;
+    };
+
+    export type AeoBrandsListKind = typeof AeoBrandsListKind[keyof typeof AeoBrandsListKind];
+
+
+    export const AeoBrandsListKind = {
+      Own: 'own',
+      Competitor: 'competitor',
+      Publisher: 'publisher',
+      Unknown: 'unknown',
+    } as const;
+
+    export type AeoBrandsListStatus = typeof AeoBrandsListStatus[keyof typeof AeoBrandsListStatus];
+
+
+    export const AeoBrandsListStatus = {
+      Suggested: 'suggested',
+      Confirmed: 'confirmed',
+      Ignored: 'ignored',
     } as const;
 
     export type AeoPromptsListParams = {
@@ -139029,6 +139363,26 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams = {
+    /**
+     * The policy's conditions as claim=value, repeated. PostHog refuses a lookup they rule out, like a repository on a forge the lookup doesn't ask.
+     * @items.maxLength 500
+     */
+    condition?: string[];
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @minLength 1
+     * @maxLength 255
+     */
+    issuer: string;
+    /**
+     * The name people know the workload by, from the provider's subject name claim, for example owner/repo.
+     * @minLength 1
+     * @maxLength 255
+     */
+    subject_name: string;
     };
 
     export type PublicHogFunctionTemplatesListParams = {

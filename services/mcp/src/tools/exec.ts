@@ -172,6 +172,11 @@ export interface ExecInnerCallProperties {
     output_tokens?: number
     input?: Record<string, unknown>
     /**
+     * The handler's result before formatting. Analytics redacts it by key, which the
+     * formatted text below would hide credential fields from.
+     */
+    result?: unknown
+    /**
      * The payload returned to the client, exactly as serialized. Consumed by the
      * `$ai_span` capture for data-catalog-relevant calls, which needs the tool's
      * result (e.g. which metrics a catalog lookup returned), not just its size.
@@ -2288,6 +2293,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateTokens(outputText),
                             input,
+                            result,
                             output: outputText,
                             ...resultShape,
                         })
@@ -2339,6 +2345,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
                             input,
+                            result,
                             output: payload,
                             ...resultShape,
                         })
@@ -2365,6 +2372,7 @@ export function createExecTool(
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
                         input,
+                        result,
                         output: outputText,
                         ...resultShape,
                     })
