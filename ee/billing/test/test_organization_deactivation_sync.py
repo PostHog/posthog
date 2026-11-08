@@ -12,6 +12,7 @@ from posthog.models.organization import (
     Organization,
     _start_billing_active_sync_workflow,
     start_billing_active_sync_workflow,
+    tombstone_organization_record,
 )
 from posthog.temporal.billing_active_sync.sync_organization_active_state import (
     RESYNC_SIGNAL,
@@ -254,3 +255,41 @@ class TestSyncTasks(BaseTest):
         self._run_with_cloud(reconcile_organization_active_state)
 
         set_mock.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
+    @patch("ee.billing.billing_manager.BillingManager.get_deactivated_organizations")
+    def test_reconciliation_deactivates_a_tombstoned_organization(self, get_mock, set_mock):
+        tombstone = Organization.objects.create(name="tombstoned org", is_active=False, deleted=True)
+        get_mock.return_value = []
+
+        self._run_with_cloud(reconcile_organization_active_state)
+
+        set_mock.assert_called_once_with([str(tombstone.pk)], deactivated=True)
+
+    @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
+    @patch("ee.billing.billing_manager.BillingManager.get_deactivated_organizations")
+    def test_reconciliation_never_reactivates_a_tombstone(self, get_mock, set_mock):
+        tombstone = Organization.objects.create(name="tombstoned org", is_active=False, deleted=True)
+        get_mock.return_value = [str(tombstone.pk)]
+
+        self._run_with_cloud(reconcile_organization_active_state)
+
+        set_mock.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
+    @patch("ee.billing.billing_manager.BillingManager.get_deactivated_organizations")
+    def test_reconciliation_does_not_reactivate_an_org_deleted_during_the_sweep(self, get_mock, set_mock):
+        Organization.objects.create(name="blocked org", is_active=False)
+        doomed_org = Organization.objects.create(name="unblocked org", is_active=True)
+        get_mock.return_value = [str(doomed_org.pk)]
+
+        def _delete_during_the_deactivate_post(ids: list[str], deactivated: bool) -> None:
+            if deactivated:
+                tombstone_organization_record(str(doomed_org.pk))
+
+        set_mock.side_effect = _delete_during_the_deactivate_post
+
+        self._run_with_cloud(reconcile_organization_active_state)
+
+        assert set_mock.call_count == 1
+        assert set_mock.call_args.kwargs["deactivated"] is True

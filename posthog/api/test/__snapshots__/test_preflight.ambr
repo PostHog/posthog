@@ -47,7 +47,9 @@
 # ---
 # name: TestPreflight.test_cloud_preflight_limited_db_queries.1
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",

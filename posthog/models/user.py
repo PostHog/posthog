@@ -495,6 +495,17 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
     ) -> OrganizationMembership:
         with transaction.atomic():
+            # A membership created during organization deletion would survive the cascade and point at
+            # the tombstone, because the deferred FK check passes once the tombstone row exists. Re-read
+            # rather than trust the caller's possibly stale instance. No lock is needed: deletion commits
+            # is_pending_deletion before its workflow starts, and the tombstone step runs late in it.
+            current = (
+                Organization.objects_including_soft_deleted.filter(id=organization.id)
+                .values("deleted", "is_pending_deletion")
+                .first()
+            )
+            if current is None or current["deleted"] or current["is_pending_deletion"]:
+                raise ValidationError("This organization is being deleted and cannot be joined.")
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
 
             self.current_organization = organization

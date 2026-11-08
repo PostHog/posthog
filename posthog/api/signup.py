@@ -1047,6 +1047,16 @@ def process_social_domain_jit_provisioning_signup(
             scim_enabled=scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
+            if domain_instance.organization.is_pending_deletion:
+                # User.join refuses an organization that is being deleted; an existing user still logs in.
+                logger.info(
+                    f"process_social_domain_jit_provisioning_organization_pending_deletion",
+                    domain=domain,
+                    organization=domain_instance.organization_id,
+                )
+                if user:
+                    return user
+                raise AuthFailed(backend, "This organization is being deleted, so new accounts cannot join it.")
             if not user or not user.organizations.filter(pk=domain_instance.organization_id).exists():
                 _refuse_blocked_sso_join(strategy, backend, email, user)
             if not user:

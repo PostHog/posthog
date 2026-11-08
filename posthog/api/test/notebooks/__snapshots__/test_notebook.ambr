@@ -47,7 +47,9 @@
 # ---
 # name: TestNotebooks.test_updates_notebook.1
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -139,7 +141,9 @@
 # ---
 # name: TestNotebooks.test_updates_notebook.11
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -276,6 +280,8 @@
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."business_model",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -346,6 +352,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -424,6 +432,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -818,6 +828,8 @@
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."business_model",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -963,7 +975,9 @@
 # ---
 # name: TestNotebooks.test_updates_notebook.21
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -1235,7 +1249,9 @@
 # ---
 # name: TestNotebooks.test_updates_notebook.31
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -1372,6 +1388,8 @@
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."business_model",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1442,6 +1460,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1520,6 +1540,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1647,6 +1669,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1725,6 +1749,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",

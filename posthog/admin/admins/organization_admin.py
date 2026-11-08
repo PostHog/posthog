@@ -283,8 +283,11 @@ class OrganizationAdmin(admin.ModelAdmin):
         "sync_to_billing_display",
         "ai_training_opt_in_history_display",
         "trigger_deletion_display",
+        "deleted",
+        "deleted_at",
     ]
     search_fields = ("id", "name", "members__email", "team__api_token")
+    list_filter = ("deleted",)
     list_display = (
         "id",
         "name",
@@ -298,6 +301,26 @@ class OrganizationAdmin(admin.ModelAdmin):
         "id",
         "name",
     )
+
+    def get_queryset(self, request):
+        # Tombstones of deleted organizations stay visible to staff, but not in the autocomplete
+        # endpoint: other admins use it to link rows to an organization, and a tombstone is not a
+        # valid target (the form field validates against the filtered default manager).
+        if request.path.endswith("/autocomplete/"):
+            return Organization.objects.all()
+        return Organization.objects_including_soft_deleted.all()
+
+    def has_delete_permission(self, request, obj=None):
+        # The tombstone is the only durable record of a deleted organization.
+        if obj is not None and obj.deleted:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        # The changelist lists tombstones, and the bulk delete would erase them along with live rows.
+        actions.pop("delete_selected", None)
+        return actions
 
     def get_inlines(self, request, obj=None):
         # Inlines other apps registered for Organization, so a product can show a panel on
@@ -490,7 +513,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         change_url = reverse("admin:posthog_organization_change", args=[organization_id])
 
         try:
-            organization = Organization.objects.get(id=organization_id)
+            organization = Organization.objects_including_soft_deleted.get(id=organization_id)
         except Organization.DoesNotExist:
             messages.error(request, f"Organization with id {organization_id} not found.")
             return redirect(reverse("admin:posthog_organization_changelist"))
@@ -558,7 +581,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         from posthog.tasks.sync_billing import sync_members_to_billing
 
         try:
-            organization = Organization.objects.get(id=organization_id)
+            organization = Organization.objects_including_soft_deleted.get(id=organization_id)
         except Organization.DoesNotExist:
             messages.error(request, f"Organization with id {organization_id} not found.")
             return redirect(reverse("admin:posthog_organization_changelist"))
@@ -577,7 +600,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     def limit_product_view(self, request, organization_id):
         from ee.billing.quota_limiting import QuotaResource
 
-        organization: Organization = Organization.objects.get(id=organization_id)
+        organization: Organization = Organization.objects_including_soft_deleted.get(id=organization_id)
         assert organization
 
         if request.method == "POST":
@@ -596,7 +619,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     def unlimit_product_view(self, request, organization_id):
         from ee.billing.quota_limiting import QuotaResource
 
-        organization = Organization.objects.get(id=organization_id)
+        organization = Organization.objects_including_soft_deleted.get(id=organization_id)
 
         if request.method == "POST":
             resource_name = request.POST.get("resource")
@@ -762,7 +785,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         )
 
     def model_counts_view(self, request, organization_id):
-        organization = Organization.objects.get(id=organization_id)
+        organization = Organization.objects_including_soft_deleted.get(id=organization_id)
         counts = get_model_counts_for_organization(organization)
         total = sum(c["count"] for c in counts if isinstance(c["count"], int))
         has_persons_db_models = any(c.get("persons_db") for c in counts)

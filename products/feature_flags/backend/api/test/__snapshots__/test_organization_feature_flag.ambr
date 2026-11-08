@@ -47,7 +47,9 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.1
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -169,7 +171,9 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.15
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -387,7 +391,9 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.2
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -427,13 +433,17 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.20
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -656,6 +666,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -746,6 +758,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -830,6 +844,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -885,6 +901,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -977,6 +995,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1174,6 +1194,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1400,7 +1422,9 @@
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.1
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -1453,6 +1477,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1529,6 +1555,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1739,7 +1767,9 @@
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.2
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -1779,7 +1809,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -1792,6 +1824,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1847,6 +1881,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -2017,6 +2053,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",

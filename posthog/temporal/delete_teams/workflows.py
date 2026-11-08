@@ -273,7 +273,7 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
                 f"{temporalio.workflow.info().workflow_id}-teams-data",
             )
 
-        # Deleting the org row cascades any remaining Projects; the teams are already gone.
+        # Cascade-deletes any remaining Projects (teams are already gone), then leaves a tombstone row.
         await temporalio.workflow.execute_activity(
             delete_organization_record_activity,
             OrganizationRecordInputs(organization_id=inputs.organization_id, user_id=inputs.user_id),
@@ -282,7 +282,7 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
             retry_policy=DELETE_RETRY_POLICY,
         )
 
-        # The billing sweep skips deleted orgs, so resync this one now that its row is gone; best-effort.
+        # The tombstone insert fires no post_save, so this is the real-time billing flag path; best-effort.
         if temporalio.workflow.patched("deactivate-deleted-organization-in-billing"):
             try:
                 await temporalio.workflow.execute_activity(
