@@ -177,11 +177,7 @@ export function mergeConversationItems({
   for (const id of tailAnchors.keys()) {
     if (!tailIds.has(id)) tailAnchors.delete(id);
   }
-  const indexById = new Map(
-    dedupedConversation.map((item, index) => [item.id, index]),
-  );
-  const tailItemsByIndex = new Map<number, ConversationItem[]>();
-  for (const item of tailOptimisticItems) {
+  const placements = tailOptimisticItems.map((item) => {
     if (!tailAnchors.has(item.id)) {
       tailAnchors.set(
         item.id,
@@ -189,20 +185,23 @@ export function mergeConversationItems({
       );
     }
     const anchorId = tailAnchors.get(item.id);
-    const anchorIndex = anchorId == null ? -1 : indexById.get(anchorId);
-    const insertionIndex =
-      anchorIndex === undefined ? tailInsertionIndex : anchorIndex + 1;
-    const itemsAtIndex = tailItemsByIndex.get(insertionIndex) ?? [];
-    itemsAtIndex.push(item);
-    tailItemsByIndex.set(insertionIndex, itemsAtIndex);
-  }
+    if (anchorId == null) return { item, index: 0 };
+    const anchorIndex = dedupedConversation.findLastIndex(
+      (entry) => entry.id === anchorId,
+    );
+    return {
+      item,
+      index: anchorIndex === -1 ? tailInsertionIndex : anchorIndex + 1,
+    };
+  });
+  placements.sort((left, right) => left.index - right.index);
 
-  const merged = [...resolvedPinnedItems];
-  for (let index = 0; index <= dedupedConversation.length; index++) {
-    merged.push(...(tailItemsByIndex.get(index) ?? []));
-    if (index < dedupedConversation.length) {
-      merged.push(dedupedConversation[index]);
-    }
+  const segments: ConversationItem[][] = [resolvedPinnedItems];
+  let start = 0;
+  for (const { item, index } of placements) {
+    segments.push(dedupedConversation.slice(start, index), [item]);
+    start = index;
   }
-  return merged;
+  segments.push(dedupedConversation.slice(start));
+  return ([] as ConversationItem[]).concat(...segments);
 }
