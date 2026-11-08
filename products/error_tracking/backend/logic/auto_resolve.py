@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -18,12 +19,14 @@ _CANDIDATE_CHUNK_SIZE = 5000
 
 
 def find_auto_resolve_candidates(team: Team, after_days: int) -> list[UUID]:
-    """Return the ids of the team's active issues that had no exception in the last `after_days` days."""
+    """Return the ids of the team's active issues that had no exception and no change in the last `after_days` days."""
     cutoff = timezone.now() - timedelta(days=after_days)
     candidate_ids = list(
         ErrorTrackingIssue.objects.filter(
             team_id=team.pk, status=ErrorTrackingIssue.Status.ACTIVE, created_at__lt=cutoff
-        ).values_list("id", flat=True)
+        )
+        .filter(Q(state_updated_at__isnull=True) | Q(state_updated_at__lt=cutoff))
+        .values_list("id", flat=True)
     )
     recent: set[UUID] = set()
     for start in range(0, len(candidate_ids), _CANDIDATE_CHUNK_SIZE):

@@ -81,9 +81,10 @@ export function AutoResolveSettings(): JSX.Element {
                         <ul className="list-disc pl-4 space-y-1">
                             <li>
                                 {days !== null
-                                    ? `An active issue resolves after about ${days} ${days === 1 ? 'day' : 'days'} without exceptions.`
-                                    : 'An active issue resolves after about that many days without exceptions.'}{' '}
-                                Assigned issues resolve too, and keep their assignee. Suppressed issues never resolve.
+                                    ? `An active issue resolves after about ${days} ${days === 1 ? 'day' : 'days'} with no exceptions and no changes.`
+                                    : 'An active issue resolves after about that many days with no exceptions and no changes.'}{' '}
+                                Reopening, assigning or editing an issue starts the count again. Suppressed issues never
+                                resolve.
                             </li>
                             <li>
                                 If the error happens again, the issue reopens and your reopened issue alerts fire. To

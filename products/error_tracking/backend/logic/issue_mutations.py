@@ -6,6 +6,7 @@ can stay thin (parse -> facade -> serialize).
 """
 
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
@@ -513,14 +514,16 @@ def auto_resolve_issues(team_id: int, issue_ids: Sequence[UUID], *, after_days: 
     """Resolve the given quiet issues as the system in one transaction, and return the ids it resolved.
 
     The ids come from a query that ran before the lock, so an issue a user or ingestion changed since then
-    is no longer `active` here and stays as it is.
+    is no longer active or carries a newer state stamp here, and stays as it is.
     """
     actor = IssueActor.for_system(team_id, bulk=True)
+    cutoff = timezone.now() - timedelta(days=after_days)
     with transaction.atomic():
         issues = [
             issue
             for issue in _lock_issues(team_id, list(issue_ids), select_related=("team__organization",))
             if issue.status == ErrorTrackingIssue.Status.ACTIVE
+            and (issue.state_updated_at is None or issue.state_updated_at < cutoff)
         ]
         resolved_ids = change_issue_statuses(
             issues,

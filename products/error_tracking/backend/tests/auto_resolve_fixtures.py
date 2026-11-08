@@ -20,12 +20,18 @@ def create_issue_with_exceptions(
     *,
     status: str = ErrorTrackingIssue.Status.ACTIVE,
     created_days_ago: int = 30,
+    state_updated_days_ago: int | None = None,
     exception_days_ago: list[list[int]] | None = None,
     assignee: User | None = None,
 ) -> ErrorTrackingIssue:
     """Create an issue with one fingerprint per inner list of `exception_days_ago`, each holding its exception ages."""
     issue = ErrorTrackingIssue.objects.create(team=team, status=status, name="TypeError")
-    ErrorTrackingIssue.objects.filter(id=issue.id).update(created_at=timezone.now() - timedelta(days=created_days_ago))
+    ErrorTrackingIssue.objects.filter(id=issue.id).update(
+        created_at=timezone.now() - timedelta(days=created_days_ago),
+        state_updated_at=None
+        if state_updated_days_ago is None
+        else timezone.now() - timedelta(days=state_updated_days_ago),
+    )
     issue.refresh_from_db()
     if assignee is not None:
         ErrorTrackingIssueAssignment.objects.create(team=team, issue=issue, user=assignee)

@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from temporalio.testing import ActivityEnvironment
@@ -8,7 +10,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.error_tracking.backend.logic import auto_resolve_sweep
+from products.error_tracking.backend.logic import auto_resolve_sweep, issue_mutations
 from products.error_tracking.backend.logic.auto_resolve_sweep import auto_resolve_team, auto_resolve_team_ids
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -34,6 +36,13 @@ class TestAutoResolveTeam(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("quiet_active", {"exception_days_ago": [[20]]}, AFTER_DAYS, Status.RESOLVED, 1),
+            (
+                "changed_long_ago",
+                {"exception_days_ago": [[20]], "state_updated_days_ago": 20},
+                AFTER_DAYS,
+                Status.RESOLVED,
+                1,
+            ),
             ("exceptions_past_retention", {"created_days_ago": 400}, AFTER_DAYS, Status.RESOLVED, 1),
             ("recent_exception", {"exception_days_ago": [[20, 2]]}, AFTER_DAYS, Status.ACTIVE, 0),
             (
@@ -65,6 +74,19 @@ class TestAutoResolveTeam(ClickhouseTestMixin, BaseTest):
             assert run is not None
             assert (run.after_days, run.resolved_count) == (after_days, expected_resolved_count)
 
+    def test_keeps_a_reopened_issue_active_for_a_full_quiet_period(self, _flag) -> None:
+        issue = create_issue_with_exceptions(self.team, status=Status.RESOLVED, exception_days_ago=[[20]])
+        self._enable()
+        issue_mutations.update_issue(
+            self.team.id, issue.id, fields={"status": Status.ACTIVE}, user=self.user, was_impersonated=False
+        )
+
+        run = auto_resolve_team(self.team.id)
+
+        issue.refresh_from_db()
+        assert issue.status == Status.ACTIVE
+        assert run is not None and run.resolved_count == 0
+
     def test_leaves_other_teams_issues_alone(self, _flag) -> None:
         other_team = Team.objects.create(organization=self.organization)
         other_issue = create_issue_with_exceptions(other_team, exception_days_ago=[[20]])
@@ -76,21 +98,27 @@ class TestAutoResolveTeam(ClickhouseTestMixin, BaseTest):
         assert other_issue.status == Status.ACTIVE
         assert run is not None and run.resolved_count == 0
 
-    def test_skips_an_issue_changed_after_the_candidate_query(self, _flag) -> None:
+    @parameterized.expand(
+        [
+            ("suppressed", {"status": Status.SUPPRESSED}, Status.SUPPRESSED),
+            ("edited_while_active", {"name": "Renamed", "state_updated_at": timezone.now()}, Status.ACTIVE),
+        ]
+    )
+    def test_skips_an_issue_changed_after_the_candidate_query(self, _flag, _name, change, expected_status) -> None:
         issue = create_issue_with_exceptions(self.team, exception_days_ago=[[20]])
         self._enable()
         find_candidates = auto_resolve_sweep.find_auto_resolve_candidates
 
-        def find_then_suppress(team, after_days):
+        def find_then_change(team, after_days):
             candidates = find_candidates(team, after_days)
-            ErrorTrackingIssue.objects.filter(id=issue.id).update(status=Status.SUPPRESSED)
+            ErrorTrackingIssue.objects.filter(id=issue.id).update(**change)
             return candidates
 
-        with patch.object(auto_resolve_sweep, "find_auto_resolve_candidates", side_effect=find_then_suppress):
+        with patch.object(auto_resolve_sweep, "find_auto_resolve_candidates", side_effect=find_then_change):
             run = auto_resolve_team(self.team.id)
 
         issue.refresh_from_db()
-        assert issue.status == Status.SUPPRESSED
+        assert issue.status == expected_status
         assert run is not None and run.resolved_count == 0
 
     @parameterized.expand([("change_log_on", True), ("change_log_off", False)])

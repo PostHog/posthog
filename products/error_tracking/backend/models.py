@@ -90,6 +90,7 @@ class ErrorTrackingIssue(UUIDTModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
+    # Both the ClickHouse state overlay watermark and the start of the auto-resolve quiet window: a new stamp moves both.
     state_updated_at = models.DateTimeField(null=True, blank=True)
     status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
     severity = models.TextField(choices=Severity, null=True, default=None)

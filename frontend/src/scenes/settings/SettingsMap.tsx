@@ -900,7 +900,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-auto-resolve',
                 title: 'Auto-resolve',
                 description:
-                    'Resolve active issues automatically when they stop receiving exceptions. A daily run checks your issues.',
+                    'Resolve active issues automatically when they get no exceptions and no changes for a while. A daily run checks your issues.',
                 component: <AutoResolveSettings />,
                 flag: 'ERROR_TRACKING_AUTO_RESOLVE',
                 keywords: ['resolve', 'auto', 'quiet', 'stale', 'cleanup'],
