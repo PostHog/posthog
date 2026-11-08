@@ -11217,10 +11217,10 @@ Today (4): `cohort_metrics`, `conversion_metrics`, `custom_dimensions`, `daily_r
 
 Diffed against: <https://support.singular.net/api/v2/help_center/en-us/articles/360045245692.json>
 
-- [ ] `Filters (GET /api/v2.0/reporting/filters)` — resolve OS and source codes into display names for daily campaign reports (high)
-- [ ] `Create Async SKAdNetwork Report (POST /api/v2.0/create_async_skadnetwork_report)` — analyze iOS attribution with network cost, impressions, and cost per install (high)
-- [ ] `Ad Monetization Reporting (GET /api/v2.0/admonetization/reporting)` — measure advertising revenue, fill rates, and impressions from monetization networks (medium)
-- [ ] `Create Async SKAdNetwork Raw Report (POST /api/v2.0/create_async_skadnetwork_raw_report)` — analyze individual SKAdNetwork postbacks and conversion values without aggregation (medium)
+- [x] `Filters (GET /api/v2.0/reporting/filters)` — resolve OS and source codes into display names for daily campaign reports (high)
+- [x] `Create Async SKAdNetwork Report (POST /api/v2.0/create_async_skadnetwork_report)` — analyze iOS attribution with network cost, impressions, and cost per install (high)
+- [x] `Ad Monetization Reporting (GET /api/v2.0/admonetization/reporting)` — measure advertising revenue, fill rates, and impressions from monetization networks (medium)
+- [x] `Create Async SKAdNetwork Raw Report (POST /api/v2.0/create_async_skadnetwork_raw_report)` — analyze individual SKAdNetwork postbacks and conversion values without aggregation (medium)
 
 Note: Fetched official article bodies through the Help Center API because the browser reference returned a challenge. Also parsed SKAdNetwork article 360056377792 and Ad Monetization article 360045674511 through the same API. Daily reports already support configurable metrics and cohorts; SKAdNetwork reports need separate generation and download flows. Excluded report polling and availability checks; the listed POST operations generate analytical reports rather than write business records.
 
