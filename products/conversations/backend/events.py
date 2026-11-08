@@ -30,6 +30,7 @@ from posthog.settings import SITE_URL
 
 from products.access_control.backend.models.role import Role
 from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
+from products.conversations.backend.ai.human_outcome import HumanOutcome
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, OrganizationIdSource
@@ -672,12 +673,22 @@ def capture_message_sent(
     message_id: str,
     message_content: str,
     author: User | None = None,
+    ai_draft_outcome: HumanOutcome | None = None,
 ) -> None:
-    """Team member sent a public reply on a ticket."""
+    """Team member sent a public reply on a ticket.
+
+    `ai_draft_outcome` says how this reply compares to the latest AI draft on the ticket.
+    It is set only on the first public human reply after that draft. Every other reply
+    omits it, including later replies on a drafted ticket, so filter to a ticket's first
+    reply before reading absence as "no draft".
+    """
     properties = _team_message_properties(ticket, message_id, author)
+    analytics_properties = {**properties, "message_content": (message_content or "")[:1000]}
+    if ai_draft_outcome is not None:
+        analytics_properties["ai_draft_outcome"] = ai_draft_outcome
     _capture_team_message(
         ticket,
-        {**properties, "message_content": (message_content or "")[:1000]},
+        analytics_properties,
         author,
         "$conversation_message_sent",
     )
