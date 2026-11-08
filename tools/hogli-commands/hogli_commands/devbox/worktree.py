@@ -86,7 +86,7 @@ cd {_REMOTE_REPO_PATH} || exit 1
 mkdir -p ~/.cache/hogli
 exec 9>> ~/.cache/hogli/test-db-prewarm.lock
 flock --nonblock 9 || exit 0
-HOGLI_TEST_DB_PREWARM=1 setsid -f timeout 1h bash -lc \\
+env -u SSH_AUTH_SOCK HOGLI_TEST_DB_PREWARM=1 setsid -f timeout 1h bash -lc \\
     'flox activate -- pytest -q posthog/api/test/test_comments.py::TestComments::test_creates_comment_successfully' \\
     >> {_TEST_DB_LOG} 2>&1 < /dev/null
 """
@@ -132,6 +132,13 @@ def _is_linked_worktree(root: Path) -> bool:
 def _checked_out_branch(root: Path) -> str | None:
     result = subprocess.run(["git", "symbolic-ref", "--short", "-q", "HEAD"], cwd=root, capture_output=True, text=True)
     return (result.stdout.strip() if result.returncode == 0 else "") or None
+
+
+def _head_is_on_master(root: Path) -> bool:
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", "HEAD", "origin/master"], cwd=root, capture_output=True
+    )
+    return result.returncode == 0
 
 
 def _current_branch(root: Path) -> str:
@@ -494,7 +501,7 @@ def devbox_worktree(
 
     steps = [box_step, sync_step]
     if existing is None:
-        steps.append("Build the test database on the devbox in the background")
+        steps.append("Build the test database on the devbox in the background, if HEAD is on origin/master")
     if not _print_plan(root, steps, on_clean, dry_run):
         return
     _reset_recreated_mirror(target)
@@ -525,12 +532,17 @@ def devbox_worktree(
         return
     ensure_sync_session(target.workspace_name, workspaces, root, verbose=verbose)
     if existing is None:
-        _prewarm_test_db(target.workspace_name)
+        _prewarm_test_db(root, target.workspace_name)
     click.echo()
     click.echo(f"App URL, once the stack runs on the box: {_app_url(target.workspace_name)}")
 
 
-def _prewarm_test_db(workspace_name: str) -> None:
+def _prewarm_test_db(root: Path, workspace_name: str) -> None:
+    # The build runs the branch's conftest and test imports on a box that holds the user's credentials,
+    # so it runs only code that master already reviewed, like the checkout script that turns hooks off.
+    if not _head_is_on_master(root):
+        click.echo("HEAD isn't on origin/master, so the first backend test builds the test database.")
+        return
     click.echo("Waiting for the first sync before the test database build...")
     try:
         mutagen.sync_flush(mutagen.workspace_label_selector(workspace_name))

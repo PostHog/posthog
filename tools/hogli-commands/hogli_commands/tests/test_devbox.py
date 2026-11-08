@@ -1184,6 +1184,7 @@ class TestDevboxWorktreeCommand:
             "run_in_workspace",
             lambda name, command, timeout: subprocess.CompletedProcess(command, 0, "", ""),
         )
+        monkeypatch.setattr(devbox_worktree, "_head_is_on_master", lambda root: True)
         return root
 
     @pytest.mark.parametrize(
@@ -1272,6 +1273,43 @@ class TestDevboxWorktreeCommand:
         created = [box for box in expected_calls if box not in (existing or [])]
         assert (started, synced, prewarmed) == (expected_calls, expected_calls, created)
         assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_box
+
+    @pytest.mark.parametrize(
+        "head, builds",
+        [
+            pytest.param("master", True, id="head-on-origin-master-builds"),
+            pytest.param("unmerged-commit", False, id="unmerged-branch-code-does-not-run"),
+            pytest.param("no-origin", False, id="no-origin-master-does-not-run"),
+        ],
+    )
+    def test_builds_the_test_database_only_for_code_on_origin_master(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, head: str, builds: bool
+    ) -> None:
+        def git(*args: str) -> None:
+            subprocess.run(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                cwd=tmp_path,
+                check=True,
+                capture_output=True,
+            )
+
+        git("init", "-q")
+        git("commit", "-q", "--allow-empty", "-m", "master")
+        if head != "no-origin":
+            git("update-ref", "refs/remotes/origin/master", "HEAD")
+        if head == "unmerged-commit":
+            git("commit", "-q", "--allow-empty", "-m", "branch")
+        ran: list[str] = []
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_flush", lambda selector: None)
+        monkeypatch.setattr(
+            devbox_worktree,
+            "run_in_workspace",
+            lambda name, command, timeout: ran.append(name) or subprocess.CompletedProcess(command, 0, "", ""),
+        )
+
+        devbox_worktree._prewarm_test_db(tmp_path, "devbox-test-user-feat")
+
+        assert ran == (["devbox-test-user-feat"] if builds else [])
 
     @pytest.mark.parametrize(
         "live_id, expected_exit",
