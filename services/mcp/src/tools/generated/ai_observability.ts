@@ -3477,8 +3477,8 @@ const AssistantPropertyFilter = z.union([
 
 const AssistantTracesQuery = z.object({
     dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
-    filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
-    filterTestAccounts: z.coerce
+    filterSupportTraces: z.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
+    filterTestAccounts: z
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters.')
         .default(true)
@@ -3496,7 +3496,7 @@ const AssistantTracesQuery = z.object({
         )
         .default([])
         .optional(),
-    randomOrder: z.coerce
+    randomOrder: z
         .boolean()
         .describe(
             'Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.'
