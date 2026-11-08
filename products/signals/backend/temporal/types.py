@@ -177,6 +177,8 @@ class TeamSignalGroupingV2Input:
     team_id: int
     pending_batch_keys: list[str] = field(default_factory=list)
     paused_until: Optional[datetime] = None
+    # Batch keys that already failed a processing round, so their drops are already reported.
+    retried_batch_keys: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -1454,6 +1454,7 @@ async def _complete_signal_batch(batch: list[EmitSignalInputs], reports: dict[st
 async def _process_signal_batch(
     batch: list[EmitSignalInputs],
     cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None,
+    report_prep_drops_for: Optional[list[EmitSignalInputs]] = None,
 ) -> tuple[int, FetchSignalTypeExamplesOutput]:
     """
     Process a batch of signals with parallel preparation (steps 1-4) and sequential
@@ -1463,6 +1464,10 @@ async def _process_signal_batch(
     Earlier signals in the batch are injected into later signals' candidate sets via
     local cosine distance comparison, eliminating the need for per-signal CH waits
     within a batch.
+
+    When preparation fails, `signal_dropped` is captured for every batch signal, or only for the
+    signals in `report_prep_drops_for` when it is set. Callers that retry a failed batch pass only
+    the signals not yet reported, so that one lost signal produces one `signal_dropped` event.
     """
     team_id = batch[0].team_id
     original_batch = batch
@@ -1627,7 +1632,11 @@ async def _process_signal_batch(
             team_id=team_id,
             batch_size=len(batch),
         )
-        await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in batch))
+        to_report = batch
+        if report_prep_drops_for is not None:
+            report_ids = {id(signal) for signal in report_prep_drops_for}
+            to_report = [signal for signal in batch if id(signal) in report_ids]
+        await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in to_report))
         raise
 
     # === SEQUENTIAL PHASE (steps 5-7) ===
