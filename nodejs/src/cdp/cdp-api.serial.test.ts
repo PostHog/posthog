@@ -118,6 +118,7 @@ describe('CDP API', () => {
             SITE_URL: 'http://localhost:8000',
         })
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
+        hub.CDP_EMAIL_ATTACHMENTS_ENABLED = true
         team = await getFirstTeam(hub.postgres)
 
         cdpDeps = createCdpConsumerDeps(hub)
@@ -315,6 +316,7 @@ describe('CDP API', () => {
         expect(res.status).toEqual(200)
         expect(res.body).toMatchObject({
             errors: [],
+            request_origins: ['https://example.com'],
             logs: [
                 {
                     level: 'info',
@@ -1229,6 +1231,63 @@ describe('CDP API', () => {
         expect(allLogText).not.toContain(SECRET_TOKEN)
         // Confirm redaction actually ran, rather than passing because no fetch log was emitted.
         expect(allLogText).toContain('***REDACTED***')
+    })
+
+    it.each([
+        ['real', false, ['https://example.com']],
+        ['mocked', true, []],
+    ])('reports the origins a flow step with %s requests sent to', async (_, mockAsyncFunctions, expectedOrigins) => {
+        mockFetch.mockImplementation(() =>
+            Promise.resolve({
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve('{}'),
+                dump: () => Promise.resolve(),
+            })
+        )
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-cdp-api-flow-origin-fetch',
+            name: 'Flow origin fetch',
+            code: `fetch(inputs.url, { 'method': 'POST' })`,
+            inputs_schema: [{ key: 'url', type: 'string', label: 'URL', secret: false, required: true }],
+        })
+
+        const res = await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+            .send({
+                globals,
+                mock_async_functions: mockAsyncFunctions,
+                current_action_id: 'fetch_node',
+                configuration: {
+                    name: 'Flow with a fetch',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'fetch_node',
+                            name: 'Fetch',
+                            type: 'function',
+                            config: {
+                                template_id: 'template-cdp-api-flow-origin-fetch',
+                                inputs: { url: { value: 'https://user:password@example.com/hook?token=abc' } },
+                            },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                    edges: [
+                        { from: 'trigger_node', to: 'fetch_node', type: 'continue' },
+                        { from: 'fetch_node', to: 'exit_node', type: 'continue' },
+                    ],
+                },
+            })
+
+        expect(res.status).toEqual(200)
+        expect(res.body).toMatchObject({ errors: [], request_origins: expectedOrigins })
     })
 
     describe('batch hogflow invocations', () => {
@@ -2678,6 +2737,42 @@ describe('CDP API', () => {
                 }
             } finally {
                 hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+            }
+        })
+
+        it('refuses a new code send with files while attachments are off, and still replays one sent before', async () => {
+            const sentBefore = {
+                ...body,
+                idempotency_key: `key-${new UUIDT().toString()}`,
+                send: { ...codeSend, attachments: [attachment()] },
+            }
+            const accepted = await sendAccepted(hogFlow.id, sentBefore)
+            hub.CDP_EMAIL_ATTACHMENTS_ENABLED = false
+            const filename = `report-${new UUIDT().toString()}.pdf`
+            const refusedKey = `key-${new UUIDT().toString()}`
+
+            try {
+                const replay = await sendAccepted(hogFlow.id, sentBefore)
+                const refused = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    idempotency_key: refusedKey,
+                    send: { ...codeSend, attachments: [attachment({ filename })] },
+                })
+                const withoutFiles = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    idempotency_key: refusedKey,
+                    send: codeSend,
+                })
+
+                expect(replay.body).toMatchObject({ invocation_id: accepted.body.invocation_id, replayed: true })
+                expect(refused.status).toEqual(400)
+                expect(parseJSON(refused.body.error)).toEqual([
+                    expect.objectContaining({ code: 'unrecognized_keys', keys: ['attachments'], path: ['send'] }),
+                ])
+                expect(await storedAttachments(filename)).toEqual([])
+                expect(withoutFiles.status).toEqual(202)
+            } finally {
+                hub.CDP_EMAIL_ATTACHMENTS_ENABLED = true
             }
         })
 

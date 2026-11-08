@@ -94,7 +94,7 @@ rules:
       # A regex, because semgrep binds only `Array` in `x as Array<Host>`. The `not` patterns drop
       # matches inside comments, strings and import renames.
       patterns:
-          - pattern-regex: (?<=[\w$)\]'"`>]\s)as\s+[\w$.<>,|&\[\]\s()]*?(?<![\w.$])(PersonalApiKey|ProjectToken|ProjectSecretApiKey|TeamSecretToken|OAuthAccessToken|OAuthRefreshToken|WorkloadToken|BearerToken)(?![\w$])
+          - pattern-regex: (?<=[\w$)\]'"`>]\s)as\s+[\w$.<>,|&\[\]\s()]*?(?<![\w.$])(PersonalApiKey|ProjectToken|ProjectSecretApiKey|TeamSecretToken|OAuthAccessToken|OAuthRefreshToken|WorkloadToken|ProviderIdToken|BearerToken)(?![\w$])
           - pattern-not-regex: (?<!:)//[^\n]*
           - pattern-not-regex: /\*[\s\S]*?\*/
           - pattern-not-regex: '"(?:[^"\\\n]|\\.)*"'
