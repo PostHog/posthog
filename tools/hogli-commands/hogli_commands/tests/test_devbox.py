@@ -637,8 +637,15 @@ class TestCoderVersion:
         assert "CODER_URL to https://coder.example.com" in output
 
     @pytest.mark.parametrize("entrypoint", ["ensure_coder_authenticated", "ensure_runtime_ready", "get_username"])
-    def test_rejected_env_token_is_named_instead_of_a_login_prompt(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], entrypoint: str
+    @pytest.mark.parametrize(
+        "coder_error",
+        [
+            "error: You are signed out or your session has expired. Please sign in again to continue.",
+            "error: GET https://coder.example.com/api/v2/users/me: unexpected status code 500: Internal error.",
+        ],
+    )
+    def test_env_token_login_failure_shows_the_coder_error_instead_of_a_login_prompt(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], entrypoint: str, coder_error: str
     ) -> None:
         coder.get_username.cache_clear()
         monkeypatch.setattr(coder, "get_coder_user_info", lambda: coder.CoderUserInfo())
@@ -649,16 +656,20 @@ class TestCoderVersion:
         monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: True)
         monkeypatch.setenv("CODER_SESSION_TOKEN", "expired-example-token")
 
-        def boom(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
-            raise AssertionError("coder login refuses to run while CODER_SESSION_TOKEN is set")
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            assert args[1] != "login", "coder login refuses to run while CODER_SESSION_TOKEN is set"
+            return subprocess.CompletedProcess(
+                args, 1, "", f"{coder_error}\nSuggestion: Try logging in using 'coder login'.\n"
+            )
 
-        monkeypatch.setattr(coder, "_run", boom)
+        monkeypatch.setattr(coder, "_run", fake_run)
 
         with pytest.raises(SystemExit):
             getattr(coder, entrypoint)()
 
         output = capsys.readouterr().out
-        assert "Coder rejected the CODER_SESSION_TOKEN" in output
+        assert coder_error in output
+        assert "rejected" not in output
         assert "unset CODER_SESSION_TOKEN to use the login stored on disk" in output
         assert "expired-example-token" not in output
 
@@ -678,23 +689,31 @@ class TestCoderVersion:
         assert "Coder is unreachable." in output
         assert "rejected" not in output
 
-    @pytest.mark.parametrize("stored_login_works, expect_note", [(False, True), (True, False)])
+    @pytest.mark.parametrize(
+        "stored_url, expect_note",
+        [(None, True), ("https://coder.example.com", False), ("https://other.example.com", True)],
+    )
     def test_setup_notes_when_the_login_lives_only_in_the_environment(
         self,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
-        stored_login_works: bool,
+        stored_url: str | None,
         expect_note: bool,
     ) -> None:
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder, "coder_command_hint", lambda: "coder")
         monkeypatch.setenv("CODER_SESSION_TOKEN", "example-token")
+        monkeypatch.setenv("CODER_URL", "https://coder.example.com")
+        stored_session_sent_to: list[str] = []
 
         def fake_coder(args: list[str], env: dict[str, str] | None = None, **kwargs: object):
             environ = os.environ if env is None else env
-            logged_in = "CODER_SESSION_TOKEN" in environ or stored_login_works
-            return subprocess.CompletedProcess(args, 0 if logged_in else 1, "", "")
+            target = environ.get("CODER_URL") or stored_url
+            if "CODER_SESSION_TOKEN" not in environ and stored_url and target != stored_url:
+                stored_session_sent_to.append(target or "")
+            logged_in = target is not None and ("CODER_SESSION_TOKEN" in environ or stored_url is not None)
+            return subprocess.CompletedProcess(args, 0 if logged_in else 1, json.dumps([{"url": target}]), "")
 
         monkeypatch.setattr(coder.subprocess, "run", fake_coder)
 
@@ -704,6 +723,7 @@ class TestCoderVersion:
         assert "Coder login is ready." in output
         assert ("coder login --use-token-as-session https://coder.example.com" in output) is expect_note
         assert "example-token" not in output.replace("CODER_SESSION_TOKEN", "")
+        assert stored_session_sent_to == []
 
     @pytest.mark.parametrize("user_bin_on_path", [True, False])
     def test_ensure_coder_on_path(

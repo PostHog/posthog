@@ -1008,18 +1008,33 @@ def _env_login_hint(coder_url: str) -> str:
     )
 
 
-def _fail_env_token_rejected(coder_url: str) -> NoReturn:
+def _coder_error(result: subprocess.CompletedProcess[str]) -> str:
+    errors = [line.strip() for line in result.stderr.splitlines() if line.strip().startswith("error:")]
+    return errors[0] if errors else f"`coder whoami` exited with status {result.returncode}."
+
+
+def _fail_env_token_login(coder_url: str) -> NoReturn:
     _fail(
-        f"Coder rejected the CODER_SESSION_TOKEN set in this shell for {coder_url}.\n"
-        f"  Check that CODER_URL is {coder_url} and the token has not expired. Get a new token at {coder_url}/cli-auth,\n"
+        f"Coder login with the CODER_SESSION_TOKEN set in this shell failed for {coder_url}:\n"
+        f"  {_coder_error(_coder_whoami())}\n"
+        f"  Check that CODER_URL is {coder_url}. If the token expired, get a new one at {coder_url}/cli-auth,\n"
         "  or unset CODER_SESSION_TOKEN to use the login stored on disk.",
-        cause="coder_env_token_rejected",
+        cause="coder_env_token_login_failed",
     )
 
 
 def _stored_login_works() -> bool:
-    env = {key: value for key, value in os.environ.items() if key != _SESSION_TOKEN_ENV}
-    return _run(["coder", "whoami", "--output", "json"], capture_output=True, env=env).returncode == 0
+    # Drop CODER_URL too: with it set, the CLI would send the stored session
+    # token to that deployment even when the token belongs to another one.
+    env = {key: value for key, value in os.environ.items() if key not in (_SESSION_TOKEN_ENV, "CODER_URL")}
+    result = _run(["coder", "whoami", "--output", "json"], capture_output=True, env=env)
+    if result.returncode != 0:
+        return False
+    try:
+        stored_url = json.loads(result.stdout)[0]["url"]
+    except (json.JSONDecodeError, LookupError, TypeError):
+        return False
+    return stored_url.rstrip("/") == get_coder_url().rstrip("/")
 
 
 def _note_login_only_in_env() -> None:
@@ -1041,7 +1056,7 @@ def _fail_login_not_ready(message: str) -> NoReturn:
     ensure_coder_reachable()
     coder_url = get_coder_url()
     if os.environ.get(_SESSION_TOKEN_ENV):
-        _fail_env_token_rejected(coder_url)
+        _fail_env_token_login(coder_url)
     if not sys.stdin.isatty():
         message += f"\n{_env_login_hint(coder_url)}"
     _fail(message, cause="coder_login_not_ready")
@@ -1061,7 +1076,7 @@ def ensure_coder_authenticated() -> None:
     if os.environ.get(_SESSION_TOKEN_ENV):
         # `coder login` refuses to run while CODER_SESSION_TOKEN is set, so a
         # prompt cannot fix a rejected token.
-        _fail_env_token_rejected(coder_url)
+        _fail_env_token_login(coder_url)
     if not sys.stdin.isatty():
         # `coder login` asks for a token pasted from the browser and fails with
         # "paste token prompt: EOF" when stdin isn't a terminal.
