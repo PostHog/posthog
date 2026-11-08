@@ -473,11 +473,40 @@ jobs:
     #     (used while migrating away from a pattern with a known backlog).
     #   - ERROR-severity rules fail the job on any finding (regression guards).
     # See `.semgrep/rules/devex/README.md`.
+    #
+    # The passes scan the same tree with different severities and share nothing, so
+    # they run as three parallel legs rather than one sequential job. Each leg still
+    # scans what it scanned before; only the grouping changed.
+    #
+    # Measured on 11 merged PRs (2026-11-05..07): this job took 548-881s (median
+    # 705s) and the Security lane ends on it for 19 of 40 merged PRs, so for those
+    # the job's wall is the PR's wait. Its steps were 301s of whole-tree WARNING
+    # scan, 265s of ERROR scan, 110s of ratchet and 22s of new-warning diffing, plus
+    # ~55s of checkout and image pull per runner. Split three ways the wall is the
+    # slowest leg rather than the sum: the replay predicted 356s, and this job's
+    # first production run measured 389s, 361s and 226s (lane 12.0 -> 6.8 min).
+    # Whole-PR wait, replayed over 40 merged PRs: median 12.57 -> 10.69 min.
+    #
+    # `Semgrep Checks Pass` needs no change: a matrix job reports failure when any
+    # leg fails, which is what its `needs.semgrep-devex.result` check reads.
+    #
+    # GitHub-hosted runners are unmetered on a public repository, so the two extra
+    # runners cost nothing. They are deliberately not Depot: the checkout contains
+    # code a PR controls, and Depot injects cache credentials on the host.
     semgrep-devex:
         needs: changes
         if: needs.changes.outputs.devex == 'true'
+        name: semgrep-devex (${{ matrix.leg }})
         runs-on: ubuntu-24.04
         timeout-minutes: 20
+        strategy:
+            # Report every leg's verdict, not just the first failure's.
+            fail-fast: false
+            matrix:
+                # warnings: the whole-tree WARNING scan and its backlog print (301s).
+                # errors: the blocking ERROR scan (265s).
+                # ratchet: the per-file baselines and the new-warning diff (154s).
+                leg: [warnings, errors, ratchet]
 
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
@@ -506,6 +535,7 @@ jobs:
             # does not fail CI. Backlogs from migration-in-progress rules show
             # up here.
             - name: Warnings (informational)
+              if: matrix.leg == 'warnings'
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
@@ -519,6 +549,7 @@ jobs:
                       bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
 
             - name: Authorization migration (informational)
+              if: matrix.leg == 'ratchet'
               run: |
                   if [ ! -f .semgrep/rules/devex/authorization-through-sdk.yaml ]; then
                       echo "authorization-through-sdk not present on this branch yet, skipping (rebase to pick it up)"
@@ -536,6 +567,7 @@ jobs:
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
             - name: Errors (blocking)
+              if: matrix.leg == 'errors'
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
@@ -555,6 +587,7 @@ jobs:
             # so do fewer, so each migration lowers the baseline. See .semgrep/rules/devex/README.md.
             # Skip on unrebased branches: the rule may not exist there yet.
             - name: Integration model ratchet (blocking)
+              if: matrix.leg == 'ratchet'
               run: |
                   if [ ! -f .semgrep/rules/devex/integration-model-through-sdk.yaml ]; then
                       echo "integration-model-through-sdk not present on this branch yet, skipping (rebase to pick it up)"
@@ -579,7 +612,7 @@ jobs:
             # merge commit), so the pass-1 backlog is grandfathered while new
             # violations block. See .semgrep/rules/devex/README.md.
             - name: New warnings (blocking)
-              if: github.event_name == 'pull_request'
+              if: matrix.leg == 'ratchet' && github.event_name == 'pull_request'
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
