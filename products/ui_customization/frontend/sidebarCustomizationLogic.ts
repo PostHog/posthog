@@ -13,19 +13,19 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
-import type { UserType } from '../../../frontend/src/types'
-import type { CustomizationApi } from './generated/api.schemas'
-import type { AnalyticsFragmentLayoutApi } from './generated/api.schemas'
+import type { UserType } from '~/types'
+
+import type { AnalyticsFragmentLayoutApi, CustomizationApi } from './generated/api.schemas'
 
 export interface SidebarConfiguration {
     context: string
@@ -42,6 +42,8 @@ export interface SidebarCustomizationProps {
     projectId: string
     userId: string
 }
+
+const SIDEBAR_REFRESH_INTERVAL_MS = 30_000
 
 type SidebarRequest =
     | { operation: 'load' }
@@ -70,6 +72,9 @@ export interface sidebarCustomizationLogicActions {
         value: true
     }
     loadSidebar: () => {
+        value: true
+    }
+    refreshSidebar: () => {
         value: true
     }
     requestFinished: () => {
@@ -131,6 +136,7 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
         })),
         actions({
             loadSidebar: true,
+            refreshSidebar: true,
             resetSidebar: (previous: CustomizationApi['layout']) => ({ previous }),
             restoreSidebar: (layout: CustomizationApi['layout']) => ({ layout }),
             requestSidebar: (request: SidebarRequest) => request,
@@ -190,11 +196,18 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
         })),
         listeners(({ actions, asyncActions, cache, values, props }) => ({
             [userLogic.actionTypes.logout]: () => actions.invalidateSession(),
+            // PostHog AI can save while its conversation is closed or the person is on another tab, and then no tool
+            // event reaches this pane, so a pane that stays open reloads when the person comes back or moves on.
+            [router.actionTypes.locationChanged]: () => actions.refreshSidebar(),
+            refreshSidebar: () => {
+                if (Date.now() - (cache.loadedAt ?? 0) >= SIDEBAR_REFRESH_INTERVAL_MS) {
+                    actions.loadSidebar()
+                }
+            },
             [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
                 const enabled = values.sidebarCustomizationEnabled
                 if (enabled !== cache.enabled) {
                     cache.enabled = enabled
-                    cache.flagGeneration = (cache.flagGeneration ?? 0) + 1
                     if (enabled) {
                         actions.loadSidebar()
                     }
@@ -208,6 +221,7 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
                     cache.reloadAfterWrite = true
                     return
                 }
+                cache.loadedAt = Date.now()
                 return asyncActions.requestSidebar({ operation: 'load' })
             },
             resetSidebar: ({ previous }) => {
@@ -225,11 +239,7 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
                 const release = sidebarCustomizationLogic(props).mount()
                 const context = getContext()
                 const generation = (cache.generation = (cache.generation ?? 0) + 1)
-                const flagGeneration = cache.flagGeneration ?? 0
-                const canApply = (): boolean =>
-                    getContext() === context &&
-                    values.sidebarCustomizationEnabled &&
-                    flagGeneration === (cache.flagGeneration ?? 0)
+                const canApply = (): boolean => getContext() === context && values.sidebarCustomizationEnabled
                 const isWrite = request.operation !== 'load'
                 if (isWrite) {
                     cache.pendingWrites = (cache.pendingWrites ?? 0) + 1
@@ -315,5 +325,22 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
         afterMount(({ actions, cache, values }) => {
             cache.enabled = values.sidebarCustomizationEnabled
             actions.loadSidebar()
+            cache.disposables.add(
+                () => {
+                    const onReturn = (): void => {
+                        if (document.visibilityState === 'visible') {
+                            actions.refreshSidebar()
+                        }
+                    }
+                    document.addEventListener('visibilitychange', onReturn)
+                    window.addEventListener('focus', onReturn)
+                    return () => {
+                        document.removeEventListener('visibilitychange', onReturn)
+                        window.removeEventListener('focus', onReturn)
+                    }
+                },
+                'refreshOnReturn',
+                { pauseOnPageHidden: false }
+            )
         }),
     ])
