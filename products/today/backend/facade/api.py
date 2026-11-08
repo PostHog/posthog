@@ -20,7 +20,7 @@ from . import contracts
 
 
 def delete_highlights_for_teams(team_ids: list[int]) -> None:
-    """Called from team deletion because product database rows have no foreign key to Team."""
+    """Remove every highlights row of the given teams. Called from team deletion, which no foreign key covers."""
     highlights.delete_for_teams(team_ids)
 
 

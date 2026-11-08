@@ -125,7 +125,6 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'warehouse-multi-destination': true,
         'feature-flag-rules-v2-mcp': true,
         'discussions-slack-sync': true,
-        'today-rail-nav': true,
         'ui-customization': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
