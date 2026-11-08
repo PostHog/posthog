@@ -763,7 +763,7 @@ class TestActivitySummaryQueue(BaseTest):
 
     @parameterized.expand(
         [
-            ("too few units", 2, {"return_value": FakeLLM([ANSWER])}, False, "skipped_too_few_units", False),
+            ("too few units", 2, {"return_value": FakeLLM([ANSWER])}, False, "skipped_too_few_units", False, None),
             (
                 "an exception before the model call",
                 3,
@@ -771,8 +771,17 @@ class TestActivitySummaryQueue(BaseTest):
                 False,
                 "failed",
                 False,
+                "exception: RuntimeError",
             ),
-            ("an exception after the model call", 3, {"return_value": FakeLLM([ANSWER])}, True, "failed", True),
+            (
+                "an exception after the model call",
+                3,
+                {"return_value": FakeLLM([ANSWER])},
+                True,
+                "failed",
+                True,
+                "exception_after_model_call: RuntimeError",
+            ),
             (
                 "an empty first profile",
                 3,
@@ -780,11 +789,19 @@ class TestActivitySummaryQueue(BaseTest):
                 False,
                 "skipped_empty_profile",
                 True,
+                None,
             ),
         ]
     )
     def test_a_pair_that_raised_or_skipped_does_not_come_back_on_the_next_tick(
-        self, _name: str, changes: int, gateway: dict[str, Any], store_fails: bool, status: str, called_model: bool
+        self,
+        _name: str,
+        changes: int,
+        gateway: dict[str, Any],
+        store_fails: bool,
+        status: str,
+        called_model: bool,
+        error: str | None,
     ) -> None:
         self._changes(self.user, changes)
         pair_input = ActivitySummaryPairInput(
@@ -809,7 +826,7 @@ class TestActivitySummaryQueue(BaseTest):
         ):
             result = run_pair(pair_input)
 
-        assert (result.status, result.called_model) == (status, called_model)
+        assert (result.status, result.called_model, result.error) == (status, called_model, error)
         assert self._select(config, seed=False) == []
         if called_model:
             assert result.cost_usd
@@ -1196,7 +1213,11 @@ async def _run_tick(
         await asyncio.sleep(0.01)
         running -= 1
         return ActivitySummaryPairResult(
-            status=pair_status, cost_usd=pair_cost, called_model=True, new_summary=input.user_id % 2 == 0
+            status=pair_status,
+            cost_usd=pair_cost,
+            called_model=True,
+            new_summary=input.user_id % 2 == 0,
+            error="api_error: APITimeoutError" if pair_status == "failed" else None,
         )
 
     @activity.defn(name="capture_activity_summary_tick_activity")
@@ -1251,6 +1272,11 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
     assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
     assert result.tiers == plan.tiers
     assert (result.new_builds, result.refresh_builds) == builds
+    assert (result.model_calls, result.failed_model_calls, result.failures_by_error) == (
+        picked,
+        picked if pair_status == "failed" else 0,
+        {"api_error: APITimeoutError": picked} if pair_status == "failed" else {},
+    )
     assert result.enrollment == plan.enrollment
     assert captured == [result]
 
