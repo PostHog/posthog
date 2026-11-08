@@ -540,6 +540,7 @@ async function takeSnapshotWithTheme(
                         const iframes = Array.from(document.querySelectorAll('iframe'))
                         return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
                     },
+                    undefined,
                     { timeout: 8000 }
                 )
                 .catch(() => {
@@ -592,6 +593,7 @@ async function takeSnapshotWithTheme(
                     checkStability()
                 })
             },
+            undefined,
             { timeout: 3000 }
         )
         .catch(() => {
@@ -861,6 +863,7 @@ async function resizeViewportAndWait(page: Page, viewport: { width: number; heig
                     checkStability()
                 })
             },
+            undefined,
             { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
         )
         .catch(() => {

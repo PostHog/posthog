@@ -3,14 +3,17 @@ import { expectLogic } from 'kea-test-utils'
 import { fileSystemEntryToAnalytics } from 'scenes/analytics/analyticsUtils'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import defaultSidebarFixture from '~/mocks/fixtures/api/today_analytics_sidebar.json'
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { DEFAULT_ANALYTICS_SIDEBAR } from './analyticsSidebarConfiguration'
 import { DEFAULT_COLLAPSED_SECTIONS, todayAnalyticsLogic } from './todayAnalyticsLogic'
 
 describe('todayAnalyticsLogic', () => {
+    afterEach(() => jest.restoreAllMocks())
     beforeEach(() => {
         useMocks({
             get: {
@@ -24,8 +27,13 @@ describe('todayAnalyticsLogic', () => {
                 },
             },
         })
+        localStorage.clear()
         initKeaTests()
         recentItemsModel.mount()
+    })
+
+    it('uses the default layout that the API mock serves', () => {
+        expect(DEFAULT_ANALYTICS_SIDEBAR).toEqual(defaultSidebarFixture)
     })
 
     it('starts with every section open, and remembers a toggled section', () => {
