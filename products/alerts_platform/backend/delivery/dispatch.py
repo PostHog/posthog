@@ -12,6 +12,7 @@ from django.utils import timezone
 import structlog
 
 from products.alerts_platform.backend.delivery.message import AlertMessage, build_message
+from products.alerts_platform.backend.delivery.refusal_notices import notify_refused
 from products.alerts_platform.backend.delivery.root_state import state_line
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, ThreadKey, ThreadStore
@@ -19,6 +20,7 @@ from products.alerts_platform.backend.delivery.transport import (
     DeliveryError,
     DeliveryTransport,
     DestinationMisconfigured,
+    DestinationRefused,
     MessageHandle,
     RootEditor,
 )
@@ -119,6 +121,27 @@ def deliver(
         raise ThreadBusy(f"{busy} of {len(announcement.transitions)} threads are held by another send")
 
 
+def _notify_refused(
+    *,
+    transport: DeliveryTransport,
+    team_id: int,
+    target: AlertDestinationData,
+    destination_id: str | None,
+    message: AlertMessage,
+    refusal: DestinationRefused,
+) -> None:
+    try:
+        notify_refused(
+            team_id=team_id,
+            message=message,
+            destination=f"{destination_id}|{transport.channel_target(target)}",
+            refusal=refusal,
+        )
+    except Exception:
+        # The send already failed and is being reported. A notice that fails must not replace that error.
+        logger.exception("alert_destination_refused_notice_failed", team_id=team_id, alert_id=message.configuration_id)
+
+
 def _send(
     *,
     transport: DeliveryTransport,
@@ -145,6 +168,15 @@ def _send(
         )
         outcome: DeliveryOutcomeLabel = "misconfigured" if isinstance(error, DestinationMisconfigured) else "failed"
         safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, outcome)
+        if isinstance(error, DestinationRefused):
+            _notify_refused(
+                transport=transport,
+                team_id=team_id,
+                target=target,
+                destination_id=destination_id,
+                message=message,
+                refusal=error,
+            )
         raise
     record_delivery(
         team_id=team_id,

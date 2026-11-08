@@ -11,6 +11,8 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from products.alerts_platform.backend.facade.contracts import (
         AlertDeliveryRequest,
         AnnouncedTransition,
@@ -55,4 +57,14 @@ def render_insight_slack_message(
 
     return platform_alert_slack.render_insight_slack_message(
         team_id=team_id, transition=transition, alert_name=alert_name, alert_url=alert_url, project=project, image=image
+    )
+
+
+def insight_alert_creator(*, team_id: int, alert_id: UUID) -> int | None:
+    from products.alerts.backend.models.alert import (
+        AlertConfiguration,  # noqa: PLC0415 - keeps alert models off the startup path
+    )
+
+    return (
+        AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).values_list("created_by_id", flat=True).first()
     )

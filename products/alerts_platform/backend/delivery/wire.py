@@ -13,7 +13,10 @@ import requests
 
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused
+
+# Request Timeout and Too Many Requests: the destination accepts this request at another time.
+_RETRYABLE_CLIENT_ERRORS: Final = frozenset({408, 429})
 
 # Both fit inside the deliver activity's 10-second start_to_close, so a stalled destination fails
 # this attempt instead of outliving it. A send still in flight when Temporal starts the next
@@ -75,4 +78,7 @@ def post_json(url: str, body: dict[str, Any], *, display_name: str, headers: dic
         # the text of a `requests` error carries the whole URL.
         raise DeliveryError(f"The {display_name} destination could not be reached: {type(error).__name__}") from None
     if not 200 <= status < 300:
-        raise DeliveryError(f"The {display_name} destination refused the message with status {status}.")
+        refusal = f"The {display_name} destination refused the message with status {status}."
+        if 400 <= status < 500 and status not in _RETRYABLE_CLIENT_ERRORS:
+            raise DestinationRefused(refusal, status=status)
+        raise DeliveryError(refusal)

@@ -39,6 +39,17 @@ class DestinationMisconfigured(DeliveryError):
     """
 
 
+class DestinationRefused(DestinationMisconfigured):
+    """An HTTP destination rejected the request itself, so every retry and every later message fails the same way.
+
+    Only a 4xx answer counts, and not 408 or 429, which a later attempt can get past.
+    """
+
+    def __init__(self, message: str, *, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class DeliveryTransport(Protocol):
     provider: str
 
