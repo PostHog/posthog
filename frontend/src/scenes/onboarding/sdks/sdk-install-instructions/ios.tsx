@@ -66,6 +66,9 @@ export function SDKInstallIOSInstructions(props: iOSSetupProps): JSX.Element {
     return (
         <>
             <h3>Install via Swift Package Manager</h3>
+            <p>
+                PostHog requires Xcode 26 or later, and iOS 15, macOS 11, tvOS 15, watchOS 10, or visionOS 1 or later.
+            </p>
             <IOSInstallSPMSnippet />
             <p>
                 Using CocoaPods? Version 4 is only published to Swift Package Manager. Version 3 stays on CocoaPods (
