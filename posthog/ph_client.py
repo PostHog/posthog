@@ -59,12 +59,12 @@ def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> Be
         return hooks[0]
 
     def chained(message: dict[str, Any]) -> dict[str, Any] | None:
-        result: dict[str, Any] | None = message
         for hook in hooks:
-            result = hook(result)
-            if result is None:
+            next_message = hook(message)
+            if next_message is None:
                 return None
-        return result
+            message = next_message
+        return message
 
     return chained
 
