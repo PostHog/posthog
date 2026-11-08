@@ -65,6 +65,15 @@ describe('resolveCredentials', () => {
     })
 
     test.each([
+        ['posthog.json gives an env key its project', { HOG_PERSONAL_API_KEY: 'phx_env' }, '7'],
+        ['HOG_PROJECT_ID beats posthog.json', { HOG_PERSONAL_API_KEY: 'phx_env', HOG_PROJECT_ID: '1' }, '1'],
+    ])('%s', async (_name, env, projectId) => {
+        const credentials = await resolveCredentials(fakeRuntime({ env }), { configProjectId: '7' })
+
+        expect(credentials).toMatchObject({ source: 'env', key: { projectId } })
+    })
+
+    test.each([
         ['nothing configured', {}, 'not_authenticated', {}, undefined],
         // `hog auth migrate` is the only command that reads posthog-cli's file.
         ["only posthog-cli's credentials file", {}, 'not_authenticated', { [LEGACY_CLI_FILE]: STORED }, undefined],
