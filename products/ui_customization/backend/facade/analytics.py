@@ -70,12 +70,15 @@ class AnalyticsNotebookTarget(FragmentModel):
 
 AnalyticsTarget = Annotated[
     AnalyticsPageTarget | AnalyticsInsightTarget | AnalyticsDashboardTarget | AnalyticsNotebookTarget,
-    Field(discriminator="kind", description="What the item opens. Only pages and objects of this project."),
+    Field(
+        discriminator="kind",
+        description="What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project.",
+    ),
 ]
 
 
 class AnalyticsFragmentLink(FragmentLink[AnalyticsTarget]):
-    """A link to an Analytics page or a project object. Object links require a label; pages supply their own label and icon."""
+    """A link to an Analytics page or a project object. Object links require a label. A page link shows the page's own label and icon unless you set them."""
 
     @model_validator(mode="after")
     def _object_links_have_a_label(self) -> Self:
@@ -91,7 +94,10 @@ class AnalyticsFragmentButton(FragmentButton[AnalyticsTarget]):
 class AnalyticsFragmentMetric(FragmentMetric):
     """The latest value of a trends insight, with a sparkline of its first series. Opens the insight."""
 
-    insight: str = Field(pattern=ANALYTICS_SHORT_ID_PATTERN, description="Short ID of a trends insight.")
+    insight: str = Field(
+        pattern=ANALYTICS_SHORT_ID_PATTERN,
+        description="Short ID of a trends insight, one whose query source kind is TrendsQuery. Link to other insights.",
+    )
 
 
 class AnalyticsFragmentList(FragmentList[AnalyticsListSource]):

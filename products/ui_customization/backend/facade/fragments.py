@@ -58,11 +58,17 @@ class FragmentSection(FragmentModel, Generic[Item]):
         min_length=1,
         max_length=32,
         pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
-        description="Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID.",
+        description=(
+            "Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept "
+            "by this ID, so keep the ID of an existing section when you move or rename it."
+        ),
     )
     title: FragmentLabel | None = Field(
         default=None,
-        description="Heading of the section. A section with a heading can be closed. Without one, its items show at the top.",
+        description=(
+            "Heading of the section. A section with a heading can be closed. A section without one shows its items "
+            "in its place in the layout, with no heading."
+        ),
     )
     icon: FragmentIcon | None = Field(default=None, description="Icon before the heading.")
     items: list[Item] = Field(min_length=1)
