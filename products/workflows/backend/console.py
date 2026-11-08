@@ -235,7 +235,7 @@ def _team(team_id: int | None) -> Cell:
     # linking one would fail the whole page.
     if team_id < 1:
         return Cell(text=str(team_id))
-    return Cell(text=str(team_id), href=reverse("admin_console_team", kwargs={"team_id": team_id}))
+    return Cell(text=str(team_id), href=reverse("admin_console_team", kwargs={"pk": team_id}))
 
 
 def _sample_row(queue_name: str, message: SesEventsDlqMessage) -> Row:
