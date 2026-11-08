@@ -2936,7 +2936,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
             claimed_by_id=42,
         )
         if grant_status == "exhausted":
-            await database_sync_to_async(SignalSpend.objects.for_team(ateam.id).create)(
+            await database_sync_to_async(SignalSpend.objects.for_team(ateam.id, canonical=True).create)(
                 team=ateam,
                 kind=SignalSpend.Kind.AD_HOC,
                 signal_id=uuid4(),
