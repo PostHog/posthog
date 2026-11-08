@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -175,6 +176,24 @@ describe('HogFunctionMonitoringService', () => {
         service.queueLogs([log(2)], 'hog_flow')
         await service.stop()
         expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps logs about internal logs out of the logs product, writes them to log_entries, and counts them', async () => {
+        const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
+        const loopGuarded = async (): Promise<number> =>
+            (await register.getSingleMetric('logs_internal_producer_records_total')!.get()).values.find(
+                (v) => v.labels.outcome === 'loop_guard'
+            )?.value ?? 0
+        const before = await loopGuarded()
+        service = new HogFunctionMonitoringService(outputs, internalLogsProducer(), new Set(['hog_flow']))
+
+        service.queueLogs([log(2), log(2), log(3)], 'hog_flow', { aboutInternalLogs: true })
+        await service.flush()
+        await service.stop()
+
+        expect(produceMock).toHaveBeenCalledTimes(3)
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect((await loopGuarded()) - before).toBe(2)
     })
 
     it('sends nothing to the logs product for a source not in CDP_INTERNAL_LOGS_SOURCES', async () => {

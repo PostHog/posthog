@@ -603,7 +603,7 @@ exclude = [
 # Complements tach (inter-module boundaries) with intra-product enforcement.
 
 [tool.importlinter]
-root_packages = ["products", "owners_yaml"]
+root_packages = ["products", "owners_yaml", "personhog"]
 include_external_packages = true
 
 # A Python distribution under packages/ is a leaf: it must install and run outside the
@@ -614,6 +614,12 @@ include_external_packages = true
 name = "packages/owners-yaml is a leaf"
 type = "forbidden"
 source_modules = ["owners_yaml"]
+forbidden_modules = ["posthog", "ee", "products", "common", "django", "rest_framework"]
+
+[[tool.importlinter.contracts]]
+name = "packages/personhog-proto is a leaf"
+type = "forbidden"
+source_modules = ["personhog"]
 forbidden_modules = ["posthog", "ee", "products", "common", "django", "rest_framework"]
 
 # A vendor directory under products/warehouse_sources/sources/ imports shared code only from its
