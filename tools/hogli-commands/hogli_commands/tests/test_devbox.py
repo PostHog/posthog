@@ -2288,13 +2288,14 @@ class TestResolveWorkspaceName:
         else:
             assert devbox_cli.resolve_workspace_name(workspace)[0] == expected
 
-    def test_listing_failure_keeps_the_worktree_box(
+    def test_listing_failure_in_a_worktree_stops_instead_of_retargeting(
         self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path
     ) -> None:
         monkeypatch.setattr(devbox_cli, "fetch_user_workspaces", lambda: None)
         monkeypatch.chdir(worktree_with_box)
 
-        assert devbox_cli.resolve_workspace_name(None) == ("devbox-test-user-feat", None)
+        with pytest.raises(SystemExit):
+            devbox_cli.resolve_workspace_name(None)
 
     @pytest.mark.parametrize(
         "status, expected",

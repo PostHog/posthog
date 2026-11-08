@@ -184,7 +184,10 @@ def resolve_workspace_name(
         return resolve_default_workspace_name(region=effective_region)
     workspaces = fetch_user_workspaces()
     if workspaces is None:
-        return record.workspace, None
+        _fail(
+            f"Couldn't list your devboxes in Coder, so this worktree's devbox '{record.workspace}' can't be checked. "
+            f"Try again, or pass `-n {extract_workspace_label(record.workspace)}` to use it anyway."
+        )
     live = get_workspace(record.workspace, workspaces)
     if live is None:
         return resolve_default_workspace_name(region=effective_region, workspaces=workspaces)
