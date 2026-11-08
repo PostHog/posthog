@@ -2179,11 +2179,6 @@ export interface PatchedErrorTrackingReleaseUpdateRequestApi {
     metadata?: PatchedErrorTrackingReleaseUpdateRequestApiMetadata
 }
 
-export interface AutoResolvePreviewApi {
-    /** Number of active issues the next auto-resolve run would resolve with this number of days. */
-    count: number
-}
-
 export interface ErrorTrackingSettingsApi {
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
@@ -2874,15 +2869,6 @@ export type ErrorTrackingReleasesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type ErrorTrackingSettingsAutoResolvePreviewRetrieveParams = {
-    /**
-     * Number of days without exceptions after which an active issue counts as quiet, from 1 to 365.
-     * @minimum 1
-     * @maximum 365
-     */
-    days: number
 }
 
 export type ErrorTrackingSpikeEventsListParams = {

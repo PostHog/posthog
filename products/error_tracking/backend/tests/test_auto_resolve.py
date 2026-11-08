@@ -33,15 +33,25 @@ class TestAutoResolveTeam(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("quiet_active", {"exception_days_ago": [[20]]}, AFTER_DAYS, Status.RESOLVED),
-            ("exceptions_past_retention", {"created_days_ago": 400}, AFTER_DAYS, Status.RESOLVED),
-            ("recent_exception", {"exception_days_ago": [[20, 2]]}, AFTER_DAYS, Status.ACTIVE),
-            ("suppressed", {"status": Status.SUPPRESSED}, AFTER_DAYS, Status.SUPPRESSED),
-            ("created_recently", {"created_days_ago": 5}, AFTER_DAYS, Status.ACTIVE),
-            ("setting_off", {"exception_days_ago": [[20]]}, None, Status.ACTIVE),
+            ("quiet_active", {"exception_days_ago": [[20]]}, AFTER_DAYS, Status.RESOLVED, 1),
+            ("exceptions_past_retention", {"created_days_ago": 400}, AFTER_DAYS, Status.RESOLVED, 1),
+            ("recent_exception", {"exception_days_ago": [[20, 2]]}, AFTER_DAYS, Status.ACTIVE, 0),
+            (
+                "recent_exception_on_merged_fingerprint",
+                {"exception_days_ago": [[20], [2]]},
+                AFTER_DAYS,
+                Status.ACTIVE,
+                0,
+            ),
+            ("suppressed", {"status": Status.SUPPRESSED}, AFTER_DAYS, Status.SUPPRESSED, 0),
+            ("already_resolved", {"status": Status.RESOLVED}, AFTER_DAYS, Status.RESOLVED, 0),
+            ("created_recently", {"created_days_ago": 5}, AFTER_DAYS, Status.ACTIVE, 0),
+            ("setting_off", {"exception_days_ago": [[20]]}, None, Status.ACTIVE, None),
         ]
     )
-    def test_resolves_only_quiet_active_issues(self, _flag, _name, issue_kwargs, after_days, expected_status) -> None:
+    def test_resolves_only_quiet_active_issues(
+        self, _flag, _name, issue_kwargs, after_days, expected_status, expected_resolved_count
+    ) -> None:
         issue = create_issue_with_exceptions(self.team, **issue_kwargs)
         self._enable(after_days)
 
@@ -53,7 +63,18 @@ class TestAutoResolveTeam(ClickhouseTestMixin, BaseTest):
             assert run is None
         else:
             assert run is not None
-            assert (run.after_days, run.resolved_count) == (after_days, int(expected_status == Status.RESOLVED))
+            assert (run.after_days, run.resolved_count) == (after_days, expected_resolved_count)
+
+    def test_leaves_other_teams_issues_alone(self, _flag) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        other_issue = create_issue_with_exceptions(other_team, exception_days_ago=[[20]])
+        self._enable()
+
+        run = auto_resolve_team(self.team.id)
+
+        other_issue.refresh_from_db()
+        assert other_issue.status == Status.ACTIVE
+        assert run is not None and run.resolved_count == 0
 
     def test_skips_an_issue_changed_after_the_candidate_query(self, _flag) -> None:
         issue = create_issue_with_exceptions(self.team, exception_days_ago=[[20]])

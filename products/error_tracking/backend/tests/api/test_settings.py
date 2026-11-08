@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest
 
 from django.test import SimpleTestCase
 
@@ -8,10 +8,8 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.error_tracking.backend.logic.auto_resolve_sweep import auto_resolve_team
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSettings
+from products.error_tracking.backend.models import ErrorTrackingSettings
 from products.error_tracking.backend.presentation.views.settings import ErrorTrackingSettingsSerializer
-from products.error_tracking.backend.tests.auto_resolve_fixtures import create_issue_with_exceptions
 
 
 class TestErrorTrackingSettingsAPI(APIBaseTest):
@@ -86,10 +84,6 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "auto_resolve_after_days")
 
-    def test_auto_resolve_preview_requires_days_in_range(self):
-        response = self.client.get(f"{self._base_url()}/auto_resolve_preview/", {"days": 0})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
     @parameterized.expand(
         [
             ("read_scope", ["error_tracking:read"], status.HTTP_200_OK),
@@ -141,62 +135,3 @@ class TestErrorTrackingSettingsSerializerValidation(SimpleTestCase):
     def test_auto_resolve_after_days(self, _name, value, expected_valid):
         serializer = ErrorTrackingSettingsSerializer(data={"auto_resolve_after_days": value}, partial=True)
         self.assertEqual(serializer.is_valid(), expected_valid, serializer.errors)
-
-
-class TestErrorTrackingAutoResolvePreviewAPI(ClickhouseTestMixin, APIBaseTest):
-    AFTER_DAYS = 14
-
-    def _preview_count(self) -> int:
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/error_tracking/settings/auto_resolve_preview/",
-            {"days": self.AFTER_DAYS},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return response.json()["count"]
-
-    @parameterized.expand(
-        [
-            ("quiet_active", {"exception_days_ago": [[20]]}, 1),
-            ("exceptions_past_retention", {"created_days_ago": 400}, 1),
-            ("assigned", {"exception_days_ago": [[20]], "assigned": True}, 1),
-            ("recent_exception", {"exception_days_ago": [[20, 2]]}, 0),
-            ("recent_exception_on_merged_fingerprint", {"exception_days_ago": [[20], [2]]}, 0),
-            ("created_recently", {"created_days_ago": 5}, 0),
-            ("suppressed", {"status": ErrorTrackingIssue.Status.SUPPRESSED}, 0),
-            ("already_resolved", {"status": ErrorTrackingIssue.Status.RESOLVED}, 0),
-        ]
-    )
-    def test_preview_counts_quiet_active_issues(self, _name, issue_kwargs, expected_count):
-        kwargs = {key: value for key, value in issue_kwargs.items() if key != "assigned"}
-        create_issue_with_exceptions(self.team, assignee=self.user if issue_kwargs.get("assigned") else None, **kwargs)
-        self.assertEqual(self._preview_count(), expected_count)
-
-    def test_preview_ignores_other_teams(self):
-        create_issue_with_exceptions(self.create_team_with_organization(organization=self.organization))
-        self.assertEqual(self._preview_count(), 0)
-
-    def test_run_resolves_exactly_the_previewed_issues(self):
-        for issue_kwargs in (
-            {"exception_days_ago": [[20]]},
-            {"created_days_ago": 400},
-            {"exception_days_ago": [[20, 2]]},
-            {"created_days_ago": 5},
-            {"status": ErrorTrackingIssue.Status.SUPPRESSED},
-        ):
-            create_issue_with_exceptions(self.team, **issue_kwargs)
-        preview_count = self._preview_count()
-        self.client.patch(
-            f"/api/projects/{self.team.id}/error_tracking/settings/update_settings/",
-            {"auto_resolve_after_days": self.AFTER_DAYS},
-            format="json",
-        )
-
-        run = auto_resolve_team(self.team.id)
-
-        self.assertEqual(preview_count, 2)
-        assert run is not None
-        self.assertEqual(run.resolved_count, preview_count)
-        self.assertEqual(
-            ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).count(),
-            preview_count,
-        )

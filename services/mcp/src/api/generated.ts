@@ -13627,11 +13627,6 @@ export namespace Schemas {
       has_membership_data: boolean;
     }
 
-    export interface AutoResolvePreview {
-      /** Number of active issues the next auto-resolve run would resolve with this number of days. */
-      count: number;
-    }
-
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -129884,15 +129879,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    };
-
-    export type ErrorTrackingSettingsAutoResolvePreviewRetrieveParams = {
-    /**
-     * Number of days without exceptions after which an active issue counts as quiet, from 1 to 365.
-     * @minimum 1
-     * @maximum 365
-     */
-    days: number;
     };
 
     export type ErrorTrackingSpikeEventsListParams = {

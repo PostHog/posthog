@@ -8,7 +8,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
-    errorTrackingSettingsAutoResolvePreviewRetrieve,
     errorTrackingSettingsRetrieveSettingsRetrieve,
     errorTrackingSettingsUpdateSettingsPartialUpdate,
 } from '../../../generated/api'
@@ -20,8 +19,6 @@ import {
     autoResolveChangeEvent,
     isValidAutoResolveDays,
 } from './autoResolveDays'
-
-const PREVIEW_DEBOUNCE_MS = 400
 
 export interface AutoResolveConfigForm {
     enabled: boolean
@@ -46,9 +43,6 @@ export interface autoResolveConfigLogicValues {
     hasLoadedConfig: boolean
     isConfigFormSubmitting: boolean
     isConfigFormValid: boolean
-    previewCount: number | null
-    previewCountFailed: boolean
-    previewCountLoading: boolean
     savedDays: number | null
     showConfigFormErrors: boolean
 }
@@ -69,27 +63,6 @@ export interface autoResolveConfigLogicActions {
     ) => {
         config: ErrorTrackingSettingsApi
         payload?: any
-    }
-    loadPreviewCount: ({ days }: { days: number }) => {
-        days: number
-    }
-    loadPreviewCountFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadPreviewCountSuccess: (
-        previewCount: number,
-        payload?: {
-            days: number
-        }
-    ) => {
-        previewCount: number
-        payload?: {
-            days: number
-        }
     }
     resetConfigForm: (values?: AutoResolveConfigForm) => {
         values?: AutoResolveConfigForm
@@ -171,14 +144,6 @@ export const autoResolveConfigLogic = kea<autoResolveConfigLogicType>([
                 loadConfigFailure: () => true,
             },
         ],
-        previewCountFailed: [
-            false,
-            {
-                loadPreviewCount: () => false,
-                loadPreviewCountSuccess: () => false,
-                loadPreviewCountFailure: () => true,
-            },
-        ],
     }),
 
     loaders(({ values }) => ({
@@ -187,20 +152,6 @@ export const autoResolveConfigLogic = kea<autoResolveConfigLogicType>([
             {
                 loadConfig: async () => {
                     return await errorTrackingSettingsRetrieveSettingsRetrieve(String(values.currentTeamId))
-                },
-            },
-        ],
-        previewCount: [
-            null as number | null,
-            {
-                loadPreviewCount: async ({ days }: { days: number }, breakpoint) => {
-                    await breakpoint(PREVIEW_DEBOUNCE_MS)
-                    const response = await errorTrackingSettingsAutoResolvePreviewRetrieve(
-                        String(values.currentTeamId),
-                        { days }
-                    )
-                    breakpoint()
-                    return response.count
                 },
             },
         ],
@@ -232,11 +183,7 @@ export const autoResolveConfigLogic = kea<autoResolveConfigLogicType>([
                     )
                     const event = autoResolveChangeEvent(previousDays, nextDays)
                     if (event) {
-                        posthog.capture(event, {
-                            days: nextDays ?? previousDays,
-                            previous_days: previousDays,
-                            preview_count: values.previewCount,
-                        })
+                        posthog.capture(event, { days: nextDays ?? previousDays, previous_days: previousDays })
                     }
                     actions.loadConfigSuccess(updated)
                     lemonToast.success('Auto-resolve settings saved')
@@ -248,19 +195,10 @@ export const autoResolveConfigLogic = kea<autoResolveConfigLogicType>([
         },
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadConfigSuccess: ({ config }) => {
             const days = config?.auto_resolve_after_days ?? null
             actions.resetConfigForm({ enabled: days !== null, days: days ?? AUTO_RESOLVE_DEFAULT_DAYS })
-            if (days !== null) {
-                actions.loadPreviewCount({ days })
-            }
-        },
-        setConfigFormValue: () => {
-            const { enabled, days } = values.configForm
-            if (enabled && isValidAutoResolveDays(days)) {
-                actions.loadPreviewCount({ days })
-            }
         },
     })),
 

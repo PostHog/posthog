@@ -13,16 +13,8 @@ import { autoResolveConfigLogic } from './autoResolveConfigLogic'
 import { AUTO_RESOLVE_MAX_DAYS, AUTO_RESOLVE_MIN_DAYS, isValidAutoResolveDays } from './autoResolveDays'
 
 export function AutoResolveSettings(): JSX.Element {
-    const {
-        configLoading,
-        configLoadFailed,
-        configForm,
-        configFormChanged,
-        isConfigFormSubmitting,
-        previewCount,
-        previewCountLoading,
-        previewCountFailed,
-    } = useValues(autoResolveConfigLogic)
+    const { configLoading, configLoadFailed, configForm, configFormChanged, isConfigFormSubmitting } =
+        useValues(autoResolveConfigLogic)
 
     if (configLoading) {
         return (
@@ -80,16 +72,6 @@ export function AutoResolveSettings(): JSX.Element {
                             </div>
                         )}
                     </LemonField>
-
-                    {days !== null ? (
-                        <p className="text-sm" data-attr="error-tracking-auto-resolve-preview">
-                            {previewCountFailed
-                                ? "Couldn't count the issues to resolve. Change the number of days to try again."
-                                : previewCountLoading || previewCount === null
-                                  ? 'Counting issues…'
-                                  : `${previewCount} ${previewCount === 1 ? 'issue' : 'issues'} will be resolved on the next run`}
-                        </p>
-                    ) : null}
 
                     <LemonBanner type="info">
                         <ul className="list-disc pl-4 space-y-1">

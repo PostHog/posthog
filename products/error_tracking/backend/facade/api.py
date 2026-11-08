@@ -12,13 +12,12 @@ from django.db.models import QuerySet
 import posthoganalytics
 
 from posthog.event_usage import AnalyticsProps, groups
-from posthog.models import Team
 
 from products.access_control.backend.facade.api import valid_role_member_user_ids
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import EMBEDDING_TABLES
-from ..logic import auto_resolve, external_references, github_external_references, rules
+from ..logic import external_references, github_external_references, rules
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -215,10 +214,6 @@ def get_settings(team_id: int) -> contracts.ErrorTrackingSettings:
 
 def update_settings(team_id: int, fields: dict[str, int | None]) -> contracts.ErrorTrackingSettings:
     return _to_settings(logic.update_settings(team_id=team_id, fields=fields))
-
-
-def count_auto_resolve_candidates(team_id: int, after_days: int) -> int:
-    return len(auto_resolve.find_auto_resolve_candidates(Team.objects.get(id=team_id), after_days))
 
 
 def _to_spike_detection_config(config) -> contracts.ErrorTrackingSpikeDetectionConfig:
