@@ -345,13 +345,23 @@ def test_a_refused_bulk_request_falls_back_to_single_requests(team, user, routin
     assert _run_log(team.id)["@carol"][0] == "refused"
 
 
+@pytest.mark.parametrize(
+    "second_action",
+    [
+        "opened",
+        # A draft marked ready before the `opened` task ran routes on `opened`, then its ready delivery arrives.
+        "ready_for_review",
+    ],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_retry_for_the_same_head_requests_nobody_twice(team, user, routing_chain) -> None:
+def test_a_second_delivery_for_the_same_head_requests_nobody_twice(
+    second_action: str, team, user, routing_chain
+) -> None:
     _setup(routing_chain, team, user)
     routing_chain.cut_model.answer = _CUT_BETA
 
     _route()
-    _route()
+    _route(second_action)
 
     assert len(_writes(routing_chain, "request_reviewers")) == 1
     assert len(routing_chain.cut_model.calls) == 1
@@ -390,6 +400,20 @@ def _fire_safety_net(schedule: MagicMock) -> None:
 
 def _push(chain: RoutingChain, head_sha: str) -> None:
     chain.recorder.prs[(REPO, PR_NUMBER)]["head"]["sha"] = head_sha
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_always_routes_a_head_that_fallback_left_waiting_once(team, user, routing_chain, safety_net) -> None:
+    repo_config = _open_fallback(routing_chain, team, user)
+    assert _stored(team.id)["status"] == "waiting"
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(routing_mode="always")
+
+    _route("ready_for_review")
+    _route("ready_for_review")
+
+    assert len(_writes(routing_chain, "request_reviewers")) == 1
+    assert _stored(team.id)["status"] == "done"
 
 
 @pytest.mark.parametrize(

@@ -53,6 +53,8 @@ import type {
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PaginatedWarehouseColumnStatisticsListApi,
+    PaginatedWarehouseMigrationItemListApi,
+    PaginatedWarehouseMigrationListApi,
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
     PatchedExternalDataSchemaApi,
@@ -73,6 +75,15 @@ import type {
     WarehouseAlertDestinationApi,
     WarehouseColumnStatisticsApi,
     WarehouseColumnStatisticsListParams,
+    WarehouseMigrationApi,
+    WarehouseMigrationConnectLinkApi,
+    WarehouseMigrationCreateApi,
+    WarehouseMigrationItemApi,
+    WarehouseMigrationSkipItemsApi,
+    WarehouseMigrationSkipItemsResponseApi,
+    WarehouseMigrationsConnectLinkRetrieveParams,
+    WarehouseMigrationsItemsListParams,
+    WarehouseMigrationsListParams,
     WebhookInfoResponseApi,
 } from './api.schemas'
 
@@ -545,6 +556,24 @@ export const externalDataSchemasDestinationsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedDestinationLinkApi),
+    })
+}
+
+export const getExternalDataSchemasHistoryTableDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/history_table/`
+}
+
+/**
+ * Delete the history table of a CDC schema that no longer writes it, for example after `cdc_table_mode` moved to `consolidated` or the schema left CDC while keeping it. Deletes the table and every past row version in it, and cannot be undone. Refused while the schema still writes the history table, or while a sync of it is still running. Switching back to a mode that keeps history later starts a new history table.
+ */
+export const externalDataSchemasHistoryTableDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasHistoryTableDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -1713,4 +1742,225 @@ export const warehouseColumnStatisticsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getWarehouseMigrationsListUrl = (projectId: string, params?: WarehouseMigrationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_migrations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_migrations/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsList = async (
+    projectId: string,
+    params?: WarehouseMigrationsListParams,
+    options?: RequestInit
+): Promise<PaginatedWarehouseMigrationListApi> => {
+    return apiMutator<PaginatedWarehouseMigrationListApi>(getWarehouseMigrationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseMigrationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsCreate = async (
+    projectId: string,
+    warehouseMigrationCreateApi: WarehouseMigrationCreateApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationApi> => {
+    return apiMutator<WarehouseMigrationApi>(getWarehouseMigrationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseMigrationCreateApi),
+    })
+}
+
+export const getWarehouseMigrationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseMigrationApi> => {
+    return apiMutator<WarehouseMigrationApi>(getWarehouseMigrationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseMigrationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseMigrationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWarehouseMigrationsItemsListUrl = (
+    projectId: string,
+    id: string,
+    params?: WarehouseMigrationsItemsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_migrations/${id}/items/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_migrations/${id}/items/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsItemsList = async (
+    projectId: string,
+    id: string,
+    params?: WarehouseMigrationsItemsListParams,
+    options?: RequestInit
+): Promise<PaginatedWarehouseMigrationItemListApi> => {
+    return apiMutator<PaginatedWarehouseMigrationItemListApi>(
+        getWarehouseMigrationsItemsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseMigrationsItemsSkipCreateUrl = (projectId: string, id: string, itemId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/items/${itemId}/skip/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsItemsSkipCreate = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    options?: RequestInit
+): Promise<WarehouseMigrationItemApi> => {
+    return apiMutator<WarehouseMigrationItemApi>(getWarehouseMigrationsItemsSkipCreateUrl(projectId, id, itemId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWarehouseMigrationsItemsBulkSkipCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/items/skip/`
+}
+
+/**
+ * Skip many connections at once, or all but the ones to keep.
+ */
+export const warehouseMigrationsItemsBulkSkipCreate = async (
+    projectId: string,
+    id: string,
+    warehouseMigrationSkipItemsApi?: WarehouseMigrationSkipItemsApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationSkipItemsResponseApi> => {
+    return apiMutator<WarehouseMigrationSkipItemsResponseApi>(
+        getWarehouseMigrationsItemsBulkSkipCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(warehouseMigrationSkipItemsApi),
+        }
+    )
+}
+
+export const getWarehouseMigrationsRefreshCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/refresh/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsRefreshCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseMigrationApi> => {
+    return apiMutator<WarehouseMigrationApi>(getWarehouseMigrationsRefreshCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWarehouseMigrationsConnectLinkRetrieveUrl = (
+    projectId: string,
+    params: WarehouseMigrationsConnectLinkRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_migrations/connect_link/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_migrations/connect_link/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsConnectLinkRetrieve = async (
+    projectId: string,
+    params: WarehouseMigrationsConnectLinkRetrieveParams,
+    options?: RequestInit
+): Promise<WarehouseMigrationConnectLinkApi> => {
+    return apiMutator<WarehouseMigrationConnectLinkApi>(
+        getWarehouseMigrationsConnectLinkRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }

@@ -141,7 +141,7 @@ export const SurveysCreateBody = () => zod.object({
         ])
         .optional()
         .describe(
-            "Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)\n\n\* `once` - once\n\* `recurring` - recurring\n\* `always` - always"
+            "Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)\n\n\* `once` - once\n\* `recurring` - recurring\n\* `always` - always"
         ),
     linked_flag_id: zod.number().nullish().describe('The feature flag linked to this survey.'),
     linked_insight_id: zod.number().nullish(),
@@ -1233,7 +1233,7 @@ export const SurveysCreateBody = () => zod.object({
         .max(surveysCreateBodyIterationCountMax)
         .nullish()
         .describe(
-            "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule."
+            "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it."
         ),
     iteration_frequency_days: zod
         .number()
@@ -1242,6 +1242,12 @@ export const SurveysCreateBody = () => zod.object({
         .nullish()
         .describe(
             'For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.'
+        ),
+    repeat_until_stopped: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.'
         ),
     iteration_start_dates: zod.array(zod.iso.datetime({ offset: true }).nullable()).nullish(),
     current_iteration: zod
@@ -1395,7 +1401,7 @@ export const SurveysPartialUpdateBody = () => zod.object({
         ])
         .optional()
         .describe(
-            "Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)\n\n\* `once` - once\n\* `recurring` - recurring\n\* `always` - always"
+            "Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)\n\n\* `once` - once\n\* `recurring` - recurring\n\* `always` - always"
         ),
     linked_flag_id: zod.number().nullish().describe('The feature flag linked to this survey.'),
     linked_insight_id: zod.number().nullish(),
@@ -2487,7 +2493,7 @@ export const SurveysPartialUpdateBody = () => zod.object({
         .max(surveysPartialUpdateBodyIterationCountMax)
         .nullish()
         .describe(
-            "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule."
+            "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it."
         ),
     iteration_frequency_days: zod
         .number()
@@ -2496,6 +2502,12 @@ export const SurveysPartialUpdateBody = () => zod.object({
         .nullish()
         .describe(
             'For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.'
+        ),
+    repeat_until_stopped: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.'
         ),
     iteration_start_dates: zod.array(zod.iso.datetime({ offset: true }).nullable()).nullish(),
     current_iteration: zod

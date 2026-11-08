@@ -493,20 +493,22 @@ tools:
         description: >
             Get the current user's own open inbox reports, ranked for them. One language model call ranks only the
             reports tied to them (suggested reviewer, claimed, waiting on their input), using their activity summary and
-            the ranking model's scores. Use it for "what should I work on" and "my top N" questions in place of paging
-            inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries and a
-            compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is personal:
-            only the user it describes can read it. The call never waits on the model. By default the last stored list
-            comes back quickly, and `checked_at` says when it was last compared with the full inbox. A report created
-            after that time joins at the next scheduled build. Pass `max_age_minutes` when the list must be newer than
-            that: an older list is checked against every candidate report, which can take some seconds, and rebuilt if
-            the inbox changed. `refresh` and `focus` always start a build, and builds are rate limited. A user with no
-            stored list gets the reports in inbox order with `fallback_reason: building`. When `building` is true, call
-            again a little later, or pass `wait_seconds` (up to 30, counted from the start of the call) to wait for the
-            new list in the same call. `personalized: false` means the user has no activity summary yet or the list is
-            in inbox order (see `fallback_reason`). `stale: true` without `building` means a report in the list changed
-            since the build; the next scheduled build updates it, or pass `refresh`. `status: unavailable` means
-            personal ranking is off for now.
+            the ranking model's scores. For a plain "my top N" read, call inbox-reports-list with `view=for_you` and
+            `sort=personal` first: it serves the same stored ranking in one fast read. Use this tool when the user needs
+            a list newer than the last build, a soft `focus`, a `refresh`, next steps for the top entries, or a first
+            build. Each entry has a rank, a tier, a short reason, a next step for the top entries and a compact report.
+            Read the full report with inbox-reports-retrieve before you act on it. The list is personal: only the user
+            it describes can read it. The call never waits on the model. By default the last stored list comes back
+            quickly, and `checked_at` says when it was last compared with the full inbox. A report created after that
+            time joins at the next scheduled build. Pass `max_age_minutes` when the list must be newer than that: an
+            older list is checked against every candidate report, which can take some seconds, and rebuilt if the inbox
+            changed. `refresh` and `focus` always start a build, and builds are rate limited. A user with no stored list
+            gets the reports in inbox order with `fallback_reason: building`. When `building` is true, call again a
+            little later, or pass `wait_seconds` (up to 30, counted from the start of the call) to wait for the new list
+            in the same call. `personalized: false` means the user has no activity summary yet or the list is in inbox
+            order (see `fallback_reason`). `stale: true` without `building` means a report in the list changed since the
+            build; the next scheduled build updates it, or pass `refresh`. `status: unavailable` means personal ranking
+            is off for now.
         feature_flag: personal-inbox-ranking
     inbox-reports-leave-reviewers:
         operation: signals_reports_reviewers_me_create
@@ -548,11 +550,15 @@ tools:
             parameter's description says how it filters.
 
             Without `view`, the list holds reports from the whole project, not only the user's. When the user says "my
-            inbox", "my reports", or "what needs me", pass `view=for_you` with `sort=priority`. For reports older than a
-            cutoff, pass `created_before` instead of reading every page. For the next fixable work across the project,
-            pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For a personal
-            ranked shortlist, such as "my top 10", the prioritizing-my-inbox skill combines these rows with the user's
-            activity summary. For the work this agent claimed, pass `assignee=me`.
+            inbox", "my top 10", or "what should I look at", pass `view=for_you` with `sort=personal` and `limit=10`. Do
+            not pass `ordering` with it, because `ordering` replaces `sort`. The response's `ranker` is `personal` when
+            the user's stored personal ranking ordered the page, and each row the ranking placed carries `personal_tier`
+            and `personal_reason`. Any other `ranker` means no stored ranking applied and the page is in the recommended
+            order. For later pages, pass the first page's `ranking_id` with `offset`, because the `next` link does not
+            carry it. This read never builds a ranking; for a newer, focused, or refreshed list, use
+            inbox-reports-for-me. For reports older than a cutoff, pass `created_before` instead of reading every page.
+            For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`,
+            `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`.
 
             Without `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with
             inbox-report-artefacts-list before you act on it.
@@ -604,6 +610,9 @@ tools:
                 - ranking.status
                 - ranking.scored_at
                 - ranking.predictions
+                - inbox_merge_key
+                - personal_tier
+                - personal_reason
                 - created_at
                 - updated_at
     inbox-reports-merge:

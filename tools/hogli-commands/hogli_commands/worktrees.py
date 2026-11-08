@@ -53,7 +53,7 @@ from .cargo_targets import (
     unused_legacy_cargo_target,
     worktrees_running_cargo,
 )
-from .devbox import hogland, mutagen
+from .devbox import herdr, hogland, mutagen
 from .devbox.coder import (
     delete_workspace,
     ensure_runtime_ready,
@@ -862,6 +862,7 @@ def _clean_coder_boxes(
             if box_action == "delete":
                 click.echo(f"Deleting devbox {box.workspace}...")
                 delete_workspace(box.workspace)
+                herdr.forget_machine(box.workspace)
             elif get_workspace_status(workspace) != "stopped":
                 click.echo(f"Stopping devbox {box.workspace}...")
                 stop_workspace(box.workspace)
