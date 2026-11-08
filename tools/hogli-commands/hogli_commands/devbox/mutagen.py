@@ -519,7 +519,7 @@ def sync_create(
         _fail(f"Failed to create mutagen sync session '{name}'.")
 
 
-def sync_list(*, label_selector: str | None = None) -> list[dict[str, Any]]:
+def sync_list(*, label_selector: str | None = None, timeout: float | None = None) -> list[dict[str, Any]]:
     """Return sync sessions as parsed JSON dicts.
 
     Uses mutagen's ``--template '{{ json . }}'`` to render sessions through
@@ -535,7 +535,7 @@ def sync_list(*, label_selector: str | None = None) -> list[dict[str, Any]]:
         args += ["--label-selector", label_selector]
 
     try:
-        result = _run(args, capture_output=True)
+        result = _run(args, capture_output=True, timeout=timeout)
     except FileNotFoundError:
         return []
     if result.returncode != 0:
@@ -563,7 +563,7 @@ def _label_op(verb: str, label_selector: str, timeout: float | None = None) -> N
     """
     if not label_selector:
         _fail(f"Refusing to {verb} sync sessions without a label selector.")
-    if not sync_list(label_selector=label_selector):
+    if not sync_list(label_selector=label_selector, timeout=timeout):
         return
     args = ["mutagen", "sync", verb, "--label-selector", label_selector]
     result = _run(args, capture_output=True, timeout=timeout)

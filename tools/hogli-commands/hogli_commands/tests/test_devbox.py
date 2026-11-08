@@ -1177,7 +1177,7 @@ class TestDevboxWorktreeCommand:
         monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
         monkeypatch.setattr(devbox_worktree, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
-        monkeypatch.setattr(devbox_worktree.mutagen, "sync_list", lambda label_selector=None: [])
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_list", lambda label_selector=None, timeout=None: [])
         monkeypatch.setattr(devbox_worktree, "_git_dir", lambda root: root / "admin")
         monkeypatch.setattr(
             devbox_worktree,
@@ -1297,11 +1297,15 @@ class TestDevboxWorktreeCommand:
             _git(tmp_path, "branch", "origin/master")
         ran: list[str] = []
 
-        def flush(selector: str, timeout: float) -> None:
-            if head == "stuck-mirror":
-                raise subprocess.TimeoutExpired(["mutagen", "sync", "flush"], timeout)
-
-        monkeypatch.setattr(devbox_worktree.mutagen, "sync_flush", flush)
+        if head == "stuck-mirror":
+            silent_mutagen = tmp_path / "mutagen"
+            silent_mutagen.write_text("#!/bin/sh\nsleep 10\n")
+            silent_mutagen.chmod(0o755)
+            monkeypatch.setattr(devbox_worktree.mutagen, "_mutagen_bin", lambda: str(silent_mutagen))
+            monkeypatch.setattr(devbox_worktree.mutagen, "mutagen_installed", lambda: True)
+            monkeypatch.setattr(devbox_worktree, "_TEST_DB_FIRST_SYNC_TIMEOUT_SECONDS", 0.5)
+        else:
+            monkeypatch.setattr(devbox_worktree.mutagen, "sync_flush", lambda selector, timeout: None)
         monkeypatch.setattr(
             devbox_worktree,
             "run_in_workspace",
