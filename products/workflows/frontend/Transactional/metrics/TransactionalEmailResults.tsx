@@ -1,74 +1,104 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { messageTemplatesLogic } from '../../TemplateLibrary/messageTemplatesLogic'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailResultsStats } from './TransactionalEmailResultsStats'
 
 export function TransactionalEmailResults(): JSX.Element {
-    const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults, templatesFailed } =
-        useValues(transactionalEmailMetricsLogic)
+    const {
+        resultsQuery,
+        results,
+        resultsLoading,
+        resultsFailed,
+        canLoadResults,
+        templatesFailed,
+        resultsEmailOptions,
+    } = useValues(transactionalEmailMetricsLogic)
     const { setResultsQuery, loadResults, loadTemplates } = useActions(transactionalEmailMetricsLogic)
-    const { transactionalTemplates, templatesLoading } = useValues(messageTemplatesLogic)
-
-    const emailOptions = transactionalTemplates
-        .filter((template) => template.transactional_hog_flow_id)
-        .map((template) => ({
-            value: template.transactional_hog_flow_id as string,
-            label: template.name || 'Unnamed email',
-        }))
+    const { templatesLoading } = useValues(messageTemplatesLogic)
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span>Of everyone who got</span>
-                <LemonSelect
-                    size="small"
-                    placeholder="Choose an email"
-                    value={resultsQuery.workflowId}
-                    onChange={(workflowId) => setResultsQuery({ workflowId })}
-                    options={emailOptions}
-                    data-attr="transactional-email-results-email"
-                />
-                <span>how many did</span>
-                <TaxonomicPopover
-                    groupType={TaxonomicFilterGroupType.Events}
-                    value={resultsQuery.event ?? undefined}
-                    onChange={(event) => setResultsQuery({ event: event ? String(event) : null })}
-                    placeholder="Choose an event"
-                    size="small"
-                    data-attr="transactional-email-results-event"
-                />
-                <span>within</span>
-                <LemonInput
-                    type="number"
-                    size="small"
-                    min={1}
-                    max={30}
-                    value={resultsQuery.windowDays}
-                    onChange={(windowDays) => {
-                        // Clearing the field gives NaN, which the API rejects.
-                        if (windowDays !== undefined && Number.isFinite(windowDays)) {
-                            setResultsQuery({ windowDays: Math.min(Math.max(Math.round(windowDays), 1), 30) })
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+                {/* Each part of the sentence keeps its label and control together, so a narrow page breaks between parts. */}
+                <span className="inline-flex items-center gap-2">
+                    <span className="whitespace-nowrap">Of everyone who got</span>
+                    <LemonInputSelect
+                        mode="single"
+                        size="small"
+                        placeholder="Choose an email"
+                        value={resultsQuery.workflowId ? [resultsQuery.workflowId] : []}
+                        onChange={(values) => setResultsQuery({ workflowId: values[0] ?? null })}
+                        options={resultsEmailOptions.map((option) => ({
+                            key: option.workflowId,
+                            label: option.name,
+                            labelComponent: (
+                                <span className="flex w-full items-center justify-between gap-4">
+                                    <span className="truncate">{option.name}</span>
+                                    <span className="text-secondary text-xs whitespace-nowrap">
+                                        {option.sent > 0
+                                            ? `${humanFriendlyNumber(option.sent)} sent`
+                                            : 'No sends in this period'}
+                                    </span>
+                                </span>
+                            ),
+                        }))}
+                        loading={templatesLoading}
+                        className="min-w-48"
+                        data-attr="transactional-email-results-email"
+                    />
+                </span>
+                <span className="inline-flex items-center gap-2">
+                    <span className="whitespace-nowrap">how many did</span>
+                    <TaxonomicPopover
+                        groupType={TaxonomicFilterGroupType.Events}
+                        value={resultsQuery.event ?? undefined}
+                        onChange={(event) => setResultsQuery({ event: event ? String(event) : null })}
+                        placeholder="Choose an event"
+                        size="small"
+                        data-attr="transactional-email-results-event"
+                    />
+                </span>
+                <span className="inline-flex items-center gap-2">
+                    <span>within</span>
+                    <LemonInput
+                        type="number"
+                        size="small"
+                        min={1}
+                        max={30}
+                        value={resultsQuery.windowDays}
+                        onChange={(windowDays) => {
+                            // Clearing the field gives NaN, which the API rejects.
+                            if (windowDays !== undefined && Number.isFinite(windowDays)) {
+                                setResultsQuery({ windowDays: Math.min(Math.max(Math.round(windowDays), 1), 30) })
+                            }
+                        }}
+                        className="w-16"
+                        data-attr="transactional-email-results-window"
+                    />
+                    <span>days,</span>
+                </span>
+                <span className="inline-flex items-center gap-2">
+                    <span className="whitespace-nowrap">with revenue from</span>
+                    <TaxonomicPopover
+                        groupType={TaxonomicFilterGroupType.EventProperties}
+                        value={resultsQuery.revenueProperty ?? undefined}
+                        onChange={(property) =>
+                            setResultsQuery({ revenueProperty: property ? String(property) : null })
                         }
-                    }}
-                    className="w-16"
-                    data-attr="transactional-email-results-window"
-                />
-                <span>days, with revenue from</span>
-                <TaxonomicPopover
-                    groupType={TaxonomicFilterGroupType.EventProperties}
-                    value={resultsQuery.revenueProperty ?? undefined}
-                    onChange={(property) => setResultsQuery({ revenueProperty: property ? String(property) : null })}
-                    placeholder="No revenue property"
-                    allowClear
-                    size="small"
-                    data-attr="transactional-email-results-revenue"
-                />
+                        placeholder="No revenue property"
+                        allowClear
+                        size="small"
+                        data-attr="transactional-email-results-revenue"
+                    />
+                </span>
             </div>
             {templatesFailed && !templatesLoading ? (
                 <LemonBanner
