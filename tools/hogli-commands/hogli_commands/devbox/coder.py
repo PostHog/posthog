@@ -1026,8 +1026,6 @@ def _fail_env_token_login(coder_url: str, whoami: subprocess.CompletedProcess[st
 
 
 def _stored_login_works() -> bool:
-    # Drop CODER_URL too: with it set, the CLI would send the stored session
-    # token to that deployment even when the token belongs to another one.
     env = {key: value for key, value in os.environ.items() if key not in (_SESSION_TOKEN_ENV, "CODER_URL")}
     try:
         result = _run(["coder", "whoami", "--output", "json"], capture_output=True, env=env, timeout=10)
@@ -1079,8 +1077,6 @@ def ensure_coder_authenticated() -> None:
 
     coder_url = get_coder_url()
     if os.environ.get(_SESSION_TOKEN_ENV):
-        # `coder login` refuses to run while CODER_SESSION_TOKEN is set, so a
-        # prompt cannot fix a rejected token.
         _fail_env_token_login(coder_url, whoami)
     if not sys.stdin.isatty():
         # `coder login` asks for a token pasted from the browser and fails with
@@ -1195,16 +1191,18 @@ def _parse_coder_user_info(payload: str) -> CoderUserInfo:
     return user_info
 
 
-def get_coder_user_info() -> CoderUserInfo:
-    """Return normalized user info for the authenticated Coder user when available."""
+def _lookup_coder_user() -> tuple[CoderUserInfo, subprocess.CompletedProcess[str]]:
+    """Return the user info, and the first failed `coder` result, or the last result when none failed."""
+    first_failure: subprocess.CompletedProcess[str] | None = None
     for command in (_coder_user_show_me, _coder_whoami):
         result = command()
         if result.returncode != 0:
+            first_failure = first_failure or result
             continue
 
         user_info = _parse_coder_user_info(result.stdout)
         if user_info:
-            return user_info
+            return user_info, result
 
     result = _run(["coder", "whoami"], capture_output=True)
     if result.returncode == 0:
@@ -1213,9 +1211,14 @@ def get_coder_user_info() -> CoderUserInfo:
             if stripped_line and not stripped_line.startswith("http"):
                 username = stripped_line.split()[0].split("@")[0].lower()
                 if username:
-                    return CoderUserInfo(username=username)
+                    return CoderUserInfo(username=username), result
 
-    return CoderUserInfo()
+    return CoderUserInfo(), first_failure or result
+
+
+def get_coder_user_info() -> CoderUserInfo:
+    """Return normalized user info for the authenticated Coder user when available."""
+    return _lookup_coder_user()[0]
 
 
 def get_default_git_identity() -> tuple[str | None, str | None]:
@@ -1234,7 +1237,7 @@ def get_username() -> str:
     uncached call is a `coder` subprocess. Failures raise instead of caching,
     so an auth retry within the same process still re-probes.
     """
-    user_info = get_coder_user_info()
+    user_info, lookup_result = _lookup_coder_user()
     username = _first_non_empty_string(user_info.get("username"))
     if username:
         return username.lower()
@@ -1242,7 +1245,7 @@ def get_username() -> str:
     ensure_coder_reachable()
     _fail_login_not_ready(
         f"Could not determine your Coder username from `coder whoami`.\n  Your login may have expired. {RUNTIME_SETUP_HINT}",
-        _coder_whoami(),
+        lookup_result,
     )
 
 

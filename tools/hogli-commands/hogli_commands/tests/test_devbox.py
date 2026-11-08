@@ -620,10 +620,9 @@ class TestCoderVersion:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], entrypoint: str
     ) -> None:
         coder.get_username.cache_clear()
-        monkeypatch.setattr(coder, "get_coder_user_info", lambda: coder.CoderUserInfo())
         monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
-        monkeypatch.setattr(coder, "_coder_whoami", lambda: subprocess.CompletedProcess([], 1, "", ""))
+        monkeypatch.setattr(coder, "_run", lambda args, **kwargs: subprocess.CompletedProcess(args, 1, "", ""))
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: False)
         monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
@@ -654,12 +653,12 @@ class TestCoderVersion:
         coder_url_set: bool,
     ) -> None:
         coder.get_username.cache_clear()
-        monkeypatch.setattr(coder, "get_coder_user_info", lambda: coder.CoderUserInfo())
         monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: True)
         monkeypatch.setenv("CODER_SESSION_TOKEN", "expired-example-token")
+        failing_lookups = 3 if entrypoint == "get_username" else 1
         if coder_url_set:
             monkeypatch.setenv("CODER_URL", "https://coder.example.com")
         else:
@@ -669,8 +668,8 @@ class TestCoderVersion:
         def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             assert args[1] != "login", "coder login refuses to run while CODER_SESSION_TOKEN is set"
             whoami_calls.append(args[1])
-            if len(whoami_calls) > 1:
-                return subprocess.CompletedProcess(args, 0, "[]", "")
+            if len(whoami_calls) > failing_lookups:
+                return subprocess.CompletedProcess(args, 0, json.dumps([{"username": "retry-user"}]), "")
             return subprocess.CompletedProcess(
                 args, 1, "", f"{coder_error}\nSuggestion: Try logging in using 'coder login'.\n"
             )
@@ -694,7 +693,7 @@ class TestCoderVersion:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         coder.get_username.cache_clear()
-        monkeypatch.setattr(coder, "get_coder_user_info", lambda: coder.CoderUserInfo())
+        monkeypatch.setattr(coder, "_run", lambda args, **kwargs: subprocess.CompletedProcess(args, 1, "", ""))
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: coder._fail("Coder is unreachable."))
         monkeypatch.setenv("CODER_SESSION_TOKEN", "example-token")
