@@ -2,8 +2,9 @@ from django.db.models import Exists, OuterRef
 
 from posthog.dataclasses import frozen
 
+# A module import, because issue_mutations reaches this module through the temporal package while it loads.
+from products.error_tracking.backend.logic import issue_mutations
 from products.error_tracking.backend.logic.auto_resolve import find_auto_resolve_candidates
-from products.error_tracking.backend.logic.issue_mutations import auto_resolve_issues
 from products.error_tracking.backend.logic.team_flags import team_flag_enabled
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSettings
 
@@ -48,5 +49,5 @@ def auto_resolve_team(team_id: int) -> AutoResolveRun | None:
     resolved_count = 0
     for start in range(0, len(candidate_ids), _RESOLVE_CHUNK_SIZE):
         chunk = candidate_ids[start : start + _RESOLVE_CHUNK_SIZE]
-        resolved_count += len(auto_resolve_issues(team_id, chunk, after_days=after_days))
+        resolved_count += len(issue_mutations.auto_resolve_issues(team_id, chunk, after_days=after_days))
     return AutoResolveRun(after_days=after_days, resolved_count=resolved_count)
