@@ -96,6 +96,25 @@ function errorTrackingFiltersSummary(count: number): string {
     return `Only issues that match ${count} ${count === 1 ? 'filter' : 'filters'} reach your inbox.`
 }
 
+function errorTrackingSourceFilters(
+    configs: SignalSourceConfig[],
+    onChange: () => void,
+    disabledReason: string | undefined
+): SourceFilters {
+    const count = errorTrackingFilterCount(configs)
+    return {
+        summary: errorTrackingFiltersSummary(count),
+        changeLabel: count > 0 ? 'Change filters' : 'Add filters',
+        onChange,
+        disabledReason,
+    }
+}
+
+// Optimistic `new_` placeholder rows have nothing to write to until the reload lands.
+function persistedConfigs(configs: SignalSourceConfig[]): SignalSourceConfig[] | null {
+    return configs.length > 0 && configs.every((config) => !config.id.startsWith('new_')) ? configs : null
+}
+
 /** The entity rows are part of the source list, so an unbounded one would push every source below it off screen. */
 const ENTITY_VISIBLE_LIMIT = 8
 
@@ -1063,33 +1082,17 @@ export function AgentsRoster(): JSX.Element {
     const renderAgent = useCallback(
         (agent: AgentRosterDefinition): JSX.Element => {
             const state = stateFor(agent.source)
-            // Steering needs a persisted row to write to, so optimistic `new_`
-            // placeholder rows wait until the reload lands. Disabled sources keep
-            // the control: enabling starts a sync immediately, so rules must be
-            // settable before the first sync runs.
-            const steeringConfigs =
-                agent.steerable &&
-                state.steeringConfigs.length > 0 &&
-                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
-                    ? state.steeringConfigs
-                    : null
-            // A filter needs persisted rows to write to, like steering.
-            const persistedErrorTrackingConfigs =
-                agent.source === 'error_tracking' &&
-                state.steeringConfigs.length > 0 &&
-                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
-                    ? state.steeringConfigs
-                    : null
-            const issueFilterTotal = persistedErrorTrackingConfigs
-                ? errorTrackingFilterCount(persistedErrorTrackingConfigs)
-                : 0
-            const filters: SourceFilters | undefined = persistedErrorTrackingConfigs
-                ? {
-                      summary: errorTrackingFiltersSummary(issueFilterTotal),
-                      changeLabel: issueFilterTotal > 0 ? 'Change filters' : 'Add filters',
-                      onChange: () => setIssueFiltersConfigs(persistedErrorTrackingConfigs),
-                      disabledReason: state.loading ? 'Saving' : sourceConfigsLoading ? 'Refreshing' : undefined,
-                  }
+            // Disabled sources keep the steering control: enabling starts a sync
+            // immediately, so rules must be settable before the first sync runs.
+            const steeringConfigs = agent.steerable ? persistedConfigs(state.steeringConfigs) : null
+            const errorTrackingConfigs =
+                agent.source === 'error_tracking' ? persistedConfigs(state.steeringConfigs) : null
+            const filters: SourceFilters | undefined = errorTrackingConfigs
+                ? errorTrackingSourceFilters(
+                      errorTrackingConfigs,
+                      () => setIssueFiltersConfigs(errorTrackingConfigs),
+                      state.loading ? 'Saving' : sourceConfigsLoading ? 'Refreshing' : undefined
+                  )
                 : agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
                   ? {
                         summary: linearTeamsSummary(linearIssuesConfig),

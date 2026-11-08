@@ -117,6 +117,31 @@ function hasValue(leaf: AnyPropertyFilter): boolean {
     return value !== undefined && value !== null && !(Array.isArray(value) && value.length === 0)
 }
 
+/** The leaf as the event filter the server reads, or why it cannot be saved. Issue fields travel under the same key. */
+function savedLeaf(leaf: AnyPropertyFilter): EventPropertyFilter | string {
+    if (leaf.type === PropertyFilterType.ErrorTrackingIssue && !ISSUE_FIELD_KEYS.has(leaf.key)) {
+        return leaf.key === ASSIGNEE_KEY
+            ? 'Use the assignee control to filter by assignee.'
+            : 'Inbox filters do not support this issue field. Remove it.'
+    }
+    if (leaf.type !== PropertyFilterType.Event && leaf.type !== PropertyFilterType.ErrorTrackingIssue) {
+        return 'Inbox filters support exception, event, and issue properties only. Remove the others.'
+    }
+    if (!hasValue(leaf)) {
+        return `Pick a value for ${leaf.key}, or remove that filter.`
+    }
+    return {
+        key: leaf.key,
+        type: PropertyFilterType.Event,
+        operator: leaf.operator || PropertyOperator.Exact,
+        ...(leaf.value !== undefined ? { value: leaf.value } : {}),
+    }
+}
+
+function exactEventFilter(key: string, value: string): EventPropertyFilter {
+    return { key, type: PropertyFilterType.Event, operator: PropertyOperator.Exact, value: [value] }
+}
+
 /** The filter to save, or why it cannot be saved. The server compiles the bytecode. */
 export function issueFilterPayloadFromDraft(draft: IssueFilterDraft): IssueFilterPayload {
     const inner = draft.filterGroup.values[0]
@@ -132,42 +157,17 @@ export function issueFilterPayloadFromDraft(draft: IssueFilterDraft): IssueFilte
             return { error: 'Inbox filters do not support nested groups. Remove the group.' }
         }
         const leaf = value as AnyPropertyFilter
-        if (leaf.type === PropertyFilterType.ErrorTrackingIssue && !ISSUE_FIELD_KEYS.has(leaf.key)) {
-            return {
-                error:
-                    leaf.key === ASSIGNEE_KEY
-                        ? 'Use the assignee control to filter by assignee.'
-                        : 'Inbox filters do not support this issue field. Remove it.',
-            }
+        const saved = savedLeaf(leaf)
+        if (typeof saved === 'string') {
+            return { error: saved }
         }
-        if (leaf.type !== PropertyFilterType.Event && leaf.type !== PropertyFilterType.ErrorTrackingIssue) {
-            return { error: 'Inbox filters support exception, event, and issue properties only. Remove the others.' }
-        }
-        if (!hasValue(leaf)) {
-            return { error: `Pick a value for ${leaf.key}, or remove that filter.` }
-        }
-        properties.push({
-            key: leaf.key,
-            type: PropertyFilterType.Event,
-            operator: ('operator' in leaf && leaf.operator) || PropertyOperator.Exact,
-            ...(leaf.value !== undefined ? { value: leaf.value } : {}),
-        })
+        properties.push(saved)
     }
     if (draft.severity) {
-        properties.push({
-            key: SEVERITY_KEY,
-            type: PropertyFilterType.Event,
-            operator: PropertyOperator.Exact,
-            value: [draft.severity],
-        })
+        properties.push(exactEventFilter(SEVERITY_KEY, draft.severity))
     }
     if (draft.assignee) {
-        properties.push({
-            key: ASSIGNEE_KEY,
-            type: PropertyFilterType.Event,
-            operator: PropertyOperator.Exact,
-            value: [assigneeValue(draft.assignee)],
-        })
+        properties.push(exactEventFilter(ASSIGNEE_KEY, assigneeValue(draft.assignee)))
     }
     return { properties }
 }
