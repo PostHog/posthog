@@ -4199,7 +4199,9 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
             models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
             models.Index(fields=["trial_grant"], name="signals_spend_trial_grant_idx"),
             models.Index(
-                fields=["updated_at"], condition=models.Q(accounting_failed=True), name="signals_spend_pending"
+                fields=["updated_at"],
+                condition=models.Q(accounting_pending=True, accounting_failed=False),
+                name="signals_spend_pending",
             ),
         ]
         constraints = [

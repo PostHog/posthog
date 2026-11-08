@@ -1223,14 +1223,6 @@ def latest_agent_startup_success(*, team_id: int, repository: str, provider: str
     return started_at
 
 
-def has_active_task_runs(*, team_id: int, run_ids: list[UUID]) -> bool:
-    return TaskRun.objects.filter(
-        Q(team_id=team_id) | Q(team__parent_team_id=team_id),
-        id__in=run_ids,
-        status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
-    ).exists()
-
-
 def find_signal_implementation_run(
     *, team_id: int, repository: str, head_branch: str | None
 ) -> contracts.SignalImplementationRunDTO | None:

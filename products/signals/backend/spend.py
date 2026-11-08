@@ -478,10 +478,8 @@ def complete_task_spend(
                 spend.spend = cost_to_spend(
                     run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
                 )
-                # Trial recovery can settle late receipts after this worker exhausts its retries.
-                spend.accounting_failed = run.accounting_failed or (
-                    final_attempt and not run.complete and spend.trial_grant_id is None
-                )
+                # The shared sweep settles late costs after this worker exhausts its retries.
+                spend.accounting_failed = run.accounting_failed
                 spend.accounting_pending = not run.complete
                 if run.is_terminal and run.complete:
                     spend.finalized_at = timezone.now()

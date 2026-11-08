@@ -1,12 +1,11 @@
-from uuid import UUID, uuid4
+from datetime import timedelta
+from decimal import Decimal
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.core.cache import cache
-from django.db import connection
 from django.test import override_settings
-from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -14,29 +13,29 @@ from posthog.llm.gateway_usage import GatewayRequestCost
 from posthog.models import Team
 
 from products.signals.backend.models import SignalReport, SignalSpend
-from products.signals.backend.spend import complete_signal_pipeline, record_llm_spend
+from products.signals.backend.spend import complete_signal_pipeline, record_llm_spend, record_task_spend
 from products.signals.backend.spend_recovery import RECOVERY_SOURCE_LIMIT, recover_incomplete_spend, recover_spend
-from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
+from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy
-from products.signals.backend.trial.tasks import REPORT_RESERVATION_RECOVERY_CURSOR_KEY
-from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
+from products.signals.backend.usage import trial_usage
+from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, locked_task_run_spend
+from products.tasks.backend.facade.testing import create_completed_task_sandbox_session
 from products.tasks.backend.models import Task, TaskRun
 
 
-class TestTrialSpendRecovery(BaseTest):
+class TestSpendRecovery(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.flag = patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True)
-        self.flag.start()
+        self.flag_mock = self.flag.start()
         self.addCleanup(self.flag.stop)
         self.policy = TrialPolicy(self.team)
-        cache.delete(REPORT_RESERVATION_RECOVERY_CURSOR_KEY)
-        self.addCleanup(cache.delete, REPORT_RESERVATION_RECOVERY_CURSOR_KEY)
 
     def claim(self) -> SignalTrialGrant:
         return self.policy.claim(user_id=self.user.pk)
 
     def test_missing_task_costs_wait_for_the_next_sweep_without_retry_chains(self) -> None:
+        self.claim()
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
         task = Task.objects.create(
             team=self.team,
@@ -64,7 +63,111 @@ class TestTrialSpendRecovery(BaseTest):
                 assert isinstance(result.result, TaskTokenUsageUnavailable)
         assert fetch.await_count == 2
         spend.refresh_from_db()
-        assert spend.accounting_failed
+        assert spend.accounting_pending
+        assert not spend.accounting_failed
+        assert spend.finalized_at is None
+
+    @parameterized.expand([("trial",), ("paid",), ("operator",)])
+    def test_delayed_compute_settles_once_with_original_funding(self, funding: str) -> None:
+        grant = self.claim()
+        task = Task.objects.create(team=self.team, title="Delayed sandbox cost", origin_product="signal_report")
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            state={
+                "self_driving_funding": {
+                    "funding": funding,
+                    "grant_id": str(grant.id) if funding == "trial" else None,
+                },
+                "sandbox_id": "test-compute-session",
+                "token_cost": {"model": {"provider": {"cost_microusd": 200_001}}},
+                "unprocessed_request_ids": [],
+            },
+        )
+        with patch("products.signals.backend.spend.trial_spend_exempt", return_value=False):
+            record_task_spend(team_id=self.team.id, run_id=str(run.id), stage="research", signal_id=str(uuid4()))
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert spend.accounting_pending and not spend.accounting_failed
+        assert spend.finalized_at is None
+        self.flag_mock.return_value = False
+        create_completed_task_sandbox_session(team_id=self.team.id, task_run_id=run.id, duration=timedelta(seconds=100))
+        with (
+            patch("products.signals.backend.spend_recovery.recover_spend.apply_async") as dispatch,
+            patch("products.signals.backend.spend.submit_signal_metadata_updates", new_callable=AsyncMock),
+            patch("products.signals.backend.spend_recovery.submit_signal_metadata_updates", new_callable=AsyncMock),
+        ):
+            recover_incomplete_spend()
+            if funding == "operator":
+                dispatch.assert_not_called()
+                recover_spend(self.team.id, str(spend.id))
+                spend.refresh_from_db()
+                assert spend.finalized_at is None
+                assert spend.billing_exempt
+                return
+            dispatch.assert_called_once()
+            args = dispatch.call_args.kwargs["args"]
+            recover_spend(*args)
+            recover_spend(*args)
+        with locked_task_run_spend(team_id=self.team.id, run_id=run.id) as cost:
+            assert cost.compute_cost_microusd > 0
+            expected = 200_001 + 40_000 + cost.compute_cost_microusd
+        spend = SignalSpend.objects.for_team(self.team.id).get(id=spend.id)
+        assert spend.spend == Decimal(expected) / 10_000
+        assert spend.billing_exempt is (funding != "paid")
+        assert spend.finalized_at is not None
+        assert not spend.accounting_pending and not spend.accounting_failed
+        assert trial_usage(grant).settled_microusd == (expected if funding == "trial" else 0)
+
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
+    def test_unknown_request_id_stays_pending_without_guessing_cost(self) -> None:
+        grant = self.claim()
+        signal_id = str(uuid4())
+        record_llm_spend(
+            team_id=self.team.id,
+            signal_id=signal_id,
+            stage="grouping",
+            token_cost_microusd=None,
+            source_id="unknown-request",
+            trial_grant_id=str(grant.id),
+            strict=True,
+        )
+        complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
+        spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
+        with patch("products.signals.backend.spend_recovery.fetch_gateway_cost", new_callable=AsyncMock) as fetch:
+            recover_spend(self.team.id, str(spend.id))
+        fetch.assert_not_awaited()
+        spend.refresh_from_db()
+        grant.refresh_from_db()
+        assert spend.accounting_pending and not spend.accounting_failed
+        assert spend.finalized_at is None
+        assert spend.accounting_pending
+        assert trial_usage(grant).settled_microusd == 0
+
+    def test_permanent_failure_is_not_treated_as_recoverable(self) -> None:
+        spend = SignalSpend.objects.create(
+            team=self.team,
+            signal_id=uuid4(),
+            kind=SignalSpend.Kind.AD_HOC,
+            accounting_failed=True,
+            accounting_pending=True,
+            pending_requests={"source": {"stage": "grouping", "request_id": "known"}},
+        )
+        with (
+            patch("products.signals.backend.spend_recovery.recover_spend.apply_async") as dispatch,
+            patch("products.signals.backend.spend_recovery.fetch_gateway_cost", new_callable=AsyncMock) as fetch,
+            patch(
+                "products.signals.backend.spend_recovery.submit_signal_metadata_updates", new_callable=AsyncMock
+            ) as publish,
+        ):
+            recover_incomplete_spend()
+            recover_spend(self.team.id, str(spend.id))
+        dispatch.assert_not_called()
+        fetch.assert_not_awaited()
+        publish.assert_not_awaited()
+        spend.refresh_from_db()
+        assert spend.accounting_failed and spend.accounting_pending
         assert spend.finalized_at is None
 
     @parameterized.expand([("research",), ("repo_selection",)])
@@ -135,78 +238,9 @@ class TestTrialSpendRecovery(BaseTest):
         assert fetch.call_args.args[1] == "https://gateway.example.com/v1/usage/late"
         grant.refresh_from_db()
         spend.refresh_from_db()
-        assert grant.settled_microusd == 123
+        assert trial_usage(grant).settled_microusd == 123
         assert not spend.accounting_failed
         assert spend.finalized_at is not None
-
-    def test_worker_loss_releases_report_slot_only_after_all_attempt_runs_finish(self) -> None:
-        self.claim()
-        task = Task.objects.create(team=self.team, title="Scout attempts", origin_product="signals_scout")
-        first, second = task.create_run(), task.create_run()
-        funding = self.policy.admit(paid_authorized=False)
-        report_id = uuid4()
-        self.policy.reserve_direct_report(funding, report_id, run_id=first.id)
-        self.policy.reserve_direct_report(funding, report_id, run_id=second.id)
-        with self.captureOnCommitCallbacks(execute=True):
-            first.status = TaskRun.Status.FAILED
-            first.save(update_fields=["status"])
-        slot = SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report_id)
-        assert slot.status == "reserved"
-        # Bulk terminalization bypasses post_save; shared recovery still releases the slot.
-        TaskRun.objects.filter(id=second.id).update(status=TaskRun.Status.FAILED)
-        historical = TaskRun.objects.bulk_create(
-            [TaskRun(team=self.team, task=task, status=TaskRun.Status.FAILED) for _ in range(50)]
-        )
-        slot.attempt_run_ids += [run.id for run in historical]
-        slot.save(update_fields=["attempt_run_ids"])
-        with patch("products.signals.backend.spend_recovery.recover_spend.apply_async"):
-            with CaptureQueriesContext(connection) as queries:
-                recover_incomplete_spend()
-            assert len(queries) < 20
-        slot.refresh_from_db()
-        assert slot.status == "released"
-        assert slot.active_attempts == 0
-
-    @parameterized.expand([("active_owners", True), ("deleted_team", False)])
-    def test_reservation_scan_advances_past_full_batch_and_wraps(self, _name: str, team_exists: bool) -> None:
-        grant = self.claim()
-        task = Task.objects.create(team=self.team, title="Recovery scan", origin_product="signals_scout")
-        active, abandoned = task.create_run(), task.create_run()
-        TaskRun.objects.filter(id=abandoned.id).update(status=TaskRun.Status.FAILED)
-        reservations = [
-            SignalTrialReportReservation(
-                id=UUID(int=index + 1),
-                team_id=self.team.id if team_exists else -1,
-                grant=grant,
-                report_id=uuid4(),
-                active_attempts=1,
-                attempt_run_ids=[active.id],
-            )
-            for index in range(100)
-        ]
-        last = SignalTrialReportReservation(
-            id=UUID(int=101),
-            team_id=self.team.id,
-            grant=grant,
-            report_id=uuid4(),
-            active_attempts=1,
-            attempt_run_ids=[abandoned.id],
-        )
-        SignalTrialReportReservation.objects.bulk_create([*reservations, last])
-        with patch("products.signals.backend.spend_recovery.recover_spend.apply_async"):
-            recover_incomplete_spend()
-            last.refresh_from_db()
-            assert last.status == SignalTrialReportReservation.Status.RESERVED
-            recover_incomplete_spend()
-            last.refresh_from_db()
-            assert last.status == SignalTrialReportReservation.Status.RELEASED
-            assert last.active_attempts == 0
-            TaskRun.objects.filter(id=active.id).update(status=TaskRun.Status.FAILED)
-            recover_incomplete_spend()
-        remaining = SignalTrialReportReservation.objects.unscoped().filter(
-            status=SignalTrialReportReservation.Status.RESERVED
-        )
-        assert remaining.count() == (0 if team_exists else 100)
 
     @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
     def test_recovery_rotates_pending_requests_and_settles_once(self) -> None:
@@ -245,8 +279,8 @@ class TestTrialSpendRecovery(BaseTest):
             publish.assert_awaited_with(team_id=self.team.id, signal_ids=[signal_id])
         grant.refresh_from_db()
         spend.refresh_from_db()
-        assert grant.settled_microusd == 123 * (RECOVERY_SOURCE_LIMIT + 1)
-        assert grant.incomplete_sources == 0
+        assert trial_usage(grant).settled_microusd == 123 * (RECOVERY_SOURCE_LIMIT + 1)
+        assert not spend.accounting_pending
         assert spend.finalized_at is not None
 
     @parameterized.expand([(True,), (False,)])
@@ -282,5 +316,8 @@ class TestTrialSpendRecovery(BaseTest):
             recover_spend(*args)
             recover_spend(*args)
         grant.refresh_from_db()
-        assert grant.settled_microusd == 40_020
-        assert grant.incomplete_sources == 0
+        usage = trial_usage(grant)
+        assert usage.spend_microusd == 40_020
+        assert usage.settled_microusd == (40_020 if terminal else 0)
+        spend.refresh_from_db()
+        assert not spend.accounting_pending

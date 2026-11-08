@@ -859,7 +859,7 @@ class TestSignalSpend(BaseTest):
         assert scout.metadata["spend_accounting_failed_stages"] == []
 
     @parameterized.expand([("subscription",), ("missing_cost",), ("gateway_error",)])
-    def test_unrecoverable_task_cost_does_not_remain_pending(self, failure: str) -> None:
+    def test_task_cost_failure_distinguishes_permanent_from_recoverable(self, failure: str) -> None:
         driver = str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
         run = self._run(report=report)
@@ -881,7 +881,9 @@ class TestSignalSpend(BaseTest):
             else:
                 complete_task_spend(team_id=self.team.id, run_id=str(run.id), final_attempt=True)
         spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
-        assert spend.accounting_failed
+        assert spend.accounting_failed is (failure == "subscription")
+        if failure != "subscription":
+            assert spend.accounting_pending
         assert spend.finalized_at is None
         assert spend.spend == Decimal("14")
 

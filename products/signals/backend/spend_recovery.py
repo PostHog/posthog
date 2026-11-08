@@ -24,7 +24,6 @@ from products.signals.backend.spend import (
     refresh_task_spend,
     submit_signal_metadata_updates,
 )
-from products.signals.backend.trial.tasks import release_abandoned_report_reservations
 from products.tasks.backend.facade.api import get_task_report_id, get_task_run
 from products.tasks.backend.facade.billing import process_pending_gateway_usage
 
@@ -36,13 +35,15 @@ RECOVERY_BUDGET_SECONDS = 30
 RECOVERY_SOURCE_LIMIT = 20
 RECOVERY_JOB_EXPIRY_SECONDS = 10 * 60
 RECOVERY_LOCK_SECONDS = 60
+# Grant-funded costs still matter for allowance/reporting; other exempt work does not.
+RECOVERABLE_SPEND = Q(billing_exempt=False) | Q(trial_grant_id__isnull=False)
 
 
 def _recover_spend(*, team_id: int, spend_id: str) -> None:
-    spend = SignalSpend.objects.for_team(team_id).filter(id=spend_id).first()
-    if spend is None:
+    spend = SignalSpend.objects.for_team(team_id).filter(RECOVERABLE_SPEND, id=spend_id).first()
+    if spend is None or spend.accounting_failed:
         return
-    if not spend.accounting_failed:
+    if not spend.accounting_pending:
         if spend.signal_id:
             async_to_sync(submit_signal_metadata_updates)(team_id=team_id, signal_ids=[str(spend.signal_id)])
         return
@@ -123,7 +124,11 @@ def recover_spend(self: "Task", team_id: int, spend_id: str) -> None:
         _recover_spend(team_id=team_id, spend_id=spend_id)
     except Exception as error:
         # The sweep retries incomplete costs, but stops selecting rows once they settle.
-        if SignalSpend.objects.for_team(team_id).filter(id=spend_id, accounting_failed=False).exists():
+        if (
+            SignalSpend.objects.for_team(team_id)
+            .filter(RECOVERABLE_SPEND, id=spend_id, accounting_pending=False, accounting_failed=False)
+            .exists()
+        ):
             raise self.retry(exc=error, countdown=300, expires=None)
         raise
     finally:
@@ -136,10 +141,9 @@ def recover_spend(self: "Task", team_id: int, spend_id: str) -> None:
 
 @shared_task(ignore_result=True)
 def recover_incomplete_spend() -> None:
-    release_abandoned_report_reservations()
     for spend in (
         SignalSpend.objects.unscoped()
-        .filter(accounting_failed=True)
+        .filter(RECOVERABLE_SPEND, accounting_pending=True, accounting_failed=False)
         .filter(Q(task_run_id__isnull=False) | ~Q(pending_requests={}))
         .order_by("updated_at", "id")
         .only("id", "team_id")[:100]
