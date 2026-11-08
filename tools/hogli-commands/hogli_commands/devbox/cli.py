@@ -188,8 +188,9 @@ def current_worktree_box(workspaces: list[dict[str, Any]]) -> str | None:
     """The live Coder box that `devbox:worktree` set up for the checkout containing the current directory.
 
     Only the nearest checkout counts, so a worktree nested inside another one
-    never gets the outer worktree's box. A box that is gone, or another box
-    recreated under its name, does not count either.
+    never gets the outer worktree's box. A box that is gone falls back to the
+    default target, but another box recreated under its name stops the command,
+    because any fallback could select that box again.
     """
     cwd = Path.cwd().resolve()
     root = next((candidate for candidate in (cwd, *cwd.parents) if (candidate / ".git").exists()), None)
@@ -197,7 +198,14 @@ def current_worktree_box(workspaces: list[dict[str, Any]]) -> str | None:
     if record is None or record.provider != "coder":
         return None
     live = get_workspace(record.workspace, workspaces)
-    return record.workspace if live is not None and record.may_adopt(live) else None
+    if live is None:
+        return None
+    if not record.may_adopt(live):
+        _fail(
+            f"This worktree's devbox '{record.workspace}' was replaced by another box with the same name. "
+            "Pass `-n <label>` to choose a box."
+        )
+    return record.workspace
 
 
 def resolve_default_workspace_name(

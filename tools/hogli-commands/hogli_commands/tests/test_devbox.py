@@ -2263,7 +2263,7 @@ class TestResolveWorkspaceName:
                 "wt",
                 None,
                 {"workspace": "devbox-test-user-feat", "workspace_id": "id-of-a-deleted-box"},
-                "devbox-test-user",
+                None,
                 id="another-box-recreated-under-the-name",
             ),
         ],
@@ -2276,7 +2276,7 @@ class TestResolveWorkspaceName:
         cwd: str,
         workspace: str | None,
         record: dict[str, str] | None,
-        expected: str,
+        expected: str | None,
     ) -> None:
         if record is not None:
             devbox_config.record_worktree_box(
@@ -2284,7 +2284,11 @@ class TestResolveWorkspaceName:
             )
         monkeypatch.chdir(tmp_path / cwd)
 
-        assert devbox_cli.resolve_workspace_name(workspace)[0] == expected
+        if expected is None:
+            with pytest.raises(SystemExit):
+                devbox_cli.resolve_workspace_name(workspace)
+        else:
+            assert devbox_cli.resolve_workspace_name(workspace)[0] == expected
 
     @pytest.mark.parametrize(
         "status, expected",
