@@ -4,7 +4,7 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
 from posthog.exceptions import QuotaLimitExceeded
@@ -20,9 +20,11 @@ from products.signals.backend.facade.trial import (
 from products.signals.backend.free_trial import FreeTrialPullRequestRefused, self_driving_free_trial_enabled
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSpend
 from products.signals.backend.quota import self_driving_quota_gate
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.spend import record_llm_spend, record_task_spend
 from products.signals.backend.task_profiles import IMPLEMENTATION
 from products.signals.backend.task_run_artefacts import record_report_task
+from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, run_agentic_report_activity
 from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
@@ -627,6 +629,29 @@ class TestTrialExecution(BaseTest):
             )
         assert result is not None and result.error is None and result.run_error is None
         assert task.runs.count() == 1
+        assert task.runs.get().state["self_driving_funding"]["funding"] == "existing"
+
+    def test_background_research_keeps_report_admission_after_the_quota(self) -> None:
+        self.flag_mock.return_value = False
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS)
+        task = Task.objects.create(team=self.team, title="Accepted research", origin_product="signal_report")
+
+        async def start_research(input: RunAgenticReportInput) -> None:
+            await sync_to_async(task.create_run)(environment=TaskRun.Environment.CLOUD)
+
+        with (
+            patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=True),
+            patch("products.signals.backend.quota.self_driving_quota_enforcement_enabled", return_value=True),
+            patch("products.signals.backend.temporal.agentic.report._run_agentic_report", side_effect=start_research),
+        ):
+            async_to_sync(run_agentic_report_activity)(
+                RunAgenticReportInput(
+                    team_id=self.team.id,
+                    report_id=str(report.id),
+                    signals=[],
+                    repo_selection=RepoSelectionResult(repository=None, reason="No repository"),
+                )
+            )
         assert task.runs.get().state["self_driving_funding"]["funding"] == "existing"
 
     @parameterized.expand([("signaled",), ("already_queued",), ("stale",)])

@@ -1,7 +1,9 @@
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from typing import cast
 
+from django.core.cache import cache
 from django.db import models
 from django.utils import timezone
 
@@ -126,11 +128,30 @@ class TrialBilling:
         )
 
 
-def paid_trial_continuation_authorized(team: Team) -> bool:
+def trial_billing_status(team: Team, *, use_cache: bool = False) -> TrialBillingStatus:
     try:
-        return TrialBilling(team.organization).status().paid_authorized and not is_team_limited(
-            team.api_token, self_driving_quota_resource(team.organization), QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        )
+        organization = team.organization
+        if organization.is_active is not True:
+            return TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
+        cache_key = f"signals_trial_billing_status:{organization.id}"
+        status: TrialBillingStatus | None = cache.get(cache_key) if use_cache else None
+        if status is None:
+            try:
+                status = TrialBilling(organization).status()
+            except Exception:
+                logger.warning("signals_trial_paid_authorization_unavailable", team_id=team.id, exc_info=True)
+                status = TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
+            cache.set(cache_key, status, timeout=30)
+        # Admission shares remote Billing status, but always checks the current team quota.
+        if status.paid_authorized and is_team_limited(
+            team.api_token, self_driving_quota_resource(organization), QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        ):
+            return replace(status, continuation=TrialContinuation.LIMIT)
+        return status
     except Exception:
         logger.warning("signals_trial_paid_authorization_unavailable", team_id=team.id, exc_info=True)
-        return False
+        return TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
+
+
+def paid_trial_continuation_authorized(team: Team) -> bool:
+    return trial_billing_status(team, use_cache=True).paid_authorized

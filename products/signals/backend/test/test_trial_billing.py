@@ -1,6 +1,8 @@
+import time_machine
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase
+from django.core.cache import cache
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -13,12 +15,18 @@ from products.signals.backend.trial.billing import (
     TrialBillingStatus,
     TrialContinuation,
     paid_trial_continuation_authorized,
+    trial_billing_status,
 )
 
 from ee.models import License
 
 
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class TestTrialBilling(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
     @parameterized.expand(
         [
             (failure, licensed, billing_response)
@@ -47,8 +55,38 @@ class TestTrialBilling(SimpleTestCase):
             patch("ee.billing.billing_manager.http_session.get", side_effect=responses) as get,
         ):
             assert not paid_trial_continuation_authorized(team)
+            assert not paid_trial_continuation_authorized(team)
         assert get.call_count == len(responses)
         assert all(call.kwargs["timeout"] == (3, 5) for call in get.call_args_list)
+
+    def test_admission_caches_org_billing_but_refreshes_team_quota_and_ui_status(self) -> None:
+        organization = Organization(name="Trial billing test")
+        team = Team(organization=organization, api_token="synthetic-first")
+        other_team = Team(organization=organization, api_token="synthetic-second")
+        with (
+            time_machine.travel("2026-11-08T00:00:00Z", tick=False) as clock,
+            patch(
+                "products.signals.backend.trial.billing.TrialBilling.status",
+                return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAID),
+            ) as billing,
+            patch(
+                "products.signals.backend.trial.billing.is_team_limited", side_effect=[False, True, False, False, False]
+            ),
+        ):
+            assert paid_trial_continuation_authorized(team)
+            assert not paid_trial_continuation_authorized(other_team)
+            assert paid_trial_continuation_authorized(team)
+            assert billing.call_count == 1
+            clock.shift(31)
+            assert paid_trial_continuation_authorized(team)
+            assert billing.call_count == 2
+            billing.return_value = TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT)
+            assert not trial_billing_status(team).paid_authorized
+            assert not paid_trial_continuation_authorized(other_team)
+            assert billing.call_count == 3
+            billing.return_value = TrialBillingStatus(ready=True, continuation=TrialContinuation.PAID)
+            assert paid_trial_continuation_authorized(Team(organization=Organization(name="Other organization")))
+            assert billing.call_count == 4
 
     @parameterized.expand(
         [
