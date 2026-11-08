@@ -22,7 +22,9 @@ SELECT_TIMEOUT = timedelta(minutes=5)
 
 # A retried batch only resolves what is still quiet and active, so a second attempt cannot double-resolve.
 BATCH_RETRY_POLICY = common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
-BATCH_START_TO_CLOSE_TIMEOUT = timedelta(hours=1)
+# Heartbeats keep arriving while a team runs, so this limit is the only stop for a hung team.
+# The run is daily and the schedule skips overlapping runs, so a long limit adds no load.
+BATCH_START_TO_CLOSE_TIMEOUT = timedelta(hours=4)
 BATCH_HEARTBEAT_TIMEOUT = timedelta(minutes=10)
 
 

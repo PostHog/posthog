@@ -5,6 +5,7 @@ from temporalio import activity
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import close_stale_db_connections
 
 # A module import: the sweep reaches this package through lifecycle_events, so the cycle resolves
@@ -41,9 +42,9 @@ def auto_resolve_teams_activity(inputs: AutoResolveTeamsInputs) -> AutoResolveTe
     teams_processed = 0
     teams_failed = 0
     issues_resolved = 0
-    with ph_scoped_capture() as capture:
+    # One team's sweep can outlast the heartbeat timeout, so a background thread sends the heartbeats.
+    with ph_scoped_capture() as capture, HeartbeaterSync(logger=logger):
         for team_id in inputs.team_ids:
-            activity.heartbeat(team_id)
             try:
                 run = auto_resolve_sweep.auto_resolve_team(team_id)
             except Exception:
