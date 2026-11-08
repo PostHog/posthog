@@ -109,6 +109,7 @@ from products.customer_analytics.backend.facade.enums import (
     TaskDigestCadence,
 )
 from products.customer_analytics.backend.logic import (
+    account_documents as _account_documents_logic,
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
     account_views as _account_views_logic,
@@ -217,7 +218,7 @@ _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-    from products.customer_analytics.backend.models import CustomPropertyValue
+    from products.customer_analytics.backend.models import AccountDocument, CustomPropertyValue
     from products.workflows.backend.facade.contracts import AccountAudienceFilters
 
 
@@ -5989,3 +5990,122 @@ def get_key_metrics(*, team: Team, user: "User") -> list[contracts.KeyMetric] | 
 
 def get_key_metric_names(*, team: Team) -> dict[str, str]:
     return _key_metrics_logic.key_metric_names(team)
+
+
+# --- Account documents ---
+#
+# Callers gate the parent account with ``get_accessible_account_id`` first; these functions
+# trust the account id they are given, like the custom property value functions above.
+
+PandaDocMissingId = _account_documents_logic.PandaDocMissingId
+PandaDocDocumentMissing = _account_documents_logic.PandaDocDocumentMissing
+PandaDocUnavailable = _account_documents_logic.PandaDocUnavailable
+parse_pandadoc_document_id = _account_documents_logic.parse_pandadoc_document_id
+
+
+def _to_account_document_view(row: "AccountDocument") -> contracts.AccountDocumentView:
+    return contracts.AccountDocumentView(
+        id=row.id,
+        account_id=row.account_id,
+        document_type=row.document_type,
+        title=row.title,
+        status=row.status,
+        source=row.source,
+        external_url=row.external_url,
+        pandadoc_document_id=row.pandadoc_document_id,
+        pandadoc_status=row.pandadoc_status,
+        pandadoc_synced_at=row.pandadoc_synced_at,
+        pandadoc_url=(
+            _account_documents_logic.pandadoc_document_url(row.pandadoc_document_id)
+            if row.pandadoc_document_id
+            else None
+        ),
+        effective_date=row.effective_date,
+        end_date=row.end_date,
+        amount=row.amount,
+        created_by_id=row.created_by_id,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def list_account_documents(team_id: int, account_id: str | UUID) -> list[contracts.AccountDocumentView]:
+    """The account's documents that are not deleted, newest first."""
+    return [
+        _to_account_document_view(row) for row in _account_documents_logic.list_account_documents(team_id, account_id)
+    ]
+
+
+def get_account_document(
+    team_id: int, account_id: str | UUID, document_id: str | UUID
+) -> contracts.AccountDocumentView | None:
+    row = _account_documents_logic.get_account_document(team_id, account_id, document_id)
+    return _to_account_document_view(row) if row is not None else None
+
+
+def create_account_document(
+    team_id: int, account_id: str | UUID, *, actor: "User | None", data: contracts.CreateAccountDocumentInput
+) -> contracts.AccountDocumentView:
+    """Register a document on the account. A PandaDoc document is read from PandaDoc once on
+    creation; a PandaDoc outage leaves the row with no status rather than failing the save."""
+    row = _account_documents_logic.create_account_document(
+        team_id=team_id, account_id=account_id, actor=actor, data=data
+    )
+    return _to_account_document_view(row)
+
+
+def update_account_document(
+    team_id: int, account_id: str | UUID, document_id: str | UUID, changes: contracts.UpdateAccountDocumentInput
+) -> contracts.AccountDocumentView | None:
+    row = _account_documents_logic.get_account_document(team_id, account_id, document_id)
+    if row is None:
+        return None
+    return _to_account_document_view(_account_documents_logic.update_account_document(row, changes))
+
+
+def delete_account_document(team_id: int, account_id: str | UUID, document_id: str | UUID) -> bool:
+    """Soft-delete the document. False when there is no such document on the account."""
+    row = _account_documents_logic.get_account_document(team_id, account_id, document_id)
+    if row is None:
+        return False
+    _account_documents_logic.delete_account_document(row)
+    return True
+
+
+def sync_account_document_from_pandadoc(
+    team_id: int, account_id: str | UUID, document_id: str | UUID
+) -> contracts.AccountDocumentView | None:
+    """Re-read the document's name and status from PandaDoc. Raises PandaDocMissingId,
+    PandaDocDocumentMissing or PandaDocUnavailable; None when there is no such document."""
+    row = _account_documents_logic.get_account_document(team_id, account_id, document_id)
+    if row is None:
+        return None
+    return _to_account_document_view(_account_documents_logic.sync_account_document_from_pandadoc(row))
+
+
+def get_account_document_pdf(team_id: int, account_id: str | UUID, document_id: str | UUID) -> tuple[str, bytes] | None:
+    """The document's title and its current PDF rendition from PandaDoc. Raises PandaDocMissingId,
+    PandaDocDocumentMissing or PandaDocUnavailable; None when there is no such document."""
+    row = _account_documents_logic.get_account_document(team_id, account_id, document_id)
+    if row is None:
+        return None
+    return row.title, _account_documents_logic.get_account_document_pdf(row)
+
+
+def list_account_legal_documents(team_id: int, account_id: str | UUID) -> list[contracts.AccountLegalDocumentView]:
+    """The DPA, BAA and MSA the account's organization holds in the legal_documents product.
+    Empty when the account is not keyed on an organization id."""
+    account = _account_documents_logic.get_account(team_id, account_id)
+    if account is None:
+        return []
+    return _account_documents_logic.list_account_legal_documents(account)
+
+
+def get_account_legal_document_download_url(
+    team_id: int, account_id: str | UUID, legal_document_id: UUID
+) -> str | None:
+    """A short-lived download URL for a signed legal document's PDF, or None when there is none."""
+    account = _account_documents_logic.get_account(team_id, account_id)
+    if account is None:
+        return None
+    return _account_documents_logic.get_account_legal_document_download_url(account, legal_document_id)

@@ -20,6 +20,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import (
     ACCOUNT_CUSTOM_PROPERTIES,
     ACCOUNT_CUSTOM_PROPERTIES_HISTORY,
+    ACCOUNT_DOCUMENTS,
     ACCOUNT_EMAIL_THREADS,
     ACCOUNT_FEATURE_REQUESTS,
     ACCOUNT_MEETINGS,
@@ -102,6 +103,35 @@ account_resource_notebooks: _AccountScopedPostgresTable = _AccountScopedPostgres
             nullable=True,
             description="Account the notebook is linked to; join to `system.accounts.id`.",
         ),
+    },
+)
+
+
+account_documents: PostgresTable = PostgresTable(
+    name="_account_documents",
+    postgres_table_name="customer_analytics_accountdocument",
+    access_scope="account",
+    access_control_id_field="account_id",
+    description="Internal table of account documents. Use `system.accounts.documents` instead.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Document UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "account_id": UUIDDatabaseField(name="account_id"),
+        "document_type": StringDatabaseField(name="document_type"),
+        "title": StringDatabaseField(name="title"),
+        "status": StringDatabaseField(name="status"),
+        "source": StringDatabaseField(name="source"),
+        "external_url": StringDatabaseField(name="external_url"),
+        "pandadoc_document_id": StringDatabaseField(name="pandadoc_document_id"),
+        "pandadoc_status": StringDatabaseField(name="pandadoc_status"),
+        "pandadoc_synced_at": DateTimeDatabaseField(name="pandadoc_synced_at", nullable=True),
+        "effective_date": DateDatabaseField(name="effective_date", nullable=True),
+        "end_date": DateDatabaseField(name="end_date", nullable=True),
+        "amount": FloatDatabaseField(name="amount", nullable=True),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
     },
 )
 
@@ -421,6 +451,41 @@ def _account_relationships_select(fields_accessed: dict[str, list[str | int]]) -
     )
 
 
+def _account_documents_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            account_id,
+            count() AS count,
+            max(created_at) AS latest_created_at,
+            toJSONString(arrayMap(row -> map(
+                'id', row.2,
+                'title', row.3,
+                'document_type', row.4,
+                'status', row.5,
+                'source', row.6,
+                'effective_date', row.7,
+                'end_date', row.8,
+                'amount', row.9,
+                'created_at', row.1
+            ), arraySlice(arrayReverseSort(groupArray(tuple(
+                toString(created_at),
+                toString(id),
+                title,
+                document_type,
+                status,
+                source,
+                ifNull(toString(effective_date), ''),
+                ifNull(toString(end_date), ''),
+                ifNull(toString(amount), '')
+            ))), 1, 10))) AS recent
+        FROM system._account_documents
+        WHERE isNull(deleted_at)
+        GROUP BY account_id
+        """
+    )
+
+
 def _account_meetings_select() -> ast.SelectQuery | ast.SelectSetQuery:
     return parse_select(
         """
@@ -725,6 +790,36 @@ class _AccountRelationshipsTable(LazyTable):
         return "account_relationships"
 
 
+class _AccountDocumentsTable(LazyTable):
+    description: str = (
+        "Documents registered on each account: quotes, order forms and contracts. "
+        "`recent` contains the newest 10 documents with their type, status, dates and amount."
+    )
+    fields: dict[str, FieldOrTable] = {
+        "account_id": UUIDDatabaseField(name="account_id", description="Account the documents belong to."),
+        "count": IntegerDatabaseField(name="count", description="Number of documents registered on the account."),
+        "latest_created_at": DateTimeDatabaseField(
+            name="latest_created_at", nullable=True, description="When the newest document was registered."
+        ),
+        "recent": StringJSONDatabaseField(
+            name="recent",
+            description="Newest 10 documents as JSON: id, title, document_type, status, source, effective_date, "
+            "end_date, amount, created_at.",
+        ),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _account_documents_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "account_documents"
+
+    def to_printed_hogql(self) -> str:
+        return "account_documents"
+
+
 class _AccountMeetingsTable(LazyTable):
     description: str = "Meeting summaries for each account. `recent` contains the newest 10 meetings."
     fields: dict[str, FieldOrTable] = {
@@ -896,6 +991,12 @@ def account_relationships_join(
     return _join_on_account_id(_account_relationships_select(join_to_add.fields_accessed), join_to_add)
 
 
+def account_documents_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `accounts.documents`")
+    return _join_on_account_id(_account_documents_select(), join_to_add)
+
+
 def account_meetings_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from `accounts.meetings`")
@@ -965,6 +1066,12 @@ account_relationships_lazy_join: LazyJoin = LazyJoin(
     from_field=["id"],
     join_table=_AccountRelationshipsTable(),
     resolver=ACCOUNT_RELATIONSHIPS,
+)
+
+account_documents_lazy_join: LazyJoin = LazyJoin(
+    from_field=["id"],
+    join_table=_AccountDocumentsTable(),
+    resolver=ACCOUNT_DOCUMENTS,
 )
 
 account_meetings_lazy_join: LazyJoin = LazyJoin(
@@ -1123,6 +1230,7 @@ accounts: PostgresTable = PostgresTable(
         "custom_properties_history": account_custom_properties_history_lazy_join,
         "relationships": account_relationships_lazy_join,
         "meetings": account_meetings_lazy_join,
+        "documents": account_documents_lazy_join,
         "slack_summaries": account_slack_summaries_lazy_join,
         "feature_requests": account_feature_requests_lazy_join,
         "support_tickets": account_support_tickets_lazy_join,

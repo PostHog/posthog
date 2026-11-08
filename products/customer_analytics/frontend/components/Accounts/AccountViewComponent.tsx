@@ -7,6 +7,7 @@ import { AccountPropertiesWidget } from '../../scenes/CustomerAnalyticsAccountSc
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
+import { AccountDocumentsExpansion } from './AccountDocumentsExpansion'
 import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
 import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
 import { AccountNotesExpansion } from './AccountNotesExpansion'
@@ -78,5 +79,7 @@ export function AccountViewComponent({
             return <AccountConversationsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
         case 'meetings':
             return <AccountMeetingsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
+        case 'documents':
+            return <AccountDocumentsExpansion accountId={accountId} embedded={embedded} instanceId={instanceId} />
     }
 }

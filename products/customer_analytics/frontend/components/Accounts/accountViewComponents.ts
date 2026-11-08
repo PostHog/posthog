@@ -69,6 +69,13 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
         systemTabId: 'system:meetings',
         featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
     },
+    {
+        kind: 'documents',
+        tagName: 'Documents',
+        label: 'Documents',
+        systemTabId: 'system:documents',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_DOCUMENTS,
+    },
 ]
 
 export function listAvailableAccountViewComponents(featureFlags: FeatureFlagsSet): AccountViewComponentDefinition[] {

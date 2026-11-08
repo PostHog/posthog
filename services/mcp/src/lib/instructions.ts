@@ -244,6 +244,7 @@ export class ToolDomainExtractor {
         'start',
         'suggest',
         'submit',
+        'sync',
         'test',
         'transfer',
         'unarchive',

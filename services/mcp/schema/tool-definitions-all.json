@@ -380,6 +380,118 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
+    "accounts-documents-create": {
+        "description": "Register a quote, order form, contract or other business document on a Customer Analytics account. Pass `source: pandadoc` with `url` set to a PandaDoc document link or id to reference a PandaDoc document; its name and status are read from PandaDoc on creation and on each `accounts-documents-sync-create`. Pass `source: link` with an http(s) `url` and a `title` for a document held elsewhere. Optional `document_type` (quote, order_form, msa, dpa, baa, nda, security_questionnaire, other), `status`, `effective_date`, `end_date` (YYYY-MM-DD) and `amount`. The customer's self-serve DPA, BAA and MSA are not registered here; read them with `accounts-documents-legal-list`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Register account document",
+        "title": "Register account document",
+        "required_scopes": ["account:write"],
+        "api_operations": ["POST /api/projects/{project_id}/accounts/{account_id}/documents/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-account-documents"
+    },
+    "accounts-documents-destroy": {
+        "description": "Remove a registered document from a Customer Analytics account by id. The document itself stays where it lives (PandaDoc or the linked location).",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Remove account document",
+        "title": "Remove account document",
+        "required_scopes": ["account:write"],
+        "api_operations": ["DELETE /api/projects/{project_id}/accounts/{account_id}/documents/{id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-account-documents"
+    },
+    "accounts-documents-legal-list": {
+        "description": "List the data processing agreement (DPA), business associate agreement (BAA) and master service agreement (MSA) the account's organization holds in PostHog, with `status` (`submitted_for_signature` or `signed`), the signing company and representative, and whether the signed PDF is available. Empty when the account is not keyed on a PostHog organization id.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account legal documents",
+        "title": "List account legal documents",
+        "required_scopes": ["account:read"],
+        "api_operations": ["GET /api/projects/{project_id}/accounts/{account_id}/documents/legal/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-account-documents"
+    },
+    "accounts-documents-list": {
+        "description": "List the quotes, order forms, contracts and other documents registered on a Customer Analytics account, newest first. Each document carries `document_type`, `status` (draft, sent, signed, expired, voided), `source` (`pandadoc` or `link`), `effective_date`, `end_date`, `amount`, and either a `pandadoc_url` or an `external_url`. To query documents across accounts, use HogQL `system.accounts.documents`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account documents",
+        "title": "List account documents",
+        "required_scopes": ["account:read"],
+        "api_operations": ["GET /api/projects/{project_id}/accounts/{account_id}/documents/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-account-documents"
+    },
+    "accounts-documents-partial-update": {
+        "description": "Change a registered document's `title`, `document_type`, `status`, `effective_date`, `end_date`, `amount`, or its reference (`source` plus `url`). Only the fields passed change. A PandaDoc document's status is replaced by PandaDoc's on the next sync.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update account document",
+        "title": "Update account document",
+        "required_scopes": ["account:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/accounts/{account_id}/documents/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-account-documents"
+    },
+    "accounts-documents-retrieve": {
+        "description": "Get one registered account document by id.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get account document",
+        "title": "Get account document",
+        "required_scopes": ["account:read"],
+        "api_operations": ["GET /api/projects/{project_id}/accounts/{account_id}/documents/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-account-documents"
+    },
+    "accounts-documents-sync-create": {
+        "description": "Re-read a registered PandaDoc document's name and status from PandaDoc and store them on the record. Fails with 400 when the document is a plain link or PandaDoc no longer has it, and with 502 when PandaDoc cannot be reached.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Refresh account document from PandaDoc",
+        "title": "Refresh account document from PandaDoc",
+        "required_scopes": ["account:write"],
+        "api_operations": ["POST /api/projects/{project_id}/accounts/{account_id}/documents/{id}/sync/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-account-documents"
+    },
     "accounts-list": {
         "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, `churned_at` (null if not churned), `ignored_at` (null if tracked), and creation/update metadata. User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields only; teams also define their own typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab. Churned and ignored accounts are hidden by default. Set `include_churned` or `include_ignored` to true to include them. To filter across relationship assignments and custom property values, use `execute-sql` after discovering this project's definition ids; the account list parameters do not support that combination.",
         "category": "Customer analytics",

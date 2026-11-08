@@ -294,6 +294,206 @@ const accountsDestroy = (): ToolBase<ReturnType<typeof AccountsDestroySchema>, u
     },
 })
 
+const AccountsDocumentsCreateSchema = () => {
+    const AccountsDocumentsCreateBody = orvalSchemas.AccountsDocumentsCreateBody()
+    const AccountsDocumentsCreateParams = orvalSchemas.AccountsDocumentsCreateParams()
+    return AccountsDocumentsCreateParams.omit({ project_id: true }).extend(AccountsDocumentsCreateBody.shape)
+}
+
+const accountsDocumentsCreate = (): ToolBase<
+    ReturnType<typeof AccountsDocumentsCreateSchema>,
+    Schemas.AccountDocument
+> => ({
+    name: 'accounts-documents-create',
+    schema: AccountsDocumentsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsDocumentsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.document_type !== undefined) {
+            body['document_type'] = params.document_type
+        }
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        if (params.source !== undefined) {
+            body['source'] = params.source
+        }
+        if (params.url !== undefined) {
+            body['url'] = params.url
+        }
+        if (params.effective_date !== undefined) {
+            body['effective_date'] = params.effective_date
+        }
+        if (params.end_date !== undefined) {
+            body['end_date'] = params.end_date
+        }
+        if (params.amount !== undefined) {
+            body['amount'] = params.amount
+        }
+        const result = await context.api.request<Schemas.AccountDocument>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/documents/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AccountsDocumentsDestroySchema = () => {
+    const AccountsDocumentsDestroyParams = orvalSchemas.AccountsDocumentsDestroyParams()
+    return AccountsDocumentsDestroyParams.omit({ project_id: true })
+}
+
+const accountsDocumentsDestroy = (): ToolBase<ReturnType<typeof AccountsDocumentsDestroySchema>, unknown> => ({
+    name: 'accounts-documents-destroy',
+    schema: AccountsDocumentsDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsDocumentsDestroySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/documents/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const AccountsDocumentsLegalListSchema = () => {
+    const AccountsDocumentsLegalListParams = orvalSchemas.AccountsDocumentsLegalListParams()
+    return AccountsDocumentsLegalListParams.omit({ project_id: true })
+}
+
+const accountsDocumentsLegalList = (): ToolBase<
+    ReturnType<typeof AccountsDocumentsLegalListSchema>,
+    WithPostHogUrl<Schemas.AccountLegalDocument[]>
+> => ({
+    name: 'accounts-documents-legal-list',
+    schema: AccountsDocumentsLegalListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsDocumentsLegalListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AccountLegalDocument[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/documents/legal/`,
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
+const AccountsDocumentsListSchema = () => {
+    const AccountsDocumentsListParams = orvalSchemas.AccountsDocumentsListParams()
+    return AccountsDocumentsListParams.omit({ project_id: true })
+}
+
+const accountsDocumentsList = (): ToolBase<
+    ReturnType<typeof AccountsDocumentsListSchema>,
+    WithPostHogUrl<Schemas.AccountDocument[]>
+> => ({
+    name: 'accounts-documents-list',
+    schema: AccountsDocumentsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsDocumentsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AccountDocument[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/documents/`,
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
+const AccountsDocumentsPartialUpdateSchema = () => {
+    const AccountsDocumentsPartialUpdateBody = orvalSchemas.AccountsDocumentsPartialUpdateBody()
+    const AccountsDocumentsPartialUpdateParams = orvalSchemas.AccountsDocumentsPartialUpdateParams()
+    return AccountsDocumentsPartialUpdateParams.omit({ project_id: true }).extend(
+        AccountsDocumentsPartialUpdateBody.shape
+    )
+}
+
+const accountsDocumentsPartialUpdate = (): ToolBase<
+    ReturnType<typeof AccountsDocumentsPartialUpdateSchema>,
+    Schemas.AccountDocument
+> => ({
+    name: 'accounts-documents-partial-update',
+    schema: AccountsDocumentsPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsDocumentsPartialUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.document_type !== undefined) {
+            body['document_type'] = params.document_type
+        }
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        if (params.source !== undefined) {
+            body['source'] = params.source
+        }
+        if (params.url !== undefined) {
+            body['url'] = params.url
+        }
+        if (params.effective_date !== undefined) {
+            body['effective_date'] = params.effective_date
+        }
+        if (params.end_date !== undefined) {
+            body['end_date'] = params.end_date
+        }
+        if (params.amount !== undefined) {
+            body['amount'] = params.amount
+        }
+        const result = await context.api.request<Schemas.AccountDocument>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/documents/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AccountsDocumentsRetrieveSchema = () => {
+    const AccountsDocumentsRetrieveParams = orvalSchemas.AccountsDocumentsRetrieveParams()
+    return AccountsDocumentsRetrieveParams.omit({ project_id: true })
+}
+
+const accountsDocumentsRetrieve = (): ToolBase<
+    ReturnType<typeof AccountsDocumentsRetrieveSchema>,
+    Schemas.AccountDocument
+> => ({
+    name: 'accounts-documents-retrieve',
+    schema: AccountsDocumentsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsDocumentsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AccountDocument>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/documents/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const AccountsDocumentsSyncCreateSchema = () => {
+    const AccountsDocumentsSyncCreateParams = orvalSchemas.AccountsDocumentsSyncCreateParams()
+    return AccountsDocumentsSyncCreateParams.omit({ project_id: true })
+}
+
+const accountsDocumentsSyncCreate = (): ToolBase<
+    ReturnType<typeof AccountsDocumentsSyncCreateSchema>,
+    Schemas.AccountDocument
+> => ({
+    name: 'accounts-documents-sync-create',
+    schema: AccountsDocumentsSyncCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsDocumentsSyncCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AccountDocument>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/documents/${encodeURIComponent(String(params.id))}/sync/`,
+        })
+        return result
+    },
+})
+
 const AccountsListSchema = () => {
     const AccountsListQueryParams = orvalSchemas.AccountsListQueryParams()
     return AccountsListQueryParams.extend({
@@ -2312,6 +2512,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-custom-property-values-create': accountsCustomPropertyValuesCreate,
     'accounts-custom-property-values-list': accountsCustomPropertyValuesList,
     'accounts-destroy': accountsDestroy,
+    'accounts-documents-create': accountsDocumentsCreate,
+    'accounts-documents-destroy': accountsDocumentsDestroy,
+    'accounts-documents-legal-list': accountsDocumentsLegalList,
+    'accounts-documents-list': accountsDocumentsList,
+    'accounts-documents-partial-update': accountsDocumentsPartialUpdate,
+    'accounts-documents-retrieve': accountsDocumentsRetrieve,
+    'accounts-documents-sync-create': accountsDocumentsSyncCreate,
     'accounts-list': accountsList,
     'accounts-meetings-list': accountsMeetingsList,
     'accounts-notebooks-create': accountsNotebooksCreate,

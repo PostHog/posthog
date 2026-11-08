@@ -39,6 +39,30 @@ class TaskDigestCadence(LabeledStrEnum):
     EVERY_DAY = "every_day", "Every day"
 
 
+class AccountDocumentType(LabeledStrEnum):
+    QUOTE = "quote", "Quote"
+    ORDER_FORM = "order_form", "Order form"
+    MSA = "msa", "Master service agreement"
+    DPA = "dpa", "Data processing agreement"
+    BAA = "baa", "Business associate agreement"
+    NDA = "nda", "Non-disclosure agreement"
+    SECURITY_QUESTIONNAIRE = "security_questionnaire", "Security questionnaire"
+    OTHER = "other", "Other"
+
+
+class AccountDocumentStatus(LabeledStrEnum):
+    DRAFT = "draft", "Draft"
+    SENT = "sent", "Sent"
+    SIGNED = "signed", "Signed"
+    EXPIRED = "expired", "Expired"
+    VOIDED = "voided", "Voided"
+
+
+class AccountDocumentSource(LabeledStrEnum):
+    PANDADOC = "pandadoc", "PandaDoc"
+    LINK = "link", "Link"
+
+
 class AccountRelationshipSource(LabeledStrEnum):
     """Which kind of writer created or ended a relationship row. Rows written before provenance
     was recorded carry NULL."""

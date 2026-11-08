@@ -28,12 +28,54 @@ from ..logic import (
     SIGNED_BAA_ANNOTATION as SIGNED_BAA_ANNOTATION,
     webhooks,
 )
-from ..logic.pandadoc import PandaDocError
+from ..logic.pandadoc import PandaDocClient, PandaDocError
 from ..models import LegalDocument
 from . import contracts
 from .enums import BaaBlockReason, LegalDocumentStatus
 
 logger = structlog.get_logger(__name__)
+
+
+class PandaDocUnavailable(Exception):
+    """PandaDoc could not answer: the API key is missing, the request failed, or the response was unusable."""
+
+
+def get_pandadoc_document_details(pandadoc_document_id: str) -> contracts.PandaDocDocumentDetails | None:
+    """
+    The current name and status of any document in the PandaDoc workspace, not only the legal
+    documents this product creates, or None when PandaDoc has no document with that id.
+
+    Raises PandaDocUnavailable when PandaDoc cannot be reached or is not configured.
+    """
+    try:
+        data = PandaDocClient().get_document(document_id=pandadoc_document_id)
+    except PandaDocError as exc:
+        raise PandaDocUnavailable(str(exc)) from exc
+    if data is None:
+        return None
+    return contracts.PandaDocDocumentDetails(
+        id=str(data.get("id") or pandadoc_document_id),
+        name=str(data.get("name") or ""),
+        status=str(data.get("status") or ""),
+        date_modified=data.get("date_modified"),
+    )
+
+
+def download_pandadoc_document_pdf(pandadoc_document_id: str, *, max_bytes: int) -> bytes | None:
+    """
+    The current PDF rendition of any document in the PandaDoc workspace, signed or not, or None
+    when PandaDoc has no document with that id.
+
+    Raises PandaDocUnavailable when PandaDoc cannot be reached, is not configured, has not
+    finished rendering the PDF, or the PDF exceeds `max_bytes`.
+    """
+    client = PandaDocClient()
+    try:
+        if client.get_document(document_id=pandadoc_document_id) is None:
+            return None
+        return client.download_document(document_id=pandadoc_document_id, max_bytes=max_bytes)
+    except PandaDocError as exc:
+        raise PandaDocUnavailable(str(exc)) from exc
 
 
 class LegalDocumentPdfArchiveFailed(Exception):

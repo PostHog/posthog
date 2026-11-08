@@ -158,6 +158,7 @@ describe('buildToolDomainsBlock', () => {
             'show',
             'start',
             'submit',
+            'sync',
             'test',
             'transfer',
             'unarchive',

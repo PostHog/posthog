@@ -179,6 +179,115 @@ tools:
         description: |
             Permanently delete a Customer Analytics account by id.
         feature_flag: customer-analytics-csp
+    accounts-documents-create:
+        operation: accounts_documents_create
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Register account document
+        description: >
+            Register a quote, order form, contract or other business document on a Customer Analytics account. Pass
+            `source: pandadoc` with `url` set to a PandaDoc document link or id to reference a PandaDoc document; its
+            name and status are read from PandaDoc on creation and on each `accounts-documents-sync-create`. Pass
+            `source: link` with an http(s) `url` and a `title` for a document held elsewhere. Optional `document_type`
+            (quote, order_form, msa, dpa, baa, nda, security_questionnaire, other), `status`, `effective_date`,
+            `end_date` (YYYY-MM-DD) and `amount`. The customer's self-serve DPA, BAA and MSA are not registered here;
+            read them with `accounts-documents-legal-list`.
+        feature_flag: customer-analytics-account-documents
+    accounts-documents-destroy:
+        operation: accounts_documents_destroy
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove account document
+        description: |
+            Remove a registered document from a Customer Analytics account by id. The document itself stays where it lives (PandaDoc or the linked location).
+        feature_flag: customer-analytics-account-documents
+    accounts-documents-legal-list:
+        operation: accounts_documents_legal_list
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List account legal documents
+        description: >
+            List the data processing agreement (DPA), business associate agreement (BAA) and master service agreement
+            (MSA) the account's organization holds in PostHog, with `status` (`submitted_for_signature` or `signed`),
+            the signing company and representative, and whether the signed PDF is available. Empty when the account is
+            not keyed on a PostHog organization id.
+        feature_flag: customer-analytics-account-documents
+    accounts-documents-list:
+        operation: accounts_documents_list
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List account documents
+        description: >
+            List the quotes, order forms, contracts and other documents registered on a Customer Analytics account,
+            newest first. Each document carries `document_type`, `status` (draft, sent, signed, expired, voided),
+            `source` (`pandadoc` or `link`), `effective_date`, `end_date`, `amount`, and either a `pandadoc_url` or an
+            `external_url`. To query documents across accounts, use HogQL `system.accounts.documents`.
+        feature_flag: customer-analytics-account-documents
+    accounts-documents-partial-update:
+        operation: accounts_documents_partial_update
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update account document
+        description: >
+            Change a registered document's `title`, `document_type`, `status`, `effective_date`, `end_date`, `amount`,
+            or its reference (`source` plus `url`). Only the fields passed change. A PandaDoc document's status is
+            replaced by PandaDoc's on the next sync.
+        feature_flag: customer-analytics-account-documents
+    accounts-documents-retrieve:
+        operation: accounts_documents_retrieve
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get account document
+        description: |
+            Get one registered account document by id.
+        feature_flag: customer-analytics-account-documents
+    accounts-documents-sync-create:
+        operation: accounts_documents_sync_create
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Refresh account document from PandaDoc
+        description: >
+            Re-read a registered PandaDoc document's name and status from PandaDoc and store them on the record. Fails
+            with 400 when the document is a plain link or PandaDoc no longer has it, and with 502 when PandaDoc cannot
+            be reached.
+        feature_flag: customer-analytics-account-documents
     accounts-list:
         operation: accounts_list
         enabled: true

@@ -54,3 +54,14 @@ class CreateLegalDocumentInput:
     company_name: str
     company_address: str
     representative_email: str
+
+
+@dataclass(frozen=True)
+class PandaDocDocumentDetails:
+    """What PandaDoc reports about one document in the workspace, whichever flow created it."""
+
+    id: str
+    name: str
+    # A PandaDoc lifecycle status such as `document.draft` or `document.completed`.
+    status: str
+    date_modified: str | None
