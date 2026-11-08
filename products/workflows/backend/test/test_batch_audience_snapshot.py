@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import exceptions
 
 from posthog.errors import ClickHouseAtCapacity, ClickHouseQueryTimeOut
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.user import User
 
 from products.workflows.backend.facade.enums import HogFlowBatchJobAudienceStatus, HogFlowBatchJobState
@@ -92,6 +93,7 @@ class TestBatchAudienceSnapshot(TestCase):
     @parameterized.expand(
         [
             ("timeout", ClickHouseQueryTimeOut(), "timed out after 20 minutes"),
+            ("out_of_memory", ClickHouseQueryMemoryLimitExceeded(), "ran out of memory"),
             ("bad_filter", exceptions.ValidationError("Unknown property"), "Unknown property"),
             ("other", RuntimeError("connection reset"), "Audience query failed"),
         ]

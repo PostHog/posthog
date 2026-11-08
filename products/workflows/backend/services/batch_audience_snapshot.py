@@ -13,6 +13,7 @@ from rest_framework import exceptions
 
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled, ClickHouseQueryTimeOut
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
 
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
@@ -100,6 +101,8 @@ def audience_failure_reason(error: Exception) -> str:
             f"Audience query timed out after {minutes} minutes. "
             "Use fewer or simpler audience filters, or a smaller audience."
         )
+    if isinstance(error, ClickHouseQueryMemoryLimitExceeded):
+        return "Audience query ran out of memory. Use fewer or simpler audience filters, or a smaller audience."
     if isinstance(error, exceptions.ValidationError):
         return f"Audience filters can't be evaluated: {' '.join(_validation_messages(error.detail))}"
     if isinstance(error, DatabaseError):
