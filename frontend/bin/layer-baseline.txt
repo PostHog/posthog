@@ -39,12 +39,6 @@ frontend/src/layout/scenes/components/SceneTitlePanelButton.tsx -> frontend/src/
 frontend/src/layout/scenes/components/SceneTitleSection.tsx -> frontend/src/scenes/max/components/AnimatedSparkles.tsx
 frontend/src/layout/today/TodayAiPanel.tsx -> frontend/src/scenes/max/components/PhaiSidePanelChat.tsx
 frontend/src/layout/today/TodayAiPanel.tsx -> frontend/src/scenes/max/maxLogic.tsx
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/AnalyticsPinButton.tsx
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/AnalyticsSpaceGlyph.tsx
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/AnalyticsTypeIcon.tsx
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/analyticsListLogic.ts
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/analyticsPinnedLogic.ts
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/analyticsUtils.ts
 frontend/src/layout/today/TodayContextPanelMenu.tsx -> frontend/src/scenes/max/components/PhaiViewSwitchMenuItem.tsx
 frontend/src/layout/today/TodayContextPanelMenu.tsx -> products/posthog_ai/frontend/api/menus.ts
 frontend/src/layout/today/TodayNewAnalyticsButton.tsx -> frontend/src/scenes/analytics/NewAnalyticsMenu.tsx
@@ -65,8 +59,6 @@ frontend/src/layout/today/TodaySupportPanel.tsx -> products/conversations/fronte
 frontend/src/layout/today/TodaySupportPanel.tsx -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
 frontend/src/layout/today/todayAiChatLogic.ts -> frontend/src/scenes/max/mainFocusUrl.ts
 frontend/src/layout/today/todayAiChatLogic.ts -> frontend/src/scenes/max/maxLogic.tsx
-frontend/src/layout/today/todayAnalyticsLogic.ts -> frontend/src/scenes/analytics/analyticsPinnedLogic.ts
-frontend/src/layout/today/todayAnalyticsLogic.ts -> frontend/src/scenes/analytics/analyticsUtils.ts
 frontend/src/layout/today/todayContextPanelLogic.ts -> frontend/src/scenes/notebooks/NotebookPanel/notebookPanelLogic.ts
 frontend/src/layout/today/todayContextPanelLogic.ts -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
 frontend/src/layout/today/todayObjectGlanceLogic.ts -> frontend/src/scenes/library/libraryUtils.ts
