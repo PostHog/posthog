@@ -27,7 +27,7 @@ function design(
 describe('unlayerToEmailDocument', () => {
     it.each([
         { type: 'timer', reason: 'countdown timers' },
-        { type: 'menu', reason: 'menus' },
+        { type: 'video', reason: 'videos' },
         { type: 'somethingNew', reason: 'somethingNew blocks' },
     ])('reports a $type block instead of dropping it', ({ type, reason }) => {
         expect(unlayerToEmailDocument(design([content(type, {})]))).toEqual({
@@ -139,6 +139,36 @@ describe('unlayerToEmailDocument', () => {
         expect(node?.attrs?.html).toContain('href="https://example.com/gh"')
     })
 
+    it('keeps a menu looking the same, as an HTML block, and an empty one as the space it took', () => {
+        const link = (href: string): Record<string, any> => ({ name: 'web', values: { href, target: '_blank' } })
+        const menu = (items: Record<string, any>[]): Record<string, any> | undefined =>
+            unlayerToEmailDocument(
+                design([
+                    content('menu', {
+                        menu: { items },
+                        separator: '|',
+                        linkColor: '#1d4aff',
+                        padding: '5px 15px',
+                        containerPadding: '10px',
+                    }),
+                ])
+            ).document?.doc.content?.[0]
+
+        const html = menu([
+            { text: 'Blog', link: link('https://example.com/blog') },
+            { text: 'A <b>"quote"</b>', link: link('https://example.com/?a=1&b="x"') },
+        ])?.attrs?.html
+
+        expect(html).toContain('<a href="https://example.com/blog" target="_blank" style="padding:5px 15px;')
+        expect(html).toContain('color:#1d4aff')
+        expect(html).toContain(
+            '</a> <span style="padding:5px 15px;display:inline-block;font-size:14px;color:#444444">|</span> <a'
+        )
+        expect(html).toContain('href="https://example.com/?a=1&amp;b=&quot;x&quot;"')
+        expect(html).toContain('A &lt;b&gt;&quot;quote&quot;&lt;/b&gt;')
+        expect(menu([])).toEqual({ type: 'emailSpacer', attrs: { height: 20 } })
+    })
+
     it('expands the unsubscribe block', () => {
         const { document } = unlayerToEmailDocument(
             design([
@@ -240,12 +270,16 @@ describe('unlayerToEmailDocument', () => {
         expect(button?.attrs?.href).toEqual(expected)
     })
 
-    it('keeps the old editor defaults: regular headings, percentages from bare line heights, and a 500px body', () => {
+    it('keeps the old editor defaults: regular headings, the email font for "inherit", percentages from bare line heights, and a 500px body', () => {
         const doc = unlayerToEmailDocument(
-            design([content('heading', { text: 'Title' }), content('text', { text: '<p>Body</p>', lineHeight: 1.6 })])
+            design([
+                content('heading', { text: 'Title', fontFamily: { label: 'Body Font', value: 'inherit' } }),
+                content('text', { text: '<p>Body</p>', lineHeight: 1.6 }),
+            ])
         ).document?.doc as Record<string, any>
 
         expect(doc.content[0].attrs.emailStyle.fontWeight).toBe(400)
+        expect(doc.content[0].attrs.emailStyle.fontFamily).toBeUndefined()
         expect(doc.content[1].attrs.emailStyle.lineHeight).toBeCloseTo(160)
         expect(doc.attrs.page.bodyWidth).toBe(500)
     })
@@ -261,6 +295,15 @@ describe('unlayerToEmailDocument', () => {
         ).document?.doc.content as Record<string, any>[]
         expect(first.attrs?.emailStyle.padding.bottom).toBe(0)
         expect(second.attrs?.emailStyle.padding.top).toBe(20)
+
+        const blank = (inner: string): string[] =>
+            (
+                unlayerToEmailDocument(design([content('text', { text: `<p>One</p><p>${inner}</p><p>Two</p>` })]))
+                    .document?.doc.content as Record<string, any>[]
+            ).map((node) => node.content?.[0]?.type ?? 'empty')
+        expect(blank('<span> </span>')).toEqual(['text', 'text'])
+        expect(blank('&nbsp;')).toEqual(['text', 'text', 'text'])
+        expect(blank('<br>')).toEqual(['text', 'hardBreak', 'text'])
 
         const [kept] = unlayerToEmailDocument(
             design([content('text', { text: '<p style="border-top: 1px solid red;">Ruled</p>' })])

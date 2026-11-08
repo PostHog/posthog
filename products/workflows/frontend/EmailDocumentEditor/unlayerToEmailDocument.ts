@@ -12,7 +12,6 @@ import { buildEmailExtensions } from './emailExtensions'
 import { parseLiquidOutput } from './emailVariables'
 
 const UNSUPPORTED_CONTENT: Record<string, string> = {
-    menu: 'menus',
     video: 'videos',
     timer: 'countdown timers',
     table: 'tables',
@@ -357,7 +356,14 @@ function richTextBlocks(html: string, style: EmailBlockStyle): JSONContent[] {
             wrapper = null
         }
     }
-    const elements = Array.from(body.children)
+    // A paragraph holding only spaces (not a line break or &nbsp;) has no height in the old editor.
+    const hasHeight = (element: Element): boolean =>
+        !['P', 'DIV'].includes(element.tagName) ||
+        /[^ \t\n\r\f]/.test(element.textContent ?? '') ||
+        !!element.querySelector('br, img') ||
+        !!(element as HTMLElement).getAttribute('style')?.match(/padding|height|border|margin[^;]*[1-9]/)
+    const all = Array.from(body.children)
+    const elements = all.some(hasHeight) ? all.filter(hasHeight) : all
     const supported = elements.every(
         (element) =>
             (element.tagName === 'P' ||
@@ -482,7 +488,9 @@ function uniformBorder(
 }
 
 function fontStyleFrom(values: Record<string, any>): Pick<EmailBlockStyle, 'fontFamily' | 'fontUrl'> {
-    return { fontFamily: values.fontFamily?.value || undefined, fontUrl: values.fontFamily?.url || undefined }
+    // "inherit" picks up the email's font in the old layout, which is what no font means here.
+    const family = values.fontFamily?.value === 'inherit' ? undefined : values.fontFamily?.value
+    return { fontFamily: family || undefined, fontUrl: values.fontFamily?.url || undefined }
 }
 
 interface TextDefaults {
@@ -549,6 +557,39 @@ function socialIconsHtml(values: Record<string, any>): string {
         })
         .join('')
     return `<table role="presentation" align="${align(values.align) ?? 'center'}" cellpadding="0" cellspacing="0" border="0"><tr>${cells}</tr></table>`
+}
+
+/** A row of links drawn the way the old editor's export draws it, as an HTML block, so the menu looks the same. */
+function menuHtml(values: Record<string, any>): string {
+    const vertical = values.layout === 'vertical'
+    const itemCss = [
+        `padding:${String(values.padding ?? '5px 15px').replace(/[^0-9a-z .%-]/gi, '')}`,
+        `display:${vertical ? 'block' : 'inline-block'}`,
+        `font-size:${parsePx(values.fontSize) ?? 14}px`,
+        fontStyleFrom(values).fontFamily
+            ? `font-family:${String(fontStyleFrom(values).fontFamily).replace(/["<>;]/g, '')}`
+            : '',
+        parsePx(values.fontWeight) ? `font-weight:${parsePx(values.fontWeight)}` : '',
+        parsePx(values.letterSpacing) ? `letter-spacing:${parsePx(values.letterSpacing)}px` : '',
+    ]
+        .filter(Boolean)
+        .join(';')
+    const color = (value: unknown, fallback: string): string =>
+        /^#[0-9a-f]{3,8}$/i.test(String(value ?? '')) ? String(value) : fallback
+    const separator = vertical ? '' : String(values.separator ?? '')
+    const items = (values.menu?.items ?? []).map((item: { text?: string; link?: unknown }) => {
+        const text = escapeHtml(String(item.text ?? ''))
+        const href = linkUrl(item.link)
+        const target = (item.link as { values?: { target?: string } } | undefined)?.values?.target
+        return href
+            ? `<a href="${escapeHtml(href)}" target="${target === '_self' ? '_self' : '_blank'}" style="${itemCss};color:${color(values.linkColor, '#0068A5')};text-decoration:none">${text}</a>`
+            : `<span style="${itemCss};color:${color(values.textColor, '#444444')}">${text}</span>`
+    })
+    const between = separator
+        ? `<span style="${itemCss};color:${color(values.textColor, '#444444')}">${escapeHtml(separator)}</span>`
+        : ''
+    // The spaces between items are part of the old layout: inline items sit a space apart.
+    return `<div style="text-align:${align(values.align) ?? 'center'}">${items.join(between ? ` ${between} ` : ' ')}</div>`
 }
 
 function isRightToLeft(values: Record<string, any>): boolean {
@@ -698,6 +739,20 @@ function convertContent(
                     },
                 },
             ]
+        case 'menu': {
+            const padding = containerPadding(values)
+            if (values.menu?.items?.length) {
+                return [
+                    {
+                        type: 'emailHtml',
+                        attrs: { html: menuHtml(values), emailStyle: compact({ padding, inheritText: true }) },
+                    },
+                ]
+            }
+            // An empty menu still took up its padding in the old editor.
+            const height = (padding?.top ?? 0) + (padding?.bottom ?? 0)
+            return height ? [{ type: 'emailSpacer', attrs: { height } }] : []
+        }
         case 'custom':
             if (content.slug === 'unsubscribe_link') {
                 return richTextBlocks(
