@@ -82,6 +82,8 @@ const tagAnchor = (anchor: string, tags: UtmTags, siteHost: string | null): stri
     const quote = href[2] !== undefined ? '"' : "'"
     const encoded = tagged
         .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
         .replace(quote === '"' ? /"/g : /'/g, quote === '"' ? '&quot;' : '&#39;')
     const start = href.index! + href[0].indexOf('=')
     return anchor.slice(0, start) + `=${quote}${encoded}${quote}` + anchor.slice(href.index! + href[0].length)

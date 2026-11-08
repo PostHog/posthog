@@ -145,8 +145,11 @@ const tagAnchor = (anchor: string, tags: UtmTags, siteHost: string | null): stri
         return anchor
     }
     const quote = href[3] !== undefined ? "'" : '"'
+    // A raw `>` in the href would end the opening tag for SES tracking, which then writes its tag into the URL.
     const encoded = tagged
         .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
         .replace(quote === '"' ? /"/g : /'/g, quote === '"' ? '&quot;' : '&#39;')
     const start = href.index! + href[0].indexOf('=')
     return anchor.slice(0, start) + `=${quote}${encoded}${quote}` + anchor.slice(href.index! + href[0].length)

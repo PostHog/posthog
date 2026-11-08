@@ -163,9 +163,6 @@ export const resolveEmailTrackingDistinctId = (
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.
-// HTML also defines the uppercase named references `&AMP;`, `&LT;`, `&GT;` and `&QUOT;`, but not `&APOS;`,
-// and accepts `&#X` as the hex prefix. A browser decodes these forms, so a rewriter that leaves one encoded
-// escapes its `&` a second time.
 const HTML_ENTITY_REGEX = /&(?:(amp|lt|gt|quot|apos|AMP|LT|GT|QUOT)|#(\d+)|#[xX]([0-9a-fA-F]+));/g
 const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 
@@ -180,8 +177,7 @@ export const decodeHtmlEntitiesInHref = (value: string): string => {
         if (code < 0 || code > 0x10ffff) {
             return _match
         }
-        // HTML decodes a surrogate code point to U+FFFD. A lone surrogate makes `encodeURIComponent`
-        // throw when a rewriter encodes the href, and that fails the send.
+        // HTML decodes a surrogate to U+FFFD. A lone one makes `encodeURIComponent` throw and fails the send.
         return code >= 0xd800 && code <= 0xdfff ? '\uFFFD' : String.fromCodePoint(code)
     })
 }
