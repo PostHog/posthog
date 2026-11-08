@@ -59,6 +59,12 @@ impl FromStr for ProducerName {
 /// the same name.
 #[derive(Envconfig, Clone, Debug)]
 pub struct ProducerConfig {
+    #[envconfig(default = "")]
+    pub sasl_mechanisms: String,
+    #[envconfig(default = "")]
+    pub sasl_username: String,
+    #[envconfig(default = "")]
+    pub sasl_password: String,
     // `kafka:9092` is the broker in local dev and hobby. A deployment that
     // forgets to wire the slot fails its liveness check instead of producing
     // somewhere unexpected.
@@ -189,6 +195,8 @@ impl ProducerConfig {
             ("broker.address.family", &self.broker_address_family),
             ("client.id", &self.client_id),
             ("security.protocol", &self.security_protocol),
+            ("sasl.username", &self.sasl_username),
+            ("sasl.password", &self.sasl_password),
             (
                 "enable.ssl.certificate.verification",
                 &self.enable_ssl_certificate_verification,
@@ -199,6 +207,9 @@ impl ProducerConfig {
             }
         }
 
+        if !self.sasl_mechanisms.is_empty() {
+            client_config.set("sasl.mechanisms", self.sasl_mechanisms.to_ascii_uppercase());
+        }
         client_config
     }
 }
@@ -260,7 +271,13 @@ fn create_producer(
     );
 
     let client_config = config.client_config();
-    debug!("rdkafka configuration: {client_config:?}");
+    let redacted: HashMap<&str, &str> = client_config
+        .config_map()
+        .iter()
+        .filter(|(key, _)| key.as_str() != "sasl.password")
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+    debug!("rdkafka configuration: {redacted:?}");
 
     let producer: FutureProducer<KafkaContext> =
         client_config.create_with_context(KafkaContext::new(liveness.clone()))?;
@@ -292,6 +309,25 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
+    }
+
+    #[test]
+    fn named_producer_forwards_authentication() {
+        let config = ProducerConfig::load(
+            ProducerName::Ingestion,
+            &env(&[
+                ("KAFKA_INGESTION_PRODUCER_SECURITY_PROTOCOL", "sasl_ssl"),
+                ("KAFKA_INGESTION_PRODUCER_SASL_MECHANISMS", "scram-sha-512"),
+                ("KAFKA_INGESTION_PRODUCER_SASL_USERNAME", "00123"),
+                ("KAFKA_INGESTION_PRODUCER_SASL_PASSWORD", "false"),
+            ]),
+        )
+        .unwrap();
+        let client = config.client_config();
+        assert_eq!(client.get("security.protocol"), Some("sasl_ssl"));
+        assert_eq!(client.get("sasl.mechanisms"), Some("SCRAM-SHA-512"));
+        assert_eq!(client.get("sasl.username"), Some("00123"));
+        assert_eq!(client.get("sasl.password"), Some("false"));
     }
 
     #[test]
