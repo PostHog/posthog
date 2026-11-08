@@ -171,12 +171,14 @@ def resolve_workspace_name(
     """
     effective_region = region if region is not None else _preferred_region()
     if workspace is not None:
+        if is_own_default_target(workspace):
+            own_workspaces = list_user_workspaces()
+            default_name = _existing_default_name(own_workspaces, effective_region)
+            return default_name or get_workspace_name(region=effective_region), own_workspaces
         target_name = parse_workspace_target(workspace, region=effective_region)
         # Shared workspace targets (`@user[/label]`) are looked up against the
         # remote owner, so cross-region label fallback is the owner's
         # responsibility -- skip it here.
-        if workspace == f"@{get_username()}":
-            return resolve_default_workspace_name(region=effective_region)
         if workspace.startswith("@"):
             return target_name, None
         return _resolve_own_label(target_name)
@@ -230,16 +232,28 @@ def resolve_default_workspace_name(
     # Multiple workspaces -- prefer the effective region's default, then
     # defaults in other regions (a region pref should not mask the box the
     # user actually has -- same philosophy as the label fallback above).
-    existing_names = {ws.get("name") for ws in workspaces}
-    for candidate_region in (effective_region, *(r for r in REGIONS if r != effective_region)):
-        default_name = get_workspace_name(region=candidate_region)
-        if default_name in existing_names:
-            return default_name, workspaces
+    default_name = _existing_default_name(workspaces, effective_region)
+    if default_name is not None:
+        return default_name, workspaces
 
     # No default among multiple -- require explicit workspace argument
     labels = [extract_workspace_label(ws["name"]) or "(default)" for ws in workspaces]
     _fail("Multiple workspaces found. Specify which one:\n" + "".join(f"  {lbl}\n" for lbl in labels))
     raise SystemExit(1)  # unreachable; helps ty see the function doesn't fall through
+
+
+def _existing_default_name(workspaces: list[dict[str, Any]], region: str) -> str | None:
+    existing_names = {ws.get("name") for ws in workspaces}
+    for candidate_region in (region, *(r for r in REGIONS if r != region)):
+        default_name = get_workspace_name(region=candidate_region)
+        if default_name in existing_names:
+            return default_name
+    return None
+
+
+def is_own_default_target(workspace: str) -> bool:
+    """Whether *workspace* is ``@<your username>``, which names your own default box."""
+    return workspace.startswith("@") and "/" not in workspace and workspace[1:].lower() == get_username()
 
 
 def _resolve_own_label(target_name: str) -> tuple[str, list[dict[str, Any]] | None]:
@@ -2205,7 +2219,7 @@ def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: 
         ensure_runtime_ready()
         # Cleanup is destructive (removes caches and build artifacts), so refuse
         # to run it against someone else's shared `@user[/label]` devbox.
-        if workspace.startswith("@"):
+        if workspace.startswith("@") and not is_own_default_target(workspace):
             _fail("devbox:cleanup:disk only runs against your own devboxes, not a shared '@user' workspace.")
         name, workspaces = resolve_workspace_name(workspace)
         _get_workspace_or_fail(name, workspaces)

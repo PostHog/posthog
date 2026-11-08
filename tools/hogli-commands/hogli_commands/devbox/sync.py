@@ -19,7 +19,7 @@ from typing import Any
 import click
 
 from . import hogland, mutagen
-from .cli import _workspace_arg_suffix, resolve_workspace_name, workspace_argument
+from .cli import _workspace_arg_suffix, is_own_default_target, resolve_workspace_name, workspace_argument
 from .coder import (
     REMOTE_REPO_PATH as _REMOTE_REPO_PATH,
     _fail,
@@ -368,7 +368,7 @@ def cmd_sync(
         raise click.UsageError("Pick at most one of --status, --pause, --resume, --terminate, --flush.")
     if as_json and (pause or resume or terminate or flush):
         raise click.UsageError("--json reports state only; it can't combine with --pause/--resume/--terminate/--flush.")
-    if workspace and workspace.startswith("@"):
+    if workspace and workspace.startswith("@") and not is_own_default_target(workspace):
         # Local is the source of truth: syncing onto another user's box would
         # push your checkout over theirs. v1 targets your own devboxes only.
         _fail("devbox:sync only targets your own devboxes; `@user` shared targets are not supported.")

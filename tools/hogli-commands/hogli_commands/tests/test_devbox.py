@@ -2290,6 +2290,13 @@ class TestResolveWorkspaceName:
         else:
             assert devbox_cli.resolve_workspace_name(workspace)[0] == expected
 
+    def test_own_username_never_selects_a_labeled_box(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [{"name": "devbox-test-user-feat"}])
+
+        assert devbox_cli.resolve_workspace_name("@test-user")[0] == "devbox-test-user"
+
     def test_listing_failure_in_a_worktree_stops_instead_of_retargeting(
         self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path
     ) -> None:
@@ -5167,6 +5174,16 @@ class TestDevboxSyncCommand:
         result = runner.invoke(cli, ["devbox:sync", "@alice/api"])
         assert result.exit_code != 0
         assert "@user" in result.output or "own devboxes" in result.output
+
+    def test_accepts_own_username_target(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "get_username", lambda: "test-user")
+
+        def resolved(*a: object, **kw: object) -> tuple[str, None]:
+            raise LookupError("resolved")
+
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", resolved)
+        result = runner.invoke(cli, ["devbox:sync", "@test-user", "--status"])
+        assert isinstance(result.exception, LookupError), result.output
 
     def test_terminate_invokes_label_scoped_terminate(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
