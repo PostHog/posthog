@@ -34,6 +34,7 @@ import {
 } from '../../types'
 import { SourceSpendLabel } from '../spend/SourceSpendLabel'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
+import { AlertNamePatterns } from './AlertNamePatterns'
 import { DataSourceSetupModal } from './DataSourceSetupModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceAgentIcon } from './SourceAgentIcon'
@@ -123,6 +124,8 @@ interface SourceAlertScope {
     /** False before the source was ever turned on, as the choice is stored on its config row. */
     canChange: boolean
     disabledReason?: string
+    /** The persisted config row, which the name patterns are saved on. Set only when `canChange` is true and the all-alerts flag is on. */
+    sourceConfig?: SignalSourceConfig
 }
 
 /** Product analytics only: whether anomaly scoring runs while the source is on. */
@@ -398,7 +401,7 @@ function Expansion({
                         ) : (
                             <span />
                         )}
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             {docsLink}
                             {onSteer && (
                                 <LemonButton
@@ -432,20 +435,28 @@ function Expansion({
                     <div className="flex flex-col gap-1.5 pt-1">
                         <span className="text-xs font-semibold text-default">Alerts that become signals</span>
                         {alertScope.canChange ? (
-                            <LemonRadio
-                                value={alertScope.value}
-                                onChange={alertScope.onChange}
-                                aria-label="Alerts that become signals"
-                                data-attr="signal-source-alert-scope"
-                                radioPosition="top"
-                                options={alertScope.options.map(({ value, label, description, dataAttr }) => ({
-                                    value,
-                                    label,
-                                    description,
-                                    disabledReason: alertScope.disabledReason,
-                                    'data-attr': dataAttr,
-                                }))}
-                            />
+                            <>
+                                <LemonRadio
+                                    value={alertScope.value}
+                                    onChange={alertScope.onChange}
+                                    aria-label="Alerts that become signals"
+                                    data-attr="signal-source-alert-scope"
+                                    radioPosition="top"
+                                    options={alertScope.options.map(({ value, label, description, dataAttr }) => ({
+                                        value,
+                                        label,
+                                        description,
+                                        disabledReason: alertScope.disabledReason,
+                                        'data-attr': dataAttr,
+                                    }))}
+                                />
+                                {alertScope.sourceConfig && (
+                                    <AlertNamePatterns
+                                        sourceConfig={alertScope.sourceConfig}
+                                        disabledReason={alertScope.disabledReason}
+                                    />
+                                )}
+                            </>
                         ) : (
                             <span className="text-xs text-secondary">
                                 Turn on this source to choose which alerts become signals.
@@ -992,6 +1003,7 @@ export function AgentsRoster(): JSX.Element {
     const allFiringAlertsEnabled = !!featureFlags[FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]
     const alertScope = useMemo((): SourceAlertScope => {
         const blockedReason = stateFor('analytics').blockedReason
+        const canChange = !!anomalyInvestigationConfig && !anomalyInvestigationConfig.id.startsWith('new_')
         return {
             options: allFiringAlertsEnabled
                 ? ALERT_SCOPE_OPTIONS
@@ -1002,7 +1014,8 @@ export function AgentsRoster(): JSX.Element {
                     ? SignalAlertScope.InvestigatedOnly
                     : analyticsAlertScope,
             onChange: setAnalyticsAlertScope,
-            canChange: !!anomalyInvestigationConfig && !anomalyInvestigationConfig.id.startsWith('new_'),
+            canChange,
+            sourceConfig: canChange && allFiringAlertsEnabled ? (anomalyInvestigationConfig ?? undefined) : undefined,
             disabledReason:
                 blockedReason ??
                 (savingAnalyticsAlertScope !== null || isAnomalyInvestigationToggling ? 'Saving' : undefined),
