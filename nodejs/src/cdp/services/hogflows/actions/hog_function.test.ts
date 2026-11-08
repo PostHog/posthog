@@ -847,43 +847,46 @@ describe('HogFunctionHandler', () => {
         ['a push that found no device token', 'push', { deliveredToRecipient: false }, []],
         ['an email from an own sender', 'email', {}, ['workflow_emails_sent']],
         ['an email from the sandbox sender', 'email', { usedSandboxSender: true }, []],
-    ] as const)('bills %s only when the step is billable', async (_label, billingType, sendOutcome, usageKeys) => {
-        const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
-            reportBillableInvocation: jest.fn(),
-        }
-        const handler = new HogFunctionHandler(
-            mockHogFlowFunctionsService,
-            mockRecipientPreferencesService,
-            mockEmailValidationService,
-            billingType,
-            null,
-            usageReporter
-        )
+    ] as const)(
+        '%s: bills unless the send reached nobody or used the sandbox sender',
+        async (_label, billingType, sendOutcome, usageKeys) => {
+            const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
+                reportBillableInvocation: jest.fn(),
+            }
+            const handler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                billingType,
+                null,
+                usageReporter
+            )
 
-        const executeWithAsyncFunctions =
-            mockHogFlowFunctionsService.executeWithAsyncFunctions.bind(mockHogFlowFunctionsService)
-        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
-            async (hogFunctionInvocation, options) => ({
-                ...(await executeWithAsyncFunctions(hogFunctionInvocation, options)),
-                ...sendOutcome,
+            const executeWithAsyncFunctions =
+                mockHogFlowFunctionsService.executeWithAsyncFunctions.bind(mockHogFlowFunctionsService)
+            jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+                async (hogFunctionInvocation, options) => ({
+                    ...(await executeWithAsyncFunctions(hogFunctionInvocation, options)),
+                    ...sendOutcome,
+                })
+            )
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
             })
-        )
 
-        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-            queue: 'hog',
-            queuePriority: 0,
-        })
+            await handler.execute({ invocation, action, result: invocationResult })
 
-        await handler.execute({ invocation, action, result: invocationResult })
-
-        expect(invocationResult.metrics.filter((metric) => metric.metric_name === 'billable_invocation')).toEqual(
-            usageKeys.length ? [expect.objectContaining({ metric_kind: billingType, count: 1 })] : []
-        )
-        const recordId = `flow:${invocation.id}:${invocation.state.actionStepCount}:${billingType}`
-        expect(jest.mocked(usageReporter.reportBillableInvocation).mock.calls).toEqual(
-            usageKeys.map((usageKey) => [{ teamId: team.id, usageKey, recordId }])
-        )
-    })
+            expect(invocationResult.metrics.filter((metric) => metric.metric_name === 'billable_invocation')).toEqual(
+                usageKeys.length ? [expect.objectContaining({ metric_kind: billingType, count: 1 })] : []
+            )
+            const recordId = `flow:${invocation.id}:${invocation.state.actionStepCount}:${billingType}`
+            expect(jest.mocked(usageReporter.reportBillableInvocation).mock.calls).toEqual(
+                usageKeys.map((usageKey) => [{ teamId: team.id, usageKey, recordId }])
+            )
+        }
+    )
 
     // Live edits reach runs already in flight, so a run that entered on one version can send its
     // message under a newer one. The conversion belongs to the version whose message the person
