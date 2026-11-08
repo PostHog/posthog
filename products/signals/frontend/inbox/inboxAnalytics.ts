@@ -500,6 +500,7 @@ export function captureInboxReportsImpressed(params: {
     rankingPill: boolean
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
+    const personalSort = params.sortField === 'personal'
     if (params.rankingPill) {
         params.reports
             .filter((report) => rankingPillLifts(report) !== null)
@@ -527,6 +528,9 @@ export function captureInboxReportsImpressed(params: {
             total_weight: report.total_weight,
             is_suggested_reviewer: report.is_suggested_reviewer,
             ...(rankingSort ? { ranking_served_key: report.ranking?.model ?? null } : {}),
+            ...(personalSort
+                ? { personal_tier: report.personal_tier ?? null, personal_reason_shown: !!report.personal_reason }
+                : {}),
             ...rankingPillProperties(report, params.rankingPill),
         })),
     })
@@ -548,6 +552,10 @@ export function captureInboxReportOpened(
         section: InboxReportSectionKey | null
         /** The ranker of the list the report was opened from. Null for other sorts and for a cold deep-link. */
         rankerId: string | null
+        /** The tier the card showed under the Personalized sort. Null for other sorts and for a cold deep-link. */
+        personalTier: string | null
+        /** Whether the card showed a personal ranking reason under the Personalized sort. */
+        personalReasonShown: boolean
     },
     /** The unload flush passes `{ send_instantly: true }` so the open leaves before the page does. */
     options?: CaptureOptions
@@ -565,6 +573,8 @@ export function captureInboxReportOpened(
             list_size: params.listSize,
             section: params.section,
             ranker_id: params.rankerId,
+            personal_tier: params.personalTier,
+            personal_reason_shown: params.personalReasonShown,
             ...rankingPillProperties(params.report, seenInboxRankingPillReportIds.has(params.report.id)),
         },
         options
@@ -621,6 +631,8 @@ export function captureInboxRankingDetailsViewed(params: {
     head: string | null
     state: 'scored' | 'stale' | 'unscored'
     strength: string | null
+    /** The tier the card showed under the Personalized sort. Null for other sorts. */
+    personalTier?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.RANKING_DETAILS_VIEWED, {
         ...baseReportProperties(params.report),
@@ -628,6 +640,7 @@ export function captureInboxRankingDetailsViewed(params: {
         ranking_head: params.head,
         ranking_state: params.state,
         ranking_strength: params.strength,
+        personal_tier: params.personalTier ?? null,
     })
 }
 
