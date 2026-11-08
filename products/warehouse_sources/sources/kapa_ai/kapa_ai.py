@@ -134,11 +134,17 @@ def kapa_ai_source(
 ) -> SourceResponse:
     definition = schema_for_resource(ENDPOINTS, endpoint)
 
-    def get_rows() -> Iterator[list[dict[str, Any]]]:
+    def get_rows() -> Resource:
         resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
         resource = build_resource(api_key, project_id, endpoint, team_id, job_id, resumable_source_manager, resume)
-        yield from resource
-        resumable_source_manager.clear_state()
+
+        def walk() -> Iterator[list[dict[str, Any]]]:
+            yield from resource
+            resumable_source_manager.clear_state()
+
+        # The walk hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+        # framework's per-page safe points.
+        return Resource(walk, name=endpoint, hints=resource._hints)
 
     return SourceResponse(
         name=endpoint,

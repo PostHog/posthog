@@ -233,13 +233,17 @@ def get_rows(
                     batcher.batch(row)
                     if batcher.should_yield():
                         yield batcher.get_table()
+                # Flush after each request, before the bookmark advances past this symbol. A symbol can
+                # take one request per quarter, and the pipeline acts only on a yield or a safe point.
+                if batcher.should_yield(include_incomplete_chunk=True):
+                    yield batcher.get_table()
+                else:
+                    # The staged index still points at this symbol, so a resume re-fetches it in full.
+                    resumable_source_manager.safe_point()
 
-            # Flush this symbol's rows before advancing the bookmark, so a crash re-fetches only from
-            # the next symbol (whose rows are not yet persisted) rather than dropping buffered rows.
-            if batcher.should_yield(include_incomplete_chunk=True):
-                yield batcher.get_table()
             if index + 1 < len(symbols):
                 resumable_source_manager.save_state(FinancialModellingResumeConfig(symbol_index=index + 1))
+                resumable_source_manager.safe_point()
         return
 
     params = {**config.extra_params, **window}

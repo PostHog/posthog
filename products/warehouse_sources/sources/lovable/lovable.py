@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, time, timedelta
 from typing import Any, Optional
 
@@ -133,19 +133,25 @@ def _time_series_rows(time_series: dict[str, Any]) -> list[dict[str, Any]]:
     return [rows[timestamp] for timestamp in sorted(rows)]
 
 
-def _iter_rows(client: RESTClient, path: str, params: dict[str, Any]) -> Iterator[dict[str, Any]]:
+def _iter_rows(
+    client: RESTClient, path: str, params: dict[str, Any], safe_point: Callable[[], None] | None = None
+) -> Iterator[dict[str, Any]]:
     for page in client.paginate(path=path, params=params, paginator=_paginator(), data_selector="data"):
         yield from page
+        if safe_point is not None:
+            safe_point()
 
 
-def _iter_parents(client: RESTClient, api_version: str, config: LovableEndpointConfig) -> Iterator[_ParentRef]:
+def _iter_parents(
+    client: RESTClient, api_version: str, config: LovableEndpointConfig, safe_point: Callable[[], None]
+) -> Iterator[_ParentRef]:
     if config.scope == "account":
         yield _ParentRef()
         return
 
     endpoints = version_config(api_version).endpoints
     workspaces = endpoints["Workspaces"]
-    for workspace in _iter_rows(client, _path(workspaces, _ParentRef()), _params(workspaces, _ParentRef())):
+    for workspace in _iter_rows(client, _path(workspaces, _ParentRef()), _params(workspaces, _ParentRef()), safe_point):
         workspace_id = workspace.get("id")
         if not workspace_id:
             continue
@@ -155,7 +161,7 @@ def _iter_parents(client: RESTClient, api_version: str, config: LovableEndpointC
 
         projects = endpoints["Projects"]
         workspace_ref = _ParentRef(workspace_id=workspace_id)
-        for project in _iter_rows(client, _path(projects, workspace_ref), _params(projects, workspace_ref)):
+        for project in _iter_rows(client, _path(projects, workspace_ref), _params(projects, workspace_ref), safe_point):
             project_id = project.get("id")
             if not project_id or (config.published_projects_only and not project.get("is_published")):
                 continue
@@ -165,7 +171,7 @@ def _iter_parents(client: RESTClient, api_version: str, config: LovableEndpointC
                 continue
 
             scans = endpoints["ProjectSecurityScans"]
-            for scan in _iter_rows(client, _path(scans, project_ref), _params(scans, project_ref)):
+            for scan in _iter_rows(client, _path(scans, project_ref), _params(scans, project_ref), safe_point):
                 scan_id = scan.get("id")
                 if scan_id:
                     yield _ParentRef(workspace_id=workspace_id, project_id=project_id, scan_id=scan_id)
@@ -210,7 +216,8 @@ def _iter_endpoint(
     resumable_source_manager: ResumableSourceManager[LovableResumeConfig],
     extra_params: dict[str, Any],
 ) -> Iterator[list[dict[str, Any]]]:
-    parents = list(_iter_parents(client, api_version, config))
+    # Listing parents hands on no rows, so the staged cursor still covers every row handed on.
+    parents = list(_iter_parents(client, api_version, config, resumable_source_manager.safe_point))
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_index, cursor = resume_position(parents, resume)
 
@@ -240,6 +247,8 @@ def _iter_endpoint(
             rows = [row for series in page for row in _time_series_rows(series)] if config.time_series else page
             if rows:
                 yield [_with_parent_ids(row, parent) for row in rows]
+            # The staged cursor still fetches this page, so resuming from it loses no rows.
+            resumable_source_manager.safe_point()
 
         cursor = None
 

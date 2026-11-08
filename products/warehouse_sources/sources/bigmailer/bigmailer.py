@@ -1,5 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
+from functools import partial
 from typing import Any, Optional
 
 from requests import Response
@@ -228,7 +229,8 @@ def bigmailer_source(
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: _raise_auth_errors(resource),
+        # The wrapper hands each page on unchanged, so as a `Resource` it keeps the framework safe points.
+        items=lambda: Resource(partial(_raise_auth_errors, resource), name=endpoint, hints=resource._hints),
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

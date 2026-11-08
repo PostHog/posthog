@@ -241,12 +241,11 @@ def get_batch_rows(
         batch = coin_ids[index : index + config.batch_size]
         body = _get(session, config.path, {**params, config.id_param: ",".join(str(coin_id) for coin_id in batch)})
         rows = _rows_from(config.row_shape, body.get("data"))
+        resumable_source_manager.save_state(CoinMarketCapResumeConfig(last_coin_id=batch[-1]))
         if rows:
             yield rows
-
-        # Saved after the batch is yielded, so a crash re-yields it rather than skipping it;
-        # the merge de-duplicates on the endpoint's primary key.
-        resumable_source_manager.save_state(CoinMarketCapResumeConfig(last_coin_id=batch[-1]))
+        else:
+            resumable_source_manager.safe_point()
 
 
 def _batch_source(
@@ -333,11 +332,11 @@ def get_snapshot_rows(
             {**config.extra_params, "date": day.isoformat(), "start": 1, "limit": config.limit},
         )
         rows = [row for row in (body.get("data") or []) if isinstance(row, dict)]
+        resumable_source_manager.save_state(CoinMarketCapResumeConfig(last_snapshot_date=day.isoformat()))
         if rows:
             yield [{**row, config.date_field: day.isoformat()} for row in rows]
-
-        # Saved after the day is yielded, so a crash re-yields that day rather than skipping it.
-        resumable_source_manager.save_state(CoinMarketCapResumeConfig(last_snapshot_date=day.isoformat()))
+        else:
+            resumable_source_manager.safe_point()
         day += datetime.timedelta(days=1)
 
 

@@ -396,6 +396,38 @@ class TestInboxOnboarding(APIBaseTest):
         assert safe_detail is not None
         assert next(change for change in safe_detail["changes"] if change["field"] == "onboarding")["after"] == "masked"
 
+    @parameterized.expand(
+        [
+            ("inbox_only_with_implementation", ["inbox:write"], True, 403),
+            ("inbox_only_without_implementation", ["inbox:write"], False, 200),
+            ("inbox_and_task_with_implementation", ["inbox:write", "task:write"], True, 200),
+        ]
+    )
+    def test_completion_with_automatic_implementation_needs_task_scope(
+        self, _name: str, scopes: list[str], automatic_implementation: bool, expected: int
+    ) -> None:
+        self.draft["automatic_implementation"] = automatic_implementation
+        raw = self.create_personal_api_key_with_scopes([*scopes, "signal_scout:write", "llm_skill:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        with (
+            patch(
+                "products.signals.backend.onboarding_completion.InboxOnboardingReconciler.has_repository",
+                return_value=object(),
+            ),
+            patch("products.signals.backend.tasks.launch_inbox_onboarding_job.delay"),
+        ):
+            response = self.client.post(f"{self.url}complete/", self.draft, format="json")
+        assert response.status_code == expected, response.content
+        if expected == 403:
+            assert "task:write" in response.json()["detail"]
+        config = SignalTeamConfig.objects.get(team=self.team)
+        assert bool((config.onboarding or {}).get("completed_at")) is (expected == 200)
+        if expected == 200:
+            assert config.autostart_enabled is automatic_implementation
+        else:
+            assert config.autostart_enabled is not True
+
     @parameterized.expand([("unchanged", True), ("user_paused", False), ("withheld", False), ("task_only", False)])
     def test_activation_resumes_only_onboarding_operational_pauses(self, state: str, enabled: bool) -> None:
         seed_canonical_skills(self.team)

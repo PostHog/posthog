@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterable
 from typing import Any, Optional
 
 from requests import Response
@@ -6,6 +7,8 @@ from requests import Response
 from products.warehouse_sources.sources.rss.settings import RSS_ENDPOINTS
 from products.warehouse_sources.sources.sdk import (
     AuthConfig,
+    BasePaginator,
+    ClientConfig,
     EndpointResource,
     PageNumberPaginator,
     Resource,
@@ -13,6 +16,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_chained_resource,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -31,10 +35,10 @@ DEFAULT_PROBE_PATH = "/podcasts"
 
 @dataclasses.dataclass(frozen=False)
 class RssResumeConfig:
-    """Resume state for the per-podcast episodes fan-out.
+    """Resume state for the per-podcast fan-outs (`episodes`, `collaborators`, `keywords`).
 
-    `podcasts` and `categories` are single unpaginated requests, so only the episodes endpoint
-    persists state. The framework fan-out now checkpoints into `fanout_state`; the legacy fields are
+    `podcasts` and `categories` are single unpaginated requests, and the chained `midrolls` fan-out
+    cannot checkpoint, so only the per-podcast fan-outs persist state. The framework fan-out now checkpoints into `fanout_state`; the legacy fields are
     kept (with defaults) only so state saved before the migration still parses
     (`ResumableSourceManager._load_json` does `dataclass(**saved)`). An old-shape bookmark restarts
     the fan-out from scratch — merge dedupes the re-pulled rows on the primary key.
@@ -72,6 +76,14 @@ def _auth_config(api_key: str) -> AuthConfig:
     return {"type": "api_key", "api_key": api_key, "name": "X-Api-Key", "location": "header"}
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": RSS_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        "auth": _auth_config(api_key),
+    }
+
+
 def _top_level_resource(endpoint: str, api_key: str, team_id: int, job_id: str) -> Resource:
     config = RSS_ENDPOINTS[endpoint]
     rest_config: RESTAPIConfig = {
@@ -98,59 +110,65 @@ def _top_level_resource(endpoint: str, api_key: str, team_id: int, job_id: str) 
     return rest_api_resource(rest_config, team_id, job_id, None)
 
 
-def _fan_out_episodes_resource(
-    api_key: str,
-    team_id: int,
-    job_id: str,
-    manager: ResumableSourceManager[RssResumeConfig],
-) -> Resource:
-    config = RSS_ENDPOINTS["episodes"]
-    parent_config = RSS_ENDPOINTS["podcasts"]
+def _podcasts_parent_resource() -> EndpointResource:
+    return {
+        "name": RSS_ENDPOINTS["podcasts"].name,
+        "endpoint": {
+            "path": RSS_ENDPOINTS["podcasts"].path,
+            "paginator": SinglePagePaginator(),
+            "data_selector_malformed_retryable": True,
+        },
+    }
+
+
+def _podcast_child_resource(endpoint: str) -> EndpointResource:
+    config = RSS_ENDPOINTS[endpoint]
+    parent_name = RSS_ENDPOINTS["podcasts"].name
 
     # include_from_parent injects the parent's id under `_podcasts_id`; rename it to `podcast_id`
     # (kept as-is, no cast) so child rows keep the exact shape the hand-rolled source produced
     # (`{**item, "podcast_id": podcast_id}`). It's part of the composite primary key.
-    prefixed_parent_id = f"_{parent_config.name}_id"
+    prefixed_parent_id = f"_{parent_name}_id"
 
     def _inject_podcast_id(row: dict[str, Any]) -> dict[str, Any]:
         row["podcast_id"] = row.pop(prefixed_parent_id)
         return row
 
-    parent_resource: EndpointResource = {
-        "name": parent_config.name,
-        "endpoint": {
-            "path": parent_config.path,
-            "paginator": SinglePagePaginator(),
-            "data_selector_malformed_retryable": True,
-        },
-    }
-    child_resource: EndpointResource = {
+    params: dict[str, Any] = {"podcast_id": {"type": "resolve", "resource": parent_name, "field": "id"}}
+    paginator: BasePaginator
+    if config.paginated:
+        # `order=oldest` gives stable append-only ordering: episodes published mid-sync land on the
+        # final pages instead of shifting every earlier page boundary by one.
+        params.update({"order": "oldest", "limit": PAGE_SIZE})
+        paginator = RssPageNumberPaginator(limit=PAGE_SIZE)
+    else:
+        paginator = SinglePagePaginator()
+
+    return {
         "name": config.name,
         "include_from_parent": ["id"],
         "data_map": _inject_podcast_id,
         "endpoint": {
             "path": config.path,
-            "params": {
-                "podcast_id": {"type": "resolve", "resource": parent_config.name, "field": "id"},
-                # `order=oldest` gives stable append-only ordering: episodes published mid-sync land
-                # on the final pages instead of shifting every earlier page boundary by one.
-                "order": "oldest",
-                "limit": PAGE_SIZE,
-            },
-            "paginator": RssPageNumberPaginator(limit=PAGE_SIZE),
+            "params": params,
+            "paginator": paginator,
             # A bare JSON array is expected; a non-list body means the response shape changed —
             # fail loud instead of silently syncing 0 rows.
             "data_selector_required": True,
         },
     }
 
+
+def _fan_out_podcasts_resource(
+    endpoint: str,
+    api_key: str,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[RssResumeConfig],
+) -> Resource:
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": RSS_BASE_URL,
-            "headers": {"Accept": "application/json"},
-            "auth": _auth_config(api_key),
-        },
-        "resources": [parent_resource, child_resource],
+        "client": _client_config(api_key),
+        "resources": [_podcasts_parent_resource(), _podcast_child_resource(endpoint)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -173,7 +191,38 @@ def _fan_out_episodes_resource(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
-    return next(resource for resource in resources if resource.name == config.name)
+    return next(resource for resource in resources if resource.name == endpoint)
+
+
+def _fan_out_episodes_resource(endpoint: str, api_key: str, team_id: int, job_id: str) -> Iterable[Any]:
+    config = RSS_ENDPOINTS[endpoint]
+    episodes_name = RSS_ENDPOINTS["episodes"].name
+
+    child_resource: EndpointResource = {
+        "name": config.name,
+        "include_from_parent": ["id", "podcast_id"],
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                "podcast_id": {"type": "resolve", "resource": episodes_name, "field": "podcast_id"},
+                "episode_id": {"type": "resolve", "resource": episodes_name, "field": "id"},
+            },
+            "paginator": SinglePagePaginator(),
+            "data_selector_required": True,
+            # An episode deleted between its episodes page and this fetch must not sink the run.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+    }
+
+    return build_chained_resource(
+        resources=[_podcasts_parent_resource(), _podcast_child_resource(episodes_name), child_resource],
+        child_name=config.name,
+        parent_name=episodes_name,
+        parent_field_renames={"id": "episode_id", "podcast_id": "podcast_id"},
+        client_config=_client_config(api_key),
+        team_id=team_id,
+        job_id=job_id,
+    )
 
 
 def rss_source(
@@ -185,8 +234,11 @@ def rss_source(
 ) -> SourceResponse:
     config = RSS_ENDPOINTS[endpoint]
 
-    if config.fan_out_podcasts:
-        resource = _fan_out_episodes_resource(api_key, team_id, job_id, resumable_source_manager)
+    resource: Iterable[Any]
+    if config.fan_out_episodes:
+        resource = _fan_out_episodes_resource(endpoint, api_key, team_id, job_id)
+    elif config.fan_out_podcasts:
+        resource = _fan_out_podcasts_resource(endpoint, api_key, team_id, job_id, resumable_source_manager)
     else:
         resource = _top_level_resource(endpoint, api_key, team_id, job_id)
 

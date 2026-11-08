@@ -9,6 +9,8 @@ jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useValues: () => ({
         conversionRecordings: null,
+        tableColumns: [],
+        draftConversionGoal: null,
         currentTeamId: 1,
         drillDownLevel: 'Campaign',
         nativeSourcesHierarchyStatus: null,
@@ -24,6 +26,7 @@ jest.mock('@posthog/lemon-ui', () => ({
         <input aria-label="Search" value={value} onChange={(event) => onChange(event.target.value)} />
     ),
     LemonSelect: () => null,
+    LemonSegmentedButton: () => null,
     Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 jest.mock('lib/hooks/useFeatureFlag', () => ({ useFeatureFlag: () => false }))
@@ -33,15 +36,22 @@ jest.mock('~/scenes/marketing-analytics/MarketingAnalyticsFreshness', () => ({
     MarketingAnalyticsFreshness: () => null,
 }))
 jest.mock('~/scenes/web-analytics/tiles/WebAnalyticsTile', () => ({ webAnalyticsDataTableQueryContext: {} }))
+jest.mock('scenes/web-analytics/WebTileHeader', () => ({ WebTileHeader: () => null }))
 jest.mock('../../logic/marketingAnalyticsLogic', () => ({ marketingAnalyticsLogic: {} }))
 jest.mock('../../logic/marketingAnalyticsSettingsLogic', () => ({ marketingAnalyticsSettingsLogic: {} }))
 jest.mock('../../logic/marketingAnalyticsTableLogic', () => ({ marketingAnalyticsTableLogic: {} }))
+jest.mock('../../logic/marketingAnalyticsTilesLogic', () => ({ marketingAnalyticsTilesLogic: {} }))
 jest.mock('../../shared', () => ({ MarketingAnalyticsCell: () => <span data-attr="cost-cell" /> }))
 jest.mock('./MarketingAnalyticsColumnConfigModal', () => ({ MarketingAnalyticsColumnConfigModal: () => null }))
 jest.mock('~/queries/Query/Query', () => ({
     Query: ({ query, context }: { query: DataTableNode; context: QueryContext }) => {
         const Cell = context.columns!['Cost'].render!
-        return <Cell columnName="Cost" value={null} record={[]} query={query} recordIndex={0} rowCount={1} />
+        return (
+            <>
+                {context.customActions}
+                <Cell columnName="Cost" value={null} record={[]} query={query} recordIndex={0} rowCount={1} />
+            </>
+        )
     },
 }))
 

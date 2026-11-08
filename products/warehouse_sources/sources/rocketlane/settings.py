@@ -25,6 +25,10 @@ class RocketlaneEndpointConfig:
     page_size: int = PAGE_SIZE
     incremental_fields: list[Any] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
+    # Extra query params sent on every request to the endpoint.
+    params: dict[str, Any] = field(default_factory=dict)
+    # Set for endpoints that require a `startDate`/`endDate` window.
+    requires_date_window: bool = False
 
 
 # All endpoints are full-refresh only: Rocketlane's list endpoints expose per-field filters but no
@@ -75,6 +79,53 @@ ROCKETLANE_ENDPOINTS: dict[str, RocketlaneEndpointConfig] = {
             resolve_param="projectId",
             resolve_field="projectId",
             include_from_parent=[],
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Without `includeAllFields` the API leaves out the member, placeholder, tasks and duration.
+    # `startDate`/`endDate` are required, so the source sends one wide window (see `rocketlane.py`).
+    "resource_allocations": RocketlaneEndpointConfig(
+        name="resource_allocations",
+        path="/resource-allocations",
+        primary_keys=["allocationId"],
+        partition_key="createdAt",
+        params={"includeAllFields": "true"},
+        requires_date_window=True,
+    ),
+    "time_offs": RocketlaneEndpointConfig(
+        name="time_offs",
+        path="/time-offs",
+        primary_keys=["timeOffId"],
+        partition_key="createdAt",
+        params={"includeAllFields": "true"},
+    ),
+    # `/spaces` requires a `projectId` filter. Each space row already carries its `project`, and
+    # `spaceId` is documented as globally unique.
+    "spaces": RocketlaneEndpointConfig(
+        name="spaces",
+        path="/spaces?projectId={projectId}",
+        primary_keys=["spaceId"],
+        partition_key="createdAt",
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="projectId",
+            resolve_field="projectId",
+            include_from_parent=[],
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Payments carry no creation timestamp and the API does not document `paymentId` as globally
+    # unique, so the parent invoice id is part of the key.
+    "invoice_payments": RocketlaneEndpointConfig(
+        name="invoice_payments",
+        path="/invoices/{invoiceId}/payments",
+        primary_keys=["invoiceId", "paymentId"],
+        fanout=DependentEndpointConfig(
+            parent_name="invoices",
+            resolve_param="invoiceId",
+            resolve_field="invoiceId",
+            include_from_parent=["invoiceId"],
+            parent_field_renames={"invoiceId": "invoiceId"},
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),

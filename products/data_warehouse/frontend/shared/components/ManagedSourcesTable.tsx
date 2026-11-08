@@ -168,13 +168,34 @@ export function ManagedSourcesTable(): JSX.Element {
                             if (!source.status) {
                                 return null
                             }
+                            const webhookTag = source.webhook_not_registered ? (
+                                <Tooltip title="Some tables use webhook sync, but this source has no active webhook. Each sync of these tables reads the source API instead, which is slower. Open the source to set up the webhook or change the sync method.">
+                                    <LemonTag
+                                        type="danger"
+                                        forceClickable
+                                        onClick={() =>
+                                            router.actions.push(
+                                                urls.dataWarehouseSource(`managed-${source.id}`, 'webhook')
+                                            )
+                                        }
+                                        data-attr="managed-sources-webhook-not-registered"
+                                    >
+                                        No webhook
+                                    </LemonTag>
+                                </Tooltip>
+                            ) : null
                             const counts = syncingSchemasByStatus(source)
 
                             if (counts.length === 0) {
                                 // Source has schemas but none are enabled — source.status can be stale
                                 // ("Running" from before they were disabled), so show a neutral tag instead.
                                 if (source.schemas.length > 0) {
-                                    return <LemonTag type="muted">Not syncing</LemonTag>
+                                    return (
+                                        <div className="flex flex-wrap gap-1">
+                                            <LemonTag type="muted">Not syncing</LemonTag>
+                                            {webhookTag}
+                                        </div>
+                                    )
                                 }
                                 const tagContent = (
                                     <LemonTag type={StatusTagSetting[source.status] || 'default'}>
@@ -214,6 +235,7 @@ export function ManagedSourcesTable(): JSX.Element {
                                             </LemonTag>
                                         </Tooltip>
                                     ))}
+                                    {webhookTag}
                                 </div>
                             )
                         },

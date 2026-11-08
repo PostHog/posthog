@@ -43,6 +43,7 @@ export interface ExplainChartViewProps {
     /** Draws the chart with the overlay as a child, so the overlay can read the chart's scales. */
     renderChart: (overlay: ReactNode) => ReactNode
     openLink: (url: string) => void
+    openLinkLabel?: ReactNode
     title?: string | null
     formatValue?: (value: number) => string
     onPageChange?: (change: StoryPageChange) => void
@@ -74,6 +75,7 @@ export function ExplainChartView({
     data,
     renderChart,
     openLink,
+    openLinkLabel,
     title,
     formatValue = defaultFormat,
     onPageChange,
@@ -202,6 +204,7 @@ export function ExplainChartView({
                                     warnings={warningMessages(data.warnings)}
                                     page={active}
                                     openLink={openLink}
+                                    openLinkLabel={openLinkLabel}
                                     canShowChart={canShowChart}
                                     shownEvidenceIndex={shownEvidenceIndex}
                                     onToggleChart={toggleEvidenceChart}
@@ -210,6 +213,7 @@ export function ExplainChartView({
                                 <StoryChapterView
                                     page={active}
                                     openLink={openLink}
+                                    openLinkLabel={openLinkLabel}
                                     canShowChart={canShowChart}
                                     shownEvidenceIndex={shownEvidenceIndex}
                                     onToggleChart={toggleEvidenceChart}

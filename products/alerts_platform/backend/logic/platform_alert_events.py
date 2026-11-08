@@ -293,6 +293,11 @@ def _snapshot(raw: str) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+# Every read of checks leaves out follow-ups, which are messages about a check rather than checks.
+# Only `announcement` reads them, by their own evaluation key.
+CHECKS_ONLY: Final = f"kind != '{AlertEventKind.VERDICT_CHANGED.value}'"
+
+
 # The inner read deduplicates on the pair the writer names, as `announcement` does. The outer one
 # keeps the checks that moved the alert and the newest check, so a page of alerts that check every
 # minute returns a few rows each rather than a day of them.
@@ -307,6 +312,7 @@ FROM (
         WHERE team_id = %(team_id)s
           AND configuration_id IN %(configuration_ids)s
           AND grouping_key = ''
+          AND {CHECKS_ONLY}
           AND occurred_at >= %(since)s
           AND occurred_at < %(until)s
         ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
@@ -384,6 +390,7 @@ FROM (
     WHERE team_id = %(team_id)s
       AND configuration_id = %(configuration_id)s
       AND grouping_key = ''
+      AND {CHECKS_ONLY}
       AND occurred_at >= %(since)s
       AND (previous_state != state OR error_message != '')
     ORDER BY alert_id, occurred_at, evaluation_key
@@ -447,6 +454,7 @@ FROM (
     WHERE team_id = %(team_id)s
       AND configuration_id = %(configuration_id)s
       AND grouping_key = ''
+      AND {CHECKS_ONLY}
       AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC')
       AND occurred_at < toDateTime64(%(until)s, 6, 'UTC')
     ORDER BY alert_id, occurred_at, evaluation_key
@@ -464,6 +472,7 @@ FROM (
     WHERE team_id = %(team_id)s
       AND configuration_id = %(configuration_id)s
       AND grouping_key = ''
+      AND {CHECKS_ONLY}
       AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC')
       AND occurred_at < toDateTime64(%(until)s, 6, 'UTC')
     LIMIT 1 BY alert_id, evaluation_key
@@ -499,6 +508,7 @@ def check_page(
         total = 0
     return PlatformCheckPage(
         total=total,
+        configuration_id=configuration_id,
         checks=tuple(
             _check_entry(occurred_at, evaluation_key, state, value, error_message, source_detail)
             for occurred_at, evaluation_key, state, value, error_message, _, source_detail in rows
@@ -522,6 +532,7 @@ FROM (
     WHERE team_id = %(team_id)s
       AND configuration_id IN %(configuration_ids)s
       AND grouping_key = ''
+      AND {CHECKS_ONLY}
       AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC'){has_paths}
     ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
     LIMIT 1 BY alert_id, evaluation_key
@@ -577,6 +588,7 @@ FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id IN %(configuration_ids)s
   AND grouping_key = ''
+  AND {CHECKS_ONLY}
 GROUP BY configuration_id
 """
 

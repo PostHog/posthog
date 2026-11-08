@@ -1,0 +1,21 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+  <application>
+    <service android:name="expo.modules.notifications.service.ExpoFirebaseMessagingService" tools:node="remove" />
+    <service android:name="com.posthog.mobile.notifications.NotificationMessagingService" android:exported="false">
+      <intent-filter>
+        <action android:name="com.google.firebase.MESSAGING_EVENT" />
+      </intent-filter>
+    </service>
+    <meta-data android:name="firebase_messaging_notification_delegation_enabled" android:value="false" tools:replace="android:value" />
+    <activity-alias
+      android:name="com.posthog.mobile.notifications.NotificationTapActivity"
+      android:targetActivity="${applicationId}.MainActivity"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="com.posthog.mobile.notifications.OPEN_FCM_NOTIFICATION" />
+        <action android:name="expo.modules.notifications.OPEN_APP_ACTION" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+    </activity-alias>
+  </application>
+</manifest>

@@ -48,6 +48,22 @@ class TestGetRowsCursorPagination:
         # State saved once, after the first page yielded.
         assert result.saved_states == [OrttoResumeConfig(next_offset=500, cursor_id="cur-1")]
 
+    @pytest.mark.parametrize(
+        "stuck_page",
+        [
+            {"contacts": [], "has_more": True},
+            _contacts_page([], has_more=True, next_offset=0, cursor_id=None),
+        ],
+        ids=["no_next_offset", "next_offset_unchanged"],
+    )
+    def test_stops_when_has_more_does_not_advance(self, stuck_page: dict[str, Any]) -> None:
+        result = _driver().run(
+            "people", [ScriptedResponse(json={"fields": []}), *[ScriptedResponse(json=stuck_page)] * 3]
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 2
+
     def test_resumes_from_saved_offset_and_cursor(self) -> None:
         result = _driver().run(
             "people",

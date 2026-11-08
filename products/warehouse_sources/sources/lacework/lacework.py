@@ -381,12 +381,7 @@ def get_rows(
                 logger.warning("Lacework: stopping pagination, next URL host does not match the configured account")
                 next_page_url = None
 
-            if rows:
-                yield rows
-
-            # Save AFTER yielding so a crash re-yields the current page rather than skipping it.
-            # When the window is done, checkpoint the NEXT window instead so a resume doesn't
-            # re-walk this one.
+            # When the window is done, stage the NEXT window so a resume doesn't re-walk this one.
             if next_page_url is not None:
                 resumable_source_manager.save_state(
                     LaceworkResumeConfig(
@@ -395,21 +390,26 @@ def get_rows(
                         next_page_url=next_page_url,
                     )
                 )
-                method, url, body = "GET", next_page_url, None
+            elif window_end < now:
+                resumable_source_manager.save_state(
+                    LaceworkResumeConfig(
+                        window_start=_format_datetime(window_end),
+                        window_end=_format_datetime(min(window_end + timedelta(days=config.window_days), now)),
+                        next_page_url=None,
+                    )
+                )
+
+            if rows:
+                yield rows
             else:
+                resumable_source_manager.safe_point()
+
+            if next_page_url is None:
                 break
+            method, url, body = "GET", next_page_url, None
 
         window_start = window_end
         window_end = None
-        if window_start < now:
-            next_window_end = min(window_start + timedelta(days=config.window_days), now)
-            resumable_source_manager.save_state(
-                LaceworkResumeConfig(
-                    window_start=_format_datetime(window_start),
-                    window_end=_format_datetime(next_window_end),
-                    next_page_url=None,
-                )
-            )
 
 
 def lacework_source(

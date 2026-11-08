@@ -140,8 +140,13 @@ def get_rows(
         if config.pagination == "cursor":
             if not isinstance(data, dict) or not data.get("has_more"):
                 break
-            offset = data.get("next_offset", offset + len(items))
-            cursor_id = data.get("cursor_id") or cursor_id
+            next_offset = data.get("next_offset", offset + len(items))
+            next_cursor_id = data.get("cursor_id") or cursor_id
+            if next_offset == offset and next_cursor_id == cursor_id:
+                # The next request would repeat this one and get the same page forever.
+                logger.warning(f"Ortto: {endpoint} reported has_more without advancing past offset {offset}")
+                break
+            offset, cursor_id = next_offset, next_cursor_id
         else:
             if len(items) < config.page_size:
                 break
@@ -150,6 +155,7 @@ def get_rows(
         # Save state AFTER yielding so a crash re-yields the in-flight page
         # (merge dedupes on primary key) rather than skipping it.
         resumable_source_manager.save_state(OrttoResumeConfig(next_offset=offset, cursor_id=cursor_id))
+        resumable_source_manager.safe_point()
 
 
 def ortto_source(

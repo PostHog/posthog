@@ -121,10 +121,10 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
 
 def cleanup_stale_expiry_tracking() -> int:
     """
-    Remove expiry-tracking entries for teams that no longer exist in the database.
+    Delete the cache entries of teams that no longer exist and remove their members from the
+    ``remote_config_cache_expiry`` sorted set.
 
-    Returns the number of stale entries removed. Should run daily to keep the
-    ``remote_config_cache_expiry`` sorted set from accumulating deleted teams.
+    Returns the number of stale entries removed. Should run daily.
     """
     removed = cleanup_generic(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG)
 

@@ -140,6 +140,8 @@ pub enum Library {
     PosthogRubyMcp,
     /// posthog-php SDK
     PosthogPhp,
+    /// Laravel has a separate identity for SDK-specific usage attribution.
+    PosthogLaravel,
     /// posthog-ruby SDK
     PosthogRuby,
     /// posthog-rails integration
@@ -194,6 +196,7 @@ impl Library {
             Library::PosthogGoMcp => "posthog-go-mcp",
             Library::PosthogRubyMcp => "posthog-ruby-mcp",
             Library::PosthogPhp => "posthog-php",
+            Library::PosthogLaravel => "posthog-laravel",
             Library::PosthogRuby => "posthog-ruby",
             Library::PosthogRails => "posthog-rails",
             Library::PosthogGo => "posthog-go",
@@ -230,6 +233,7 @@ impl Library {
         Library::PosthogGoMcp,
         Library::PosthogRubyMcp,
         Library::PosthogPhp,
+        Library::PosthogLaravel,
         Library::PosthogRuby,
         Library::PosthogRails,
         Library::PosthogGo,
@@ -346,6 +350,7 @@ mod tests {
     #[case("posthog-python/2.5.0", Library::PosthogPython)]
     #[case("posthog-python-mcp/0.1.0", Library::PosthogPythonMcp)]
     #[case("posthog-php/3.0.0", Library::PosthogPhp)]
+    #[case("posthog-laravel/0.1.0", Library::PosthogLaravel)]
     #[case("posthog-ruby/2.3.0", Library::PosthogRuby)]
     #[case("posthog-ruby2.3.0", Library::PosthogRuby)]
     #[case("posthog-rails/3.18.0", Library::PosthogRails)]
@@ -445,6 +450,7 @@ mod tests {
     #[case(Library::PosthogPython, "posthog-python")]
     #[case(Library::PosthogPythonMcp, "posthog-python-mcp")]
     #[case(Library::PosthogPhp, "posthog-php")]
+    #[case(Library::PosthogLaravel, "posthog-laravel")]
     #[case(Library::PosthogRuby, "posthog-ruby")]
     #[case(Library::PosthogRails, "posthog-rails")]
     #[case(Library::PosthogGo, "posthog-go")]
@@ -479,6 +485,7 @@ mod tests {
     #[case(Library::PosthogPython, "\"posthog-python\"")]
     #[case(Library::PosthogPythonMcp, "\"posthog-python-mcp\"")]
     #[case(Library::PosthogPhp, "\"posthog-php\"")]
+    #[case(Library::PosthogLaravel, "\"posthog-laravel\"")]
     #[case(Library::PosthogRuby, "\"posthog-ruby\"")]
     #[case(Library::PosthogRails, "\"posthog-rails\"")]
     #[case(Library::PosthogGo, "\"posthog-go\"")]

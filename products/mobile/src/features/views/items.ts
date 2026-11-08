@@ -67,7 +67,7 @@ export function insightItemKey(scope: ProjectScope | null, target: InsightTarget
 
 /** The insight a Number or Chart pin reads, or null for a Row pin and a dashboard pin without a chosen tile. */
 export function pinTarget(pin: PinView): InsightTarget | null {
-    if (pin.display.mode === 'row' || !pin.native || !pin.ref) {
+    if (pin.display.mode === 'row') {
         return null
     }
     if (pin.kind === 'insight') {

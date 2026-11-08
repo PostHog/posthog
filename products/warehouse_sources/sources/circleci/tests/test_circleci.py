@@ -145,7 +145,8 @@ class TestPipelinesRows:
         assert result.rows == [{"id": "p1"}]
         assert result.params("page-token") == [None, "token-2"]
         assert result.saved_states == [CircleCIResumeConfig(next_page_token="token-2")]
-        assert result.committed_states == []
+        # The safe point after the page commits the cursor, because its rows are already handed on.
+        assert result.committed_states == [CircleCIResumeConfig(next_page_token="token-2")]
 
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown CircleCI endpoint"):

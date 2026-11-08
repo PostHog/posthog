@@ -25,10 +25,12 @@ from products.warehouse_sources.sources.sdk import (
     JSONResponseCursorPaginator,
     OffsetPaginator,
     RESTAPIConfig,
+    RESTClient,
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
+    create_auth,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -460,40 +462,32 @@ def _booking_attendees_items(
     parent_params["limit"] = parent_config.page_size
 
     parent_client_config = _client_config(region, api_key, parent_config)
-    parent_client_config["paginator"] = (
-        CalComBookingsWindowPaginator(now=datetime.now(UTC)) if windowed else _make_paginator(parent_config)
+    bookings_client = RESTClient(
+        base_url=parent_client_config["base_url"],
+        headers=parent_client_config.get("headers"),
+        auth=create_auth(parent_client_config.get("auth")),
+        paginator=CalComBookingsWindowPaginator(now=datetime.now(UTC)) if windowed else _make_paginator(parent_config),
+        capture=parent_client_config.get("capture", True),
     )
-
-    parent_rest_config: RESTAPIConfig = {
-        "client": parent_client_config,
-        "resources": [
-            {
-                "name": BOOKING_ATTENDEES_PARENT,
-                "endpoint": {
-                    "path": parent_config.path,
-                    "params": parent_params,
-                    "data_selector": "data",
-                    "data_selector_required": True,
-                },
-            }
-        ],
-    }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         initial_paginator_state = _resume_paginator_state(resumable_source_manager.load_state(), windowed)
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # The hook runs when this generator asks for the next page, so after its rows are out.
-        _save_cursor_state(resumable_source_manager, state)
+    # The bookings are paged here rather than through a `Resource`: the next-page state must stay
+    # unstaged until every attendee request of the current page is done.
+    next_page: dict[str, Optional[dict[str, Any]]] = {"state": None}
 
-    bookings = rest_api_resource(
-        parent_rest_config,
-        team_id,
-        job_id,
-        None,
-        resume_hook=save_checkpoint,
+    def remember_next_page(state: Optional[dict[str, Any]], _has_next_page: bool) -> None:
+        next_page["state"] = state
+
+    bookings = bookings_client.paginate(
+        path=parent_config.path,
+        params=parent_params,
+        data_selector="data",
+        data_selector_required=True,
         initial_paginator_state=initial_paginator_state,
+        page_state_hook=remember_next_page,
     )
 
     # capture=False for the same reason as `_client_config`: attendee rows are contact details.
@@ -529,8 +523,11 @@ def _booking_attendees_items(
                         "bookingUpdatedAt": booking.get("updatedAt"),
                     }
                 )
+        _save_cursor_state(resumable_source_manager, next_page["state"])
         if rows:
             yield rows
+        else:
+            resumable_source_manager.safe_point()
 
 
 def cal_com_source(

@@ -49,6 +49,7 @@ SPRINT_FIELD_SCHEMA = "com.pyxis.greenhopper.jira:gh-sprint"
 SPRINT_ISSUES_JQL = f'sprint is not EMPTY AND created >= "{JQL_FLOOR_DATETIME}" ORDER BY created ASC'
 
 _VALID_SUBDOMAIN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
+_ATLASSIAN_HOST_SUFFIX = ".atlassian.net"
 
 
 @dataclasses.dataclass(frozen=False)
@@ -59,6 +60,17 @@ class JiraResumeConfig:
     jql: Optional[str] = None
     # The ``since`` (epoch milliseconds) of the next ``/worklog/updated`` page.
     worklog_since: Optional[int] = None
+
+
+def normalize_subdomain(subdomain: str) -> str:
+    """Reduce a pasted host or URL ("https://acme.atlassian.net/jira/your-work") to the bare site name."""
+    subdomain = subdomain.strip()
+    if "://" in subdomain:
+        subdomain = subdomain.split("://", 1)[1]
+    subdomain = re.split(r"[/?#]", subdomain, maxsplit=1)[0]
+    if subdomain.lower().endswith(_ATLASSIAN_HOST_SUFFIX):
+        subdomain = subdomain[: -len(_ATLASSIAN_HOST_SUFFIX)]
+    return subdomain
 
 
 def is_valid_subdomain(subdomain: str) -> bool:
@@ -592,6 +604,7 @@ def _sprints_source(subdomain: str, email: str, api_token: str, team_id: int, jo
 
 def validate_credentials(subdomain: str, email: str, api_token: str) -> tuple[bool, int | None]:
     """Probe ``/myself`` to confirm the token is genuine. Returns ``(ok, status_code)``."""
+    subdomain = normalize_subdomain(subdomain)
     if not is_valid_subdomain(subdomain):
         return False, None
 
@@ -616,6 +629,7 @@ def jira_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = JIRA_ENDPOINTS[endpoint]
+    subdomain = normalize_subdomain(subdomain)
 
     if endpoint == "worklogs":
         return _worklogs_source(

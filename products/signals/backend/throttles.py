@@ -27,3 +27,10 @@ class ReportTaskActionRunBurstThrottle(UserRateThrottle):
 class ReportTaskActionRunSustainedThrottle(UserRateThrottle):
     scope = "signal_report_task_create_day"
     rate = "50/day"
+
+
+class UserReportCreateBurstThrottle(UserRateThrottle):
+    # The daily cap counts stored reports, and a report is stored only after the safety judge returns.
+    # This rate limits how far parallel creates can pass the cap during that wait.
+    scope = "signal_report_user_create_burst"
+    rate = "10/minute"

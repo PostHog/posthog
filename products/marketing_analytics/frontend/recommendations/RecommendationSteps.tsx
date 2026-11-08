@@ -14,11 +14,13 @@ export function RecommendationSteps({ steps }: { steps: MarketingAnalyticsRecomm
                         <div className="mt-1">
                             <CopyToClipboardInline
                                 description="value"
+                                explicitValue={step.copyValue}
                                 iconSize="xsmall"
                                 className="rounded border bg-surface-primary px-1.5 py-0.5 font-mono text-xs"
                                 data-attr="marketing-recommendations-step-copy"
                             >
-                                {step.copyValue}
+                                {/* A list of keywords goes one per line, the way Google Ads takes a pasted list. */}
+                                <span className="whitespace-pre-line">{step.copyValue}</span>
                             </CopyToClipboardInline>
                         </div>
                     )}

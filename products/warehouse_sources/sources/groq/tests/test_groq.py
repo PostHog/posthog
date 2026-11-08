@@ -1,8 +1,10 @@
+from unittest.mock import MagicMock
+
 import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.groq._config import GroqSourceConfig
-from products.warehouse_sources.sources.groq.groq import groq_source, validate_credentials
+from products.warehouse_sources.sources.groq.groq import GroqResumeConfig, groq_source, validate_credentials
 from products.warehouse_sources.sources.groq.source import GroqSource
 from products.warehouse_sources.sources.sdk import RESTClientRetryableError
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
@@ -25,6 +27,41 @@ class TestGroq:
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["a", "b"]
         assert result.paths == [f"/openai/v1/{endpoint}"]
+
+    @parameterized.expand(
+        [
+            (
+                "fresh_run",
+                None,
+                [None, "c2"],
+                ["a", "b"],
+                [GroqResumeConfig(cursor="c2"), GroqResumeConfig(completed=True)],
+            ),
+            ("resumed_run", GroqResumeConfig(cursor="c2"), ["c2"], ["b"], [GroqResumeConfig(completed=True)]),
+            # A hand-off after the last page must not read that page again.
+            ("completed_run", GroqResumeConfig(completed=True), [], [], []),
+        ]
+    )
+    def test_batches_resume_from_saved_cursor(
+        self,
+        _name: str,
+        resume_state: GroqResumeConfig | None,
+        expected_cursors: list[str | None],
+        expected_ids: list[str],
+        expected_saved: list[GroqResumeConfig],
+    ) -> None:
+        pages = {
+            None: ScriptedResponse(json={"data": [{"id": "a"}], "paging": {"next_cursor": "c2"}}),
+            "c2": ScriptedResponse(json={"data": [{"id": "b"}], "paging": {}}),
+        }
+        result = self._driver().run(
+            "batches", lambda request: pages[request.param("cursor")], resume_state=resume_state
+        )
+
+        assert result.raised is None
+        assert result.params("cursor") == expected_cursors
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert result.saved_states == expected_saved
 
     def test_non_dict_body_is_retried_then_reraises(self) -> None:
         # A non-object body (bare array) is an unexpected shape; the request is reissued and, if it
@@ -72,7 +109,9 @@ class TestGroq:
     )
     def test_groq_source_maps_primary_keys_and_partitioning(self, endpoint: str, partition_key: str) -> None:
         # No network: SourceResponse metadata is built eagerly, rows only on iteration.
-        response = groq_source("gsk_k", endpoint, team_id=1, job_id="j")
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        response = groq_source("gsk_k", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.partition_mode == "datetime"

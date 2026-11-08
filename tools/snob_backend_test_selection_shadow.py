@@ -93,6 +93,8 @@ FULL_RUN_PATTERNS = (
     # Non-Python files that affect generated Python code or test behavior
     # A data file the host guards read at runtime, so a change to it is a behavior change
     "posthog/security/crosslang/",
+    # The AI event limits, which get_ai_event_limits reads at runtime, so a change to them is a behavior change
+    "products/ai_observability/shared/crosslang/",
     "frontend/src/queries/schema.json",
     "frontend/src/products.json",
     "frontend/public/email/",

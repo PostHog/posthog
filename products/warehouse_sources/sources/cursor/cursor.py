@@ -570,16 +570,19 @@ def _paginate_window(
         # no rows — so termination has to read the page's own size, not the row count.
         page_items = _page_item_count(config, data, items)
         has_next = config.paginated and _has_next_page(data, page, page_items, config.page_size)
+        window_done = not page_items or not has_next
+
+        if not window_done:
+            resumable_source_manager.save_state(CursorResumeConfig(window_start=window_start, page=page + 1))
+        elif window_end + 1 <= end_ms:
+            resumable_source_manager.save_state(CursorResumeConfig(window_start=window_end + 1, page=1))
 
         if rows:
             yield rows
-            # Save AFTER yielding so a crash re-yields the last batch rather than skipping it.
-            if has_next:
-                resumable_source_manager.save_state(CursorResumeConfig(window_start=window_start, page=page + 1))
-            elif window_end + 1 <= end_ms:
-                resumable_source_manager.save_state(CursorResumeConfig(window_start=window_end + 1, page=1))
+        else:
+            resumable_source_manager.safe_point()
 
-        if not page_items or not has_next:
+        if window_done:
             break
         page += 1
 

@@ -181,6 +181,16 @@ class StreamingExportNotEnabledError(Exception):
     pass
 
 
+class ConvexApiError(HTTPError):
+    """A structured 400 from Convex whose error code this module doesn't special-case.
+
+    `raise_for_status()` alone produces a body-less "400 Client Error: Bad Request for url: ..."
+    that can never be told apart from any other 400, so the actual Convex code and message
+    (always present on a structured error response) are folded into the message here instead of
+    discarded - the same reasoning that motivated surfacing StreamingExportNotEnabled below.
+    """
+
+
 def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     url = f"{deploy_url.rstrip('/')}/api/json_schemas"
     # byComponent=true groups the response by component so non-default components are discoverable.
@@ -192,13 +202,21 @@ def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
             error_data = response.json()
         except ValueError:
             error_data = {}
+        # A 400 body can parse as valid JSON that isn't an object (e.g. a bare string or array),
+        # which has no .get - treat it the same as an unparseable body rather than crashing.
+        if not isinstance(error_data, dict):
+            error_data = {}
         # A plain HTTPError's message never carries the response body, so without this the
         # StreamingExportNotEnabled entry in get_non_retryable_errors can never match here -
         # it only matched by accident via validate_credentials' own body parsing below.
-        if error_data.get("code") == "StreamingExportNotEnabled":
+        code = error_data.get("code")
+        if code == "StreamingExportNotEnabled":
             raise StreamingExportNotEnabledError(
                 "StreamingExportNotEnabled: streaming export requires the Convex Professional plan."
             )
+        message = error_data.get("message") or ""
+        if code or message:
+            raise ConvexApiError(f"{code}: {message}".rstrip(": ") if code else message, response=response)
     response.raise_for_status()
     return response.json()
 

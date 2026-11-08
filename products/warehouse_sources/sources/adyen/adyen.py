@@ -304,15 +304,13 @@ def _iter_cursor_pages(
     resume: Optional[AdyenResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     resume_window = _to_datetime(resume.window_start) if resume is not None else None
-    cursor = resume.cursor if resume is not None else None
+    page_cursor = resume.cursor if resume is not None else None
+    # Start the windows at the saved one. The default start moves with the clock, so the window
+    # grid of this attempt may not line up with the saved window start.
+    if resume_window is not None:
+        start = resume_window
 
     for window_start, window_end in iter_windows(start, end):
-        # Skip windows already walked to completion before the interruption.
-        if resume_window is not None and window_start < resume_window:
-            continue
-        page_cursor = cursor if resume_window is not None and window_start == resume_window else None
-        resume_window = None
-
         while True:
             params: dict[str, Any] = {
                 "balancePlatform": balance_platform,
@@ -326,18 +324,21 @@ def _iter_cursor_pages(
 
             payload = _request(session, _build_url(host, config.path, params), logger).json()
             items = extract_items(payload, config.data_key)
+            page_cursor = next_cursor(payload)
+            if page_cursor:
+                manager.save_state(
+                    AdyenResumeConfig(window_start=_format_timestamp(window_start), cursor=page_cursor),
+                )
+            else:
+                manager.save_state(AdyenResumeConfig(window_start=_format_timestamp(window_end)))
+
             if items:
                 yield items
+            else:
+                manager.safe_point()
 
-            page_cursor = next_cursor(payload)
             if not page_cursor:
                 break
-
-            # Checkpoint after yielding, so a crash re-yields the last batch (merge dedupes on
-            # the primary key) instead of skipping it.
-            manager.save_state(
-                AdyenResumeConfig(window_start=_format_timestamp(window_start), cursor=page_cursor),
-            )
 
 
 def _iter_offset_pages(

@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from posthog.test.repo_invariants.ratchet import enforce_baseline
+from posthog.test.repo_invariants.repo_invariant_scan_scope import ScanScope
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_DIR = Path(__file__).parent
@@ -48,7 +49,7 @@ Check = Callable[[ast.Module], bool]
 
 
 def _source_files(pattern: str) -> list[tuple[Path, Path]]:
-    return [(root, path) for root in SOURCE_ROOTS for path in root.rglob(pattern)]
+    return ScanScope.from_environment().walk(REPO_ROOT, SOURCE_ROOTS, pattern)
 
 
 def _terminal_name(node: ast.AST) -> str | None:
@@ -246,7 +247,8 @@ def read_baseline(file_name: str) -> list[str]:
 def test_source_test_files_match_the_baseline(check: str) -> None:
     collector, words, file_name, explanation = CHECKS[check]
     scanned = collect(collector, words)
-    recorded = read_baseline(file_name)
+    scope = ScanScope.from_environment()
+    recorded = [line for line in read_baseline(file_name) if scope.covers(line)]
     if scanned == recorded:
         return
 

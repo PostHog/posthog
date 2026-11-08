@@ -288,6 +288,8 @@ def _fan_out_rows(
 
         if next_state is not None:
             resumable_source_manager.save_state(next_state)
+        # Every child row of this parent batch is yielded, so the staged parent cursor loses nothing.
+        resumable_source_manager.safe_point()
 
 
 def get_rows(
@@ -350,11 +352,12 @@ def get_rows(
             resume_config, logger, endpoint, should_use_incremental_field, db_incremental_field_last_value
         )
         for items, window_end in _iter_export_windows(fetch, config, window_start):
+            # The whole window arrives in one response, so its end covers every row yielded below.
+            resumable_source_manager.save_state(DixaResumeConfig(window_start_ms=window_end))
             if items:
                 yield items
-            # Save state AFTER yielding the window so a crash re-yields it
-            # (merge dedupes on primary key) rather than skipping it.
-            resumable_source_manager.save_state(DixaResumeConfig(window_start_ms=window_end))
+            else:
+                resumable_source_manager.safe_point()
         return
 
     start_url = _main_start_url(

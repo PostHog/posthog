@@ -28,6 +28,7 @@ from posthog.models.activity_logging.activity_log import (
     apply_activity_visibility_restrictions,
 )
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
+from posthog.models.activity_logging.utils import CREDENTIAL_TYPE_CHOICES
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import PremiumFeaturePermission
@@ -108,15 +109,45 @@ def apply_organization_scoped_filter(
         return queryset.filter(team_id=team_id)
 
 
+def credential_type_field() -> serializers.ChoiceField:
+    return serializers.ChoiceField(
+        choices=CREDENTIAL_TYPE_CHOICES,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Kind of credential that authenticated the request that made the change. 'unattributed' means "
+            "the request recorded no credential. Null for changes made outside a request, such as "
+            "background jobs, and for entries recorded before PostHog stored the credential."
+        ),
+    )
+
+
+def credential_id_field() -> serializers.CharField:
+    """The raw `credential_id` column also holds internal ids, so customer-facing serializers read
+    `customer_visible_credential_id` through this field and never declare the column itself."""
+    return serializers.CharField(
+        source="customer_visible_credential_id",
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Id of the credential that authenticated the change: the login session id for 'session', or "
+            "the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential "
+            "type and for impersonated changes."
+        ),
+    )
+
+
 class ActivityLogSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer()
     unread = serializers.SerializerMethodField()
+    credential_type = credential_type_field()
+    credential_id = credential_id_field()
 
     class Meta:
         model = ActivityLog
-        # An explicit list, so that a new internal column such as `credential_id` stays out. This
+        # An explicit list, so that a new internal column such as `impersonated_by_id` stays out. This
         # serializer also builds the `$activity_log_entry_created` event, so a field listed here
-        # reaches the advanced API, the export and customer destinations at the same time.
+        # reaches the activity log API, the advanced API and customer destinations at the same time.
         fields = [
             "id",
             "user",
@@ -127,6 +158,8 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             "is_system",
             "client",
             "ip_address",
+            "credential_type",
+            "credential_id",
             "activity",
             "item_id",
             "scope",
@@ -505,9 +538,13 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
     user_last_name = serializers.CharField(source="user.last_name", default="")
     user_email = serializers.CharField(source="user.email", default="")
     detail = serializers.SerializerMethodField()
+    credential_type = credential_type_field()
+    credential_id = credential_id_field()
 
     class Meta:
         model = ActivityLog
+        # The export writes columns in this order, and readers of the file can rely on position, so a
+        # new field goes at the end.
         fields = [
             "id",
             "organization_id",
@@ -522,6 +559,8 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "client",
             "ip_address",
             "created_at",
+            "credential_type",
+            "credential_id",
         ]
 
     def get_detail(self, obj):

@@ -35,6 +35,7 @@ from posthog.frontend_views import app_context, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.linear.provider import build_linear_provider
 from posthog.ingress.views import build_webhook_view
+from posthog.mobile_app_links import android_asset_links, apple_app_site_association
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.product_urls import ProductRootRoutes
 from posthog.temporal.codec_server import decode_payloads
@@ -85,8 +86,10 @@ from .utils import opt_slash_path
 from .views import (
     handler500 as handler500,
     health,
+    llms_txt,
     login_required,
     metrics_view,
+    not_found,
     preflight_check,
     render_query,
     replay_player_frame,
@@ -305,15 +308,15 @@ urlpatterns = [
     path("integrations/connect/<str:kind>/", login_required(integration_connect_redirect)),
     path(
         "shared_dashboard/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve", "post": "retrieve"}),
     ),
     path(
         "shared/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve", "post": "retrieve"}),
     ),
     path(
         "embedded/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve", "post": "retrieve"}),
     ),
     path("render_query", render_query, name="render_query"),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
@@ -327,8 +330,14 @@ urlpatterns = [
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
+    opt_slash_path("llms.txt", llms_txt),
+    # Without these, the catch-all route answers with the app's HTML page, which agents read as a broken catalog
+    opt_slash_path("ai-catalog.json", not_found),
+    opt_slash_path(".well-known/ai-catalog.json", not_found),
     opt_slash_path(".well-known/security.txt", security_txt),
     opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
+    opt_slash_path(".well-known/apple-app-site-association", apple_app_site_association),
+    opt_slash_path(".well-known/assetlinks.json", android_asset_links),
     # auth
     opt_slash_path("logout", authentication.logout, name="logout"),
     opt_slash_path("reauth/complete", authentication.sso_reauth_complete, name="sso_reauth_complete"),

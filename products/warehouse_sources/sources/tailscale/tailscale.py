@@ -204,7 +204,8 @@ def _key_rows(
     response.raise_for_status()
 
     listed = _extract_rows(response.json(), config.data_key)
-    rows: list[dict[str, Any]] = []
+    logger.debug(f"Tailscale: listed {len(listed)} rows from {config.name}")
+    # Each detail is yielded as it arrives: a local batch would hold rows across one request per key.
     for key in listed:
         key_id = key.get("id") if isinstance(key, dict) else None
         if not key_id:
@@ -216,11 +217,7 @@ def _key_rows(
             continue
         detail_response.raise_for_status()
         detail = detail_response.json()
-        rows.append(detail if isinstance(detail, dict) else key)
-
-    logger.debug(f"Tailscale: fetched {len(rows)} rows from {config.name}")
-    if rows:
-        yield rows
+        yield [detail if isinstance(detail, dict) else key]
 
 
 def _audit_log_rows(
@@ -280,15 +277,15 @@ def _audit_log_rows(
         # must be yielded in ascending eventTime order.
         fresh.sort(key=lambda item: item[0] or datetime.min.replace(tzinfo=UTC))
 
+        resumable_source_manager.save_state(TailscaleResumeConfig(window_start=_format_rfc3339(window_end)))
         if fresh:
-            yield [row for _, row in fresh]
             parsed_times = [event_time for event_time, _ in fresh if event_time is not None]
             if parsed_times:
                 cursor = max(parsed_times)
-
-        # Checkpoint AFTER yielding so a crash re-fetches (and dedupes) the last window
-        # instead of skipping it.
-        resumable_source_manager.save_state(TailscaleResumeConfig(window_start=_format_rfc3339(window_end)))
+            yield [row for _, row in fresh]
+        else:
+            # Most windows are empty, so the walk needs a stop point that does not depend on rows.
+            resumable_source_manager.safe_point()
         start = window_end
 
 

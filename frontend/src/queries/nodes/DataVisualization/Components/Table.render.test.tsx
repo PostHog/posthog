@@ -3,12 +3,14 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
 import * as hog from 'lib/hog'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { useMocks } from '~/mocks/jest'
 import {
     ConditionalFormattingRule,
     HogQLQueryResponse,
@@ -75,6 +77,52 @@ describe('SQL table rendering', () => {
     beforeEach(() => initKeaTests())
     afterEach(cleanup)
 
+    it.each([false, true])('renders harness names and custom icons, transpose=%s', async (transpose) => {
+        const icon = 'data:image/png;base64,iVBORw0KGgo='
+        useMocks({
+            get: {
+                '/api/projects/:team_id/mcp_analytics/custom_harnesses/': [
+                    { id: 'example', name: 'Example harness', match_pattern: 'example', icon },
+                ],
+            },
+        })
+        const result: HogQLQueryResponse = {
+            columns: ['client', 'calls'],
+            types: [
+                ['client', 'String'],
+                ['calls', 'UInt64'],
+            ],
+            column_formats: ['mcp_harness', null],
+            results: [
+                ['Example harness', 7],
+                ['Claude Code', 3],
+            ],
+        }
+        const node: VisualizationNode = {
+            ...query,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT properties.$virt_mcp_harness AS client, count() AS calls FROM events GROUP BY client',
+            },
+            tableSettings: { transpose },
+        }
+        const { props, sourceProps } = mountResult(node, result)
+        render(
+            <BindLogic logic={dataNodeLogic} props={sourceProps}>
+                <BindLogic logic={dataVisualizationLogic} props={props}>
+                    <Table query={node} uniqueKey={props.key} context={{}} cachedResults={result} />
+                </BindLogic>
+            </BindLogic>
+        )
+        await waitFor(() => {
+            const label = screen.getByText('Example harness').closest('[data-attr="hogqlx-brand-mark-label"]')
+            expect(label).toBeInTheDocument()
+            expect(label?.querySelector('[style]')).toHaveStyle({ '--harness-icon': `url("${icon}")` })
+        })
+        expect(screen.getByText('Claude Code').closest('[data-attr="hogqlx-brand-mark-label"]')).toBeInTheDocument()
+        expect(screen.getByText('7').closest('[data-attr="hogqlx-brand-mark-label"]')).toBeNull()
+    })
+
     it.each([false, true])('inspects the original row after sorting or transposing, transpose=%s', (transpose) => {
         const node = { ...query, tableSettings: { ...query.tableSettings, transpose } }
         const { props, sourceProps } = mountResult(node, response)
@@ -103,6 +151,40 @@ describe('SQL table rendering', () => {
         fireEvent.click(screen.getByText('USD 0').closest('button')!)
         expect(onInspect).toHaveBeenLastCalledWith({ region: 'EU', value: 0 })
     })
+
+    it.each([false, true])(
+        'shows a column description on keyboard focus without sorting, transpose=%s',
+        async (transpose) => {
+            const node: VisualizationNode = {
+                ...query,
+                tableSettings: {
+                    ...query.tableSettings,
+                    transpose,
+                    columns: [
+                        { column: 'region', settings: { display: { description: 'Region of the deployment' } } },
+                        { column: 'value' },
+                    ],
+                },
+            }
+            const { props, sourceProps, logic } = mountResult(node, response)
+            render(
+                <BindLogic logic={dataNodeLogic} props={sourceProps}>
+                    <BindLogic logic={dataVisualizationLogic} props={props}>
+                        <Table query={node} uniqueKey={props.key} context={{}} cachedResults={response} />
+                    </BindLogic>
+                </BindLogic>
+            )
+
+            expect(screen.queryByLabelText('Description for value')).not.toBeInTheDocument()
+            const trigger = screen.getByLabelText('Description for region')
+            const user = userEvent.setup()
+            await user.tab()
+            expect(trigger).toHaveFocus()
+            expect(await screen.findByText('Region of the deployment')).toBeVisible()
+            await user.click(trigger)
+            expect(logic.values.hasSortedTable).toBe(false)
+        }
+    )
 
     it('updates conditional cell colors when rules and results change', async () => {
         const rule: ConditionalFormattingRule = {

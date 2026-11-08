@@ -5,6 +5,8 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+from requests.exceptions import HTTPError
+
 from products.warehouse_sources.sources.sdk import RESTClientNonRetryableError, RESTClientRetryableError
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
@@ -24,6 +26,7 @@ from products.warehouse_sources.sources.zoho_crm.zoho_crm import (
     MAX_PAGE,
     PAGE_SIZE,
     REFRESH_TOKEN_REJECTED_MESSAGE,
+    ZohoCRMApiError,
     ZohoCRMAuthError,
     ZohoCRMClient,
     ZohoCRMResumeConfig,
@@ -212,6 +215,41 @@ class TestReadableFieldNames:
         with scripted_network(_script([_undecodable_response(b"")])):
             assert readable_field_names(_client(), "v8", "Leads") == []
 
+    @pytest.mark.parametrize(
+        ("body", "expected_detail"),
+        [
+            (
+                {"code": "INVALID_MODULE", "message": "the module name given seems to be invalid"},
+                "INVALID_MODULE: the module name given seems to be invalid",
+            ),
+            ({"code": "INVALID_MODULE"}, "INVALID_MODULE"),
+            ({"message": "no code here"}, "no code here"),
+        ],
+    )
+    def test_structured_400_surfaces_zohos_code_and_message(self, body: dict[str, Any], expected_detail: str) -> None:
+        # A bare raise_for_status() discards this body, so an org missing an edition-gated
+        # module (e.g. Vendors, without Zoho's Inventory feature) is indistinguishable from any
+        # other 400 — see the should_sync_default comment in settings.py.
+        with scripted_network(_script([_response(400, body)])):
+            with pytest.raises(ZohoCRMApiError, match=expected_detail):
+                readable_field_names(_client(), "v8", "Vendors")
+
+    def test_400_without_a_structured_body_stays_a_plain_http_error(self) -> None:
+        with scripted_network(_script([ScriptedResponse(status=400, body=b"not json")])):
+            with pytest.raises(HTTPError) as ctx:
+                readable_field_names(_client(), "v8", "Leads")
+
+        assert not isinstance(ctx.value, ZohoCRMApiError)
+
+    def test_invalid_module_error_matches_get_non_retryable_errors(self) -> None:
+        body = {"code": "INVALID_MODULE", "message": "the module name given seems to be invalid"}
+        with scripted_network(_script([_response(400, body)])):
+            with pytest.raises(ZohoCRMApiError) as ctx:
+                readable_field_names(_client(), "v8", "Vendors")
+
+        non_retryable = ZohoCRMSource().get_non_retryable_errors()
+        assert any(pattern.lower() in str(ctx.value).lower() for pattern in non_retryable)
+
 
 class TestGetRows:
     def test_incremental_sync_filters_and_sorts_on_the_cursor_field(self) -> None:
@@ -303,6 +341,15 @@ class TestGetRows:
         result = _run("Leads", [_fields_response(1), _undecodable_response(b'{"data": [{"id": "1"}')])
 
         assert isinstance(result.raised, RESTClientRetryableError)
+
+    def test_structured_400_on_records_page_surfaces_zohos_detail(self) -> None:
+        # A module can be disabled between the fields-metadata call and the first records page
+        # of the same sync, so this call site needs the same detail as readable_field_names.
+        body = {"code": "INVALID_MODULE", "message": "the module name given seems to be invalid"}
+        result = _run("Vendors", [_fields_response(1), _response(400, body)])
+
+        assert isinstance(result.raised, ZohoCRMApiError)
+        assert "INVALID_MODULE: the module name given seems to be invalid" in str(result.raised)
 
 
 class TestValidateCredentials:

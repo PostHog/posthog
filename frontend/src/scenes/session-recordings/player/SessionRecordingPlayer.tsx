@@ -107,7 +107,8 @@ function SessionRecordingPlayerInternal({
     withSidebar: boolean
     playerRef: React.RefObject<HTMLDivElement>
 }): JSX.Element {
-    const { isVerticallyStacked, sidebarOpen, debugMode, replayLayout, watchDebugDock } = useValues(playerSettingsLogic)
+    const { isVerticallyStacked, sidebarOpen, debugMode, replayLayout, watchDebugDock, watchPanelCollapsed } =
+        useValues(playerSettingsLogic)
     const { setWatchDebugDock } = useActions(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -124,6 +125,7 @@ function SessionRecordingPlayerInternal({
                 ref={playerRef}
                 className={clsx('SessionRecordingPlayerWrapper SessionRecordingPlayerWrapper--watch', {
                     'SessionRecordingPlayerWrapper--watch-right-dock': rightDock,
+                    'SessionRecordingPlayerWrapper--watch-panel-collapsed': watchPanelCollapsed,
                 })}
             >
                 <div className="SessionRecordingPlayerWrapper__column">
@@ -135,7 +137,7 @@ function SessionRecordingPlayerInternal({
                     >
                         <PurePlayer noMeta={noMeta} noBorder={noBorder} />
                     </div>
-                    {!isFullScreen && <WatchPanel summaryActions={debugReplayAction} />}
+                    {!isFullScreen && <WatchPanel />}
                 </div>
                 {rightDock && (
                     <PlayerSidebar

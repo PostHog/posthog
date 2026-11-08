@@ -12,6 +12,7 @@ import warnings
 from pathlib import Path
 
 from parameterized import parameterized
+from repo_invariant_scan_scope import ScanScope
 
 REPO_ROOT = Path(__file__).parents[3]
 # Vendor directories live in the product and in the `products/warehouse_sources/sources/` tree.
@@ -35,7 +36,7 @@ OFF_THREAD_CALLS = {
 
 
 def _source_files(pattern: str) -> list[tuple[Path, Path]]:
-    return [(root, path) for root in SOURCE_ROOTS for path in root.rglob(pattern)]
+    return ScanScope.from_environment().walk(REPO_ROOT, SOURCE_ROOTS, pattern)
 
 
 def _own_nodes(function: ast.AST) -> list[ast.AST]:

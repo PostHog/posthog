@@ -1,6 +1,5 @@
-from datetime import UTC, datetime, timedelta
-
 import pytest
+import time_machine
 
 from requests import ConnectionError
 
@@ -9,6 +8,7 @@ from products.warehouse_sources.sources.yotpo._config import YotpoSourceConfig
 from products.warehouse_sources.sources.yotpo.source import YotpoSource
 
 
+@time_machine.travel("2024-01-01T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
     ("app_key", "secret", "start_date", "schema_name", "message"),
     [
@@ -32,7 +32,7 @@ from products.warehouse_sources.sources.yotpo.source import YotpoSource
         (
             "test-store",
             "test-secret",
-            (datetime.now(UTC).date() + timedelta(days=1)).isoformat(),
+            "2024-01-02",
             None,
             "Enter a start date in YYYY-MM-DD format that is not in the future.",
         ),

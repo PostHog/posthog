@@ -91,6 +91,7 @@ class HealthCheck:
     schedule: str | None = None
     rollout_percentage: float = 1.0
     not_processed_threshold: float = 0.1
+    execution_timeout: timedelta = timedelta(hours=12)
     dry_run: bool = False
     active_since_days: int | None = DEFAULT_ACTIVE_SINCE_DAYS
 
@@ -98,17 +99,18 @@ class HealthCheck:
         raise NotImplementedError
 ```
 
-| Attribute                 | Type                    | Default                    | Description                                                                                                                       |
-| ------------------------- | ----------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `name`                    | `str`                   | required                   | Unique name used in Temporal workflow and schedule naming                                                                         |
-| `kind`                    | `str`                   | required                   | Issue kind written to the `posthog_healthissue` table. Must be globally unique                                                    |
-| `owner`                   | `JobOwners`             | required                   | Team that owns this check (used for alert routing)                                                                                |
-| `policy`                  | `HealthExecutionPolicy` | `DEFAULT_EXECUTION_POLICY` | Controls batch size and concurrency (see [Execution policies](#execution-policies))                                               |
-| `schedule`                | `str \| None`           | `None`                     | Cron expression (UTC). Omit for manual-only checks                                                                                |
-| `rollout_percentage`      | `float`                 | `1.0`                      | Fraction of teams to include (0–1, e.g. 0.01 = 1%). Deterministic by team ID                                                      |
-| `not_processed_threshold` | `float`                 | `0.1`                      | Fail the workflow if this fraction of teams are skipped or errored                                                                |
-| `dry_run`                 | `bool`                  | `False`                    | Run detection but skip DB writes (upsert/resolve). Sets the default for scheduled runs; can be overridden per-run in the admin UI |
-| `active_since_days`       | `int \| None`           | `90`                       | Only process teams whose org has a member with `User.last_login` within this many days. Set to `None` to process all teams        |
+| Attribute                 | Type                    | Default                    | Description                                                                                                                                                                                  |
+| ------------------------- | ----------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                    | `str`                   | required                   | Unique name used in Temporal workflow and schedule naming                                                                                                                                    |
+| `kind`                    | `str`                   | required                   | Issue kind written to the `posthog_healthissue` table. Must be globally unique                                                                                                               |
+| `owner`                   | `JobOwners`             | required                   | Team that owns this check (used for alert routing)                                                                                                                                           |
+| `policy`                  | `HealthExecutionPolicy` | `DEFAULT_EXECUTION_POLICY` | Controls batch size and concurrency (see [Execution policies](#execution-policies))                                                                                                          |
+| `schedule`                | `str \| None`           | `None`                     | Cron expression (UTC). Omit for manual-only checks                                                                                                                                           |
+| `rollout_percentage`      | `float`                 | `1.0`                      | Fraction of teams to include (0–1, e.g. 0.01 = 1%). Deterministic by team ID                                                                                                                 |
+| `not_processed_threshold` | `float`                 | `0.1`                      | Fail the workflow if this fraction of teams are skipped or errored                                                                                                                           |
+| `execution_timeout`       | `timedelta`             | `12 hours`                 | Temporal closes the run after this time, including every continue-as-new run. A run stuck on a failed workflow task otherwise stays open, and the schedule skips every start until it closes |
+| `dry_run`                 | `bool`                  | `False`                    | Run detection but skip DB writes (upsert/resolve). Sets the default for scheduled runs; can be overridden per-run in the admin UI                                                            |
+| `active_since_days`       | `int \| None`           | `90`                       | Only process teams whose org has a member with `User.last_login` within this many days. Set to `None` to process all teams                                                                   |
 
 ## `HealthCheckResult`
 

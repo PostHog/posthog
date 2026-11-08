@@ -2,6 +2,7 @@ import base64
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import quote
 
 from requests import Response, Session
 from requests.exceptions import HTTPError
@@ -9,8 +10,10 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.sources.rokt_ads.settings import (
     ACCOUNTS_ENDPOINT,
     BASE_URL,
+    DISCOVERY_METRICS,
     ENDPOINTS,
     INITIAL_BACKFILL_DAYS,
+    METADATA_ENDPOINTS,
     REPORT_INTERVAL,
     TOKEN_URL,
     WINDOW_DAYS,
@@ -144,6 +147,19 @@ class RoktAdsClient:
         self._raise_for_status(response)
         return response.json()
 
+    def get_metadata(self, path: str) -> Optional[dict[str, Any]]:
+        """Read one metadata object, or None when Rokt no longer has it."""
+        try:
+            payload = self.get(path)
+        except RoktAdsError as err:
+            # An ID from an old report can point at a campaign, creative or audience Rokt has since
+            # removed. Skip it, because the shared 404 rule would otherwise fail the whole sync.
+            cause = err.__cause__
+            if isinstance(cause, HTTPError) and cause.response is not None and cause.response.status_code == 404:
+                return None
+            raise
+        return payload if isinstance(payload, dict) else None
+
     def list_accounts(self) -> list[dict[str, Any]]:
         payload = self.get("/v1/query/accounts")
         return payload if isinstance(payload, list) else []
@@ -195,6 +211,85 @@ def resolve_start_date(db_incremental_field_last_value: Optional[Any], today: da
     return cursor
 
 
+def _require_dimensions(endpoint_name: str, dimensions: list[str], capabilities: ReportCapabilities) -> None:
+    missing_dimensions = sorted(set(dimensions) - capabilities.dimensions)
+    if missing_dimensions:
+        raise RoktAdsError(
+            f"Rokt account cannot report on {', '.join(missing_dimensions)}, which {endpoint_name} needs "
+            f"to identify a row. Deselect this table or ask Rokt to enable those dimensions."
+        )
+
+
+def _granted_metrics(endpoint_name: str, metrics: list[str], capabilities: ReportCapabilities) -> list[str]:
+    granted = [metric for metric in metrics if metric in capabilities.metrics]
+    if not granted:
+        raise RoktAdsError(f"Rokt account grants none of the metrics {endpoint_name} reports on.")
+    return granted
+
+
+def build_discovery_body(endpoint_name: str, window: DateWindow, capabilities: ReportCapabilities) -> dict[str, Any]:
+    """Ask for one row per distinct ID tuple in the window. No `interval`, so days do not multiply rows."""
+    endpoint = METADATA_ENDPOINTS[endpoint_name]
+    _require_dimensions(endpoint_name, endpoint["discovery_dimensions"], capabilities)
+    metrics = _granted_metrics(endpoint_name, DISCOVERY_METRICS, capabilities)
+    return {
+        "startDate": window.start.isoformat(),
+        "endDate": window.end.isoformat(),
+        "metrics": metrics[:1],
+        "dimensions": endpoint["discovery_dimensions"],
+    }
+
+
+def _id_tuple(row: dict[str, Any], dimensions: list[str]) -> Optional[tuple[str, ...]]:
+    values = [row.get(dimension) for dimension in dimensions]
+    if any(value is None or str(value).strip() == "" for value in values):
+        return None
+    return tuple(str(value) for value in values)
+
+
+def rokt_ads_metadata_rows(
+    client: RoktAdsClient,
+    account_id: str,
+    endpoint_name: str,
+    resumable_source_manager: ResumableSourceManager[RoktAdsResumeConfig],
+    today: Optional[date] = None,
+) -> Iterator[dict[str, Any]]:
+    """Discover IDs window by window over the backfill range, then read each new ID's metadata once.
+
+    A full refresh: the set of IDs comes from performance reports, so there is no server-side
+    timestamp to filter metadata on. One row is yielded per metadata request, and a safe point
+    follows each request that yields nothing.
+    """
+    endpoint = METADATA_ENDPOINTS[endpoint_name]
+    capabilities = client.report_capabilities(account_id, "campaigns")
+
+    current_day = today or datetime.now(tz=UTC).date()
+    start_date = current_day - timedelta(days=INITIAL_BACKFILL_DAYS)
+    end_date = current_day + timedelta(days=1)
+
+    seen: set[tuple[str, ...]] = set()
+    for window in _date_windows(start_date, end_date, WINDOW_DAYS):
+        body = build_discovery_body(endpoint_name, window, capabilities)
+        report_rows = client.run_report(account_id, "campaigns", body)
+        resumable_source_manager.safe_point()
+
+        for report_row in report_rows:
+            ids = _id_tuple(report_row, endpoint["discovery_dimensions"])
+            if ids is None or ids in seen:
+                continue
+            seen.add(ids)
+
+            path = endpoint["path"].format(
+                *(quote(value, safe="") for value in ids), account_id=quote(account_id, safe="")
+            )
+            metadata = client.get_metadata(path)
+            if metadata is None:
+                resumable_source_manager.safe_point()
+                continue
+            # The path IDs win, so the primary key is always set even if Rokt omits a field.
+            yield {**metadata, **dict(zip(endpoint["id_fields"], ids))}
+
+
 def build_report_body(
     endpoint_name: str,
     window: DateWindow,
@@ -209,17 +304,8 @@ def build_report_body(
     primary key that no longer identifies them.
     """
     endpoint = ENDPOINTS[endpoint_name]
-
-    missing_dimensions = sorted(set(endpoint["dimensions"]) - capabilities.dimensions)
-    if missing_dimensions:
-        raise RoktAdsError(
-            f"Rokt account cannot report on {', '.join(missing_dimensions)}, which {endpoint_name} needs "
-            f"to identify a row. Deselect this table or ask Rokt to enable those dimensions."
-        )
-
-    metrics = [metric for metric in endpoint["metrics"] if metric in capabilities.metrics]
-    if not metrics:
-        raise RoktAdsError(f"Rokt account grants none of the metrics {endpoint_name} reports on.")
+    _require_dimensions(endpoint_name, endpoint["dimensions"], capabilities)
+    metrics = _granted_metrics(endpoint_name, endpoint["metrics"], capabilities)
 
     # No `orderBys`: the Query API only sorts on a requested dimension or metric slug, and
     # `datetime` is a response-only interval marker rather than a slug, so ordering by it makes

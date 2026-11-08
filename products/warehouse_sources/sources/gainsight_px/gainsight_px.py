@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.gainsight_px.settings import (
 )
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
@@ -287,8 +288,13 @@ def gainsight_px_source(
     }
 
     if config.incremental_fields:
-        return SourceResponse(
-            items=lambda: _event_pages(
+        # The window loop hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+        # framework's per-page safe points, so a run of empty windows can hand off.
+        event_pages = Resource(
+            _event_pages,
+            name=endpoint,
+            hints={},
+            args=(
                 api_key,
                 region,
                 endpoint,
@@ -297,8 +303,8 @@ def gainsight_px_source(
                 resumable_source_manager,
                 db_incremental_field_last_value,
             ),
-            **response_kwargs,
         )
+        return SourceResponse(items=lambda: event_pages, **response_kwargs)
 
     paginator: BasePaginator
     if config.pagination == "scroll":

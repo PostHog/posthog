@@ -5,12 +5,13 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     make_tracked_session,
+    reach_safe_point,
     retry_with_deadline,
 )
 from products.warehouse_sources.sources.smaily.settings import (
@@ -21,9 +22,6 @@ from products.warehouse_sources.sources.smaily.settings import (
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
-# Fan-out endpoints issue one request per parent; yield + checkpoint every N parents so a resumed
-# job re-fetches at most one chunk.
-STATS_CHUNK_SIZE = 100
 # Cheap endpoint used to confirm credentials are genuine: `list.php` takes no params and every API
 # user can read it, so one probe validates access to the account.
 DEFAULT_PROBE_PATH = "list.php"
@@ -69,10 +67,17 @@ def _make_session(username: str, password: str) -> requests.Session:
     return session
 
 
+def _safe_point_before_retry_wait(_state: RetryCallState) -> None:
+    # Every request runs between pages: the rows before it are yielded, and no caller holds rows
+    # while it fetches.
+    reach_safe_point()
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type((SmailyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch(
@@ -129,19 +134,18 @@ def _list_rows(
     resume = manager.load_state() if manager.can_resume() else None
     page = resume.page if resume else 0
 
+    assert config.page_size is not None
     while True:
         rows = _fetch(session, url, _paged_params(config, page), logger, expect_list=True)
+        has_next_page = len(rows) >= config.page_size
+        if has_next_page:
+            manager.save_state(SmailyResumeConfig(page=page + 1))
         if rows:
             yield rows
 
-        assert config.page_size is not None
-        if len(rows) < config.page_size:
+        if not has_next_page:
             break
-
         page += 1
-        # Save AFTER yielding so a crash re-fetches the last page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        manager.save_state(SmailyResumeConfig(page=page))
 
 
 def _fetch_all_pages(
@@ -189,6 +193,7 @@ def _segment_subscriber_rows(
         pending = sorted(str(segment["id"]) for segment in segments)
         page = 0
 
+    assert config.page_size is not None
     while pending:
         segment_id = pending[0]
 
@@ -196,19 +201,22 @@ def _segment_subscriber_rows(
             params = {"list": segment_id, **_paged_params(config, page)}
             rows = _fetch(session, url, params, logger, expect_list=True)
             normalized = [_normalize_subscriber(row, segment_id) for row in rows]
+            has_next_page = len(rows) >= config.page_size
+            if has_next_page:
+                manager.save_state(SmailyResumeConfig(page=page + 1, pending_parent_ids=pending))
+            else:
+                manager.save_state(SmailyResumeConfig(page=0, pending_parent_ids=pending[1:]))
             if normalized:
                 yield normalized
+            else:
+                manager.safe_point()
 
-            assert config.page_size is not None
-            if len(rows) < config.page_size:
+            if not has_next_page:
                 break
-
             page += 1
-            manager.save_state(SmailyResumeConfig(page=page, pending_parent_ids=pending))
 
         pending = pending[1:]
         page = 0
-        manager.save_state(SmailyResumeConfig(page=0, pending_parent_ids=pending))
 
 
 def _campaign_statistics_rows(
@@ -227,24 +235,23 @@ def _campaign_statistics_rows(
         campaigns = _fetch_all_pages(session, base_url, SMAILY_ENDPOINTS["campaigns"], logger)
         pending = [str(campaign["id"]) for campaign in campaigns]
 
-    batch: list[dict[str, Any]] = []
+    # One row per campaign is yielded at once: a local batch would hold rows across many requests,
+    # where the run can neither stop nor commit its cursor.
     while pending:
         campaign_id = pending[0]
         stats = _fetch(session, url, {"id": campaign_id}, logger)
         if isinstance(stats, dict) and stats:
-            batch.append(stats)
+            row = stats
         else:
             # Keep one row per campaign even when the stats payload is unusable (e.g. an empty
             # list for a never-sent campaign) so the table doesn't silently omit campaigns;
             # the stats columns stay null. Match the numeric id type of regular stats rows.
             logger.warning(f"Smaily: campaign {campaign_id} statistics had an unexpected payload shape")
-            batch.append({"id": int(campaign_id) if campaign_id.isdigit() else campaign_id})
+            row = {"id": int(campaign_id) if campaign_id.isdigit() else campaign_id}
 
         pending = pending[1:]
-        if batch and (len(batch) >= STATS_CHUNK_SIZE or not pending):
-            yield batch
-            batch = []
-            manager.save_state(SmailyResumeConfig(page=0, pending_parent_ids=pending))
+        manager.save_state(SmailyResumeConfig(page=0, pending_parent_ids=pending))
+        yield [row]
 
 
 def get_rows(

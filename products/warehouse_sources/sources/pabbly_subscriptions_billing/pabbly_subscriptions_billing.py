@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.pabbly_subscriptions_billing.settings import (
     PABBLY_ENDPOINTS,
@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     make_tracked_session,
+    reach_safe_point,
     retry_with_deadline,
 )
 
@@ -59,10 +60,17 @@ def _is_no_data_message(message: str) -> bool:
     return lowered.startswith("no ") and "found" in lowered
 
 
+def _safe_point_before_retry_wait(_state: RetryCallState) -> None:
+    # Every request runs between pages: the rows before it are yielded, and no caller holds rows
+    # while it fetches.
+    reach_safe_point()
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type((PabblyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch_page(
@@ -127,17 +135,16 @@ def _iter_top_level(
 
     while True:
         rows = _fetch_page(session, config.path, page, PAGE_SIZE, logger, config.ignore_no_data_errors)
+        # A short page means we've reached the end of the list.
+        has_next_page = len(rows) >= PAGE_SIZE
+        if has_next_page:
+            resumable_source_manager.save_state(PabblyResumeConfig(page=page + 1))
         if rows:
             yield rows
 
-        # A short page means we've reached the end of the list.
-        if len(rows) < PAGE_SIZE:
+        if not has_next_page:
             break
-
         page += 1
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes any re-pulled rows on the primary key.
-        resumable_source_manager.save_state(PabblyResumeConfig(page=page))
 
 
 def _iter_children_of_parent(
@@ -181,6 +188,9 @@ def _iter_fan_out(
         for parent in parents:
             parent_id = str(parent["id"])
             yield from _iter_children_of_parent(session, config, parent_id, logger)
+            # The staged cursor is this parent page, and every child row read so far is yielded.
+            # A parent with no children yields nothing, so the worker needs this point to stop.
+            resumable_source_manager.safe_point()
 
         if len(parents) < PAGE_SIZE:
             break

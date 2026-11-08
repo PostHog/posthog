@@ -123,6 +123,7 @@ def _recurring_billing_source(
     api_key: str,
     platform_api_key: Optional[str],
     environment: Optional[str],
+    resumable_source_manager: ResumableSourceManager[HitpayResumeConfig],
 ) -> SourceResponse:
     config = HITPAY_ENDPOINTS["RecurringBilling"]
     client = RESTClient(
@@ -143,6 +144,9 @@ def _recurring_billing_source(
             ):
                 if page:
                     yield page
+            # Every row of this status is yielded. The run has no cursor, so a hand-off here
+            # restarts from the first status.
+            resumable_source_manager.safe_point()
 
     return SourceResponse(
         name="RecurringBilling",
@@ -168,7 +172,7 @@ def hitpay_source(
     db_incremental_field_last_value: Optional[Any],
 ) -> SourceResponse:
     if endpoint == "RecurringBilling":
-        return _recurring_billing_source(api_key, platform_api_key, environment)
+        return _recurring_billing_source(api_key, platform_api_key, environment, resumable_source_manager)
 
     config = HITPAY_ENDPOINTS[endpoint]
     rest_config: RESTAPIConfig = {

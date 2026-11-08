@@ -294,6 +294,7 @@ def _get_event_rows(
         # Save AFTER yielding, and only while more windows remain, so a crash re-fetches the last
         # chunk rather than skipping it — merge dedupes on the primary key.
         resumable_source_manager.save_state(InstanaResumeConfig(events_window_from=window_to))
+        resumable_source_manager.safe_point()
         window_from = window_to
 
 
@@ -498,6 +499,7 @@ def _get_metric_rows(
         window_from = window_to
         if window_from < end:
             resumable_source_manager.save_state(InstanaResumeConfig(metrics_window_from=window_from, next_page=1))
+            resumable_source_manager.safe_point()
 
 
 def _get_fan_out_rows(

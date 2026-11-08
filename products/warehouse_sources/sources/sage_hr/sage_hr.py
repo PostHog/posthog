@@ -1,13 +1,16 @@
 import re
+import json
+import hashlib
 import dataclasses
+from collections import Counter
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.sage_hr.settings import SAGE_HR_ENDPOINTS, SageHREndpointConfig
 from products.warehouse_sources.sources.sdk import (
@@ -15,6 +18,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     SyncWindow,
     make_tracked_session,
+    reach_safe_point,
     retry_with_deadline,
 )
 
@@ -42,12 +46,18 @@ class SageHRRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SageHRResumeConfig:
     # Next 1-indexed page to fetch (from the response `meta.next_page`). None means "start over".
     next_page: int | None = None
     # For the windowed leave_requests endpoint: ISO date of the window `next_page` belongs to.
     window_from: str | None = None
+    # For fan-out endpoints: the parent page, and the index and id on it of the parent `next_page` belongs to.
+    parent_page: int | None = None
+    parent_index: int | None = None
+    parent_id: Any = None
+    # For endpoints with derived row ids: how often each row hash already appeared under `parent_id`.
+    row_occurrences: dict[str, int] | None = None
 
 
 def normalize_subdomain(subdomain: str) -> str:
@@ -93,10 +103,16 @@ def _extract_next_page(payload: dict[str, Any]) -> int | None:
     return next_page if isinstance(next_page, int) else None
 
 
+def _safe_point_before_retry_wait(_state: RetryCallState) -> None:
+    # Each page is fetched only after the rows before it are yielded, and nothing is buffered.
+    reach_safe_point()
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type((SageHRRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch_page(
@@ -158,6 +174,7 @@ def _get_windowed_rows(
         page = 1
         if resume is not None and resume.next_page is not None and resume.window_from == window_start.isoformat():
             page = resume.next_page
+        next_window_start = window_end + timedelta(days=1)
 
         while True:
             params = {"page": page, "from": window_start.isoformat(), "to": window_end.isoformat()}
@@ -172,28 +189,138 @@ def _get_windowed_rows(
                     continue
                 seen_ids.add(row_id)
                 fresh.append(row)
-            if fresh:
-                yield fresh
 
             # `next_page` is null on the last page; an empty or non-advancing page also terminates
             # defensively so a bad meta block can never produce an infinite loop.
-            if not next_page or not items or next_page <= page:
+            has_next_page = bool(next_page and items and next_page > page)
+            if has_next_page:
+                resumable_source_manager.save_state(
+                    SageHRResumeConfig(next_page=next_page, window_from=window_start.isoformat())
+                )
+            elif next_window_start <= window.end:
+                # Window exhausted: a resume can skip straight to the next window.
+                resumable_source_manager.save_state(
+                    SageHRResumeConfig(next_page=1, window_from=next_window_start.isoformat())
+                )
+            if fresh:
+                yield fresh
+            else:
+                # Most windows are empty, so the walk needs a stop point that does not depend on rows.
+                resumable_source_manager.safe_point()
+
+            if not has_next_page or next_page is None:
                 break
-
             page = next_page
-            # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages
-            # are persisted).
-            resumable_source_manager.save_state(
-                SageHRResumeConfig(next_page=page, window_from=window_start.isoformat())
-            )
 
-        # Window exhausted — everything up to it has been yielded, so a resume can skip straight to
-        # the next window.
-        next_window_start = window_end + timedelta(days=1)
-        if next_window_start <= window.end:
-            resumable_source_manager.save_state(
-                SageHRResumeConfig(next_page=1, window_from=next_window_start.isoformat())
-            )
+
+def _derive_row_id(parent_id: Any, row: dict[str, Any], occurrences: Counter[str]) -> str:
+    payload = json.dumps({"parent": parent_id, "row": row}, sort_keys=True, default=str)
+    row_hash = hashlib.sha256(payload.encode()).hexdigest()[:32]
+    # Identical rows under one parent would share a hash, so each repeat adds its ordinal to stay unique.
+    occurrence = occurrences[row_hash]
+    occurrences[row_hash] += 1
+    if not occurrence:
+        return row_hash
+    return hashlib.sha256(f"{row_hash}#{occurrence}".encode()).hexdigest()[:32]
+
+
+def _shape_child_row(
+    config: SageHREndpointConfig, parent_key: str, parent_id: Any, row: dict[str, Any], occurrences: Counter[str]
+) -> dict[str, Any]:
+    shaped = {**row, parent_key: parent_id}
+    if config.derive_row_id:
+        shaped["id"] = _derive_row_id(parent_id, row, occurrences)
+    return shaped
+
+
+def _get_fan_out_rows(
+    session: requests.Session,
+    base_url: str,
+    config: SageHREndpointConfig,
+    resume: SageHRResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[SageHRResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    fan_out = config.fan_out
+    if fan_out is None:
+        raise ValueError(f"Sage HR endpoint {config.name} has no fan-out parent")
+
+    parent_page = resume.parent_page if resume is not None and resume.parent_page is not None else 1
+    resume_index = resume.parent_index if resume is not None and resume.parent_index is not None else 0
+    resume_child_page = resume.next_page if resume is not None and resume.next_page is not None else 1
+    is_resumed_page = resume is not None
+
+    while True:
+        parents, next_parent_page = _fetch_page(
+            session, _build_url(base_url, fan_out.parent_path, {"page": parent_page}), logger
+        )
+        has_next_parent_page = bool(next_parent_page and parents and next_parent_page > parent_page)
+        first_index, first_child_page = 0, 1
+        if is_resumed_page and resume is not None:
+            # The parent list can shift between attempts, so the saved child page applies only to the
+            # parent with the saved id. A parent that is gone restarts at its saved index from page 1.
+            first_index = resume_index
+            for candidate_index, parent in enumerate(parents):
+                if resume.parent_id is not None and parent.get("id") == resume.parent_id:
+                    first_index, first_child_page = candidate_index, resume_child_page
+                    break
+
+        for index in range(first_index, len(parents)):
+            parent_id = parents[index]["id"]
+            child_path = config.path.format(id=quote(str(parent_id), safe=""))
+            child_page = first_child_page if index == first_index else 1
+            occurrences: Counter[str] = Counter()
+            if is_resumed_page and resume is not None and child_page > 1 and index == first_index:
+                occurrences.update(resume.row_occurrences or {})
+
+            while True:
+                params = {"page": child_page} if config.paginated else {}
+                items, next_child_page = _fetch_page(session, _build_url(base_url, child_path, params), logger)
+                has_next_child_page = config.paginated and bool(
+                    next_child_page and items and next_child_page > child_page
+                )
+
+                # Shape before staging the cursor, so the saved occurrences cover this page's rows.
+                rows = [_shape_child_row(config, fan_out.parent_key, parent_id, row, occurrences) for row in items]
+
+                if has_next_child_page:
+                    resumable_source_manager.save_state(
+                        SageHRResumeConfig(
+                            next_page=next_child_page,
+                            parent_page=parent_page,
+                            parent_index=index,
+                            parent_id=parent_id,
+                            row_occurrences=dict(occurrences) if config.derive_row_id else None,
+                        )
+                    )
+                elif index + 1 < len(parents):
+                    resumable_source_manager.save_state(
+                        SageHRResumeConfig(
+                            next_page=1,
+                            parent_page=parent_page,
+                            parent_index=index + 1,
+                            parent_id=parents[index + 1]["id"],
+                        )
+                    )
+                elif has_next_parent_page:
+                    resumable_source_manager.save_state(
+                        SageHRResumeConfig(next_page=1, parent_page=next_parent_page, parent_index=0)
+                    )
+
+                if rows:
+                    yield rows
+                else:
+                    # Many parents have no children, so the walk needs a stop point that does not depend on rows.
+                    resumable_source_manager.safe_point()
+
+                if not has_next_child_page or next_child_page is None:
+                    break
+                child_page = next_child_page
+
+        is_resumed_page = False
+        if not has_next_parent_page or next_parent_page is None:
+            break
+        parent_page = next_parent_page
 
 
 def get_rows(
@@ -211,6 +338,10 @@ def get_rows(
     if resume is not None:
         logger.debug(f"Sage HR: resuming {endpoint} from page={resume.next_page}, window={resume.window_from}")
 
+    if config.fan_out is not None:
+        yield from _get_fan_out_rows(session, base_url, config, resume, resumable_source_manager, logger)
+        return
+
     if config.requires_date_window:
         yield from _get_windowed_rows(session, base_url, config, resume, resumable_source_manager, logger)
         return
@@ -224,18 +355,17 @@ def get_rows(
     page = resume.next_page if (resume is not None and resume.next_page is not None) else 1
     while True:
         items, next_page = _fetch_page(session, _build_url(base_url, config.path, {"page": page}), logger)
+        # `next_page` is null on the last page; an empty or non-advancing page also terminates
+        # defensively so a bad meta block can never produce an infinite loop.
+        has_next_page = bool(next_page and items and next_page > page)
+        if has_next_page:
+            resumable_source_manager.save_state(SageHRResumeConfig(next_page=next_page))
         if items:
             yield items
 
-        # `next_page` is null on the last page; an empty or non-advancing page also terminates
-        # defensively so a bad meta block can never produce an infinite loop.
-        if not next_page or not items or next_page <= page:
+        if not has_next_page or next_page is None:
             break
-
         page = next_page
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted).
-        resumable_source_manager.save_state(SageHRResumeConfig(next_page=page))
 
 
 def sage_hr_source(

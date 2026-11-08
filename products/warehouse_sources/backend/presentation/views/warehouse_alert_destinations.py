@@ -51,6 +51,7 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.warehouse_sources.backend.facade.sync_alerts import (
     WAREHOUSE_ALERT_DESTINATION_TYPES,
+    WAREHOUSE_ALERTS_FLAG,
     WAREHOUSE_DESTINATION_EVENT_KINDS,
 )
 
@@ -207,7 +208,7 @@ class WarehouseAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
     """Destinations of a warehouse alert. The URL's ID is the alert's platform configuration ID."""
 
     scope_object = "alert"
-    posthog_feature_flag = "platform-alerts"
+    posthog_feature_flag = WAREHOUSE_ALERTS_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:

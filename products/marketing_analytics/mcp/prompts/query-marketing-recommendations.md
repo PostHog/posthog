@@ -20,7 +20,7 @@ Each result has:
 - `action` and `reason` — what to do and the numbers behind it. Quote them instead of inventing your own advice.
 - `impact` — the monthly money impact in `currency`, or null. `impactDirection` says how to read it: `save` is spend to cut, `invest` is extra budget to add, `gain` is value to win, and `keep` is spend to protect.
 - `impactType` — `measured` comes straight from the data. `estimated` is a projection, so present it as an estimate.
-- `steps` — how to apply the recommendation in the Google Ads interface, in order. A step's `copyValue` is the exact text to paste, such as a campaign name or a keyword in match type syntax (`[term]` is exact match, `"term"` is phrase match). A step's `url` opens the Google Ads section named by `linkText`, for the whole account. When the user asks how to make a change, walk them through these steps. Some rules have no steps yet.
+- `steps` — how to apply the recommendation, in order. A step's `copyValue` is the exact text to paste, such as a campaign name, a keyword in match type syntax (`[term]` is exact match, `"term"` is phrase match) or a page URL. A step's `url` opens what `linkText` names: a Google Ads section for the whole account, Google Search Console, or the page on the user's site that ranks for the search. When the user asks how to make a change, walk them through these steps. Some rules have no steps yet.
 
 Totals in different currencies come from different ad accounts. Never add them together.
 

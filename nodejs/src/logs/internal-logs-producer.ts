@@ -12,10 +12,6 @@ import type { ValueMatcher } from '~/types'
 import type { LogsIngestionConsumerConfig } from './config'
 import { INTERNAL_LOGS_HTTP_HEADER, INTERNAL_SOURCE_POLICIES, signInternalLogs } from './internal-logs'
 
-const SERVICE_NAMES: Readonly<Record<string, string>> = {
-    hog_flow: 'posthog-internal-workflows',
-}
-
 const SEVERITY_NUMBERS: Readonly<Record<string, number>> = { debug: 5, info: 9, warn: 13, error: 17 }
 
 // Half of capture-logs' default 2 MiB body limit, which leaves room for the envelope.
@@ -100,12 +96,16 @@ export class InternalLogsProducer {
         this.isTeamEnabled = buildIntegerMatcher(config.LOGS_INTERNAL_PRODUCER_TEAMS, true)
     }
 
+    /** Counts the records `enqueue` would send, as `loop_guard`, so logs kept out of a loop show on the dashboard. */
+    skipLooping(source: string, entries: InternalLogEntry[]): void {
+        if (!this.enabled || !Object.hasOwn(INTERNAL_SOURCE_POLICIES, source)) {
+            return
+        }
+        countRecords(source, 'loop_guard', entries.filter((entry) => this.isTeamEnabled(entry.team_id)).length)
+    }
+
     enqueue(source: string, entries: InternalLogEntry[]): void {
-        if (
-            !this.enabled ||
-            !Object.hasOwn(INTERNAL_SOURCE_POLICIES, source) ||
-            !Object.hasOwn(SERVICE_NAMES, source)
-        ) {
+        if (!this.enabled || !Object.hasOwn(INTERNAL_SOURCE_POLICIES, source)) {
             return
         }
         let invalid = 0
@@ -316,7 +316,7 @@ function takeRequest(batch: Batch): Request {
 
 function toOtlpBody(source: string, records: string[]): string {
     const resource = JSON.stringify({
-        attributes: [{ key: 'service.name', value: { stringValue: SERVICE_NAMES[source] } }],
+        attributes: [{ key: 'service.name', value: { stringValue: INTERNAL_SOURCE_POLICIES[source].serviceName } }],
     })
     return `{"resourceLogs":[{"resource":${resource},"scopeLogs":[{"scope":${JSON.stringify({ name: source })},"logRecords":[${records.join(',')}]}]}]}`
 }

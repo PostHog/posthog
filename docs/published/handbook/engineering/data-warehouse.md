@@ -10,6 +10,22 @@ Projects with a connected warehouse source or warehouse table use ordinary empty
 
 Onboarding only checks warehouse setup for non-demo projects without events. Source detection returns an existence flag without serializing schemas, and table detection omits columns. Navigation refreshes an empty result so returning after source creation opens the Sources list.
 
+## Warehouse CDP producer
+
+Each team is limited to `ROWS_PER_SECOND` (2,000 rows per second) in `cdp_producer_rate.py`.
+All producer runs of a team share one Redis bucket, across every table.
+
+The producer deletes each staged file only after Kafka confirms delivery of its rows.
+Checkpoints record progress after 10,000 produced rows or 30 seconds while processing rows.
+Each file also has an end checkpoint.
+Activity retries resume from the last heartbeat checkpoint.
+Failed or canceled attempts retain unfinished files, so retries can produce duplicate rows.
+The activity has a five-minute heartbeat timeout and permits up to ten attempts.
+
+## Direct SQL validation
+
+**Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
@@ -23,6 +39,7 @@ This reservation does not add qualified names to existing models or require a na
 ## Model materialization usage
 
 The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
+The initial load keeps section titles visible and shows skeletons for the metric values, charts, model table, and job rows. Refreshes keep the loaded data visible while new data loads.
 The totals and model breakdown follow saved-query access controls. The breakdown sorts by bytes read and includes soft-deleted models while their saved queries and job history exist.
 Usage includes schema checks, retries, failed runs, and canceled runs, and is attributed to the UTC day each run finished.
 The date and materialized-view filters apply to the whole tab. The jobs table also has a status filter. Projects with the Trino managed warehouse enabled also get a tab-level engine filter, daily bars stacked by engine, and separate ClickHouse and managed warehouse byte totals per model. Legacy Duckgres runs are not included.
@@ -50,6 +67,8 @@ An **Edited** label marks changes to a saved view or insight. **Discard changes*
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
 The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
+
+Saved-query lineage endpoints return only neighboring saved views and warehouse tables the caller can read. PostHog system tables remain visible, denied nodes do not stop the walk, and dependency counts use the same filtered neighbors.
 
 Returning to a notebook can reuse completed query results from the last two minutes in the same browser session. Saved insights still fetch their latest definition; changed queries load their own results. Explicit **Run** and refresh actions fetch results again. This browser cache is bounded and excludes shared notebooks, errors, incomplete responses, and large results; it does not change server cache freshness.
 
@@ -344,6 +363,14 @@ TikTok Ads requests `total_landing_page_view`, `engaged_view_15s`, `cta_conversi
 The CTA fields describe app conversions and purchases attributed to clicks; they do not establish a click-only website purchase metric.
 The optional `advertiser_report` table requests daily `spend` and `cash_spend` at advertiser level.
 Cash spend can arrive later than other performance metrics.
+
+TikTok Ads API v2.0 adds the optional `campaign_website_attribution_report`, `ad_group_website_attribution_report`, and `ad_website_attribution_report` tables.
+Select API v2.0 on the source and enable these tables to import `cta_complete_payment` (website purchases attributed to clicks) and `cta_complete_payment_value` (their purchase value).
+Existing report, audience, entity, and creative tables continue using v1.3 under either source version.
+The separate tables preserve the existing ad report IDs: in v2.0, `ad_id` identifies the ad asset group for Upgraded Smart+ campaigns rather than the legacy creative.
+Do not join that ID directly to legacy creative IDs for those campaigns.
+Existing v1.3 pins keep their table catalog until the source version changes; no automatic repin or historical backfill runs.
+The new tables use the advertiser account time zone and the same date-window, incremental, and resume behavior as other TikTok reports.
 
 Reddit Ads requests purchase click and view counts, sign-up click counts, average purchase value, fully viewable video impressions, and viewable video impressions in its campaign, ad group, ad, and breakdown reports.
 The conversion window still follows the account's attribution settings.

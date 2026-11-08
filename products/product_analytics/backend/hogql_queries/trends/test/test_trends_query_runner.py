@@ -83,7 +83,7 @@ from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -99,7 +99,7 @@ def _flag_call_event_series(team: Team, flag_keys: list[str]) -> EventsNode:
 
 
 def _flag_call_action_series(team: Team, flag_keys: list[str]) -> ActionsNode:
-    action = Action.objects.create(
+    action = create_action(
         team=team,
         name="called a flag",
         steps_json=[
@@ -472,19 +472,28 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit_context=limit_context,
         ).calculate()
 
-    def test_trends_label(self):
+    @parameterized.expand(
+        [
+            ("unnamed", {}, None),
+            ("custom_name_wins_over_name", {"name": "Views", "custom_name": "Page views"}, "Page views"),
+            ("name_override", {"name": "Views"}, "Views"),
+            ("name_matching_the_event", {"name": "$pageview"}, None),
+        ]
+    )
+    def test_trends_label(self, _name: str, rename: dict[str, str], expected_custom_name: str | None):
         self._create_test_events()
 
         response = self._run_trends_query(
             self.default_date_from,
             self.default_date_to,
             IntervalType.DAY,
-            None,
+            [EventsNode(event="$pageview", **rename)],
             None,
             None,
         )
 
         self.assertEqual("$pageview", response.results[0]["label"])
+        self.assertEqual(expected_custom_name, response.results[0]["custom_name"])
 
     def test_multi_series_builds_database_once(self):
         self._create_test_events()
@@ -1738,6 +1747,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[3]["breakdown_value"] == "all"
         assert response.results[3]["count"] == 16
         assert response.results[3]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
+
+        assert [result["custom_name"] for result in response.results] == [
+            result["label"] for result in response.results
+        ]
 
     def test_formula_with_multi_cohort_all_breakdown_with_compare(self):
         self._create_test_events()
@@ -6585,7 +6598,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_test_events()
         flush_persons_and_events()
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome and left",
             steps_json=[
@@ -6612,7 +6625,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 1
         assert response.results[0]["data"] == [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome or firefox",
             steps_json=[
@@ -7984,7 +7997,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Create an action for pageview
-        page_action = Action.objects.create(
+        page_action = create_action(
             team=self.team,
             name="Pageview Action",
             steps_json=[
@@ -8108,7 +8121,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Page Action combines both pageview and pageleave events
-        page_action = Action.objects.create(
+        page_action = create_action(
             team=self.team,
             name="Page Action",
             steps_json=[
@@ -8117,7 +8130,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        pageview_action = Action.objects.create(
+        pageview_action = create_action(
             team=self.team,
             name="Pageview Action",
             steps_json=[

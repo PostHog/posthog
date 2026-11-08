@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+import time_machine
 
 from parameterized import parameterized
 from requests import HTTPError
@@ -46,20 +47,22 @@ def _response(
 class TestDateRangeSince:
     @parameterized.expand(
         [
-            ("datetime", datetime(2024, 3, 10, 12, 0, tzinfo=UTC), f"2024-03-09,{date.today().isoformat()}"),
-            ("date", date(2024, 3, 10), f"2024-03-09,{date.today().isoformat()}"),
-            ("iso_string", "2024-03-10T00:00:00+00:00", f"2024-03-09,{date.today().isoformat()}"),
-            ("iso_string_z", "2024-03-10T00:00:00Z", f"2024-03-09,{date.today().isoformat()}"),
-            ("plain_date_string", "2024-03-10", f"2024-03-09,{date.today().isoformat()}"),
+            ("datetime", datetime(2024, 3, 10, 12, 0, tzinfo=UTC), "2024-03-09,2024-03-15"),
+            ("date", date(2024, 3, 10), "2024-03-09,2024-03-15"),
+            ("iso_string", "2024-03-10T00:00:00+00:00", "2024-03-09,2024-03-15"),
+            ("iso_string_z", "2024-03-10T00:00:00Z", "2024-03-09,2024-03-15"),
+            ("plain_date_string", "2024-03-10", "2024-03-09,2024-03-15"),
             ("none", None, None),
             ("garbage_string", "not-a-date", None),
         ]
     )
+    @time_machine.travel(datetime(2024, 3, 15, 12, tzinfo=UTC), tick=False)
     def test_date_range_since(self, _name: str, value: Any, expected: str | None) -> None:
         assert date_range_since(value) == expected
 
 
 class TestIncrementalParams:
+    @time_machine.travel(datetime(2024, 3, 15, 12, tzinfo=UTC), tick=False)
     def test_documents_incremental_adds_edited_at_range(self) -> None:
         result = _driver().run(
             "Documents",
@@ -69,7 +72,7 @@ class TestIncrementalParams:
         )
 
         assert result.raised is None
-        assert result.requests[0].param("edited_at") == f"2024-03-09,{date.today().isoformat()}"
+        assert result.requests[0].param("edited_at") == "2024-03-09,2024-03-15"
         assert result.requests[0].param("limit") == "1000"
         assert result.requests[0].param("page") == "1"
 

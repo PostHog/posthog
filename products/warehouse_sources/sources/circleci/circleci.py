@@ -405,14 +405,21 @@ def _jobs_for_workflow(
 
 
 def _workflow_rows(
-    fetch_page: FetchPageFn, pipelines: list[dict[str, Any]], logger: FilteringBoundLogger
+    fetch_page: FetchPageFn,
+    pipelines: list[dict[str, Any]],
+    logger: FilteringBoundLogger,
+    safe_point: Callable[[], None],
 ) -> Iterator[list[dict[str, Any]]]:
     for pipeline in pipelines:
         yield from _workflows_for_pipeline(fetch_page, pipeline["id"], logger)
+        safe_point()
 
 
 def _job_rows(
-    fetch_page: FetchPageFn, pipelines: list[dict[str, Any]], logger: FilteringBoundLogger
+    fetch_page: FetchPageFn,
+    pipelines: list[dict[str, Any]],
+    logger: FilteringBoundLogger,
+    safe_point: Callable[[], None],
 ) -> Iterator[list[dict[str, Any]]]:
     for pipeline in pipelines:
         for workflows in _workflows_for_pipeline(fetch_page, pipeline["id"], logger):
@@ -431,6 +438,8 @@ def _job_rows(
                         }
                         for job in jobs
                     ]
+                safe_point()
+        safe_point()
 
 
 def _project_rows(
@@ -448,7 +457,10 @@ def _project_rows(
 
 
 def _component_version_rows(
-    fetch_page: FetchPageFn, components: list[dict[str, Any]], logger: FilteringBoundLogger
+    fetch_page: FetchPageFn,
+    components: list[dict[str, Any]],
+    logger: FilteringBoundLogger,
+    safe_point: Callable[[], None],
 ) -> Iterator[list[dict[str, Any]]]:
     for component in components:
         component_id = component["id"]
@@ -469,6 +481,7 @@ def _component_version_rows(
                     }
                     for version in versions
                 ]
+        safe_point()
 
 
 def _user_rows(
@@ -476,6 +489,7 @@ def _user_rows(
     pipelines: list[dict[str, Any]],
     logger: FilteringBoundLogger,
     seen_user_ids: set[str],
+    safe_point: Callable[[], None],
 ) -> Iterator[list[dict[str, Any]]]:
     # v2 has no "list users in org" endpoint, so the actor ids carried on workflows are
     # resolved one at a time via GET /user/{id}.
@@ -496,6 +510,7 @@ def _user_rows(
                             continue
                         raise
                     yield [user]
+        safe_point()
 
 
 def _iter_v3_pages(
@@ -673,6 +688,8 @@ def _get_v3_rows(
             batches = _v3_run_rows(fetch_page, endpoint, projects, logger)
 
         yield from _stage_cursor_before_last_batch(batches, resumable_source_manager, next_cursor)
+        # The page's batches are all handed on, so the staged projects cursor covers every row.
+        resumable_source_manager.safe_point()
 
 
 def get_rows(
@@ -713,25 +730,30 @@ def get_rows(
     else:
         pages = _iter_pipeline_pages(fetch_page, org_slug, logger, start_token)
 
+    # A fan-out parent's children are all handed on before this runs, and the staged token still
+    # reads the current page again, so it loses no rows.
+    safe_point = resumable_source_manager.safe_point
+
     for items, next_token in pages:
         if endpoint in DIRECT_LIST_ENDPOINTS:
             if items:
                 yield items
         elif endpoint == "workflows":
-            yield from _workflow_rows(fetch_page, items, logger)
+            yield from _workflow_rows(fetch_page, items, logger, safe_point)
         elif endpoint == "jobs":
-            yield from _job_rows(fetch_page, items, logger)
+            yield from _job_rows(fetch_page, items, logger, safe_point)
         elif endpoint == "projects":
             yield from _project_rows(fetch_page, items, seen_project_slugs)
         elif endpoint == "users":
-            yield from _user_rows(fetch_page, items, logger, seen_user_ids)
+            yield from _user_rows(fetch_page, items, logger, seen_user_ids, safe_point)
         elif endpoint == "component_versions":
-            yield from _component_version_rows(fetch_page, items, logger)
+            yield from _component_version_rows(fetch_page, items, logger, safe_point)
 
         # Save state after the page's rows (and any fan-out children) have been yielded, so a
         # crash re-yields the in-progress page instead of skipping it.
         if next_token:
             resumable_source_manager.save_state(CircleCIResumeConfig(next_page_token=next_token))
+        safe_point()
 
 
 def circleci_source(

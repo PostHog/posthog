@@ -196,6 +196,7 @@ def _get_list_rows(
         # Save state AFTER yielding so a crash re-yields the last page (deduped on the
         # primary key) rather than skipping it.
         resumable_source_manager.save_state(HyperspellResumeConfig(cursor=next_cursor, user_id=principal))
+        resumable_source_manager.safe_point()
         cursor = next_cursor
 
 
@@ -399,6 +400,7 @@ def get_rows(
         # Advance the bookmark to the next user so a crash between users resumes correctly.
         if index + 1 < len(remaining):
             resumable_source_manager.save_state(HyperspellResumeConfig(cursor=None, user_id=remaining[index + 1]))
+        resumable_source_manager.safe_point()
 
 
 def hyperspell_source(

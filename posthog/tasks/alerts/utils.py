@@ -24,7 +24,7 @@ from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 from posthog.utils import absolute_uri
 
-from products.alerts.backend.facade.api import LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
+from products.alerts.backend.facade.api import LLM_DETECTOR_PAUSED_ERROR_CODE, LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
 from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
     alert_internal_event_delivered,
@@ -36,9 +36,11 @@ from products.alerts.backend.facade.destinations import (
 )
 from products.alerts.backend.facade.email import alert_email_recipients, send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
+    FIRING_NOT_RENOTIFIED_KEY,
     apply_invalid_configuration,
     apply_outcome,
     evaluate_alert_check,
+    is_firing_not_renotified,
     should_notify,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -442,6 +444,7 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             # The template drops its "review the alert settings" advice for this code, because
             # a check the AI detector could not complete is not something the owner can fix.
             "detector_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            "detector_paused": error.get("code") == LLM_DETECTOR_PAUSED_ERROR_CODE,
         },
     )
     if not email_sent:
@@ -869,6 +872,9 @@ def add_alert_check(
         now=datetime.now(UTC),
     )
     state_fields = apply_outcome(alert, outcome)
+    triggered_metadata = result.triggered_metadata
+    if is_firing_not_renotified(outcome):
+        triggered_metadata = {**(triggered_metadata or {}), FIRING_NOT_RENOTIFIED_KEY: True}
 
     alert.last_checked_at = datetime.now(UTC)
     # Update next_check_at per interval so we don't recheck until the next one is due.
@@ -880,7 +886,7 @@ def add_alert_check(
         condition=alert.condition,
         targets_notified={},
         state=alert.state,
-        triggered_metadata=result.triggered_metadata,
+        triggered_metadata=triggered_metadata,
         error=error,
         anomaly_scores=result.anomaly_scores,
         triggered_points=result.triggered_points,

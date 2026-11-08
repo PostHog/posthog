@@ -10,12 +10,26 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    capture_exception,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
 
 BREVO_BASE_URL = "https://api.brevo.com/v3"
+
+BREVO_SMTP_KEY_PREFIX = "xsmtpsib-"
+
+BREVO_INVALID_API_KEY_MESSAGE = (
+    "Brevo rejected your API key. Create a new API key in your Brevo account settings, then reconnect."
+)
+BREVO_SMTP_KEY_MESSAGE = (
+    "You entered a Brevo SMTP key. Create a key on the API keys tab of your Brevo SMTP & API settings, then reconnect."
+)
+BREVO_MISSING_PERMISSIONS_MESSAGE = (
+    "Your Brevo API key can't read your account. Check the key in your Brevo account settings, then reconnect."
+)
+BREVO_UNREACHABLE_MESSAGE = "Couldn't reach Brevo to validate your API key. Try again in a few minutes."
 
 
 @dataclasses.dataclass(frozen=False)
@@ -37,14 +51,29 @@ def _format_datetime(value: Any) -> str:
     return str(value)
 
 
-def validate_credentials(api_key: str) -> bool:
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Cheap probe to confirm the API key is genuine."""
-    ok, _status = validate_via_probe(
+    ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{BREVO_BASE_URL}/account",
         headers={"api-key": api_key, "accept": "application/json"},
+        allow_redirects=False,
     )
-    return ok
+    if ok:
+        return True, None
+    if status == 401:
+        # Brevo lists SMTP keys next to API keys, and only API keys work against the REST API.
+        if api_key.strip().startswith(BREVO_SMTP_KEY_PREFIX):
+            return False, BREVO_SMTP_KEY_MESSAGE
+        return False, BREVO_INVALID_API_KEY_MESSAGE
+    if status == 403:
+        return False, BREVO_MISSING_PERMISSIONS_MESSAGE
+    # No status means the request never completed. That, a rate limit and a Brevo-side error are
+    # all transient, so none of them should point the user at a key that may be fine.
+    if status is None or status == 429 or status >= 500:
+        return False, BREVO_UNREACHABLE_MESSAGE
+    capture_exception(Exception(f"Unexpected Brevo credential validation response ({status})"))
+    return False, BREVO_INVALID_API_KEY_MESSAGE
 
 
 def _build_base_params(

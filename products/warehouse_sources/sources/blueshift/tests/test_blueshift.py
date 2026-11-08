@@ -8,7 +8,12 @@ import time_machine
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.blueshift._config import BlueshiftSourceConfig
-from products.warehouse_sources.sources.blueshift.blueshift import BlueshiftResumeConfig, BlueshiftStatsCursor
+from products.warehouse_sources.sources.blueshift.blueshift import (
+    MAX_STATS_RETRY_ATTEMPTS,
+    BlueshiftResumeConfig,
+    BlueshiftRetryableError,
+    BlueshiftStatsCursor,
+)
 from products.warehouse_sources.sources.blueshift.source import BlueshiftSource
 from products.warehouse_sources.sources.sdk import SourceCursorManager
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
@@ -170,6 +175,43 @@ class TestBlueshiftCampaignStats:
         assert len(result.requests) == 366
 
     @time_machine.travel(NOW, tick=False)
+    def test_a_rate_limited_day_is_retried_rather_than_failing_the_run(self) -> None:
+        calls = {"n": 0}
+
+        def answer(_request: Any) -> ScriptedResponse:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return ScriptedResponse(status=429, json={})
+            return ScriptedResponse(json={"campaigns": []})
+
+        result = _driver().run(
+            "campaign_stats",
+            answer,
+            incremental_field="date",
+            source_cursor=_no_stored_cursor(),
+            db_incremental_field_last_value=date(2026, 10, 15),
+        )
+
+        assert result.raised is None
+        # One extra request over the plain day-count: the first day's 429 is retried once, then
+        # every day (including the retried one) answers cleanly.
+        assert len(result.requests) == 9
+
+    @time_machine.travel(NOW, tick=False)
+    def test_a_sustained_rate_limit_exhausts_retries_and_raises_the_marker(self) -> None:
+        result = _driver().run(
+            "campaign_stats",
+            always(ScriptedResponse(status=429, json={})),
+            incremental_field="date",
+            source_cursor=_no_stored_cursor(),
+            db_incremental_field_last_value=date(2026, 10, 15),
+        )
+
+        assert isinstance(result.raised, BlueshiftRetryableError)
+        assert "Blueshift API error (retryable): status=429" in str(result.raised)
+        assert len(result.requests) == MAX_STATS_RETRY_ATTEMPTS
+
+    @time_machine.travel(NOW, tick=False)
     def test_rejected_key_fails_the_run_and_keeps_the_key_out_of_logs(self) -> None:
         result = _driver().run(
             "campaign_stats",
@@ -220,3 +262,21 @@ class TestBlueshiftValidateCredentials:
 
         assert valid is expected_valid
         assert (message is None) is expected_valid
+
+
+class TestBlueshiftRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "exhausted_rate_limit",
+                "Blueshift API error (retryable): status=429, url=https://api.getblueshift.com/api/v1/campaigns.json",
+            ),
+            (
+                "exhausted_5xx",
+                "Blueshift API error (retryable): status=503, url=https://api.getblueshift.com/api/v1/campaigns.json",
+            ),
+        ]
+    )
+    def test_retryable_errors_match_exhausted_retry(self, _name: str, observed_error: str) -> None:
+        retryable_errors = BlueshiftSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)

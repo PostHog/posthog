@@ -34,9 +34,11 @@ class TestMyHoursSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = _make_inputs(schema_name="clients")
 
-        self.source.source_for_pipeline(self.config, inputs)
+        manager = mock.MagicMock()
+        self.source.source_for_pipeline(self.config, manager, inputs)
 
         mock_source.assert_called_once()
         kwargs = mock_source.call_args.kwargs
         assert kwargs["api_key"] == "mh-key"
         assert kwargs["endpoint"] == "clients"
+        assert kwargs["resumable_source_manager"] is manager

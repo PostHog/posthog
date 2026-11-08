@@ -37,8 +37,18 @@ class TestJiraSource:
         mock_validate.assert_called_once_with(self.config.subdomain, self.config.email, self.config.api_token)
 
     @pytest.mark.parametrize(
+        "pasted_site",
+        ["acme.atlassian.net", "https://acme.atlassian.net", "https://acme.atlassian.net/jira/your-work", " acme "],
+    )
+    @mock.patch("products.warehouse_sources.sources.jira.source.validate_jira_credentials", return_value=(True, 200))
+    def test_validate_credentials_accepts_pasted_site_host_or_url(self, mock_validate, pasted_site) -> None:
+        config = JiraSourceConfig(subdomain=pasted_site, email="e@x.com", api_token="token")
+        assert self.source.validate_credentials(config, self.team_id) == (True, None)
+        mock_validate.assert_called_once()
+
+    @pytest.mark.parametrize(
         "bad_subdomain",
-        ["acme.atlassian.net", "https://acme.atlassian.net", "acme.example.com", ""],
+        ["acme.example.com", "https://acme.atlassian.net.example.com", "https://acme.atlassian.net@example.com", ""],
     )
     @mock.patch("products.warehouse_sources.sources.jira.source.validate_jira_credentials")
     def test_validate_credentials_rejects_malformed_subdomain_without_probing(

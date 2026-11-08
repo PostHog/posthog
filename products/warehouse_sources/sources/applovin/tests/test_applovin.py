@@ -120,7 +120,9 @@ class TestWindowWalking:
 
         assert isinstance(result.raised, AppLovinAPIError)
         assert result.saved_states
-        assert result.final_state == AppLovinResumeConfig(next_window_start=second_window.isoformat())
+        # Both windows were handed on, so the commit points at the window that failed.
+        third_window = second_window + timedelta(days=REPORT_WINDOW_DAYS)
+        assert result.final_state == AppLovinResumeConfig(next_window_start=third_window.isoformat())
 
 
 class TestPagination:

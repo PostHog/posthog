@@ -424,6 +424,8 @@ def get_rows(
                 params = build_report_params(report, window_start, window_end, tokens, metrics)
                 for rows in _iter_report_pages(session, params, report, logger):
                     window_rows.extend(unpivot_event_rows(rows, config.dimensions, event_names))
+                    if not window_rows:
+                        resumable_source_manager.safe_point()
             if window_rows:
                 window_rows.sort(key=lambda row: str(row.get("day") or ""))
                 yield window_rows
@@ -432,6 +434,9 @@ def get_rows(
             for rows in _iter_report_pages(session, params, report, logger):
                 if rows:
                     yield rows
+                # The staged cursor points at this window's start or earlier, so a resume re-reads
+                # the window and loses no rows.
+                resumable_source_manager.safe_point()
 
         # Save AFTER yielding the window so a crash re-yields it rather than skipping it (merge
         # dedupes on the dimension key).

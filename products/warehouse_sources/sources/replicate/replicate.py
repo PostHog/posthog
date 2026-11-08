@@ -391,6 +391,7 @@ def get_rows(
         # dedupes on the primary key). Tag it with the watermark so a later run with an advanced
         # watermark rebuilds from the first page instead of trusting this cursor.
         resumable_source_manager.save_state(ReplicateResumeConfig(next_url=next_url, created_after=current_watermark))
+        resumable_source_manager.safe_point()
         url = next_url
 
 

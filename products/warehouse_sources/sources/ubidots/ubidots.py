@@ -8,13 +8,14 @@ from urllib.parse import urlencode, urlparse, urlunparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.sdk import (
     UNVERSIONED_API_VERSION,
     ResumableSourceManager,
     SourceResponse,
     make_tracked_session,
+    reach_safe_point,
     retry_with_deadline,
 )
 from products.warehouse_sources.sources.ubidots.settings import (
@@ -147,10 +148,17 @@ def _start_timestamp_ms(value: Any) -> Optional[int]:
         return None
 
 
+def _safe_point_before_retry_wait(_state: RetryCallState) -> None:
+    # Every request runs between pages or windows: the rows before it are yielded, and no caller
+    # holds rows while it fetches.
+    reach_safe_point()
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type((UbidotsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch_page(
@@ -210,12 +218,14 @@ def get_rows(
         # Save AFTER yielding so a crash re-fetches from the next cursor (already-yielded pages are
         # persisted); merge dedupes the re-pulled page on the primary key.
         resumable_source_manager.save_state(UbidotsResumeConfig(next_url=url))
+        resumable_source_manager.safe_point()
 
 
 def _iter_variable_ids(
     session: requests.Session,
     base_url: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[UbidotsResumeConfig],
 ) -> Iterator[str]:
     """List every variable id via the v2.0 API — the parent set the values stream fans out over."""
     url: Optional[str] = f"{base_url}{VARIABLES_LIST_PATH}?{urlencode({'page_size': PAGE_SIZE})}"
@@ -226,6 +236,8 @@ def _iter_variable_ids(
             # Direct access on purpose: a variable without an id would otherwise silently drop its
             # whole time series from the sync — better to fail loudly on a malformed page.
             yield str(item["id"])
+        # The caller has finished every variable on this page and holds no rows.
+        resumable_source_manager.safe_point()
 
 
 def _initial_values_url(base_url: str, variable_id: str, start: Optional[int]) -> str:
@@ -255,7 +267,7 @@ def get_values_rows(
 
     start = _start_timestamp_ms(db_incremental_field_last_value) if should_use_incremental_field else None
 
-    for variable_id in _iter_variable_ids(session, base_url, logger):
+    for variable_id in _iter_variable_ids(session, base_url, logger, resumable_source_manager):
         if variable_id in completed:
             continue
 
@@ -293,9 +305,11 @@ def get_values_rows(
                     completed_variable_ids=sorted(completed),
                 )
             )
+            resumable_source_manager.safe_point()
 
         completed.add(variable_id)
         resumable_source_manager.save_state(UbidotsResumeConfig(completed_variable_ids=sorted(completed)))
+        resumable_source_manager.safe_point()
 
 
 def _read_capped_body(response: requests.Response) -> bytes:
@@ -328,6 +342,7 @@ def _read_capped_body(response: requests.Response) -> bytes:
     retry=retry_if_exception_type((UbidotsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch_data_series(
@@ -428,7 +443,7 @@ def get_values_rows_v2(
     floor = min(watermark, now_ms) if watermark is not None else None
     url = f"{base_url}{DATA_SERIES_PATH}?{urlencode({'results_format': 'object'})}"
 
-    for variable_id in _iter_variable_ids(session, base_url, logger):
+    for variable_id in _iter_variable_ids(session, base_url, logger, resumable_source_manager):
         if variable_id in completed:
             continue
 
@@ -480,9 +495,11 @@ def get_values_rows_v2(
                     completed_variable_ids=sorted(completed),
                 )
             )
+            resumable_source_manager.safe_point()
 
         completed.add(variable_id)
         resumable_source_manager.save_state(UbidotsResumeConfig(completed_variable_ids=sorted(completed)))
+        resumable_source_manager.safe_point()
 
 
 def ubidots_source(
