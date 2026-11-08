@@ -27,8 +27,8 @@ def unavailable_targets(*, team: Team, user: User, layout: CustomizationLayout) 
 
     insight_ids = {to.short_id for to in targets if isinstance(to, AnalyticsInsightTarget)}
     insight_ids |= {item.insight for _, item in located if isinstance(item, AnalyticsFragmentMetric)}
-    insights = (
-        product_analytics.viewable_insight_definitions(team=team, user=user, short_ids=insight_ids)
+    insight_is_trends = (
+        product_analytics.viewable_insights_are_trends(team=team, user=user, short_ids=insight_ids)
         if insight_ids
         else {}
     )
@@ -46,10 +46,10 @@ def unavailable_targets(*, team: Team, user: User, layout: CustomizationLayout) 
     problems = []
     for path, item in located:
         if isinstance(item, AnalyticsFragmentMetric):
-            insight = insights.get(item.insight)
-            if insight is None:
+            is_trends = insight_is_trends.get(item.insight)
+            if is_trends is None:
                 problems.append(f"{path}.insight: No insight {item.insight} that you can open in this project.")
-            elif (insight.query.get("source") or {}).get("kind") != "TrendsQuery":
+            elif not is_trends:
                 problems.append(
                     f"{path}.insight: Insight {item.insight} is not a trends insight, so it has no number to show. "
                     "Link to it instead."
@@ -58,7 +58,7 @@ def unavailable_targets(*, team: Team, user: User, layout: CustomizationLayout) 
         if not isinstance(item, AnalyticsFragmentLink | AnalyticsFragmentButton):
             continue
         to = item.to
-        if isinstance(to, AnalyticsInsightTarget) and to.short_id not in insights:
+        if isinstance(to, AnalyticsInsightTarget) and to.short_id not in insight_is_trends:
             problems.append(f"{path}.to: No insight {to.short_id} that you can open in this project.")
         elif isinstance(to, AnalyticsDashboardTarget) and to.id in missing_dashboards:
             problems.append(f"{path}.to: No dashboard {to.id} in this project.")

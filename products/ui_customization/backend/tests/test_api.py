@@ -15,7 +15,6 @@ from posthog.models.personal_api_key import hash_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.facade.models import Insight
 from products.ui_customization.backend.facade import api as customization_facade
 from products.ui_customization.backend.facade.enums import CustomizationContext
 from products.ui_customization.backend.logic.cleanup import delete_orphaned_fragment_batch
@@ -27,20 +26,22 @@ from products.ui_customization.backend.tests.test_analytics_sidebar import GROWT
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
 
+INSIGHT_IS_TRENDS = {"aB3dE5fG": True, "fUnN3l00": False}
+
 
 class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
     databases = {"default", "ui_customization_db_writer", "ui_customization_db_reader"}
 
     def setUp(self) -> None:
         super().setUp()
-        trends = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}}
-        Insight.objects.create(team=self.team, short_id="aB3dE5fG", name="Signups", query=trends)
-        Insight.objects.create(
-            team=self.team,
-            short_id="fUnN3l00",
-            name="Checkout",
-            query={"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "series": []}},
+        insights = patch(
+            "products.product_analytics.backend.facade.api.viewable_insights_are_trends",
+            side_effect=lambda *, team, user, short_ids: {
+                short_id: INSIGHT_IS_TRENDS[short_id] for short_id in short_ids if short_id in INSIGHT_IS_TRENDS
+            },
         )
+        insights.start()
+        self.addCleanup(insights.stop)
         Notebook.objects.create(team=self.team, short_id="Zx9Yw8Vu", title="Launch notes")
         Notebook.objects.create(team=self.team, short_id="dEl3t3d0", title="Old notes", deleted=True)
         self.layout = deepcopy(GROWTH_LAYOUT)
