@@ -9,7 +9,7 @@ from urllib.parse import quote
 import gspread
 import requests
 from babel.core import Locale, UnknownLocaleError
-from babel.numbers import NumberFormatError, get_decimal_symbol, parse_decimal
+from babel.numbers import NumberFormatError, get_decimal_symbol, get_group_symbol, parse_decimal
 from cachetools import Cache, TTLCache, cached
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
@@ -199,6 +199,10 @@ def _resolve_column_names(headers: list[str]) -> list[str]:
     return resolved
 
 
+# Each of these spaces can group the digits of a number in a sheet.
+_GROUP_SPACES = (" ", " ", " ")
+
+
 def _spreadsheet_locale(worksheet: gspread.Worksheet) -> Locale | None:
     try:
         return Locale.parse(worksheet.spreadsheet.locale)
@@ -213,13 +217,32 @@ def _parse_number_text(text: str, locale: Locale | None) -> int | float | str | 
         return numericise(text, default_blank=None)
     if text == "":
         return None
+    # Decimal accepts underscores between digits, but numericise keeps such text as text. Keep it as
+    # text here too, so that the same cell gets the same type in every locale.
+    if "_" in text:
+        return text
     # `strict` rejects text the locale would not write, so "1.5" in de_DE stays text instead of
-    # becoming 15, while "1.200" reads as 1200.
+    # becoming 15, while "1.200" reads as 1200. It also accepts only the one space that the locale
+    # data uses as the group symbol, so every space is changed to that symbol first.
+    group_symbol = get_group_symbol(locale)
+    number_text = text
+    if group_symbol in _GROUP_SPACES:
+        for space in _GROUP_SPACES:
+            number_text = number_text.replace(space, group_symbol)
     try:
-        number = parse_decimal(text, locale, strict=True)
+        number = parse_decimal(number_text, locale, strict=True)
     except NumberFormatError:
         return text
-    if get_decimal_symbol(locale) not in text and number == number.to_integral_value():
+    # float() refuses a signaling NaN, and numericise keeps "sNaN" as text.
+    if number.is_snan():
+        return text
+    # numericise returns a float for an exponent, and int() fails on an infinite value.
+    if (
+        number.is_finite()
+        and number == number.to_integral_value()
+        and "e" not in text.lower()
+        and get_decimal_symbol(locale) not in text
+    ):
         return int(number)
     return float(number)
 
