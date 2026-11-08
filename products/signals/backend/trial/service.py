@@ -70,7 +70,9 @@ class TrialService:
         else:
             grant = self.policy.grant()
             if grant is not None and grant.billing_reported_at is None:
-                transaction.on_commit(partial(report_signals_trial_grant.delay, str(grant.id)), robust=True)
+                transaction.on_commit(
+                    partial(report_signals_trial_grant.delay, grant.team_id, str(grant.id)), robust=True
+                )
             outcome = "already_claimed" if existing else "activated" if grant else "paid_continuation"
             transaction.on_commit(
                 lambda: self._capture_enrollment(

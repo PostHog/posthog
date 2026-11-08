@@ -214,7 +214,7 @@ class TestTrialAPI(APIBaseTest):
             self.enqueue_grant.assert_not_called()
         assert response.status_code == (200 if existing else 201), response.content
         grant = SignalTrialGrant.objects.for_team(self.team.pk).get()
-        self.enqueue_grant.assert_called_once_with(str(grant.id))
+        self.enqueue_grant.assert_called_once_with(grant.team_id, str(grant.id))
         assert grant.claimed_by_id == self.user.pk
         SignalSpend.objects.for_team(self.team.pk).create(
             team=self.team,
@@ -488,7 +488,7 @@ class TestTrialAPI(APIBaseTest):
             assert outcomes[-1]["reason"] == (None if ready else "billing_not_ready")
             assert outcomes[-1]["grant_id"] == (response.json()["grant_id"] if ready else None)
             if ready:
-                self.enqueue_grant.assert_called_once_with(response.json()["grant_id"])
+                self.enqueue_grant.assert_called_once_with(self.team.id, response.json()["grant_id"])
             else:
                 self.enqueue_grant.assert_not_called()
 

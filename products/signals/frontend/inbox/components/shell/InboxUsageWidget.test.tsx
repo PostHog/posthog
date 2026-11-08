@@ -24,10 +24,12 @@ describe('InboxUsageWidget', () => {
                         exhaustion_reason: 'report_limit',
                         report_limit: 5,
                         reports_delivered: 5,
+                        reports_in_progress: 0,
                         enabled_scouts: 3,
                         allowance_microusd: 10_000_000,
                         used_microusd: 1_000_000,
                         paid_continuation: continuation,
+                        new_work_paused: continuation !== 'continue_paid',
                     },
                     '/api/billing': {
                         products: [{ type: 'inbox_usage', subscribed: true, current_amount_usd: '1.04' }],
@@ -36,7 +38,7 @@ describe('InboxUsageWidget', () => {
                 },
             })
             const { findByText } = render(<InboxUsageWidget />)
-            expect(await findByText('Your free trial is complete')).toBeTruthy()
+            expect(await findByText('Trial limit reached')).toBeTruthy()
             expect(await findByText('Inbox spend')).toBeTruthy()
             expect(await findByText('$1.04')).toBeTruthy()
             expect(await findByText('View usage and limits')).toBeTruthy()

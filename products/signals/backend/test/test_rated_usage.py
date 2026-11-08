@@ -87,8 +87,8 @@ class TestSignalsRatedUsage(BaseTest):
     ) -> None:
         grant = self._grant(allowance_microusd=allowance)
         post.return_value = MagicMock(status_code=200, json=lambda: {"result": result})
-        report_signals_trial_grant.run(str(grant.id))
-        report_signals_trial_grant.run(str(grant.id))
+        report_signals_trial_grant.run(grant.team_id, str(grant.id))
+        report_signals_trial_grant.run(grant.team_id, str(grant.id))
         grant.refresh_from_db()
         assert grant.billing_reported_at == _at(12)
         assert grant.billing_pool_allocated_cents == 0
@@ -103,7 +103,18 @@ class TestSignalsRatedUsage(BaseTest):
         grant = self._grant()
         post.return_value = MagicMock(status_code=status, json=lambda: body, ok=status == 200)
         with pytest.raises(Exception):
-            report_signals_trial_grant.run(str(grant.id))
+            report_signals_trial_grant.run(grant.team_id, str(grant.id))
+        grant.refresh_from_db()
+        assert grant.billing_reported_at is None
+
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_grant_reporting_cannot_issue_another_projects_pool(self, post: MagicMock) -> None:
+        grant = self._grant()
+        other_team = Team.objects.create(organization=self.organization, name="Another project")
+
+        report_signals_trial_grant.run(other_team.id, str(grant.id))
+
+        post.assert_not_called()
         grant.refresh_from_db()
         assert grant.billing_reported_at is None
 
@@ -200,7 +211,7 @@ class TestSignalsRatedUsage(BaseTest):
     def test_transferred_trial_remains_free_without_drawing_on_the_old_customers_pool(self, post: MagicMock) -> None:
         grant = self._grant()
         post.side_effect = self._accepted_response
-        report_signals_trial_grant.run(str(grant.id))
+        report_signals_trial_grant.run(grant.team_id, str(grant.id))
         original_pool = post.call_args.kwargs["json"]
         other_org = Organization.objects.create(name="Transferred project customer")
         self.team.organization = other_org
@@ -230,7 +241,7 @@ class TestSignalsRatedUsage(BaseTest):
             patch("products.signals.backend.rated_usage_tasks.report_signals_rated_usage.delay") as usage,
         ):
             enqueue_signals_rated_usage.run()
-        pools.assert_called_once_with(str(grant.id))
+        pools.assert_called_once_with(grant.team_id, str(grant.id))
         usage.assert_called_once_with(str(self.organization.id), "2026-06-10")
 
     @patch("ee.billing.billing_manager.http_session.post")

@@ -38,25 +38,47 @@ export function SelfDrivingTrialUsage(): JSX.Element | null {
     }
 
     const exhausted = trial.grant_status === 'exhausted'
+    const banner = exhausted
+        ? { type: 'warning' as const, title: 'Trial limit reached', scoutCount: `${trial.enabled_scouts}` }
+        : {
+              type: 'info' as const,
+              title: 'Your Self-driving free trial',
+              scoutCount: `${trial.enabled_scouts} of ${trial.scout_limit}`,
+          }
     const continuation = {
-        continue_paid: 'New work continues under your existing paid Self-driving limit.',
-        add_payment_method: 'New work pauses until you add a payment method and enable paid Self-driving.',
-        increase_limit:
-            'New work pauses until your Self-driving spending limit permits it. You can increase the limit in billing.',
-        enable_self_driving: 'New work pauses until you enable paid Self-driving.',
-        unavailable: 'Billing status is unavailable. New work will pause if paid authorization cannot be confirmed.',
+        continue_paid: {
+            message: 'New work continues under your existing paid Self-driving limit.',
+            action: 'Manage billing',
+        },
+        add_payment_method: {
+            message: 'New work pauses until you add a payment method and enable paid Self-driving.',
+            action: 'Add payment method',
+        },
+        increase_limit: {
+            message:
+                'New work pauses until your Self-driving spending limit permits it. You can increase the limit in billing.',
+            action: 'Increase Self-driving limit',
+        },
+        enable_self_driving: {
+            message: 'New work pauses until you enable paid Self-driving.',
+            action: 'Manage billing',
+        },
+        unavailable: {
+            message: 'Billing status is unavailable. New work will pause if paid authorization cannot be confirmed.',
+            action: 'Manage billing',
+        },
     }[trial.paid_continuation]
 
     return (
         <section className="min-w-0" aria-label="Self-driving free trial">
-            <LemonBanner type={exhausted ? 'warning' : 'info'}>
+            <LemonBanner type={banner.type}>
                 <div className="flex flex-col gap-2 min-w-0 font-normal">
-                    <strong>{exhausted ? 'Trial limit reached' : 'Your Self-driving free trial'}</strong>
+                    <strong>{banner.title}</strong>
                     <p className="m-0">
                         <span>{`${trial.reports_delivered} of ${trial.report_limit} reports delivered`}</span>
                         {!!trial.reports_in_progress && <span>{` · ${trial.reports_in_progress} in progress`}</span>}
                         {' · '}
-                        <span>{`${trial.enabled_scouts}${!exhausted ? ` of ${trial.scout_limit}` : ''} scouts enabled`}</span>
+                        <span>{`${banner.scoutCount} scouts enabled`}</span>
                     </p>
                     <LemonProgress
                         percent={(100 * trial.used_microusd) / trial.allowance_microusd}
@@ -72,16 +94,14 @@ export function SelfDrivingTrialUsage(): JSX.Element | null {
                                     ? 'The trial report limit has been reached, including reports still in progress.'
                                     : 'The trial allowance is exhausted.'}
                             </span>{' '}
-                            <span>Work already underway can finish at no additional charge. {continuation}</span>
+                            <span>
+                                Work already underway can finish at no additional charge. {continuation.message}
+                            </span>
                         </p>
                     )}
                     {exhausted && trial.new_work_paused && (
                         <LemonButton className="self-start" type="primary" to={urls.organizationBilling()}>
-                            {trial.paid_continuation === 'increase_limit'
-                                ? 'Increase Self-driving limit'
-                                : trial.paid_continuation === 'add_payment_method'
-                                  ? 'Add payment method'
-                                  : 'Manage billing'}
+                            {continuation.action}
                         </LemonButton>
                     )}
                 </div>

@@ -90,8 +90,8 @@ def report_signals_rated_usage(organization_id: str, day: str) -> None:
     time_limit=90,
 )
 @skip_team_scope_audit
-def report_signals_trial_grant(grant_id: str) -> None:
-    report_trial_grant(UUID(grant_id))
+def report_signals_trial_grant(team_id: int, grant_id: str) -> None:
+    report_trial_grant(team_id, UUID(grant_id))
 
 
 @shared_task(
@@ -108,13 +108,13 @@ def enqueue_signals_rated_usage(day: str | None = None) -> None:
     end = datetime.combine(date.fromisoformat(day) + timedelta(days=1) if day else timezone.now().date(), time.min, UTC)
     if end > timezone.now():
         raise ValueError("Rated usage requires a closed UTC day")
-    for grant_id in (
+    for team_id, grant_id in (
         SignalTrialGrant.objects.unscoped()
         .filter(billing_reported_at__isnull=True, organization_id__in=Organization.objects.values("id"))
-        .values_list("id", flat=True)
+        .values_list("team_id", "id")
         .iterator(chunk_size=1000)
     ):
-        report_signals_trial_grant.delay(str(grant_id))
+        report_signals_trial_grant.delay(team_id, str(grant_id))
     # Replaying closed days repairs missed deliveries; Billing deduplicates each team/day.
     begin = end - timedelta(days=1 if day else 7)
     org_days = (

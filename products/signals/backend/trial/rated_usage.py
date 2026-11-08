@@ -31,8 +31,12 @@ def trial_pool_cents(grant: SignalTrialGrant) -> int:
     return (grant.allowance_microusd + 9_999) // 10_000
 
 
-def report_trial_grant(grant_id: UUID) -> None:
-    grant = SignalTrialGrant.objects.unscoped().filter(id=grant_id, billing_reported_at__isnull=True).first()
+def report_trial_grant(team_id: int, grant_id: UUID) -> None:
+    grant = (
+        SignalTrialGrant.objects.for_team(team_id, canonical=True)
+        .filter(id=grant_id, billing_reported_at__isnull=True)
+        .first()
+    )
     if grant is None:
         return
     organization = Organization.objects.filter(id=grant.organization_id).first()
@@ -44,9 +48,9 @@ def report_trial_grant(grant_id: UUID) -> None:
         cents=trial_pool_cents(grant),
         day=grant.claimed_at.astimezone(UTC).date().isoformat(),
     )
-    SignalTrialGrant.objects.unscoped().filter(id=grant_id, billing_reported_at__isnull=True).update(
-        billing_reported_at=timezone.now()
-    )
+    SignalTrialGrant.objects.for_team(team_id, canonical=True).filter(
+        id=grant_id, billing_reported_at__isnull=True
+    ).update(billing_reported_at=timezone.now())
 
 
 def _snapshot_funded_delivery(
@@ -59,7 +63,7 @@ def _snapshot_funded_delivery(
         # Child environments share a grant. Reserve its pool before creating their deliveries.
         grants = {
             grant.id: grant
-            for grant in SignalTrialGrant.objects.unscoped()
+            for grant in SignalTrialGrant.objects.for_team(team_id)
             .select_for_update()
             .filter(id__in=trial_spend)
             .order_by("id")
