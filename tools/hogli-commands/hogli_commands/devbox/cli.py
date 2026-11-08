@@ -215,9 +215,11 @@ def current_worktree_box() -> WorktreeBoxRecord | None:
     if root is None:
         return None
     boxes = load_worktree_boxes()
+    worktree_id = read_worktree_id(_admin_dir(root))
     record = boxes.get(str(root))
+    if record is not None and record.worktree_id is not None and record.worktree_id != worktree_id:
+        record = None
     if record is None:
-        worktree_id = read_worktree_id(_admin_dir(root))
         record = next((box for box in boxes.values() if worktree_id and box.worktree_id == worktree_id), None)
     return record if record is not None and record.provider == "coder" else None
 

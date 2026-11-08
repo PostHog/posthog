@@ -2266,6 +2266,17 @@ class TestResolveWorkspaceName:
                 None,
                 id="another-box-recreated-under-the-name",
             ),
+            pytest.param(
+                "wt",
+                None,
+                {
+                    "workspace": "devbox-test-user-feat",
+                    "workspace_id": "id-devbox-test-user-feat",
+                    "worktree_id": "id-of-a-worktree-moved-away",
+                },
+                "devbox-test-user",
+                id="new-checkout-at-a-moved-worktrees-path",
+            ),
         ],
     )
     def test_default_target_is_the_box_of_the_current_worktree(
