@@ -47,7 +47,7 @@ export interface CustomizedSidebarProps {
         resolve: (
             item: AnalyticsFragmentLinkApi | AnalyticsFragmentButtonApi
         ) => Omit<SidebarNavigationItem, 'value'> | null
-        lists: Record<AnalyticsListSourceApi, SidebarNavigationItem[]>
+        lists: Partial<Record<AnalyticsListSourceApi, SidebarNavigationItem[]>>
         metric: (item: AnalyticsFragmentMetricApi, value: string) => JSX.Element
     }
     customization: { url: string; event: string }
@@ -93,7 +93,7 @@ export function CustomizedSidebar(props: CustomizedSidebarProps): JSX.Element {
                     renderItem={(section, item, index) => {
                         const value = `${section.id}:${index}`
                         if (item.type === 'list') {
-                            return props.navigation.lists[item.source]
+                            return (props.navigation.lists[item.source] ?? [])
                                 .filter((row) => matches(row.label))
                                 .map(renderRow)
                         }

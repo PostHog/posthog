@@ -28,12 +28,20 @@ export interface TodayAnalyticsMetricValue {
     trendsFilter: TrendsFilter | null
 }
 
+function querySource(insight: InsightApi): { kind?: string; trendsFilter?: TrendsFilter } | undefined {
+    return (insight.query as { source?: { kind?: string; trendsFilter?: TrendsFilter } } | null)?.source
+}
+
+export function isTrendsInsight(insight: InsightApi): boolean {
+    return querySource(insight)?.kind === 'TrendsQuery'
+}
+
 /** The number a trends insight shows, as its Metric display sums it up. Null for any other insight, or before its first result. */
 export function metricFromInsight(insight: InsightApi): TodayAnalyticsMetricValue | null {
-    const source = (insight.query as { source?: { kind?: string; trendsFilter?: TrendsFilter } } | null)?.source
+    const source = querySource(insight)
     const results = Array.isArray(insight.result) ? (insight.result as TrendResult[]) : undefined
     const series = selectCurrentSeries(results)
-    if (source?.kind !== 'TrendsQuery' || !series || (series.count == null && series.aggregated_value == null)) {
+    if (!source || !isTrendsInsight(insight) || !series || (series.count == null && series.aggregated_value == null)) {
         return null
     }
     const trendsFilter = source.trendsFilter ?? null

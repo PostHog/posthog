@@ -10,7 +10,7 @@ import { InsightShortId } from '~/types'
 import type { AnalyticsFragmentMetricApi } from 'products/ui_customization/frontend/generated/api.schemas'
 import { SidebarMetric } from 'products/ui_customization/frontend/SidebarMetric'
 
-import { todayAnalyticsMetricLogic } from './todayAnalyticsMetricLogic'
+import { isTrendsInsight, todayAnalyticsMetricLogic } from './todayAnalyticsMetricLogic'
 
 interface TodayAnalyticsMetricProps {
     item: AnalyticsFragmentMetricApi
@@ -31,7 +31,17 @@ export function TodayAnalyticsMetric({ item, value, active }: TodayAnalyticsMetr
             active={active}
             to={urls.insightView(item.insight as InsightShortId)}
             dataAttr="analytics-sidebar-metric"
-            meta={loadFailed ? 'Couldn’t load' : insightLoading ? undefined : !insight ? 'Not found' : undefined}
+            meta={
+                loadFailed
+                    ? 'Couldn’t load'
+                    : insightLoading
+                      ? undefined
+                      : !insight
+                        ? 'Not found'
+                        : !isTrendsInsight(insight)
+                          ? 'Not a trends insight'
+                          : undefined
+            }
             metric={
                 metric
                     ? { ...metric, showChange: metric.trendsFilter?.metricShowChange ?? METRIC_SHOW_CHANGE_DEFAULT }

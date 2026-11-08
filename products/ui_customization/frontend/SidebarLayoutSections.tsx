@@ -1,5 +1,7 @@
 import { ReactNode } from 'react'
 
+import { cn } from '@posthog/quill'
+
 import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 
 import type { AnalyticsFragmentSectionApi } from './generated/api.schemas'
@@ -36,7 +38,7 @@ export function SidebarLayoutSections({
         <>
             {visibleSections.length === 0
                 ? empty
-                : visibleSections.map(({ section, rows }) =>
+                : visibleSections.map(({ section, rows }, index) =>
                       section.title ? (
                           <SidebarSection
                               key={section.id}
@@ -52,7 +54,10 @@ export function SidebarLayoutSections({
                               {rows}
                           </SidebarSection>
                       ) : (
-                          <div key={section.id} className="flex flex-col gap-px pb-2">
+                          <div
+                              key={section.id}
+                              className={cn('flex flex-col gap-px pb-2', index > 0 && 'border-t border-border pt-2')}
+                          >
                               {rows}
                           </div>
                       )
