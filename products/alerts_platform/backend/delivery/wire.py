@@ -80,5 +80,5 @@ def post_json(url: str, body: dict[str, Any], *, display_name: str, headers: dic
     if not 200 <= status < 300:
         refusal = f"The {display_name} destination refused the message with status {status}."
         if 400 <= status < 500 and status not in _RETRYABLE_CLIENT_ERRORS:
-            raise DestinationRefused(refusal, status=status)
+            raise DestinationRefused(refusal)
         raise DeliveryError(refusal)

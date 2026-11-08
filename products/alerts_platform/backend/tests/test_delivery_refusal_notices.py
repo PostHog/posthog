@@ -19,7 +19,7 @@ from products.alerts_platform.backend.tests.delivery_messages import alert_messa
 from products.notifications.backend.facade.testing import stored_notifications_for_team
 
 NOW = datetime(2026, 11, 8, 15, 0, tzinfo=UTC)
-REFUSAL = DestinationRefused("The webhook destination refused the message with status 400.", status=400)
+REFUSAL = DestinationRefused("The webhook destination refused the message with status 400.")
 
 
 class TestRefusalNotices(BaseTest):
@@ -46,7 +46,7 @@ class TestRefusalNotices(BaseTest):
                 legacy_configuration_id=self.legacy_alert_id,
             )
 
-    def _notify(self, creator: User | None, *, destination: str = "destination-1", now: datetime = NOW) -> None:
+    def _notify(self, creator: User | None, *, destination: str = "destination-1", now: datetime = NOW) -> list[UUID]:
         looked_up: list[UUID] = []
 
         def creator_of(*, team_id: int, alert_id: UUID) -> int | None:
@@ -56,15 +56,15 @@ class TestRefusalNotices(BaseTest):
         message = replace(alert_message(), configuration_id=str(self.configuration.id))
         with patch.dict(refusal_notices._creators, {SourceKind.LOGS: creator_of}):
             notify_refused(team_id=self.team.id, message=message, destination=destination, refusal=REFUSAL, now=now)
-        # The source finds its creator by the alert's public id, its own row's id.
-        assert looked_up == [self.legacy_alert_id]
+        return looked_up
 
     def _recipients(self) -> list[list[int]]:
         return [sorted(event.resolved_user_ids) for event in stored_notifications_for_team(self.team.id)]
 
     def test_the_creator_is_told_once_a_day_per_destination(self) -> None:
-        self._notify(self.user)
-        self._notify(self.user)
+        # The source finds its creator by the alert's public id, its own row's id.
+        assert self._notify(self.user) == [self.legacy_alert_id]
+        assert self._notify(self.user) == []
         self._notify(self.user, destination="destination-1-repointed")
         self._notify(self.user, now=NOW + timedelta(days=1))
 
@@ -90,3 +90,10 @@ class TestRefusalNotices(BaseTest):
 
         assert self._recipients() == [sorted([self.user.id, self.teammate.id])]
         self.email.assert_not_called()
+
+    def test_a_notice_that_fails_is_tried_again_on_the_next_refusal(self) -> None:
+        with patch.object(refusal_notices, "create_notification", side_effect=RuntimeError("notifications down")):
+            self._notify(self.user)
+        self._notify(self.user)
+
+        assert self._recipients() == [[self.user.id]]

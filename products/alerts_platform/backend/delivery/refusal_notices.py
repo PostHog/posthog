@@ -6,14 +6,15 @@ off, or the alert records no creator, the project's members get it instead. A so
 to find an alert's creator when Django starts, because the platform imports no source.
 
 One destination is noticed at most once per UTC day. Every check that fires sends again, and an
-insight alert sends on every check while it fires, so a notice per send would repeat all day.
+insight alert sends on every check while it fires, so a notice per send would repeat all day. A
+cache entry per day skips the repeats before any query runs, and the notification and email keys
+stop a duplicate when two sends race past it.
 """
 
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
-from uuid import UUID
 
-from django.core.exceptions import ImproperlyConfigured
+from django.core.cache import cache
 
 import structlog
 
@@ -36,6 +37,8 @@ from products.notifications.backend.facade.api import (
 
 EMAIL_TEMPLATE_NAME = "alert_destination_refused"
 MAX_TITLE_CHARS = 100
+# Longer than the day the key names, so the entry outlives every send that builds it.
+_SEEN_TTL_SECONDS = 2 * 24 * 60 * 60
 
 logger = structlog.get_logger(__name__)
 
@@ -60,10 +63,21 @@ def notify_refused(
     """Notices one refused send. `destination` names the destination and changes when it is repointed.
 
     A repointed destination is a new destination, so a URL fixed and broken again on the same day
-    is noticed again.
+    is noticed again. Never raises, because the send's own error is the one the caller reports.
     """
     day = (now or datetime.now(UTC)).date().isoformat()
     key = "alert-destination-refused:" + credential_digest(f"{team_id}|{message.configuration_id}|{destination}|{day}")
+    if not cache.add(key, True, timeout=_SEEN_TTL_SECONDS):
+        return
+    try:
+        _notify_everyone(team_id, message, key, refusal)
+    except Exception:
+        # Dropped so the next refused send tries again.
+        cache.delete(key)
+        logger.exception("alert_destination_refused_notice_failed", team_id=team_id, alert_id=message.configuration_id)
+
+
+def _notify_everyone(team_id: int, message: AlertMessage, key: str, refusal: DestinationRefused) -> None:
     title = clip_text(f"An alert destination refused a notification from {message.alert_name}", MAX_TITLE_CHARS)
     body = f"{refusal} Every notification sent there will fail until the destination is fixed."
     source_url = urlsplit(message.alert_url).path
@@ -88,7 +102,7 @@ def _reachable_creator(team_id: int, message: AlertMessage) -> User | None:
     )
     if configuration is None:
         return None
-    creator_id = lookup(team_id=team_id, alert_id=UUID(str(configuration.destination_alert_id)))
+    creator_id = lookup(team_id=team_id, alert_id=configuration.destination_alert_id)
     if creator_id is None:
         return None
     team = Team.objects.get(id=team_id)
@@ -117,19 +131,15 @@ def _notify(
 def _email(creator: User, key: str, message: AlertMessage, refusal: DestinationRefused) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
-    try:
-        email = EmailMessage(
-            campaign_key=key,
-            template_name=EMAIL_TEMPLATE_NAME,
-            subject=f"An alert destination refused a notification from {' '.join(message.alert_name.split())}",
-            template_context={
-                "alert_name": message.alert_name,
-                "alert_url": message.alert_url,
-                "refusal": str(refusal),
-            },
-        )
-    except ImproperlyConfigured:
-        logger.warning("alert_destination_refused_email_unavailable", alert_id=message.configuration_id)
-        return
+    email = EmailMessage(
+        campaign_key=key,
+        template_name=EMAIL_TEMPLATE_NAME,
+        subject=f"An alert destination refused a notification from {' '.join(message.alert_name.split())}",
+        template_context={
+            "alert_name": message.alert_name,
+            "alert_url": message.alert_url,
+            "refusal": str(refusal),
+        },
+    )
     email.add_user_recipient(creator)
     email.send()

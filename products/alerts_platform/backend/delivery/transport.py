@@ -45,10 +45,6 @@ class DestinationRefused(DestinationMisconfigured):
     Only a 4xx answer counts, and not 408 or 429, which a later attempt can get past.
     """
 
-    def __init__(self, message: str, *, status: int) -> None:
-        super().__init__(message)
-        self.status = status
-
 
 class DeliveryTransport(Protocol):
     provider: str

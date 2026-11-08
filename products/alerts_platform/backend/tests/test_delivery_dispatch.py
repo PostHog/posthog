@@ -341,14 +341,12 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert recorded.call_args.kwargs["error"] == logged
         assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == [outcome]
 
-    def test_a_refusal_keeps_its_own_error_when_the_notice_about_it_fails(self) -> None:
-        refusal = DestinationRefused("The webhook destination refused the message with status 400.", status=400)
+    def test_a_refusal_is_noticed_and_counted_as_the_destination_owners_fix(self) -> None:
+        refusal = DestinationRefused("The webhook destination refused the message with status 400.")
 
         with (
             patch("products.alerts_platform.backend.delivery.dispatch.record_delivery"),
-            patch(
-                "products.alerts_platform.backend.delivery.dispatch.notify_refused", side_effect=RuntimeError("down")
-            ) as notified,
+            patch("products.alerts_platform.backend.delivery.dispatch.notify_refused") as notified,
             recorded_metrics() as metrics,
         ):
             with pytest.raises(DestinationRefused):
