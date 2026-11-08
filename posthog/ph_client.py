@@ -45,9 +45,8 @@ def self_hosted_capture_reaches_posthog() -> bool:
 
 
 def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> BeforeSend | None:
-    # A self-hosted install sends its usage events to the PostHog US project by default.
-    # Its exceptions hold that install's own stack traces and data, and its integrations
-    # are configured by its operator, so they must not reach our error tracking or Signals.
+    # A self-hosted install captures to the PostHog US project by default. Its exceptions carry
+    # that install's own stack traces and data, so they must not reach our error tracking.
     hooks: list[BeforeSend] = []
     if private_scout_capture:
         hooks.append(filter_scout_experiment_capture)
