@@ -909,6 +909,12 @@ class InsightSerializer(InsightBasicSerializer):
     @transaction.atomic()
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
+        # The view loaded `instance` before this transaction started, and `save()` writes every
+        # field. Applied to that copy, a PATCH that sends only `name` would also write back the
+        # `description` (or any other field) it read, and undo a concurrent request that changed it.
+        # Lock the row and reload it, so this request changes only the fields it sent.
+        instance.refresh_from_db(from_queryset=Insight.objects_including_soft_deleted.select_for_update())
+
         dashboards_before_change: list[Union[str, dict]] = []
         try:
             # since it is possible to be restoring a soft deleted insight
