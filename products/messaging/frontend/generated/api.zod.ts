@@ -115,13 +115,13 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyCcTwoMax), zod.null()])
         .optional()
         .describe(
-            "Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send of a template, which refuses any address here."
+            'Addresses that get a visible copy of the email: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Only a send with `template_key` takes it.'
         ),
     bcc: zod
         .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyBccTwoMax), zod.null()])
         .optional()
         .describe(
-            "Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send of a template, which refuses any address here."
+            'Addresses that get a hidden copy of the email: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Only a send with `template_key` takes it.'
         ),
     attachments: zod
         .array(
@@ -152,7 +152,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingSendEmailCreateBodyAttachmentsMax)
         .nullish()
         .describe(
-            "Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send of a template, which refuses any file here."
+            'Files attached to the email: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Only a send with `template_key` takes it.'
         ),
     capture_engagement: zod
         .boolean()
