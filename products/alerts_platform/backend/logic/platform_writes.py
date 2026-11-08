@@ -500,7 +500,6 @@ def fill_missing_creators(
     `creators_of` maps the given source row ids to the id of the user who created each. A row with no
     creator, or one that is gone, is left out, and its copy stays without one.
     """
-    # Cross-team on purpose: a one-off sweep over every copy of the kind.
     copies = PlatformAlertConfiguration.objects.unscoped().filter(
         source_kind=source_kind.value, legacy_configuration_id__isnull=False, created_by__isnull=True
     )

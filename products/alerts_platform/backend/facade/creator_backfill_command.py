@@ -17,7 +17,6 @@ from products.alerts_platform.backend.facade.contracts import SourceKind
 
 class PlatformCreatorBackfillCommand(BaseCommand):
     source_kind: SourceKind
-    # A source alert model with a `created_by` foreign key.
     source_model: type[Model]
 
     def creators_of(self, ids: Collection[UUID]) -> Mapping[UUID, int]:
