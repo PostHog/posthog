@@ -8,8 +8,7 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
         recordingsAreHidden,
         hiddenRecordingsCount,
         activityFilterHidesRecordings,
-        activityFilterHiddenRecordingsCount,
-        hasMoreActivityFilterHiddenRecordings,
+        activityFilterHiddenRecordingsLabel,
         canClearFilters,
         showHiddenRecordings,
         showRecordingsHiddenByActivityFilter,
@@ -31,11 +30,7 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                                 data-attr="replay-empty-state-troubleshooting-show-activity-hidden-recordings"
                                 onClick={showRecordingsHiddenByActivityFilter}
                             >
-                                {activityFilterHiddenRecordingsCount > 0
-                                    ? `Show ${activityFilterHiddenRecordingsCount}${
-                                          hasMoreActivityFilterHiddenRecordings ? '+' : ''
-                                      } recordings hidden by the activity filter`
-                                    : 'Show recordings hidden by the activity filter'}
+                                {activityFilterHiddenRecordingsLabel}
                             </LemonButton>
                         </li>
                     )}

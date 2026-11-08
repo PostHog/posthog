@@ -103,11 +103,42 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
         renderTroubleshooting()
 
         const button = screen.getByTestId('replay-empty-state-troubleshooting-show-activity-hidden-recordings')
-        expect(button).toHaveTextContent(/^Show 14 recordings hidden by the activity filter$/)
+        expect(button).toHaveTextContent(/^Show 14 recordings shorter than 5 active seconds$/)
 
         fireEvent.click(button)
 
         expect(logic.values.filters.duration).toEqual([])
+    })
+
+    it('uses the singular for a single recording hidden by the activity filter', () => {
+        logic.actions.loadRecordingsHiddenByActivityFilterSuccess({ count: 1, hasMore: false })
+
+        renderTroubleshooting()
+
+        expect(
+            screen.getByTestId('replay-empty-state-troubleshooting-show-activity-hidden-recordings')
+        ).toHaveTextContent(/^Show 1 recording shorter than 5 active seconds$/)
+    })
+
+    it('marks the count as a floor when more recordings are hidden', () => {
+        logic.actions.loadRecordingsHiddenByActivityFilterSuccess({ count: 3, hasMore: true })
+
+        renderTroubleshooting()
+
+        expect(
+            screen.getByTestId('replay-empty-state-troubleshooting-show-activity-hidden-recordings')
+        ).toHaveTextContent(/^Show 3\+ recordings shorter than 5 active seconds$/)
+    })
+
+    it('does not offer the activity filter row once the default duration filter is gone', () => {
+        logic.actions.loadRecordingsHiddenByActivityFilterSuccess({ count: 14, hasMore: false })
+        logic.actions.setFilters({ duration: [] })
+
+        renderTroubleshooting()
+
+        expect(
+            screen.queryByTestId('replay-empty-state-troubleshooting-show-activity-hidden-recordings')
+        ).not.toBeInTheDocument()
     })
 
     it('does not offer the activity filter row when the probe found nothing hidden', () => {

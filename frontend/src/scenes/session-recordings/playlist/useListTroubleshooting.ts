@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { defaultRecordingDurationFilter, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export function useListTroubleshooting(): {
     heading: string
@@ -11,6 +11,7 @@ export function useListTroubleshooting(): {
     hiddenRecordingsCount: number
     activityFilterHidesRecordings: boolean
     activityFilterHiddenRecordingsCount: number
+    activityFilterHiddenRecordingsLabel: string
     hasMoreActivityFilterHiddenRecordings: boolean
     canClearFilters: boolean
     showHiddenRecordings: () => void
@@ -24,12 +25,22 @@ export function useListTroubleshooting(): {
         hiddenRecordingsCount,
         recordingsHiddenByActivityFilterCount,
         hasMoreRecordingsHiddenByActivityFilter,
+        activityFilterHidesRecordings,
         totalFiltersCount,
         isScopedByCaller,
     } = useValues(sessionRecordingsPlaylistLogic)
     const { setShowSettings, setFilters, resetFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     const hasFilters = totalFiltersCount > 0
+
+    // The filter is labelled by its threshold in the filter bar ("active seconds"), so the
+    // offer names that rather than an "activity filter" the viewer never sees. The button
+    // only renders when the count is above zero, so the label needs no empty case.
+    const activityFilterHiddenRecordingsLabel = `Show ${recordingsHiddenByActivityFilterCount}${
+        hasMoreRecordingsHiddenByActivityFilter ? '+' : ''
+    } recording${
+        recordingsHiddenByActivityFilterCount === 1 && !hasMoreRecordingsHiddenByActivityFilter ? '' : 's'
+    } shorter than ${defaultRecordingDurationFilter.value} active seconds`
 
     useEffect(() => {
         posthog.capture('recording list empty state shown', {
@@ -43,10 +54,9 @@ export function useListTroubleshooting(): {
         heading: hasFilters ? 'No recordings match your filters' : 'No recordings found',
         recordingsAreHidden: hideViewedRecordings !== false,
         hiddenRecordingsCount,
-        // Same gate as clearing filters: dropping the duration filter on a caller-scoped
-        // surface would widen the list beyond what the caller asked for.
-        activityFilterHidesRecordings: recordingsHiddenByActivityFilterCount > 0 && !isScopedByCaller,
+        activityFilterHidesRecordings,
         activityFilterHiddenRecordingsCount: recordingsHiddenByActivityFilterCount,
+        activityFilterHiddenRecordingsLabel,
         hasMoreActivityFilterHiddenRecordings: hasMoreRecordingsHiddenByActivityFilter,
         // Clearing would drop the caller's scoping, leaving a list that no longer matches the surface.
         canClearFilters: hasFilters && !isScopedByCaller,

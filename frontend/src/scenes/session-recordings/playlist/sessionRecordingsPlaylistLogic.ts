@@ -632,6 +632,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     hideViewedRecordings: HideViewedRecordingsOptions // playerSettingsLogic
     activeSessionRecording: SessionRecordingType | undefined
     activeSessionRecordingId: SessionRecordingId | undefined
+    activityFilterHidesRecordings: boolean
     addToCollectionSearch: string
     allowEventPropertyExpansion: boolean
     allowHogQLFilters: boolean
@@ -665,7 +666,10 @@ export interface sessionRecordingsPlaylistLogicValues {
     pinnedRecordingsLoading: boolean
     recordings: SessionRecordingType[]
     recordingsCount: number
-    recordingsHiddenByActivityFilter: { count: number; hasMore: boolean }
+    recordingsHiddenByActivityFilter: {
+        count: number
+        hasMore: boolean
+    }
     recordingsHiddenByActivityFilterCount: number
     recordingsHiddenByActivityFilterLoading: boolean
     selectMode: boolean
@@ -831,9 +835,7 @@ export interface sessionRecordingsPlaylistLogicActions {
     loadPrev: () => {
         value: true
     }
-    loadRecordingsHiddenByActivityFilter: () => {
-        value: true
-    }
+    loadRecordingsHiddenByActivityFilter: (_: any) => any
     loadRecordingsHiddenByActivityFilterFailure: (
         error: string,
         errorObject?: any
@@ -842,15 +844,17 @@ export interface sessionRecordingsPlaylistLogicActions {
         errorObject?: any
     }
     loadRecordingsHiddenByActivityFilterSuccess: (
-        recordingsHiddenByActivityFilter: { count: number; hasMore: boolean },
-        payload?: {
-            value: true
-        }
+        recordingsHiddenByActivityFilter: {
+            count: number
+            hasMore: boolean
+        },
+        payload?: any
     ) => {
-        recordingsHiddenByActivityFilter: { count: number; hasMore: boolean }
-        payload?: {
-            value: true
+        recordingsHiddenByActivityFilter: {
+            count: number
+            hasMore: boolean
         }
+        payload?: any
     }
     loadSessionRecordings: (
         direction?: 'newer' | 'older',
@@ -1051,6 +1055,19 @@ export interface sessionRecordingsPlaylistLogicMeta {
         ) => SessionRecordingType[]
         recordingsCount: (recordings: SessionRecordingType[]) => number
         hiddenRecordingsCount: (hiddenRecordings: SessionRecordingType[]) => number
+        recordingsHiddenByActivityFilterCount: (recordingsHiddenByActivityFilter: {
+            count: number
+            hasMore: boolean
+        }) => number
+        hasMoreRecordingsHiddenByActivityFilter: (recordingsHiddenByActivityFilter: {
+            count: number
+            hasMore: boolean
+        }) => boolean
+        activityFilterHidesRecordings: (
+            recordingsHiddenByActivityFilterCount: number,
+            filters: RecordingUniversalFilters,
+            isScopedByCaller: boolean
+        ) => boolean
         allowHogQLFilters: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
@@ -1394,14 +1411,26 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     // nothing else, so the probe counts exactly what they exclude.
                     const filters = getEffectiveRecordingFilters(values.filters, values.featureFlags)
                     const convertedQuery = convertUniversalFiltersToRecordingsQuery({ ...filters, duration: [] })
-                    const response = await api.recordings.list({
-                        ...convertedQuery,
-                        person_uuid: props.personUUID ?? convertedQuery.person_uuid ?? '',
-                        // Same KLUDGE as the list load: too many distinct_ids would not fit in the URL.
-                        distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
-                        limit: RECORDINGS_LIMIT,
-                        hide_viewed_recordings: values.hideViewedRecordings || undefined,
-                    })
+
+                    let response: RecordingsQueryResponse
+                    try {
+                        response = await api.recordings.list({
+                            ...convertedQuery,
+                            person_uuid: props.personUUID ?? convertedQuery.person_uuid ?? '',
+                            // Same KLUDGE as the list load: too many distinct_ids would not fit in the URL.
+                            distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
+                            limit: RECORDINGS_LIMIT,
+                            hide_viewed_recordings: values.hideViewedRecordings || undefined,
+                        })
+                    } catch (e) {
+                        // The probe runs on the viewer's behalf, not at their request, and its
+                        // action is not in ERROR_FILTER_ALLOW_LIST, so a failure would surface
+                        // as a global error toast for a request they never made. Answer
+                        // "nothing hidden" instead. breakpoint() first, so a probe a newer
+                        // load superseded still cancels instead of answering.
+                        breakpoint()
+                        return { count: 0, hasMore: false }
+                    }
 
                     breakpoint()
 
@@ -1937,6 +1966,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings(direction)
             },
 
+            loadSessionRecordings: ({ payload }) => {
+                // A load without a direction replaces the list, so a hidden count an earlier
+                // load produced describes a list that is about to be replaced: reset it as
+                // the new load starts, and let the probe re-run only if the new load itself
+                // qualifies. Without this the count outlives the filters that produced it,
+                // and the empty state keeps offering to undo them.
+                if (!payload?.direction) {
+                    actions.loadRecordingsHiddenByActivityFilterSuccess({ count: 0, hasMore: false })
+                }
+            },
+
             loadSessionRecordingsSuccess: ({ sessionRecordingsResponse, payload }) => {
                 selectWatchNext()
                 actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
@@ -1949,13 +1989,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 // A first-page load the default duration filter emptied may be hiding recordings
                 // rather than proving none exist, so probe for what it excluded: the empty state
                 // offers to show them. Clearing the duration filters removes the default, so the
-                // click that reveals them does not fire the probe again.
+                // click that reveals them does not fire the probe again. Caller-scoped playlists
+                // and embeds never render that offer, and a selected recording takes the place
+                // of the empty state, so neither spends the extra query.
                 if (
                     !payload?.direction &&
                     sessionRecordingsResponse.results.length === 0 &&
+                    !values.isScopedByCaller &&
+                    !values.selectedRecordingId &&
                     hasDefaultRecordingDurationFilter(values.filters)
                 ) {
-                    actions.loadRecordingsHiddenByActivityFilter()
+                    actions.loadRecordingsHiddenByActivityFilter(null)
                 }
             },
 
@@ -2565,6 +2609,24 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.recordingsHiddenByActivityFilter],
             (recordingsHiddenByActivityFilter: { count: number; hasMore: boolean }): boolean => {
                 return recordingsHiddenByActivityFilter.hasMore
+            },
+        ],
+
+        // The empty state's offer to reveal what the default duration filter hid. The count
+        // alone is not enough: it only means something while the default filter is still the
+        // one applied, and a caller-scoped surface must never offer to drop its scoping.
+        activityFilterHidesRecordings: [
+            (s) => [s.recordingsHiddenByActivityFilterCount, s.filters, s.isScopedByCaller],
+            (
+                recordingsHiddenByActivityFilterCount: number,
+                filters: RecordingUniversalFilters,
+                isScopedByCaller: boolean
+            ): boolean => {
+                return (
+                    recordingsHiddenByActivityFilterCount > 0 &&
+                    !isScopedByCaller &&
+                    hasDefaultRecordingDurationFilter(filters)
+                )
             },
         ],
 
