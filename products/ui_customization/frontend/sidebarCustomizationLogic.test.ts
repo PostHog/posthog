@@ -393,6 +393,37 @@ describe('sidebarCustomizationLogic', () => {
         expect(logic.values.sidebarLoading).toBe(false)
     })
 
+    it.each(['load', 'reset'] as const)('gives up on a stalled %s when its request times out', async (operation) => {
+        const props = configuration()
+        const logic = await mounted(props)
+        const timeout = new AbortController()
+        jest.spyOn(AbortSignal, 'timeout').mockReturnValue(timeout.signal)
+        const method = operation === 'load' ? 'retrieve' : 'reset'
+        jest.spyOn(props.configuration, method).mockImplementationOnce(
+            (_projectId: string, signal: AbortSignal) =>
+                new Promise<CustomizationApi>((_, reject) => {
+                    // Like fetch, an already-aborted signal rejects at once.
+                    if (signal.aborted) {
+                        reject(signal.reason)
+                    }
+                    signal.addEventListener('abort', () => reject(signal.reason))
+                })
+        )
+        const read = jest.spyOn(props.configuration, 'retrieve')
+        read.mockClear()
+        const request =
+            operation === 'load' ? logic.asyncActions.loadSidebar() : logic.asyncActions.resetSidebar(custom.layout)
+        expect(logic.values.sidebarLoading).toBe(true)
+
+        timeout.abort(new DOMException('The request timed out.', 'TimeoutError'))
+        await request
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.sidebarLoading).toBe(false)
+        expect(logic.values.sidebarFailed).toBe(operation === 'load')
+        expect(read).toHaveBeenCalledTimes(1)
+    })
+
     it.each([false, true])('restores the saved layout through Undo, left pane=%s', async (leftPane) => {
         const props = configuration()
         const successToast = jest.spyOn(toast, 'success')
@@ -408,7 +439,11 @@ describe('sidebarCustomizationLogic', () => {
             logic.unmount()
         }
         await undo?.onClick()
-        expect(props.configuration.restore).toHaveBeenCalledWith(props.projectId, custom.layout)
+        expect(props.configuration.restore).toHaveBeenCalledWith(
+            props.projectId,
+            custom.layout,
+            expect.any(AbortSignal)
+        )
         expect(logic.isMounted()).toBe(!leftPane)
         if (leftPane) {
             logic = await mounted(props)

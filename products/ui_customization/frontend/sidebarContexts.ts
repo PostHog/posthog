@@ -16,8 +16,8 @@ export function sidebarConfiguration(configuration: SidebarContextConfiguration)
         // Context is part of the persistence prefix, alongside the user and project.
         storageKey: 'uiCustomization.savedSidebar',
         ...contextDefinitions[context],
-        retrieve: (projectId) => uiCustomizationRetrieve(projectId, context),
-        reset: (projectId) => uiCustomizationDestroy(projectId, context),
-        restore: (projectId, layout) => uiCustomizationUpdate(projectId, context, { layout }),
+        retrieve: (projectId, signal) => uiCustomizationRetrieve(projectId, context, { signal }),
+        reset: (projectId, signal) => uiCustomizationDestroy(projectId, context, { signal }),
+        restore: (projectId, layout, signal) => uiCustomizationUpdate(projectId, context, { layout }, { signal }),
     }
 }

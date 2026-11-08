@@ -33,9 +33,9 @@ export interface SidebarConfiguration {
     defaults: CustomizationApi
     storageKey: string
     resetEvent: string
-    retrieve: (projectId: string) => Promise<CustomizationApi>
-    reset: (projectId: string) => Promise<CustomizationApi>
-    restore: (projectId: string, layout: CustomizationApi['layout']) => Promise<CustomizationApi>
+    retrieve: (projectId: string, signal: AbortSignal) => Promise<CustomizationApi>
+    reset: (projectId: string, signal: AbortSignal) => Promise<CustomizationApi>
+    restore: (projectId: string, layout: CustomizationApi['layout'], signal: AbortSignal) => Promise<CustomizationApi>
 }
 
 export interface SidebarCustomizationProps {
@@ -45,6 +45,8 @@ export interface SidebarCustomizationProps {
 }
 
 const SIDEBAR_REFRESH_INTERVAL_MS = 30_000
+// A request holds a mount and blocks later writes until it settles, so a stalled one must end.
+const SIDEBAR_REQUEST_TIMEOUT_MS = 30_000
 
 const WRITE_FAILURE_TITLES: Record<'reset' | 'restore', string> = {
     reset: 'Couldn’t reset the sidebar. Try again.',
@@ -345,13 +347,14 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
 
 function sendSidebarRequest(props: SidebarCustomizationProps, request: SidebarRequest): Promise<CustomizationApi> {
     const { configuration, projectId } = props
+    const signal = AbortSignal.timeout(SIDEBAR_REQUEST_TIMEOUT_MS)
     switch (request.operation) {
         case 'reset':
-            return configuration.reset(projectId)
+            return configuration.reset(projectId, signal)
         case 'restore':
-            return configuration.restore(projectId, request.layout)
+            return configuration.restore(projectId, request.layout, signal)
         default:
-            return configuration.retrieve(projectId)
+            return configuration.retrieve(projectId, signal)
     }
 }
 
