@@ -138,7 +138,9 @@ def _mutagen_env() -> dict[str, str]:
     return {**os.environ, "MUTAGEN_SSH_PATH": str(_SSH_SHIM_DIR)}
 
 
-def _run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+def _run(
+    args: list[str], *, capture_output: bool = False, timeout: float | None = None
+) -> subprocess.CompletedProcess[str]:
     """Run a mutagen subprocess with consistent text handling.
 
     A leading ``"mutagen"`` arg is rewritten to the managed binary path so
@@ -147,7 +149,7 @@ def _run(args: list[str], *, capture_output: bool = False) -> subprocess.Complet
     resolved = args
     if args and args[0] == "mutagen":
         resolved = [_mutagen_bin(), *args[1:]]
-    return subprocess.run(resolved, capture_output=capture_output, text=True, env=_mutagen_env())
+    return subprocess.run(resolved, capture_output=capture_output, text=True, env=_mutagen_env(), timeout=timeout)
 
 
 def mutagen_installed() -> bool:
@@ -551,7 +553,7 @@ def sync_list(*, label_selector: str | None = None) -> list[dict[str, Any]]:
     return [s for s in parsed if isinstance(s, dict)]
 
 
-def _label_op(verb: str, label_selector: str) -> None:
+def _label_op(verb: str, label_selector: str, timeout: float | None = None) -> None:
     """Run a label-scoped sync lifecycle command (terminate/pause/resume/flush).
 
     No-ops when nothing matches the selector. ``sync_list`` is resilient to a
@@ -564,7 +566,7 @@ def _label_op(verb: str, label_selector: str) -> None:
     if not sync_list(label_selector=label_selector):
         return
     args = ["mutagen", "sync", verb, "--label-selector", label_selector]
-    result = _run(args, capture_output=True)
+    result = _run(args, capture_output=True, timeout=timeout)
     if result.returncode != 0:
         combined = (result.stdout or "") + (result.stderr or "")
         # The session may have vanished between the list and the op (a race).
@@ -589,6 +591,6 @@ def sync_resume(label_selector: str) -> None:
     _label_op("resume", label_selector)
 
 
-def sync_flush(label_selector: str) -> None:
+def sync_flush(label_selector: str, timeout: float | None = None) -> None:
     """Flush sync sessions matching the label selector. No-op if none exist."""
-    _label_op("flush", label_selector)
+    _label_op("flush", label_selector, timeout)

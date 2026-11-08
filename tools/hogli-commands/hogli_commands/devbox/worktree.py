@@ -91,6 +91,7 @@ env -u SSH_AUTH_SOCK HOGLI_TEST_DB_PREWARM=1 setsid -f timeout 1h bash -lc \\
     >> {_TEST_DB_LOG} 2>&1 < /dev/null
 """
 _TEST_DB_PREWARM_START_TIMEOUT_SECONDS = 60
+_TEST_DB_FIRST_SYNC_TIMEOUT_SECONDS = 600
 
 
 def label_budget(username: str, region: str) -> int:
@@ -545,7 +546,9 @@ def _prewarm_test_db(root: Path, workspace_name: str) -> None:
         return
     click.echo("Waiting for the first sync before the test database build...")
     try:
-        mutagen.sync_flush(mutagen.workspace_label_selector(workspace_name))
+        mutagen.sync_flush(
+            mutagen.workspace_label_selector(workspace_name), timeout=_TEST_DB_FIRST_SYNC_TIMEOUT_SECONDS
+        )
         result = run_in_workspace(
             workspace_name, ["bash", "-c", _TEST_DB_PREWARM_SCRIPT], timeout=_TEST_DB_PREWARM_START_TIMEOUT_SECONDS
         )

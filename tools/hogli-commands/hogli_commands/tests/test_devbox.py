@@ -1281,6 +1281,7 @@ class TestDevboxWorktreeCommand:
             pytest.param("unmerged-commit", False, id="unmerged-branch-code-does-not-run"),
             pytest.param("no-origin", False, id="no-origin-master-does-not-run"),
             pytest.param("branch-named-origin-master", False, id="a-local-origin-master-branch-is-not-master"),
+            pytest.param("stuck-mirror", False, id="a-mirror-that-never-flushes-skips-the-build"),
         ],
     )
     def test_builds_the_test_database_only_for_code_on_origin_master(
@@ -1295,7 +1296,12 @@ class TestDevboxWorktreeCommand:
         if head == "branch-named-origin-master":
             _git(tmp_path, "branch", "origin/master")
         ran: list[str] = []
-        monkeypatch.setattr(devbox_worktree.mutagen, "sync_flush", lambda selector: None)
+
+        def flush(selector: str, timeout: float) -> None:
+            if head == "stuck-mirror":
+                raise subprocess.TimeoutExpired(["mutagen", "sync", "flush"], timeout)
+
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_flush", flush)
         monkeypatch.setattr(
             devbox_worktree,
             "run_in_workspace",
