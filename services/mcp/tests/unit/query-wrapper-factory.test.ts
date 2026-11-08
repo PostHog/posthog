@@ -396,9 +396,8 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
     it.each(['false', 'true'])('rejects the string %j rather than coercing it to a boolean', (stringValue) => {
         const tool = createQueryWrapper({ name: 'test', schema: makeSchema(false), kind: 'TrendsQuery' })()
 
-        // The generated schemas use z.coerce.boolean(), which would turn "false"
-        // into true; the stripped replacement must be a strict boolean so a
-        // malformed value is rejected instead of silently flipping filtering.
+        // The fixture field is z.coerce.boolean(), which turns "false" into true,
+        // so a pass proves the factory swaps in a strict boolean of its own.
         expect(tool.schema.safeParse({ series, filterTestAccounts: stringValue }).success).toBe(false)
     })
 
