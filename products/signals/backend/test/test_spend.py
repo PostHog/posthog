@@ -48,7 +48,6 @@ from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.runner import _self_heal_stale_runs
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.spend import (
-    SignalSpendSummary,
     SignalSpendUpdate,
     begin_report_spend,
     complete_signal_pipeline,
@@ -926,9 +925,10 @@ class TestSignalSpend(BaseTest):
                     "kind", "spend", "finalized_at"
                 )
             ) == [(None, Decimal(0), None), (None, Decimal(0), None)]
-            assert signal_spend_summaries(team_id=self.team.id, signal_ids=[str(row.signal_id)]) == {
-                str(row.signal_id): SignalSpendSummary(total_spend=4.0123, failed_stages=[])
-            }
+            # Current billing queries require columns added after this historical schema.
+            assert list(spend.objects.filter(finalized_at__isnull=False).values_list("spend", flat=True)) == [
+                Decimal("4.0123")
+            ]
             with self.assertRaises(IntegrityError), transaction.atomic():
                 spend.objects.filter(id=legacy_signal.id).update(finalized_at=timezone.now())
             with connection.cursor() as cursor:
