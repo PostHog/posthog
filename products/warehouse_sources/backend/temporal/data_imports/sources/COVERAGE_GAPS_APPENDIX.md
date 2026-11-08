@@ -11516,10 +11516,10 @@ Today (3): `organizations`, `repositories`, `users`
 
 Diffed against: <https://sourcegraph.com/.api/graphql>
 
-- [ ] `Repository.defaultBranch.target.commit.ancestors (commit history)` — commit-level history per repo - the foundational fact table for any code-activity analysis; nothing commit-shaped is synced today (high)
-- [ ] `Repository.contributors` — per-repo contributor counts and last-commit dates; joins users to repositories we already sync (high)
-- [ ] `telemetry.exportedEvents` — Sourcegraph's own usage event stream (Event Logging v2) - the headline adoption/usage metric (high)
-- [ ] `codeHosts (and externalServices)` — lookup resolving which code host connection each synced repository came from (high)
+- [x] `Repository.defaultBranch.target.commit.ancestors (commit history)` — commit-level history per repo - the foundational fact table for any code-activity analysis; nothing commit-shaped is synced today (high)
+- [x] `Repository.contributors` — per-repo contributor counts and last-commit dates; joins users to repositories we already sync (high)
+- [x] `telemetry.exportedEvents` — Sourcegraph's own usage event stream (Event Logging v2) - the headline adoption/usage metric (high)
+- [x] `codeHosts (and externalServices)` — lookup resolving which code host connection each synced repository came from (high)
 - [ ] `Repository.gitRefs / branches / tags` — branch and tag inventory per repo; needed for release and branch-age reporting (medium)
 - [ ] `preciseIndexes` — precise code-intel index records with state and failure reasons; measures code-intel coverage across repos (medium)
 - [ ] `insightViews (and insightsDashboards)` — Code Insights definitions and their time series - the product's analytical output (medium)
