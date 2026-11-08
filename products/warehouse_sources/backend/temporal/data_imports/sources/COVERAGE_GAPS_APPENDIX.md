@@ -11575,13 +11575,13 @@ Note: The whole Metrics API (roughly 30 GET resources: deliverability with a doz
 
 ## SpeedCurve — gaps
 
-Today (6): `budgets`, `deploys`, `notes`, `sites`, `tests`, `urls`
+Today (7): `budgets`, `deploys`, `notes`, `rum_export`, `sites`, `tests`, `urls`
 
 Diffed against: <https://support.speedcurve.com/llms.txt>
 
-- [ ] `Export RUM Data (GET /v1/lux/export)` — analyze actual visitor performance, Core Web Vitals, devices, and interactions beyond synthetic test results (high)
-- [ ] `Get query status and result (GET /v2/accounts/{account_id}/queries/{query_id}/)` — import aggregated RUM metrics for dashboard comparisons and performance trends (medium)
-- [ ] `Get all snapshots (GET /v2/accounts/{account_id}/snapshots)` — compare groups of tests from deployments and manual runs (medium)
+- [x] `Export RUM Data (GET /v1/lux/export)` — analyze actual visitor performance, Core Web Vitals, devices, and interactions beyond synthetic test results (high). Added as `rum_export` (one row per beacon from the daily caret-delimited files, incremental on `epoch`).
+- [ ] `Get query status and result (GET /v2/accounts/{account_id}/queries/{query_id}/)` — import aggregated RUM metrics for dashboard comparisons and performance trends (medium); skipped: API v2 is still beta and this source pins v1, and a result exists only for a query the caller first submits with `POST` for one chart
+- [ ] `Get all snapshots (GET /v2/accounts/{account_id}/snapshots)` — compare groups of tests from deployments and manual runs (medium); skipped: API v2 is still beta and this source pins v1, and the documented example response has the shape of the deployments list, so the snapshot row shape is not known
 
 Note: Used the official index and parsed OpenAPI blocks on its linked V1 and V2 reference pages. Existing test lists already include detailed synthetic metrics, so the single-test endpoint adds no distinct table. RUM exports need explicit enablement, signed download retrieval, and parsing of files separated by caret characters. Aggregate RUM queries require a prior query submission and chart identifier; snapshots require V2 support, currently absent from the source.
 
