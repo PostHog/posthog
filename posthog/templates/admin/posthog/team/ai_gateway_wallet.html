@@ -7,7 +7,7 @@
         {% else %}
             <p style="margin: 0 0 8px;"><em>No gateway account yet — balance is $0.00 until the first credit or spend.</em></p>
         {% endif %}
-        <a class="button" href="{{ add_credit_url }}">Add credit</a>
+        {{ add_credit_moved }}
         {% if wallet.recent %}
             <table style="margin-top: 12px; border-collapse: collapse;">
                 <thead>

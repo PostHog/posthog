@@ -22,11 +22,12 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.constants import EventDefinitionType
-from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
+from posthog.models import ActivityLog, Organization, Tag, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.taxonomy import definition_search
 
 from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import EventDefinition
 
 
 @time_machine.travel("2020-01-02", tick=False)

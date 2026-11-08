@@ -8,6 +8,7 @@ from uuid import UUID
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models.query import QuerySet
 
+import structlog
 from opentelemetry import trace
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -31,6 +32,7 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.dataclasses import frozen
+from posthog.ip_restrictions import IPRestrictionsPermission
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
@@ -366,6 +368,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             request_span = trace.get_current_span()
             if request_span.is_recording():
                 request_span.set_attribute("team_id", team_id)
+            # Bind the same team to the log context. `user_logging_context_middleware` binds a
+            # team from `request.user`, but DRF authenticates inside the view, so `request.user`
+            # is anonymous while that middleware runs and every API-key request logs with no team
+            # at all. This is also the team being acted on, which the user's current team is not.
+            structlog.contextvars.bind_contextvars(team_id=team_id)
             # Compute canonical team_id. self.team is a @cached_property
             # (line ~297) usually loaded by the permission checks above, so
             # this is free. Reading via __dict__ rather than attribute access
@@ -375,9 +382,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             # being a @cached_property this still degrades safely.
             if "team" in self.__dict__:
                 canonical_team_id = self.team.parent_team_id or team_id
+                resolved_from_team_id: int | None = team_id
             else:
                 canonical_team_id = team_id
-            self._team_scope_token = set_current_team_id(canonical_team_id)
+                resolved_from_team_id = None
+            self._team_scope_token = set_current_team_id(canonical_team_id, resolved_from_team_id=resolved_from_team_id)
 
     def dangerously_get_permissions(self):
         """
@@ -410,6 +419,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 VerifiedDomainEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
+                IPRestrictionsPermission(),
             ]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
@@ -440,6 +450,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         permission_classes.append(VerifiedDomainEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
         permission_classes.append(ActiveOrganizationPermission)
+        permission_classes.append(IPRestrictionsPermission)
 
         permission_classes.extend(self.permission_classes)
         return [permission() for permission in permission_classes]
@@ -616,8 +627,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         return self.param_derived_from_user_current_team == "team_id" or "team_id" in self.parent_query_kwargs
 
     @property
+    def _is_nested_project_view(self) -> bool:
+        return "project_id" in self.parent_query_kwargs
+
+    @property
     def _is_project_view(self):
-        return self.param_derived_from_user_current_team == "project_id" or "project_id" in self.parent_query_kwargs
+        return self.param_derived_from_user_current_team == "project_id" or self._is_nested_project_view
 
     @cached_property
     def team_id(self) -> int:
@@ -704,6 +719,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")
 
+    def _get_project_team_or_404(self) -> Team:
+        try:
+            team = self.team
+        except Team.DoesNotExist:
+            raise NotFound(detail="Project not found.")
+        if team.project_id != self.project_id:
+            raise NotFound(detail="Project not found.")
+        return team
+
     @cached_property
     def organization_id(self) -> str:
         try:
@@ -714,6 +738,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             if self._is_team_view:
                 # TODO: self.team.project.organization_id when project environments are rolled out
                 current_organization_id = self.team.organization_id
+            elif self._is_nested_project_view:
+                current_organization_id = self._get_project_team_or_404().organization_id
             elif self._is_project_view:
                 current_organization_id = self.project.organization_id
             elif user:
@@ -727,6 +753,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def organization(self) -> Organization:
         if self._is_team_view:
             return self.team.organization
+        if self._is_nested_project_view:
+            return self._get_project_team_or_404().organization
         try:
             return Organization.objects.get(
                 id=self.project.organization_id if self._is_project_view else self.organization_id
@@ -863,7 +891,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
-        return UserPermissions(user=cast(User, self.request.user), team=self.team)
+        return UserPermissions(
+            user=cast(User, self.request.user),
+            team=self.team,
+            organization_membership=self.user_access_control.organization_membership,
+        )
 
     @cached_property
     def user_access_control(self) -> "UserAccessControl":

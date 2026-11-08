@@ -109,6 +109,8 @@ Like ERROR_FILTER_ALLOW_LIST, but for an action name that other logics also use.
 whose path is given here handles its own failures, so the same action elsewhere still toasts.
 */
 const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
+    loadRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
+    extendRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
     loadTopReports: 'scenes.project-homepage.today.todayLogic',
     loadHighlights: 'scenes.project-homepage.today.todayHighlightsLogic',
@@ -147,6 +149,18 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
+    // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
+    loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
+    loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
+    // Each MCP analytics dashboard card shows its own error with a retry. The model and protocol
+    // version cards hide when they have no rows, so their loaders keep the toast.
+    loadKPIs: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
+    loadUsers: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
+    loadToolRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
+    loadSessionRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
+    loadHarnessRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
+    loadActivityRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
+    loadToolDailyRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
