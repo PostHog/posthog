@@ -11189,7 +11189,7 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--harness-logo-in-results--dark:
         hash: v1.k794b7964.f925fa9b1ee9b88bb2867cad7844db5d79b05883ac592d5b3c7c4781861e6bc1.6EezFaCVaI8MMgxEmjKSm2bYptkPL2_Va7bln2H8oBY
     scenes-app-data-warehouse-sql-editor--harness-logo-in-results--light:
-        hash: v1.k794b7964.c172b386d0f1185b8fc80dee491199ecb8a97947493aa0f5ad9baa0b4e25e382.nODk2wrlKLhsjdhSdxQGqLdjZzCIA-6egORi4hU82m4
+        hash: v1.k794b7964.e749242b56a33d0cd9e2a2f3ef5f395d672af75c5d9850dd27143fb100140d12.cJ5ZEdlVezM1h8KeoqXg-XHjO1f28vMbyGkZur_SdTg
     scenes-app-data-warehouse-sql-editor--hosted-trino--dark:
         hash: v1.k794b7964.ed1e698c1e589fef66b1788f5ce8144a60e3dd45d2f4f75b5ba4035379eb90ed.CQYsVP8IhyvD6ayH0_G6E-lbEDtJL15sNlk9tr3X94Q
     scenes-app-data-warehouse-sql-editor--hosted-trino--light:
@@ -12258,6 +12258,14 @@ snapshots:
         hash: v1.k794b7964.0869413b6549ec880738d2b1027557ca43261ba77494056570db3d287894d474.24khdTzcgNLys1nXkfTUjYMnqSPQrgjoAH5KEojzbcc
     scenes-app-inbox-cards--report-card-claims--light:
         hash: v1.k794b7964.a0c5c50d464e77c37eebc6d632f941a14a1781a4a56887cba8c67bdc0a146339.s_GdO_rSCXgztc4ixwKZxZgq1gxJC77MemS6JtNMGOg
+    scenes-app-inbox-cards--report-card-personalized--dark:
+        hash: v1.k794b7964.9c38cf9a04f8412c4a3ecce23c96e0f57c4f9e3fb992db654cfd58cd76331a07.R5JWHTEOeW45tSFLPVbLC9L8ibUqUgpk_P9pE0X36-0
+    scenes-app-inbox-cards--report-card-personalized--light:
+        hash: v1.k794b7964.ed52928a3e76ba2140dcb4dfde82ddf9e13a2f17bac5cf4007b04b9c386adcaa.Qg4i71wRvHICzj7Ul6hlOXt5EljuQoLxG0fuazT4gD8
+    scenes-app-inbox-cards--report-card-personalized-narrow--dark:
+        hash: v1.k794b7964.8ae5d892f49e1b7ffcc79e0a609798f09f1b55de090688091643ac5827118081.UzcikGtbfQ9aWVRA4zeshF9qgf1wCO1s6y1AFYaA_gk
+    scenes-app-inbox-cards--report-card-personalized-narrow--light:
+        hash: v1.k794b7964.5e7b9fee1ae1a5843d233c2a08f0234e43f839c1fee6f2470d9da33b83b025c5.AAlZgnuYXXGIhABj4_WiWVMX5mnokMS_UHZF79JDWOU
     scenes-app-inbox-cards--report-card-ranking-pills--dark:
         hash: v1.k794b7964.f931be0d5b85344d300c7ea52aef60e1fd10df1b4c100a85aec43dfb048e56a7.YM71Eh4FFl51y2X4hsSeFUOZb25LXOltdV4pCiXb2KI
     scenes-app-inbox-cards--report-card-ranking-pills--light:
@@ -12718,6 +12726,10 @@ snapshots:
         hash: v1.k794b7964.20a12c4fb2c623d2f393d883f0a6f2313fe02e628dacae11f07d8bf261d485d7.2_h_OhXXlUh-PRzAfR73B2CC9-lWJEvC8CazFui-OUE
     scenes-app-inbox-scene--inbox--light:
         hash: v1.k794b7964.ac90d148508d247d2ae17c5487ff013c4e40b00eab688237641402bbb4b1f7b6.x4pedqoEQOX7MVMR9n3LRXRXqJFCQXTOjVVhH3d0CYk
+    scenes-app-inbox-scene--personalized-sort-fallback--dark:
+        hash: v1.k794b7964.6fd80ff282bc48f54e177037f373c4bdcacbb3f5599df2b532654a0aac76d1a4.tzuop2sx76R8w2xUSCBfu8LjbTUPusE6KiLGmo3BwoM
+    scenes-app-inbox-scene--personalized-sort-fallback--light:
+        hash: v1.k794b7964.294c78f13f9607e81fb9aeb15f1fef6b9cc16610f01a8f04fa6c223cae7e9a73.jUr5o8_17_asuCD8a3aiu8tu9Jaikyg0M9wfUK7omiA
     scenes-app-inbox-scene--report-with-many-evidence-items--dark:
         hash: v1.k794b7964.87b4023d1181af0c9f5d86706035c57b717b85fe9cefaa264eccbc7d63937c2a.Fc7NrUn6tbhkkGPOhgnqH55HuLQgVJfyEQjfMR_hWSk
     scenes-app-inbox-scene--report-with-many-evidence-items--light:

@@ -34,6 +34,7 @@ import {
 import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardPersonalTier } from './ReportCardPersonalTier'
 import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
 import { useReportCardSelection } from './useReportCardSelection'
@@ -117,6 +118,7 @@ function ReportCardRaw({
     selectable = false,
     rankingSortField = null,
     rankingPill = false,
+    personalSort = false,
     timestampField = 'updated_at',
     hideOwnClaim = false,
 }: {
@@ -136,6 +138,8 @@ function ReportCardRaw({
     rankingSortField?: InboxRankingSortField | null
     /** The Recommended list asked for score pills. The meta row then shows all three scores. A model sort shows its own tag instead. */
     rankingPill?: boolean
+    /** The list is in the user's personal order. The card then shows the report's tier and the reason for its place. */
+    personalSort?: boolean
     /** The time the card shows. Match it to the active time sort, so the list reads in order. */
     timestampField?: 'created_at' | 'updated_at'
     /** Hide the user's own claim marker, for views where every card is theirs. */
@@ -160,6 +164,8 @@ function ReportCardRaw({
     // per team as the metric quality is verified.
     const showImpactColumn = useFeatureFlag('SIGNALS_REPORT_METRICS')
     const detailUrl = inboxReportDetailUrl(report.id, backUrl)
+    const personalTier = personalSort ? report.personal_tier : null
+    const personalReason = personalSort ? report.personal_reason : null
 
     const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
         report.id,
@@ -293,10 +299,11 @@ function ReportCardRaw({
                         </Tooltip>
                     )}
                     <SignalReportBillingBadge report={report} />
+                    {personalTier && <ReportCardPersonalTier tier={personalTier} />}
                     {rankingSortField ? (
                         <ReportCardRankingTag report={report} sortField={rankingSortField} />
                     ) : rankingPill ? (
-                        <ReportCardRankingPill report={report} />
+                        <ReportCardRankingPill report={report} personalSort={personalSort} />
                     ) : null}
                     {!showImpactColumn && (
                         <span className="ml-auto flex shrink-0 items-center gap-2">
@@ -309,6 +316,14 @@ function ReportCardRaw({
                         </span>
                     )}
                 </div>
+                {personalReason && (
+                    <p
+                        className="m-0 min-w-0 line-clamp-2 break-words text-xs leading-snug text-tertiary"
+                        data-attr="inbox-personal-reason"
+                    >
+                        {personalReason}
+                    </p>
+                )}
             </div>
 
             {/* Reserved even with no figure to show: the fixed width keeps every row's figure and
