@@ -19,8 +19,7 @@ const normalizeIdentifier = (email: string): string => email.trim().toLowerCase(
 
 const toKey = (teamId: number, identifier: string): string => `${teamId}:${identifier}`
 
-// Postgres rejects some strings that `Date.parse` accepts, and a rejected cast fails the whole upsert.
-const toEventTime = (timestamp?: string): string | null => {
+const toTimestampPostgresAccepts = (timestamp?: string): string | null => {
     const parsed = timestamp ? Date.parse(timestamp) : NaN
     return Number.isNaN(parsed) ? null : new Date(parsed).toISOString()
 }
@@ -181,7 +180,7 @@ export class EmailSuppressionService {
             diag,
             LEGACY_HARD_BOUNCE_REASONS,
             GLOBAL_HARD_BOUNCE_DIAGNOSTIC,
-            this.stampsSoftBounceWithEventTime(teamId) ? toEventTime(bounceTimestamp) : null,
+            this.stampsSoftBounceWithEventTime(teamId) ? toTimestampPostgresAccepts(bounceTimestamp) : null,
         ]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
@@ -200,8 +199,6 @@ export class EmailSuppressionService {
             VALUES ${valueClauses.join(', ')}
             ON CONFLICT (team_id, identifier) DO UPDATE SET
                 transient_bounce_count = posthog_messagesuppression.transient_bounce_count + 1,
-                -- A delivery resets the count only when it is newer than this column, so a late bounce
-                -- must not move it back and let an older delivery erase a newer bounce.
                 last_bounce_at = GREATEST(posthog_messagesuppression.last_bounce_at, EXCLUDED.last_bounce_at),
                 -- The diagnostic marks a copy of a global hard bounce, which a delivery must still be able to release.
                 last_bounce_diagnostic = CASE
