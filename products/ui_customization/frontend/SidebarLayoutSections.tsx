@@ -1,7 +1,8 @@
 import { ReactNode } from 'react'
 
+import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
+
 import type { AnalyticsFragmentSectionApi } from './generated/api.schemas'
-import { SidebarSection } from './primitives/SidebarSection'
 
 export interface SidebarLayoutSectionsProps {
     sections: AnalyticsFragmentSectionApi[]

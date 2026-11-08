@@ -3,8 +3,8 @@ import { Fragment } from 'react'
 
 import { Button, Skeleton, Text, TooltipProvider, cn } from '@posthog/quill'
 
-import { SidebarSearchList } from 'products/ui_customization/frontend/primitives/SidebarSearchList'
-import { SidebarSection, SidebarSectionProps } from 'products/ui_customization/frontend/primitives/SidebarSection'
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+import { SidebarSection, SidebarSectionProps } from '~/layout/today/sidebar/SidebarSection'
 
 import { TodayChatRow } from './TodayChatRow'
 import { TodayListAppearanceDialog } from './TodayListAppearanceDialog'

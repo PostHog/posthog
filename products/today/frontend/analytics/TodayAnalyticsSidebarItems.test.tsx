@@ -7,11 +7,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { useMocks } from '~/mocks/jest'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { SidebarSearchList } from 'products/ui_customization/frontend/primitives/SidebarSearchList'
 import { SidebarAgentListener } from 'products/ui_customization/frontend/SidebarAgentListener'
 import { SidebarButton } from 'products/ui_customization/frontend/SidebarButton'
 import { sidebarCustomizationLogic } from 'products/ui_customization/frontend/sidebarCustomizationLogic'

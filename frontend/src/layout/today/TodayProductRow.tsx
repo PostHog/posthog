@@ -1,9 +1,8 @@
 import { useMemo } from 'react'
 
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 import { FileSystemImport } from '~/queries/schema/schema-general'
-
-import { SidebarRow } from 'products/ui_customization/frontend/primitives/SidebarRow'
 
 import { productPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'

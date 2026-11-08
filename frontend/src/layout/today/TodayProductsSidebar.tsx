@@ -5,11 +5,10 @@ import { Text } from '@posthog/quill'
 
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
 import { productsItemName } from '~/layout/panel-layout/navbar/tabs/productsCatalog'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 import { FileSystemImport } from '~/queries/schema/schema-general'
-
-import { SidebarRow } from 'products/ui_customization/frontend/primitives/SidebarRow'
-import { SidebarSearchList } from 'products/ui_customization/frontend/primitives/SidebarSearchList'
-import { SidebarSection } from 'products/ui_customization/frontend/primitives/SidebarSection'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { analyticsTypesForPaneSearch } from './todayPaneSearch'

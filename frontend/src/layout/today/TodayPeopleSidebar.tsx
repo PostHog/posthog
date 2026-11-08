@@ -5,9 +5,8 @@ import { useActions, useValues } from 'kea'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { customNavCountRegistry } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
-
-import { SidebarSearchList } from 'products/ui_customization/frontend/primitives/SidebarSearchList'
-import { SidebarSection } from 'products/ui_customization/frontend/primitives/SidebarSection'
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 
 import { peopleRecentRowKey } from './todayPeople'
 import { TodayPeopleRow, TodayPeopleRowKey, todayPeopleLogic } from './todayPeopleLogic'

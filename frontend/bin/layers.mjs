@@ -16,7 +16,6 @@ const RULES = [
     ['kernel', /^frontend\/src\/(styles|vendor)\//],
     ['kernel', /^frontend\/@posthog\//],
     ['kernel', /^(common|packages)\//],
-    ['shell', /^products\/ui_customization\/frontend\/primitives\//],
     ['query', /^frontend\/src\/queries\//],
     ['shell', /^frontend\/src\/(lib|layout|models|taxonomy)\//],
     ['shell', /^frontend\/src\/scenes\/[^/]+$/],

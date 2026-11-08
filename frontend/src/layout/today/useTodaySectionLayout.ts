@@ -14,7 +14,7 @@ const KEYBOARD_STEP = 16
 
 type MeasuredKey = TodayWorkSectionId | 'area'
 
-import type { SidebarSectionResizer } from 'products/ui_customization/frontend/primitives/types'
+import type { SidebarSectionResizer } from '~/layout/today/sidebar/types'
 
 interface Drag {
     lower: TodayWorkSectionId

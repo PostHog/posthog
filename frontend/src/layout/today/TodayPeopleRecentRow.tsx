@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { IconBuilding, IconPeople, IconPerson, IconSupport } from '@posthog/icons'
 
-import { SidebarRow } from 'products/ui_customization/frontend/primitives/SidebarRow'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 
 import { TodayPeopleRecent, TodayPeopleRecentType, peopleRecentRowKey } from './todayPeople'
 import { TodayExplainerPreview } from './todayPreviewCards'

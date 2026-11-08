@@ -1,8 +1,7 @@
 import { useMemo } from 'react'
 
 import { SidebarProductMeta } from '~/layout/panel-layout/sidebarProductMeta'
-
-import { SidebarRow } from 'products/ui_customization/frontend/primitives/SidebarRow'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 
 import { TodayPeopleRow } from './todayPeopleLogic'
 import { TODAY_PEOPLE_GROUP_ICON, TODAY_PEOPLE_ROWS, todayPeopleRowIcon } from './todayPeopleRows'

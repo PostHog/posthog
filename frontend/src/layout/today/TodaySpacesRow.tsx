@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 
 import { cn } from '@posthog/quill'
 
-import { SidebarOption } from 'products/ui_customization/frontend/primitives/SidebarOption'
+import { SidebarOption } from '~/layout/today/sidebar/SidebarOption'
 
 import { TodayListItemDetail } from './todayListAppearance'
 import { TodayOverflowText } from './TodayOverflowText'

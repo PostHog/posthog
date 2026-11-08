@@ -12,8 +12,8 @@ import {
 
 import { useChartTheme } from 'lib/charts/hooks'
 
-import { SidebarOption } from './primitives/SidebarOption'
-import { SidebarRow } from './primitives/SidebarRow'
+import { SidebarOption } from '~/layout/today/sidebar/SidebarOption'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 
 export interface SidebarMetricProps {
     value: string

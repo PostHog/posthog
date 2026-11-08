@@ -11,8 +11,8 @@ import { SettingsPaneLevel } from 'scenes/settings/settingsSectionScenes'
 import { SettingLevelNames, SettingSection } from 'scenes/settings/types'
 import { urls } from 'scenes/urls'
 
-import { SidebarRow } from 'products/ui_customization/frontend/primitives/SidebarRow'
-import { SidebarSearchList } from 'products/ui_customization/frontend/primitives/SidebarSearchList'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 

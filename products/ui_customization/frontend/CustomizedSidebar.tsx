@@ -8,14 +8,15 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+
 import type {
     AnalyticsFragmentButtonApi,
     AnalyticsFragmentLinkApi,
     AnalyticsListSourceApi,
     AnalyticsFragmentMetricApi,
 } from './generated/api.schemas'
-import { SidebarRow } from './primitives/SidebarRow'
-import { SidebarSearchList } from './primitives/SidebarSearchList'
 import { SidebarButton } from './SidebarButton'
 import { sidebarConfiguration, SidebarContextConfiguration } from './sidebarContexts'
 import { SidebarCustomizationControls } from './SidebarCustomizationControls'
