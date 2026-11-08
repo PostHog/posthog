@@ -81,6 +81,7 @@ The default box is `devbox-<coder-user>`, and a labeled box is `devbox-<coder-us
 Boxes in `eu-central-1` add an `-eu` suffix, for example `devbox-<coder-user>-eu`.
 `hogli devbox:list` shows the exact names.
 Target a labeled box with `-n <label>` on commands that act on a box.
+Inside a worktree that `devbox:worktree` set up, those commands target the worktree's box without `-n`. An explicit `-n <label>` or `@user` still wins, and `devbox:clone` without a source still copies the default box.
 
 ### 4. Connect
 
@@ -176,7 +177,7 @@ hogli devbox:worktree --clone-from default -y   # create the box as a clone of a
 hogli devbox:worktree --on-clean stop           # save what worktrees:clean does with the box
 ```
 
-- The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-` or `worktree/` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
+- The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-`, `worktree/` or `<coder-user>/` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
 - hogli records the worktree path and box name in `~/.config/posthog/hogli_devbox_worktrees.json`. A re-run reuses that box, even after a branch rename, and keeps an existing mirror.
 - A worktree recreated at the same path, as t3code does when it resumes a thread it cleaned up, takes over the box of the worktree it replaced while that box still exists, and gets a new mirror.
 - It refuses a derived label whose box already exists and is not recorded for this worktree, so it never takes over a box the user made by hand. Pass `--label <label>` to use that box on purpose. It always refuses a box recorded for another worktree.

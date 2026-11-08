@@ -59,6 +59,12 @@ def agent_ready_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(devbox_cli, "wait_for_agent_ready", lambda name: "ready")
 
 
+@pytest.fixture(autouse=True)
+def isolated_worktree_boxes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A developer running the suite from a worktree with its own box must not see that box resolved.
+    monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "worktree-boxes.json")
+
+
 @pytest.fixture
 def devbox_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     config_path = tmp_path / "hogli_devbox.json"
@@ -973,11 +979,22 @@ class TestWorktreeLabel:
             ("Fix_Cohort__Query", "fix-cohort-query"),
             ("worktree-agent-abc", "agent-abc"),
             ("worktree/brave-river-1a2b", "brave-river-1a2b"),
+            ("test-user/hogli-wt-trial", "hogli-wt-trial"),
+            ("Test-User/hogli-wt-trial", "hogli-wt-trial"),
+            ("other-user/hogli-wt-trial", "other-user-hogli-wt-trial"),
         ],
-        ids=["slash", "case-and-underscores", "claude-worktree-prefix", "herdr-worktree-prefix"],
+        ids=[
+            "slash",
+            "case-and-underscores",
+            "claude-worktree-prefix",
+            "herdr-worktree-prefix",
+            "own-username-prefix",
+            "own-username-prefix-any-case",
+            "other-username-prefix-kept",
+        ],
     )
     def test_short_branch_becomes_readable_label(self, branch: str, expected: str) -> None:
-        assert devbox_worktree.derive_label(branch, 20) == expected
+        assert devbox_worktree.derive_label(branch, 25, owner="test-user") == expected
 
     @pytest.mark.parametrize(
         "branch, budget",
@@ -2191,6 +2208,64 @@ class TestResolveWorkspaceName:
         )
         with pytest.raises(SystemExit):
             devbox_cli.resolve_workspace_name(None)
+
+    @pytest.fixture
+    def worktree_with_box(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "us-east-1")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [
+                {"name": name, "template_name": coder.DEFAULT_TEMPLATE, "latest_build": {"status": "running"}}
+                for name in ("devbox-test-user", "devbox-test-user-feat", "devbox-test-user-api")
+            ],
+        )
+        root = tmp_path / "wt"
+        (root / "frontend").mkdir(parents=True)
+        devbox_config.record_worktree_box(
+            root, devbox_config.WorktreeBoxRecord(workspace="devbox-test-user-feat", git_dir="admin")
+        )
+        return root
+
+    @pytest.mark.parametrize(
+        "cwd, workspace, provider, expected",
+        [
+            pytest.param("wt/frontend", None, "coder", "devbox-test-user-feat", id="worktree-subdirectory"),
+            pytest.param("wt", "api", "coder", "devbox-test-user-api", id="explicit-label-wins"),
+            pytest.param("wt", "@alice", "coder", "devbox-alice", id="shared-target-wins"),
+            pytest.param("wt", None, "hogland", "devbox-test-user", id="hogland-box-is-not-a-coder-workspace"),
+            pytest.param(".", None, "coder", "devbox-test-user", id="outside-registered-worktree"),
+        ],
+    )
+    def test_default_target_is_the_box_of_the_current_worktree(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        worktree_with_box: Path,
+        cwd: str,
+        workspace: str | None,
+        provider: str,
+        expected: str,
+    ) -> None:
+        if provider != "coder":
+            devbox_config.record_worktree_box(
+                worktree_with_box,
+                devbox_config.WorktreeBoxRecord(workspace="wt-feat", git_dir="admin", provider=provider),
+            )
+        monkeypatch.chdir(tmp_path / cwd)
+
+        assert devbox_cli.resolve_workspace_name(workspace)[0] == expected
+
+    def test_clone_from_a_worktree_copies_the_default_box(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.chdir(worktree_with_box)
+
+        result = runner.invoke(cli, ["devbox:clone", "--as", "copy"], input="n\n")
+
+        assert "Clone 'devbox-test-user' -> 'devbox-test-user-copy'." in result.output, result.output
 
 
 class TestDevboxCommands:

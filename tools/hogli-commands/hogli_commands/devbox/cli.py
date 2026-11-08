@@ -148,7 +148,8 @@ def resolve_workspace_name(
     """Resolve a workspace target into a full workspace name.
 
     Supports:
-    - ``None`` -> user's default workspace (auto-selects when only one exists)
+    - ``None`` inside a worktree that ``devbox:worktree`` set up -> that worktree's box
+    - ``None`` elsewhere -> user's default workspace (auto-selects when only one exists)
     - ``"@user"`` -> another user's default workspace
     - ``"@user/label"`` -> another user's labeled workspace
     - ``"label"`` -> current user's labeled workspace
@@ -176,6 +177,28 @@ def resolve_workspace_name(
             return target_name, None
         return _resolve_own_label(target_name)
 
+    worktree_box = current_worktree_box()
+    if worktree_box is not None:
+        return worktree_box, None
+    return resolve_default_workspace_name(region=effective_region)
+
+
+def current_worktree_box(cwd: Path | None = None) -> str | None:
+    """The Coder box that `devbox:worktree` registered for the worktree containing *cwd*."""
+    boxes = load_worktree_boxes()
+    if not boxes:
+        return None
+    start = (cwd or Path.cwd()).resolve()
+    for candidate in (start, *start.parents):
+        record = boxes.get(str(candidate))
+        if record is not None:
+            return record.workspace if record.provider == "coder" else None
+    return None
+
+
+def resolve_default_workspace_name(*, region: str | None = None) -> tuple[str, list[dict[str, Any]]]:
+    """Resolve the user's default workspace, ignoring the worktree the command runs in."""
+    effective_region = region if region is not None else _preferred_region()
     workspaces = list_user_workspaces()
 
     if len(workspaces) == 0:
@@ -1647,7 +1670,11 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
     copy. The capture image is private to you and auto-expires.
     """
     ensure_runtime_ready()
-    source_name, workspaces = resolve_workspace_name(workspace)
+    # `devbox:worktree --clone-from default` registers the new box before it clones, so the source must skip that box.
+    if workspace is None:
+        source_name, workspaces = resolve_default_workspace_name()
+    else:
+        source_name, workspaces = resolve_workspace_name(workspace)
     ws = _get_workspace_or_fail(source_name, workspaces)
 
     owner = get_username()
