@@ -1,0 +1,29 @@
+sequenceDiagram
+    autonumber
+    participant SDK as SDK (customer server)
+    participant DJ as Django public API
+    participant CA as cdp-api (attachment store)
+    participant S3 as Attachments bucket
+    participant W as Email worker
+    participant SES
+
+    Note over SDK: sha256 and size per file,<br/>message budget checked locally (Q16)
+    SDK->>DJ: POST attachments/uploads {sha256, size, type} x N
+    DJ->>CA: same, with team id
+    CA->>CA: team on allowlist? (Q4)
+    CA->>S3: HEAD team/{id}/{sha256} per file
+    CA-->>SDK: present, or a PUT URL signed for that size and sha256 (Q12)
+    SDK->>S3: PUT each missing file
+    S3-->>SDK: 200, or refused if bytes don't match the signed sha256
+    Note over SDK: send only after every upload succeeded (Q11)
+    SDK->>DJ: POST send/email {attachments: [{sha256, filename}]}
+    DJ->>CA: send with refs only, no bytes
+    CA->>S3: HEAD each ref under the caller's team
+    alt a file is missing, or the message is over 40 MB
+        CA-->>SDK: 4xx attachment_not_uploaded or message_too_large, nothing queued
+    else every file present
+        CA-->>SDK: 202 queued
+        W->>S3: GET files at send time (byte budget, Q19)
+        W->>SES: SendEmail with the files
+    end
+    Note over S3: lifecycle expires every object 7 days after upload (Q13)
