@@ -2591,25 +2591,29 @@ def get_teams_with_active_hog_transformations_in_period() -> list:
     )
 
 
+def _get_teams_with_workflow_email_metric_in_period(metric_name: str, begin: datetime, end: datetime) -> TeamUsageRows:
+    with tags_context(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT):
+        return sync_execute(
+            """
+            SELECT team_id, SUM(count) as count
+            FROM app_metrics2
+            WHERE app_source='hog_flow' AND metric_name IN (%(metric_name)s) AND metric_kind IN ('email') AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id
+        """,
+            {"metric_name": metric_name, "begin": begin, "end": end},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_workflow_emails_sent_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    with tags_context(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT):
-        return sync_execute(
-            """
-            SELECT team_id, SUM(count) as count
-            FROM app_metrics2
-            WHERE app_source='hog_flow' AND metric_name IN ('billable_invocation') AND metric_kind IN ('email') AND timestamp >= %(begin)s AND timestamp < %(end)s
-            GROUP BY team_id
-        """,
-            {"begin": begin, "end": end},
-            workload=Workload.OFFLINE,
-            settings=CH_BILLING_SETTINGS,
-            ch_user=ClickHouseUser.BILLING,
-        )
+    return _get_teams_with_workflow_email_metric_in_period("billable_invocation", begin, end)
 
 
 @timed_log()
@@ -2640,19 +2644,7 @@ def get_teams_with_workflow_sandbox_emails_sent_in_period(
     begin: datetime,
     end: datetime,
 ) -> TeamUsageRows:
-    with tags_context(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT):
-        return sync_execute(
-            """
-            SELECT team_id, SUM(count) as count
-            FROM app_metrics2
-            WHERE app_source='hog_flow' AND metric_name IN ('email_sandbox_sent') AND metric_kind IN ('email') AND timestamp >= %(begin)s AND timestamp < %(end)s
-            GROUP BY team_id
-        """,
-            {"begin": begin, "end": end},
-            workload=Workload.OFFLINE,
-            settings=CH_BILLING_SETTINGS,
-            ch_user=ClickHouseUser.BILLING,
-        )
+    return _get_teams_with_workflow_email_metric_in_period("email_sandbox_sent", begin, end)
 
 
 @timed_log()
