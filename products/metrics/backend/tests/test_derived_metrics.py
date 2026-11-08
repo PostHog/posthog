@@ -288,7 +288,6 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
         ):
             names = {row["name"] for row in list_metric_picker_names(team=self.team)}
 
-        # A failed check is held for a minute, so polling does not re-run a slow probe on every request.
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
             held = {row["name"] for row in list_metric_picker_names(team=self.team)}
 

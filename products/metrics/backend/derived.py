@@ -64,10 +64,8 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
 
 _DATA_PRESENCE_WINDOW = dt.timedelta(hours=24)
 _DATA_PRESENCE_CACHE_TTL_SECONDS = 300
-# The setup screen polls for data every few seconds. An empty or failed check expires sooner, so new
-# spans or logs show up within a minute, but polling never re-runs the probes on every request.
+# Setup polling re-checks an empty or failed answer after a minute, not on every request.
 _DATA_PRESENCE_RECHECK_TTL_SECONDS = 60
-# A presence probe reads at most one row, so it gets a tighter time limit than a chart query.
 _PRESENCE_QUERY_SETTINGS = HogQLGlobalSettings(
     max_execution_time=10,
     max_bytes_to_read=10_000_000_000,
