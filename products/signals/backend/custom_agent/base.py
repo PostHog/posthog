@@ -516,7 +516,7 @@ involvement — the ranking handles that.
         LLM calls.
         """
         from products.signals.backend.trial.direct_reports import (
-            custom_report_reservation,  # noqa: PLC0415 -- scout report registration imports custom agents
+            funded_report,  # noqa: PLC0415 -- scout report registration imports custom agents
         )
 
         missing_required = [
@@ -529,7 +529,7 @@ involvement — the ranking handles that.
         team = await Team.objects.aget(id=self.team_id)
         run_id = self._session.task_run.id if self._session else None
         emission_key = f"{run_id or uuid4()}:{len(self._persisted_reports)}"
-        async with custom_report_reservation(team=team, run_id=run_id, emission_key=emission_key) as reserved_report_id:
+        async with funded_report(team=team, run_id=run_id, emission_key=emission_key) as funded_report_id:
             await self._resolve_missing_report_components()
             final = self._final_report()
             task_id = str(self._task.id) if self._task is not None else None
@@ -541,7 +541,7 @@ involvement — the ranking handles that.
                 task_id=task_id,
                 agent_identifier=type(self).identifier(),
                 registered_artefacts=list(self._registered_artefacts),
-                reserved_report_id=reserved_report_id,
+                funded_report_id=funded_report_id,
             )
         self._persisted_reports.append(persisted)
         await self._maybe_autostart(persisted)

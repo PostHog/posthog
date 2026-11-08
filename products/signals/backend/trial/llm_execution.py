@@ -1,9 +1,9 @@
 from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Team
 
-from products.signals.backend.trial.billing import paid_trial_continuation_authorized
+from products.signals.backend.quota import prepare_self_driving_admission
 from products.signals.backend.trial.funding import TrialFunding, signal_funding
-from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.trial.policy import TrialRefused
 from products.signals.backend.trial.reports import context_funding, task_trial_context
 from products.tasks.backend.facade.api import get_task_run
 
@@ -19,27 +19,18 @@ class TrialLLMExecution:
         if team_id is None:
             return None
         team = Team.objects.select_related("organization").get(id=team_id)
-        policy = TrialPolicy(team)
         parent = context_funding(team)
         if parent is not None and parent.funding == "operator":
             return cls(parent)
         parent = signal_funding(team_id, signal_id) or parent
-        grant = policy.admission_grant() if parent is None else None
-        if parent is None and grant is None:
-            return None
-        if parent is not None and parent.grant_id is None:
+        funding = prepare_self_driving_admission(team, parent=parent).bind()
+        if funding.grant_id is None:
             return None
         task_context = task_trial_context.get()
         if task_context and task_context[0] == team_id:
             run = get_task_run(task_context[1], team_id=team_id)
             if run is None or run.is_terminal:
                 raise TrialRefused("operation_finished")
-        paid_authorized = False
-        if parent is None and grant is not None and grant.exhausted_at:
-            paid_authorized = paid_trial_continuation_authorized(team)
-        funding = policy.admit(paid_authorized=paid_authorized, parent=parent)
-        if funding.grant_id is None:
-            return None
         if gateway is None:
             raise GatewayNotConfiguredError("Trial work requires accounted AI gateway execution")
         return cls(funding)

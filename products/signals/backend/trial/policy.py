@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from uuid import UUID
 
 from django.core.cache import cache
@@ -190,7 +191,10 @@ class TrialPolicy:
                     else:
                         funding = TrialFunding(funding="trial", grant_id=grant.id, policy_version=grant.policy_version)
                 if report_id is not None:
-                    # Publishing the admission under the same lock lets the next caller count it.
+                    # Task admission must not erase the enclosing report pass's retry identity.
+                    previous = TrialFunding.from_dict(report.self_driving_funding)
+                    if previous is not None and not funding.report_pass_key:
+                        funding = replace(funding, report_pass_key=previous.report_pass_key)
                     report.self_driving_funding = funding.as_dict()
                     report.save(update_fields=["self_driving_funding"])
                 return funding

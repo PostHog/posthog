@@ -91,8 +91,8 @@ from products.signals.backend.scout_harness.trial_result import export_trial_res
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
 from products.signals.backend.scout_report import scout_report_tags_in_use
 from products.signals.backend.spend import record_task_spend
-from products.signals.backend.task_profiles import scout_profile
 from products.signals.backend.spend_billing import scout_skill_spend_exempt
+from products.signals.backend.task_profiles import scout_profile
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -1292,7 +1292,9 @@ async def _spawn_and_run(
             # failing the whole run. A failed run never finalizes, so its scan-position close-out is
             # lost and the next run inherits a doubled scan delta.
             fallback_from_text=lambda text: (
-                FirstReportScoutRunSummary(summary=text, first_report_result=FirstReportScoutResult(outcome="incomplete"))
+                FirstReportScoutRunSummary(
+                    summary=text, first_report_result=FirstReportScoutResult(outcome="incomplete")
+                )
                 if skill.name == FIRST_REPORT_SCOUT
                 else SignalScoutRunSummary(summary=text)
             ),

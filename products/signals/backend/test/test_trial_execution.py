@@ -717,13 +717,13 @@ class TestTrialExecution(BaseTest):
                     token_cost_microusd=10_000_001,
                     trial_grant_id=str(grant.id),
                 )
-            prepare_report_pass(
-                team=self.team,
-                report_id=str(report.id),
-                operation_key="accepted",
-                paid_authorized=True,
-                operator_rerun=funding == "operator",
-            )
+            with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=True):
+                prepare_report_pass(
+                    team=self.team,
+                    report_id=str(report.id),
+                    operation_key="accepted",
+                    operator_rerun=funding == "operator",
+                )
             report.refresh_from_db()
         elif funding is not None:
             report.self_driving_funding = TrialFunding(funding="existing", report_pass_key="accepted").as_dict()

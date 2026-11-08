@@ -159,7 +159,7 @@ from products.signals.backend.slack_formatting import strip_chart_references
 from products.signals.backend.source_issues import parse_source_issue_url
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
 from products.signals.backend.task_profiles import REPO_SELECTION_WITHOUT_REPORT
-from products.signals.backend.trial.direct_reports import trial_report_reservation, trial_report_reservation_sync
+from products.signals.backend.trial.direct_reports import funded_report, funded_report_sync
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
@@ -2278,9 +2278,9 @@ async def emit_report(
 
     await database_sync_to_async(_assert_emit_link_targets_live, thread_sensitive=False)(team, built_links)
 
-    async with trial_report_reservation(
+    async with funded_report(
         team=team, run_id=run.task_run_id if run else None, emission_key=emit_key
-    ) as reserved_report_id:
+    ) as funded_report_id:
         attribution = await database_sync_to_async(author.attribution, thread_sensitive=False)()
         judgement = await judge_scout_report(
             team_id=team.id,
@@ -2369,7 +2369,7 @@ async def emit_report(
                 emit_signals=judgement.safety.choice,
                 run=author.scout_run,
                 idempotency_key=emit_key,
-                reserved_report_id=reserved_report_id,
+                funded_report_id=funded_report_id,
                 created_by_id=author.user_id,
                 proposed_reviewer_count=len(suggested_reviewers or []),
                 reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
@@ -2493,9 +2493,9 @@ def emit_report_sync(
 
     _assert_emit_link_targets_live(team, built_links)
 
-    with trial_report_reservation_sync(
+    with funded_report_sync(
         team=team, run_id=run.task_run_id if run else None, emission_key=emit_key
-    ) as reserved_report_id:
+    ) as funded_report_id:
         attribution = author.attribution()
         judgement = async_to_sync(judge_scout_report)(
             team_id=team.id,
@@ -2580,7 +2580,7 @@ def emit_report_sync(
                 emit_signals=judgement.safety.choice,
                 run=author.scout_run,
                 idempotency_key=emit_key,
-                reserved_report_id=reserved_report_id,
+                funded_report_id=funded_report_id,
                 created_by_id=author.user_id,
                 proposed_reviewer_count=len(suggested_reviewers or []),
                 reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),

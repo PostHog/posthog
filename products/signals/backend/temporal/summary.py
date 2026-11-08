@@ -1043,13 +1043,8 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
         report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
         if report.status != SignalReport.Status.IN_PROGRESS:
             return
-        from products.signals.backend.trial.policy import (
-            TrialPolicy,  # noqa: PLC0415 -- keep models out of replay imports
-        )
-
         updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-        with TrialPolicy(report.team).publish_report(report.id, delivered=False):
-            report.save(update_fields=updated_fields)
+        report.save(update_fields=updated_fields)
 
     await database_sync_to_async(do_update, thread_sensitive=False)()
     logger.info(
@@ -1090,21 +1085,24 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
     """
     team = None
     operation_key = ""
-    paid_authorized = False
+    admission = None
     if input.trial_policy_version or input.operator_rerun:
         from products.signals.backend.trial.reports import (
             prepare_report_pass,  # noqa: PLC0415 -- avoids eager workflow imports
-            report_pass_paid_authorized,
+            report_pass_admission,
         )
 
         team = await Team.objects.select_related("organization").aget(id=input.team_id)
         info = temporalio.activity.info()
         # Internal refreshes share admission; an explicitly restarted workflow gets a new run ID.
         operation_key = f"report-pass:{info.workflow_run_id}"
-        if not input.operator_rerun:
-            paid_authorized = await database_sync_to_async_pool(report_pass_paid_authorized)(
-                team=team, report_id=input.report_id, operation_key=operation_key, signal_id=input.signal_id
-            )
+        admission = await database_sync_to_async_pool(report_pass_admission)(
+            team=team,
+            report_id=input.report_id,
+            operation_key=operation_key,
+            signal_id=input.signal_id,
+            operator_rerun=input.operator_rerun,
+        )
     try:
 
         @transaction.atomic
@@ -1122,7 +1120,7 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
                     team=team,
                     report_id=input.report_id,
                     operation_key=operation_key,
-                    paid_authorized=paid_authorized,
+                    admission=admission,
                     signal_id=input.signal_id,
                     operator_rerun=input.operator_rerun,
                 )

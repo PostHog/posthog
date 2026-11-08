@@ -102,6 +102,10 @@ class SelfDrivingAdmission:
     paid_authorized: bool = False
     reason: str = "billing_limit"
 
+    @property
+    def trial_accounting_required(self) -> bool:
+        return self.parent.grant_id is not None if self.parent is not None else not self.paid_authorized
+
     def bind(self, *, report_id: UUID | None = None) -> TrialFunding:
         from products.signals.backend.trial.policy import (  # noqa: PLC0415 -- avoid model registration cycle
             TrialPolicy,
@@ -127,21 +131,13 @@ def prepare_self_driving_admission(team: "Team", *, parent: TrialFunding | None 
     from products.signals.backend.trial.billing import (  # noqa: PLC0415 -- trial policy imports Signals models
         paid_trial_continuation_authorized,
     )
-    from products.signals.backend.trial.policy import (  # noqa: PLC0415 -- avoid model registration cycle
-        TrialPolicy,
-        TrialRefused,
-    )
+    from products.signals.backend.trial.policy import TrialPolicy  # noqa: PLC0415 -- avoid model registration cycle
     from products.signals.backend.usage import trial_usage  # noqa: PLC0415 -- avoid model registration cycle
 
     allowed = SelfDrivingQuotaGate(limited=False, enforced=False)
     if parent is not None:
         return SelfDrivingAdmission(team=team, gate=allowed, parent=parent)
-    try:
-        grant = TrialPolicy(team).admission_grant()
-    except TrialRefused as error:
-        return SelfDrivingAdmission(
-            team=team, gate=SelfDrivingQuotaGate(limited=True, enforced=True), reason=error.reason
-        )
+    grant = TrialPolicy(team).admission_grant()
     if grant is not None:
         reason = trial_usage(grant).exhaustion_reason(grant)
         if not reason:
@@ -163,8 +159,14 @@ def prepare_self_driving_admission(team: "Team", *, parent: TrialFunding | None 
 
 def self_driving_quota_gate(team: "Team", *, signal_id: str | None = None) -> SelfDrivingQuotaGate:
     """Expose the same admission decision to workflows and the paused-state UI."""
+    from products.signals.backend.trial.policy import TrialRefused  # noqa: PLC0415 -- avoid model registration cycle
+
     parent = signal_funding(team.id, signal_id) if signal_id else None
-    return prepare_self_driving_admission(team, parent=parent).gate
+    try:
+        # A legacy signal receipt pins funding but does not admit a new report pipeline.
+        return prepare_self_driving_admission(team, parent=parent if parent and parent.grant_id else None).gate
+    except TrialRefused:
+        return SelfDrivingQuotaGate(limited=True, enforced=True)
 
 
 def self_driving_limit_name(team: "Team") -> str:
