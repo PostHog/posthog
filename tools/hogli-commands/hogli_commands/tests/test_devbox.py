@@ -2256,9 +2256,7 @@ class TestResolveWorkspaceName:
                 "devbox-test-user",
                 id="hogland-box-is-not-a-coder-workspace",
             ),
-            pytest.param(
-                "wt", None, {"workspace": "devbox-test-user-gone"}, "devbox-test-user", id="registered-box-is-gone"
-            ),
+            pytest.param("wt", None, {"workspace": "devbox-test-user-gone"}, None, id="registered-box-is-gone"),
             pytest.param(
                 "wt",
                 None,
@@ -2325,6 +2323,25 @@ class TestResolveWorkspaceName:
         result = runner.invoke(cli, args)
 
         assert "Run 'hogli devbox:start @test-user' to create one." in result.output, result.output
+
+    @pytest.mark.parametrize(
+        "name, expected",
+        [
+            pytest.param("devbox-test-user-feat-eu", "", id="the-worktrees-box-needs-no-target"),
+            pytest.param("devbox-test-user-api", " api", id="another-labeled-box"),
+            pytest.param("devbox-test-user", " @test-user", id="the-default-box"),
+        ],
+    )
+    def test_printed_commands_target_the_box_they_describe(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, name: str, expected: str
+    ) -> None:
+        devbox_config.record_worktree_box(
+            worktree_with_box,
+            devbox_config.WorktreeBoxRecord(workspace="devbox-test-user-feat-eu", git_dir="admin"),
+        )
+        monkeypatch.chdir(worktree_with_box)
+
+        assert devbox_cli._workspace_arg_suffix(name) == expected
 
     def test_moved_worktree_keeps_its_box(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, worktree_with_box: Path

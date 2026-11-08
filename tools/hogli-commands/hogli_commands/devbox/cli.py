@@ -25,6 +25,7 @@ from hogli import telemetry
 from hogli.manifest import get_manifest
 
 from ..git_signing import DEVBOX_FEEDBACK_HINT, DEVBOX_SIGNING_NOTE, signs_with_secure_enclave_key
+from ..worktrees import _gitdir_for
 from . import (
     herdr as herdr_app,
     mutagen,
@@ -195,7 +196,10 @@ def resolve_workspace_name(
         )
     live = get_workspace(record.workspace, workspaces)
     if live is None:
-        return resolve_default_workspace_name(region=effective_region, workspaces=workspaces)
+        _fail(
+            f"This worktree's devbox '{record.workspace}' no longer exists. "
+            "Run `hogli devbox:worktree` to create it again, or pass `-n <label>` to choose a box."
+        )
     if not record.may_adopt(live):
         _fail(
             f"This worktree's devbox '{record.workspace}' was replaced by another box with the same name. "
@@ -215,24 +219,14 @@ def current_worktree_box() -> WorktreeBoxRecord | None:
     if root is None:
         return None
     boxes = load_worktree_boxes()
-    worktree_id = read_worktree_id(_admin_dir(root))
+    admin_dir = _gitdir_for(root)
+    worktree_id = read_worktree_id(admin_dir) if admin_dir is not None else None
     record = boxes.get(str(root))
     if record is not None and record.worktree_id is not None and record.worktree_id != worktree_id:
         record = None
     if record is None:
         record = next((box for box in boxes.values() if worktree_id and box.worktree_id == worktree_id), None)
     return record if record is not None and record.provider == "coder" else None
-
-
-def _admin_dir(root: Path) -> Path:
-    dot_git = root / ".git"
-    if dot_git.is_dir():
-        return dot_git
-    try:
-        pointer = dot_git.read_text().strip()
-    except OSError:
-        return dot_git
-    return root / pointer.removeprefix("gitdir:").strip()
 
 
 def resolve_default_workspace_name(
@@ -355,10 +349,13 @@ def _print_connection_info(name: str) -> None:
 
 def _workspace_arg_suffix(name: str) -> str:
     """Return the CLI suffix that targets *name*, which a bare command inside a registered worktree would not."""
+    record = current_worktree_box()
+    if record is not None and record.workspace == name:
+        return ""
     label = extract_workspace_label(name)
     if label:
         return f" {label}"
-    return f" @{get_username()}" if current_worktree_box() is not None else ""
+    return f" @{get_username()}" if record is not None else ""
 
 
 _NOT_READY_REASONS = {
@@ -452,7 +449,7 @@ def _pause_sync(name: str) -> bool:
     except SystemExit:
         click.echo(click.style(f"Could not pause the sync to '{name}'. Stopping the box anyway.", fg="yellow"))
         return False
-    click.echo(f"Paused the sync to '{name}'. `hogli devbox:start` resumes it.")
+    click.echo(f"Paused the sync to '{name}'. `hogli devbox:start{_workspace_arg_suffix(name)}` resumes it.")
     return True
 
 
@@ -2135,7 +2132,7 @@ def devbox_status(workspace: str | None) -> None:
 
     if ws.get("outdated"):
         click.echo(click.style("  Update:  template update available", fg="yellow"))
-        click.echo("           Run `hogli devbox:update` to apply it.")
+        click.echo(f"           Run `hogli devbox:update{_workspace_arg_suffix(name)}` to apply it.")
 
     # Show agent status if available
     resources = ws.get("latest_build", {}).get("resources", [])
@@ -2158,7 +2155,7 @@ def devbox_forward(workspace: str | None, port: int) -> None:
     if not _local_port_is_available(port):
         _fail(
             f"Local port {port} is already in use.\n"
-            f"Stop the process using that port or rerun with `hogli devbox:forward --port {port + 1}`."
+            f"Stop the process using that port or rerun with `hogli devbox:forward{_workspace_arg_suffix(name)} --port {port + 1}`."
         )
 
     click.echo(f"Forwarding {name}:8010 -> localhost:{port}")

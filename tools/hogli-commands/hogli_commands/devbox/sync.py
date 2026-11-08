@@ -468,7 +468,7 @@ def _ensure_workspace_running(name: str, workspaces: list[dict[str, Any]] | None
         return
     status = get_workspace_status(workspace)
     if status != "running":
-        _fail(f"Devbox '{name}' is {status}, not running. Run `hogli devbox:start` first.")
+        _fail(f"Devbox '{name}' is {status}, not running. Run `hogli devbox:start{_workspace_arg_suffix(name)}` first.")
 
 
 def ensure_hogland_sync_session(
