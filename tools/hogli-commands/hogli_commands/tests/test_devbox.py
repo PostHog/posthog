@@ -605,10 +605,83 @@ class TestCoderVersion:
 
         monkeypatch.setattr(coder, "_run", boom)
 
+        monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
+
         with pytest.raises(SystemExit):
             coder.ensure_coder_authenticated()
 
-        assert "Run `coder login https://coder.example.com` in a terminal" in capsys.readouterr().out
+        output = capsys.readouterr().out
+        assert "Run `coder login https://coder.example.com` in a terminal" in output
+        assert "CODER_SESSION_TOKEN" in output
+        assert "CODER_URL to https://coder.example.com" in output
+
+    def test_runtime_ready_names_the_token_variables_without_a_terminal(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "coder_authenticated", lambda: False)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: False)
+        monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
+
+        with pytest.raises(SystemExit):
+            coder.ensure_runtime_ready()
+
+        output = capsys.readouterr().out
+        assert "Run `hogli devbox:setup`." in output
+        assert "CODER_SESSION_TOKEN" in output
+        assert "CODER_URL to https://coder.example.com" in output
+
+    @pytest.mark.parametrize("entrypoint", ["ensure_coder_authenticated", "ensure_runtime_ready"])
+    def test_rejected_env_token_is_named_instead_of_a_login_prompt(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], entrypoint: str
+    ) -> None:
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "coder_authenticated", lambda: False)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: True)
+        monkeypatch.setenv("CODER_SESSION_TOKEN", "expired-example-token")
+
+        def boom(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+            raise AssertionError("coder login refuses to run while CODER_SESSION_TOKEN is set")
+
+        monkeypatch.setattr(coder, "_run", boom)
+
+        with pytest.raises(SystemExit):
+            getattr(coder, entrypoint)()
+
+        output = capsys.readouterr().out
+        assert "Coder rejected the CODER_SESSION_TOKEN" in output
+        assert "expired-example-token" not in output
+
+    @pytest.mark.parametrize("stored_login_works, expect_note", [(False, True), (True, False)])
+    def test_setup_notes_when_the_login_lives_only_in_the_environment(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        stored_login_works: bool,
+        expect_note: bool,
+    ) -> None:
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "coder_command_hint", lambda: "coder")
+        monkeypatch.setenv("CODER_SESSION_TOKEN", "example-token")
+
+        def fake_coder(args: list[str], env: dict[str, str] | None = None, **kwargs: object):
+            environ = os.environ if env is None else env
+            logged_in = "CODER_SESSION_TOKEN" in environ or stored_login_works
+            return subprocess.CompletedProcess(args, 0 if logged_in else 1, "", "")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_coder)
+
+        coder.ensure_coder_authenticated()
+
+        output = capsys.readouterr().out
+        assert "Coder login is ready." in output
+        assert ("env -u CODER_SESSION_TOKEN coder login https://coder.example.com" in output) is expect_note
+        assert "example-token" not in output.replace("CODER_SESSION_TOKEN", "")
 
     @pytest.mark.parametrize("user_bin_on_path", [True, False])
     def test_ensure_coder_on_path(

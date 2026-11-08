@@ -56,6 +56,7 @@ DEFAULT_PRESET = NO_PRESET
 AUTOMATIC_UPDATES_ARGS = ("--automatic-updates", "always")
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
+_SESSION_TOKEN_ENV = "CODER_SESSION_TOKEN"
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
 REMOTE_REPO_PATH = "/home/coder/posthog"
 GIT_NAME_PARAMETER = "git_name"
@@ -996,22 +997,68 @@ def coder_authenticated() -> bool:
     return _coder_whoami().returncode == 0
 
 
+def _env_login_hint(coder_url: str) -> str:
+    return (
+        f"  Without a terminal, set CODER_SESSION_TOKEN to a token from {coder_url}/cli-auth"
+        f" and CODER_URL to {coder_url}."
+    )
+
+
+def _fail_env_token_rejected(coder_url: str) -> NoReturn:
+    _fail(
+        f"Coder rejected the CODER_SESSION_TOKEN set in this shell for {coder_url}.\n"
+        f"  Check that CODER_URL is {coder_url} and the token has not expired. Get a new token at {coder_url}/cli-auth.",
+        cause="coder_env_token_rejected",
+    )
+
+
+def _stored_login_works() -> bool:
+    """Return whether the login stored on disk works without CODER_SESSION_TOKEN."""
+    env = {key: value for key, value in os.environ.items() if key != _SESSION_TOKEN_ENV}
+    result = subprocess.run(
+        _resolve_coder(["coder", "whoami", "--output", "json"]), capture_output=True, text=True, env=env
+    )
+    return result.returncode == 0
+
+
+def _note_login_only_in_env() -> None:
+    if not os.environ.get(_SESSION_TOKEN_ENV) or _stored_login_works():
+        return
+    click.echo(
+        click.style(
+            "Coder login comes only from CODER_SESSION_TOKEN, and no working login is stored on disk.\n"
+            "  SSH to a devbox fails from programs that don't inherit that variable, such as an editor"
+            " or a mutagen daemon started elsewhere.\n"
+            f"  To store the login, pipe the token into"
+            f" `env -u CODER_SESSION_TOKEN {coder_command_hint()} login {get_coder_url()}`."
+            " Do it again when the token changes.",
+            fg="yellow",
+        )
+    )
+
+
 def ensure_coder_authenticated() -> None:
     """Run interactive login when needed."""
     if coder_authenticated():
         click.echo("Coder login is ready.")
+        _note_login_only_in_env()
         return
 
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     coder_url = get_coder_url()
+    if os.environ.get(_SESSION_TOKEN_ENV):
+        # `coder login` refuses to run while CODER_SESSION_TOKEN is set, so a
+        # prompt cannot fix a rejected token.
+        _fail_env_token_rejected(coder_url)
     if not sys.stdin.isatty():
         # `coder login` asks for a token pasted from the browser and fails with
         # "paste token prompt: EOF" when stdin isn't a terminal.
         _fail(
             "Coder login needs you to paste a token, and this shell can't take input.\n"
-            f"  Run `{coder_command_hint()} login {coder_url}` in a terminal, then run `hogli devbox:setup` again.",
+            f"  Run `{coder_command_hint()} login {coder_url}` in a terminal, then run `hogli devbox:setup` again.\n"
+            f"{_env_login_hint(coder_url)}",
             cause="coder_login_needs_terminal",
         )
     click.echo(f"Logging in to {coder_url}...")
@@ -1028,7 +1075,13 @@ def ensure_runtime_ready() -> None:
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     if not coder_authenticated():
-        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", cause="coder_login_not_ready")
+        coder_url = get_coder_url()
+        if os.environ.get(_SESSION_TOKEN_ENV):
+            _fail_env_token_rejected(coder_url)
+        message = f"Coder login is not ready for {coder_url}. {RUNTIME_SETUP_HINT}"
+        if not sys.stdin.isatty():
+            message += f"\n{_env_login_hint(coder_url)}"
+        _fail(message, cause="coder_login_not_ready")
 
     _warn_version_mismatch()
 
@@ -1700,7 +1753,7 @@ class _CoderApi:
     def _session_token() -> str:
         # The CLI authenticates with CODER_SESSION_TOKEN when it is set, but
         # `coder login token` prints only the stored login (cli/login.go).
-        if token := os.environ.get("CODER_SESSION_TOKEN"):
+        if token := os.environ.get(_SESSION_TOKEN_ENV):
             return token
         stored = _run(["coder", "login", "token"], capture_output=True)
         if stored.returncode != 0:
