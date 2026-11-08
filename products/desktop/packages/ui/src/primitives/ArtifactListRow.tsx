@@ -23,15 +23,21 @@ export function ArtifactListRow({
       <span className="flex size-4 shrink-0 items-center justify-center">
         {icon}
       </span>
-      <span className="min-w-0 flex-1 truncate text-foreground">{title}</span>
+      <span className="min-w-0 flex-[1_0_40%] truncate text-foreground">
+        {title}
+      </span>
       {badges && (
         <span className="flex shrink-0 items-center gap-1 empty:hidden">
           {badges}
         </span>
       )}
       {meta && (
-        <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-muted-foreground tabular-nums">
-          {meta}
+        <span className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-muted-foreground tabular-nums">
+          {typeof meta === "string" ? (
+            <span className="truncate">{meta}</span>
+          ) : (
+            meta
+          )}
         </span>
       )}
       {actions && (
