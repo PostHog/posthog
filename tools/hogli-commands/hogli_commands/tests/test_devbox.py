@@ -1280,25 +1280,20 @@ class TestDevboxWorktreeCommand:
             pytest.param("master", True, id="head-on-origin-master-builds"),
             pytest.param("unmerged-commit", False, id="unmerged-branch-code-does-not-run"),
             pytest.param("no-origin", False, id="no-origin-master-does-not-run"),
+            pytest.param("branch-named-origin-master", False, id="a-local-origin-master-branch-is-not-master"),
         ],
     )
     def test_builds_the_test_database_only_for_code_on_origin_master(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, head: str, builds: bool
     ) -> None:
-        def git(*args: str) -> None:
-            subprocess.run(
-                ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
-                cwd=tmp_path,
-                check=True,
-                capture_output=True,
-            )
-
-        git("init", "-q")
-        git("commit", "-q", "--allow-empty", "-m", "master")
+        _git(tmp_path, "init", "-q")
+        _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "master")
         if head != "no-origin":
-            git("update-ref", "refs/remotes/origin/master", "HEAD")
-        if head == "unmerged-commit":
-            git("commit", "-q", "--allow-empty", "-m", "branch")
+            _git(tmp_path, "update-ref", "refs/remotes/origin/master", "HEAD")
+        if head in ("unmerged-commit", "branch-named-origin-master"):
+            _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "branch")
+        if head == "branch-named-origin-master":
+            _git(tmp_path, "branch", "origin/master")
         ran: list[str] = []
         monkeypatch.setattr(devbox_worktree.mutagen, "sync_flush", lambda selector: None)
         monkeypatch.setattr(

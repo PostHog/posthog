@@ -136,7 +136,7 @@ def _checked_out_branch(root: Path) -> str | None:
 
 def _head_is_on_master(root: Path) -> bool:
     result = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", "HEAD", "origin/master"], cwd=root, capture_output=True
+        ["git", "merge-base", "--is-ancestor", "HEAD", "refs/remotes/origin/master"], cwd=root, capture_output=True
     )
     return result.returncode == 0
 
