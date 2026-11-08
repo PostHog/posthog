@@ -17,6 +17,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
+    frozen,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -32,7 +33,7 @@ from products.warehouse_sources.sources.sonar_cloud.settings import (
 logger = structlog.get_logger(__name__)
 
 
-@dataclasses.dataclass
+@frozen
 class SonarCloudResumeConfig:
     # 1-based index of the next page to fetch. Paginated endpoints resume from here after a crash;
     # non-paginated endpoints ignore it.
@@ -136,18 +137,20 @@ class SonarCloudEnvelopePaginator(PageNumberPaginator):
 
 def _measure_rows() -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
     """One row per component and metric, from the items the measures selector matches."""
-    seen_projects: set[str] = set()
+    # The selector yields each page's `paging` object before its `baseComponent`.
+    page_index: Any = None
 
     def _rows(item: dict[str, Any]) -> list[dict[str, Any]]:
+        nonlocal page_index
         if "measures" not in item:
             # The `paging` object, selected only to keep the match a list.
+            page_index = item.get("pageIndex")
             return []
         key = item.get("key")
-        if key is not None and key == item.get("project_key"):
-            # component_tree repeats the project on every page of its components.
-            if key in seen_projects:
-                return []
-            seen_projects.add(key)
+        if key is not None and key == item.get("project_key") and page_index not in (None, 1):
+            # component_tree repeats the project on every page of its components. Keep only the copy
+            # on page 1, so a sync that resumes on a later page does not add the project again.
+            return []
         component = {name: value for name, value in item.items() if name != "measures"}
         return [{**component, **measure} for measure in item.get("measures") or [] if isinstance(measure, dict)]
 
@@ -237,6 +240,7 @@ def _fanout_source(
         child_endpoint_extra={"data_selector": config.data_key, "paginator": child_paginator},
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_state,
+        resume_parent_pagination=True,
     )
     row_map = ROW_MAPS.get(endpoint)
     if row_map is not None:

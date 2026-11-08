@@ -180,6 +180,9 @@ class TestMeasures:
 
         tree_requests = [r for r in resumed.requests if r.path.endswith("measures/component_tree")]
         assert [(r.param("component"), r.param("p")) for r in tree_requests] == [("P1", "2"), ("P2", "1")]
+        # The first attempt already wrote P1's project row from page 1, and a resumed full refresh
+        # appends, so the page-2 copy of `baseComponent` must not come back.
+        assert [(row["project_key"], row["key"]) for row in resumed.rows] == [("P1", "P1:c.py"), ("P2", "P2")]
 
 
 class TestMeasuresHistory:
