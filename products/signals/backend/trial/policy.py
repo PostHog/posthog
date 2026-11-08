@@ -1,6 +1,5 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import timedelta
 from uuid import UUID
 
 from django.core.cache import cache
@@ -14,9 +13,10 @@ from rest_framework.exceptions import APIException
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
-from products.signals.backend.trial.funding import TrialFunding, direct_report_funding
+from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.limits import STANDARD_TRIAL_LIMITS, TrialLimits
-from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
+from products.signals.backend.trial.models import SignalTrialGrant
+from products.signals.backend.usage import trial_usage
 
 TRIAL_FLAG = "self-driving-ubp"
 POLICY_VERSION = 1
@@ -147,36 +147,6 @@ class TrialPolicy:
             grant = SignalTrialGrant.objects.for_team(self.team_id, canonical=True).select_for_update().get(id=grant_id)
             yield grant
 
-    def _check_report_capacity(self, grant: SignalTrialGrant, report_id: UUID | None) -> None:
-        slots = SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True).filter(
-            grant=grant,
-            status__in=[SignalTrialReportReservation.Status.RESERVED, SignalTrialReportReservation.Status.CONSUMED],
-        )
-        if report_id is not None and slots.filter(report_id=report_id).exists():
-            return
-        if slots.count() >= grant.report_limit:
-            raise TrialRefused("report_limit")
-
-    def _reserve_report(self, grant: SignalTrialGrant, report_id: UUID) -> None:
-        slots = SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True)
-        slot = slots.filter(report_id=report_id).first()
-        if slot and slot.status != SignalTrialReportReservation.Status.RELEASED:
-            return
-        slots.update_or_create(
-            team_id=self.team_id,
-            report_id=report_id,
-            defaults={"grant": grant, "status": SignalTrialReportReservation.Status.RESERVED},
-        )
-
-    def _fund_new_work(self, grant: SignalTrialGrant, *, paid_authorized: bool, report_id: UUID | None) -> TrialFunding:
-        if grant.exhausted_at:
-            if paid_authorized:
-                return TrialFunding(funding="paid")
-            raise TrialRefused(grant.exhaustion_reason)
-        self._check_accounting(grant)
-        self._check_report_capacity(grant, report_id)
-        return TrialFunding(funding="trial", grant_id=grant.id, policy_version=grant.policy_version)
-
     def admit(
         self,
         *,
@@ -197,126 +167,27 @@ class TrialPolicy:
             if parent is not None:
                 raise TrialRefused("grant_unavailable")
             return TrialFunding(funding="existing")
-        with self.locked_grant(grant.id) as grant:
-            if parent is not None and parent.grant_id != grant.id:
-                raise TrialRefused("grant_unavailable")
-            # Accepted pipelines keep their funding even after the allowance runs out.
-            funding = parent or self._fund_new_work(grant, paid_authorized=paid_authorized, report_id=report_id)
-            if report_id is not None and funding.grant_id is not None:
-                self._reserve_report(grant, report_id)
-            return funding
-
-    @staticmethod
-    def _check_accounting(grant: SignalTrialGrant) -> None:
-        if grant.exhaustion_reason == "cost_limit" or grant.settled_microusd >= grant.allowance_microusd:
-            raise TrialRefused("cost_limit")
-        if grant.incomplete_since and grant.incomplete_since < timezone.now() - timedelta(minutes=2):
-            raise TrialRefused("accounting_pending")
-
-    def reserve_direct_report(self, funding: TrialFunding, report_id: UUID, *, run_id: UUID | None = None) -> None:
-        if funding.grant_id is None:
-            return
-        with self.locked_grant(funding.grant_id) as grant:
-            self._reserve_report(grant, report_id)
-            reservation = SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True).get(
-                report_id=report_id
-            )
-            if run_id is not None and run_id in reservation.attempt_run_ids:
-                return
-            reservation.active_attempts += 1
-            if run_id is not None:
-                reservation.attempt_run_ids.append(run_id)
-            reservation.save(update_fields=["active_attempts", "attempt_run_ids"])
-
-    def finish_direct_report_attempt(self, report_id: UUID, *, run_id: UUID | None = None) -> None:
-        reservation = (
-            SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True)
-            .filter(report_id=report_id)
-            .first()
-        )
-        if reservation is None:
-            return
-        with self.locked_grant(reservation.grant_id):
-            reservation.refresh_from_db()
-            if run_id is not None:
-                if run_id not in reservation.attempt_run_ids:
-                    return
-                reservation.attempt_run_ids.remove(run_id)
-            reservation.active_attempts = max(0, reservation.active_attempts - 1)
-            if reservation.active_attempts == 0 and reservation.status == SignalTrialReportReservation.Status.RESERVED:
-                reservation.status = SignalTrialReportReservation.Status.RELEASED
-            reservation.save(update_fields=["active_attempts", "attempt_run_ids", "status"])
-
-    @contextmanager
-    def publish_report(self, report_id: UUID, *, delivered: bool) -> Iterator[None]:
-        reservation = (
-            SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True)
-            .filter(report_id=report_id)
-            .first()
-        )
-        if reservation is None:
-            yield
-            return
         from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
-        snapshot = (
-            SignalReport.objects.filter(team_id=self.environment_id, id=report_id)
-            .values_list("self_driving_funding", flat=True)
-            .first()
-        )
-        funding = TrialFunding.from_dict(snapshot)
-        direct = direct_report_funding.get()
-        if direct and direct[0] == self.environment_id:
-            funding = direct[1]
-        if funding is not None and funding.grant_id is None:
-            yield
-            return
-        with self.locked_grant(reservation.grant_id) as grant:
-            reservation.refresh_from_db()
-            if reservation.status == SignalTrialReportReservation.Status.RELEASED and delivered:
-                raise TrialRefused("report_reservation_released")
-            yield
-            if reservation.status != SignalTrialReportReservation.Status.CONSUMED and (
-                delivered or reservation.active_attempts == 0
-            ):
-                reservation.status = (
-                    SignalTrialReportReservation.Status.CONSUMED
-                    if delivered
-                    else SignalTrialReportReservation.Status.RELEASED
-                )
-                if delivered:
-                    reservation.consumed_at = timezone.now()
-                reservation.save(update_fields=["status", "consumed_at"])
-            consumed = (
-                SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True)
-                .filter(grant=grant, status=SignalTrialReportReservation.Status.CONSUMED)
-                .count()
-            )
-            if consumed >= grant.report_limit and grant.exhausted_at is None:
-                grant.exhausted_at = timezone.now()
-                grant.exhaustion_reason = "report_limit"
-                grant.save(update_fields=["exhausted_at", "exhaustion_reason"])
-
-    def reserve_report_layers(self, parent_id: UUID, child_ids: list[UUID]) -> None:
-        from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
-
-        snapshot = (
-            SignalReport.objects.filter(team_id=self.environment_id, id=parent_id)
-            .values_list("self_driving_funding", flat=True)
-            .first()
-        )
-        funding = TrialFunding.from_dict(snapshot)
-        if funding is not None:
-            grant_id = funding.grant_id
-        else:
-            grant_id = (
-                SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True)
-                .filter(report_id=parent_id)
-                .values_list("grant_id", flat=True)
-                .first()
-            )
-        if grant_id is None:
-            return
-        with self.locked_grant(grant_id) as grant:
-            for child_id in child_ids:
-                self._reserve_report(grant, child_id)
+        with transaction.atomic():
+            # Report transitions already lock their row before admission locks the grant.
+            if report_id is not None:
+                report = SignalReport.objects.select_for_update().get(id=report_id, team_id=self.environment_id)
+            with self.locked_grant(grant.id) as grant:
+                if parent is not None and parent.grant_id != grant.id:
+                    raise TrialRefused("grant_unavailable")
+                if parent is not None:
+                    funding = parent
+                else:
+                    reason = trial_usage(grant).exhaustion_reason(grant)
+                    if reason:
+                        if not paid_authorized:
+                            raise TrialRefused(reason)
+                        funding = TrialFunding(funding="paid")
+                    else:
+                        funding = TrialFunding(funding="trial", grant_id=grant.id, policy_version=grant.policy_version)
+                if report_id is not None:
+                    # Publishing the admission under the same lock lets the next caller count it.
+                    report.self_driving_funding = funding.as_dict()
+                    report.save(update_fields=["self_driving_funding"])
+                return funding

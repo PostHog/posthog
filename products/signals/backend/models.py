@@ -63,7 +63,6 @@ from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 from products.signals.backend.trial.models import (  # noqa: F401 -- register Signals' durable trial ledger
     SignalTrialGrant,
-    SignalTrialReportReservation,
 )
 
 logger = logging.getLogger(__name__)
@@ -654,32 +653,6 @@ class SignalReport(UUIDModel):
         if self.status == self.Status.MONITORING and not self._monitoring_enabled():
             return self.Status.RESOLVED
         return self.Status(self.status)
-
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        from products.signals.backend.trial.policy import (
-            TrialPolicy,  # noqa: PLC0415 -- trial policy imports registered models lazily
-        )
-
-        terminal = self.status in {
-            self.Status.POTENTIAL,
-            self.Status.READY,
-            self.Status.PENDING_INPUT,
-            self.Status.FAILED,
-            self.Status.SUPPRESSED,
-            self.Status.DELETED,
-        }
-        writes_status = kwargs.get("update_fields") is None or "status" in kwargs["update_fields"]
-        if terminal and writes_status:
-            with transaction.atomic():
-                if not self._state.adding:
-                    # Report writers already lock this row; keep publication in the same lock order.
-                    SignalReport.objects.select_for_update().filter(id=self.id, team_id=self.team_id).exists()
-                with TrialPolicy(self.team).publish_report(
-                    self.id, delivered=self.status in {self.Status.READY, self.Status.PENDING_INPUT}
-                ):
-                    super().save(*args, **kwargs)
-        else:
-            super().save(*args, **kwargs)
 
     def transition_to(
         self,
@@ -4195,6 +4168,15 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         SignalReport, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
     )
     task_run_id = models.UUIDField(null=True, blank=True, unique=True)
+    trial_grant = models.ForeignKey(
+        "signals.SignalTrialGrant",
+        on_delete=models.PROTECT,
+        db_constraint=False,
+        db_index=False,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
     llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list, db_default=[])
     spend = models.DecimalField(
         max_digits=20, decimal_places=4, default=0, db_default=0, help_text="Customer spend in USD cents"
@@ -4209,7 +4191,10 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx")]
+        indexes = [
+            models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+            models.Index(fields=["trial_grant"], name="signals_spend_trial_grant_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "signal_id"], condition=models.Q(kind="ad-hoc"), name="signals_owner_spend_ad_hoc"

@@ -1,6 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
-from uuid import uuid4
 
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
@@ -13,8 +12,8 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import ReportLayer
 from products.signals.backend.stack_plan import create_layer_reports
-from products.signals.backend.trial.models import SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.usage import trial_usage
 
 
 class TestTrialConcurrency(NonAtomicBaseTest):
@@ -23,7 +22,7 @@ class TestTrialConcurrency(NonAtomicBaseTest):
     def test_concurrent_accepted_plans_publish_all_layers_after_the_report_limit(self) -> None:
         with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             policy = TrialPolicy(self.team)
-            policy.claim(user_id=self.user.pk)
+            grant = policy.claim(user_id=self.user.pk)
             parents = [
                 SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS) for _ in range(2)
             ]
@@ -32,8 +31,10 @@ class TestTrialConcurrency(NonAtomicBaseTest):
                     report_id=parent.id,
                     paid_authorized=False,
                 )
-                parent.status = SignalReport.Status.READY
-                parent.save(update_fields=["status"])
+                parent.refresh_from_db()
+                parent.save(
+                    update_fields=parent.transition_to(SignalReport.Status.READY, title="Plan", summary="Summary")
+                )
             barrier = Barrier(2)
 
             def publish_layers(parent: SignalReport) -> int:
@@ -55,10 +56,11 @@ class TestTrialConcurrency(NonAtomicBaseTest):
 
             with ThreadPoolExecutor(max_workers=2) as pool:
                 assert sorted(pool.map(publish_layers, parents)) == [2, 2]
-            assert SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="consumed").count() == 6
-            assert not SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="reserved").exists()
+            assert SignalReport.objects.filter(team=self.team, status=SignalReport.Status.READY).count() == 6
+            assert trial_usage(grant).reports == 6
+            assert trial_usage(grant).running_reports == 0
 
-    def test_final_organization_slot_and_report_slot_are_atomic(self) -> None:
+    def test_final_organization_claim_and_report_admission_are_atomic(self) -> None:
         with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             TrialPolicy(self.team).claim(user_id=self.user.pk)
             second = Team.objects.create(organization=self.organization, name="Second")
@@ -83,14 +85,15 @@ class TestTrialConcurrency(NonAtomicBaseTest):
             policy = TrialPolicy(self.team)
 
             def publish() -> bool:
-                report = uuid4()
+                report = SignalReport.objects.create(team=self.team)
                 try:
                     policy.admit(
-                        report_id=report,
+                        report_id=report.id,
                         paid_authorized=False,
                     )
-                    with policy.publish_report(report, delivered=True):
-                        pass
+                    report.refresh_from_db()
+                    report.status = SignalReport.Status.IN_PROGRESS
+                    report.save(update_fields=["status"])
                     return True
                 except TrialRefused:
                     return False
@@ -109,4 +112,6 @@ class TestTrialConcurrency(NonAtomicBaseTest):
 
             with ThreadPoolExecutor(max_workers=2) as pool:
                 assert sorted(pool.map(race_publish, range(2))) == [False, True]
-            assert SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="consumed").count() == 5
+            grant = policy.grant()
+            assert grant is not None
+            assert trial_usage(grant).running_reports == 5

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import time_machine
@@ -14,12 +15,13 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models import Organization, Team
 
-from products.signals.backend.models import SignalReport, SignalScoutConfig
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalSpend
 from products.signals.backend.scout_harness.team_limits import max_enabled_scouts_for_team, resolve_team_metadata
 from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.limits import TrialLimits
-from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
+from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.usage import trial_usage
 
 
 class TestTrialPolicy(BaseTest):
@@ -46,13 +48,11 @@ class TestTrialPolicy(BaseTest):
     @parameterized.expand([("",), ("cost_limit",), ("report_limit",)])
     def test_project_transfer_preserves_lifetime_grant_and_limits(self, exhaustion_reason: str) -> None:
         grant = self.claim()
-        report_id = uuid4()
+        report_id = SignalReport.objects.create(team=self.team).id
         funding = self.admit(report_id=report_id)
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         if exhaustion_reason:
-            grant.exhausted_at = timezone.now()
-            grant.exhaustion_reason = exhaustion_reason
-            grant.save(update_fields=["exhausted_at", "exhaustion_reason"])
+            self.exhaust(grant, exhaustion_reason)
         destination = Organization.objects.create(name="Destination")
         for team in [self.team, child]:
             team.organization = destination
@@ -66,13 +66,9 @@ class TestTrialPolicy(BaseTest):
                     policy.admit(paid_authorized=False)
                 assert policy.admit(paid_authorized=True).funding == "paid"
             else:
-                assert policy.admit(parent=funding, report_id=report_id, paid_authorized=False) == funding
+                assert policy.admit(parent=funding, paid_authorized=False) == funding
             assert policy.organization_grants_claimed() == 0
 
-        with TrialPolicy(self.team).publish_report(report_id, delivered=True):
-            pass
-        slot = SignalTrialReportReservation.objects.for_team(self.team.pk).get(report_id=report_id)
-        assert slot.status == SignalTrialReportReservation.Status.CONSUMED
         assert self.policy.organization_grants_claimed() == 1
         grant.refresh_from_db()
         assert grant.organization_id == self.organization.id
@@ -89,9 +85,7 @@ class TestTrialPolicy(BaseTest):
 
     def test_unknown_flag_retains_confirmed_decision_but_cannot_claim(self) -> None:
         grant = self.claim()
-        grant.exhausted_at = timezone.now()
-        grant.exhaustion_reason = "cost_limit"
-        grant.save(update_fields=["exhausted_at", "exhaustion_reason"])
+        self.exhaust(grant, "cost_limit")
         assert self.policy.flag_decision().enabled is True
         with CaptureQueriesContext(connection) as queries:
             assert self.policy.flag_decision().enabled is True
@@ -115,9 +109,7 @@ class TestTrialPolicy(BaseTest):
     ) -> None:
         grant = self.claim()
         funding = self.admit()
-        grant.exhausted_at = timezone.now()
-        grant.exhaustion_reason = "cost_limit"
-        grant.save(update_fields=["exhausted_at", "exhaustion_reason"])
+        self.exhaust(grant, "cost_limit")
         self.flag_mock.return_value = None
         self.flag_mock.side_effect = RuntimeError("flag unavailable") if flag_unavailable else None
         with patch(
@@ -129,27 +121,37 @@ class TestTrialPolicy(BaseTest):
                 self.admit()
             assert self.policy.admit(paid_authorized=False, parent=funding) == funding
 
-    @parameterized.expand([("cost_limit",), ("report_limit",), ("accounting_pending",)])
-    @time_machine.travel("2026-11-05T00:00:00Z", tick=False)
+    def exhaust(self, grant: SignalTrialGrant, reason: str) -> None:
+        if reason == "cost_limit":
+            SignalSpend.objects.create(
+                team=self.team,
+                kind=SignalSpend.Kind.AD_HOC,
+                signal_id=uuid4(),
+                trial_grant=grant,
+                billing_exempt=True,
+                spend=Decimal(grant.allowance_microusd) / 10_000,
+            )
+        else:
+            SignalReport.objects.bulk_create(
+                [
+                    SignalReport(team=self.team, first_visible_at=timezone.now(), status=SignalReport.Status.READY)
+                    for _ in range(grant.report_limit)
+                ]
+            )
+
+    @parameterized.expand([("cost_limit",), ("report_limit",)])
     def test_exhaustion_blocks_new_work_but_accepted_pipelines_finish(self, reason: str) -> None:
         grant = self.claim()
-        report_id = uuid4()
-        funding = self.admit(report_id=report_id)
-        if reason == "accounting_pending":
-            grant.incomplete_since = timezone.now() - timedelta(minutes=3)
-        else:
-            grant.exhausted_at = timezone.now()
-            grant.exhaustion_reason = reason
-        grant.save()
-
+        report = SignalReport.objects.create(team=self.team)
+        funding = self.admit(report_id=report.id)
+        self.exhaust(grant, reason)
         with self.assertRaisesMessage(TrialRefused, reason):
             self.admit()
-        assert self.policy.admit(paid_authorized=True, parent=funding, report_id=report_id) == funding
-        self.policy.reserve_direct_report(funding, report_id, run_id=uuid4())
-        with self.policy.publish_report(report_id, delivered=True):
-            pass
-        reservation = SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report_id)
-        assert reservation.status == SignalTrialReportReservation.Status.CONSUMED
+        assert self.policy.admit(paid_authorized=False, parent=funding, report_id=report.id) == funding
+        assert self.policy.admit(paid_authorized=True).funding == "paid"
+        self.flag_mock.return_value = False
+        assert self.policy.admit(paid_authorized=False, parent=funding) == funding
+        assert self.admit().funding == "existing"
 
     def test_activation_pauses_excess_scouts_and_preserves_user_pause(self) -> None:
         scouts = [SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}") for index in range(5)]
@@ -171,85 +173,70 @@ class TestTrialPolicy(BaseTest):
             assert max_enabled_scouts_for_team(self.team.id) == expected
 
     @parameterized.expand([(5,), (10,)])
-    def test_report_slots_release_only_before_delivery(self, report_limit: int) -> None:
+    def test_report_admission_counts_running_work_and_releases_undelivered_work(self, report_limit: int) -> None:
         grant = self.policy.claim(user_id=self.user.pk, limits=TrialLimits(report_limit=report_limit))
-        reports = [uuid4() for _ in range(report_limit + 1)]
-        for report_id in reports[:report_limit]:
-            self.admit(report_id=report_id)
-        assert self.admit(report_id=reports[0]).grant_id == grant.id
+        reports = [SignalReport.objects.create(team=self.team) for _ in range(report_limit + 1)]
+        for report in reports[:report_limit]:
+            self.admit(report_id=report.id)
         with self.assertRaisesMessage(TrialRefused, "report_limit"):
+            self.admit(report_id=reports[-1].id)
+        reports[0].status = SignalReport.Status.SUPPRESSED
+        reports[0].save(update_fields=["status"])
+        assert self.admit(report_id=reports[-1].id).grant_id == grant.id
+        assert trial_usage(grant).running_reports == report_limit
+
+    @parameterized.expand(
+        [
+            ("ready", "suppressed"),
+            ("pending_input", "deleted"),
+            ("failed", "deleted"),
+        ]
+    )
+    @time_machine.travel("2026-11-08T00:00:00Z", tick=False)
+    def test_report_qualification_survives_hiding_and_deletion(self, delivered_status: str, hidden_status: str) -> None:
+        grant = self.claim()
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS)
+        self.admit(report_id=report.id)
+        report.refresh_from_db()
+        report.save(
+            update_fields=report.transition_to(
+                SignalReport.Status(delivered_status), title="Report", summary="Summary", error="Run ended"
+            )
+        )
+        assert trial_usage(grant).reports == 1
+        assert trial_usage(grant).running_reports == 0
+        report.status = hidden_status
+        report.save(update_fields=["status"])
+        assert trial_usage(grant).reports == 1
+
+    def test_trial_report_count_uses_first_visibility_not_later_funding(self) -> None:
+        grant = self.claim()
+        SignalReport.objects.create(team=self.team, first_visible_at=grant.claimed_at - timedelta(seconds=1))
+        SignalReport.objects.create(
+            team=self.team, first_visible_at=timezone.now(), self_driving_funding=TrialFunding(funding="paid").as_dict()
+        )
+        SignalReport.objects.create(team=self.team, first_visible_at=timezone.now(), billing_exempt_reason="operator")
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        SignalReport.objects.create(team=child, first_visible_at=timezone.now())
+        assert trial_usage(grant).reports == 2
+
+    @parameterized.expand([(False,), (True,)])
+    def test_trial_usage_counts_known_cost_before_and_after_settlement(self, finalized: bool) -> None:
+        grant = self.claim()
+        SignalSpend.objects.create(
+            team=self.team,
+            kind=SignalSpend.Kind.AD_HOC,
+            signal_id=uuid4(),
+            trial_grant=grant,
+            spend=Decimal("1000.0000"),
+            billing_exempt=True,
+            finalized_at=timezone.now() if finalized else None,
+        )
+        usage = trial_usage(grant)
+        assert usage.spend_microusd == 10_000_000
+        assert usage.settled_microusd == (10_000_000 if finalized else 0)
+        with self.assertRaisesMessage(TrialRefused, "cost_limit"):
             self.admit()
-        with self.assertRaisesMessage(TrialRefused, "report_limit"):
-            self.admit(report_id=reports[-1])
-        with self.policy.publish_report(reports[0], delivered=False):
-            pass
-        assert self.admit().funding == "trial"
-        self.admit(report_id=reports[-1])
-        for report_id in reports[1:]:
-            with self.policy.publish_report(report_id, delivered=True):
-                pass
-            with self.policy.publish_report(report_id, delivered=False):
-                pass
-        grant.refresh_from_db()
-        assert grant.exhaustion_reason == "report_limit"
-        with self.assertRaisesMessage(TrialRefused, "report_limit"):
-            self.admit()
-
-    def test_publication_rollback_preserves_reservation(self) -> None:
-        self.claim()
-        report_id = uuid4()
-        self.admit(report_id=report_id)
-
-        def failed_write() -> None:
-            raise ValueError("publish failed")
-
-        with self.assertRaisesMessage(ValueError, "publish failed"):
-            with self.policy.publish_report(report_id, delivered=True):
-                failed_write()
-        with self.policy.publish_report(report_id, delivered=True):
-            pass
-
-    def test_editing_historical_report_does_not_consume_its_new_research_slot(self) -> None:
-        historical = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Original")
-        self.claim()
-        self.admit(report_id=historical.id)
-        SignalReport.objects.filter(team=self.team, id=historical.id).update(status=SignalReport.Status.IN_PROGRESS)
-        historical.title = "Edited"
-        historical.save(update_fields=["title"])
-        slot = SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=historical.id)
-        assert slot.status == SignalTrialReportReservation.Status.RESERVED
-        historical.refresh_from_db()
-        assert historical.status == SignalReport.Status.IN_PROGRESS
-        historical.status = SignalReport.Status.READY
-        historical.save(update_fields=["status"])
-        slot.refresh_from_db()
-        assert slot.status == SignalTrialReportReservation.Status.CONSUMED
-
-    @parameterized.expand([(True,), (False,)])
-    def test_direct_report_retries_hold_slot_until_last_attempt_finishes(self, tracked: bool) -> None:
-        self.claim()
-        operation = self.admit()
-        report = uuid4()
-        first, second = (uuid4(), uuid4()) if tracked else (None, None)
-        self.policy.reserve_direct_report(operation, report, run_id=first)
-        self.policy.reserve_direct_report(operation, report, run_id=second)
-        if tracked:
-            self.policy.reserve_direct_report(operation, report, run_id=first)
-        with self.policy.publish_report(report, delivered=False):
-            pass
-        self.policy.finish_direct_report_attempt(report, run_id=first)
-        if tracked:
-            self.policy.finish_direct_report_attempt(report, run_id=first)
-        slot = SignalTrialReportReservation.objects.for_team(self.team.pk).get(report_id=report)
-        assert slot.status == SignalTrialReportReservation.Status.RESERVED
-        assert slot.active_attempts == 1
-        with self.policy.publish_report(report, delivered=True):
-            pass
-        self.policy.finish_direct_report_attempt(report, run_id=second)
-        slot.refresh_from_db()
-        assert slot.status == SignalTrialReportReservation.Status.CONSUMED
-        assert slot.active_attempts == 0
-        assert slot.attempt_run_ids == []
 
     @parameterized.expand([(True,), (False,)])
     def test_scout_cap_is_shared_with_environments_and_supports_swapping(self, enabled: bool) -> None:
@@ -270,39 +257,3 @@ class TestTrialPolicy(BaseTest):
         scouts[-1].enabled = True
         scouts[-1].save(update_fields=["enabled"])
         assert SignalScoutConfig.objects.for_team(self.team.pk).filter(enabled=True).count() == 3
-
-    def test_admitted_report_pass_keeps_trial_funding_after_flag_off(self) -> None:
-        grant = self.claim()
-        report = uuid4()
-        parent = self.admit(report_id=report)
-        grant.settled_microusd = grant.allowance_microusd
-        grant.exhausted_at = timezone.now()
-        grant.exhaustion_reason = "cost_limit"
-        grant.save()
-        self.flag_mock.return_value = False
-        child = self.policy.admit(
-            parent=parent,
-            report_id=report,
-            paid_authorized=True,
-        )
-        assert child.funding == "trial"
-        assert child.grant_id == parent.grant_id
-        assert self.admit().funding == "existing"
-        self.policy.reserve_report_layers(report, [uuid4() for _ in range(grant.report_limit + 1)])
-        self.policy.reserve_direct_report(parent, uuid4())
-        assert SignalTrialReportReservation.objects.for_team(self.team.id).count() == grant.report_limit + 3
-        with self.policy.publish_report(report, delivered=True):
-            pass
-        assert SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report).status == "consumed"
-
-    @parameterized.expand([(False, "released"), (True, "consumed")])
-    def test_deletion_releases_only_undelivered_report_slots(self, delivered: bool, status: str) -> None:
-        self.claim()
-        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS)
-        self.admit(report_id=report.id)
-        if delivered:
-            report.status = SignalReport.Status.READY
-            report.save(update_fields=["status"])
-        report.status = SignalReport.Status.DELETED
-        report.save(update_fields=["status"])
-        assert SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report.id).status == status

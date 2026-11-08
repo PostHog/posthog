@@ -6,6 +6,7 @@ from django.db import transaction
 
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, lock_organization_trial
+from products.signals.backend.usage import trial_usage
 
 if TYPE_CHECKING:
     from products.signals.backend.models import SignalScoutConfig
@@ -32,8 +33,8 @@ def scout_capacity(config: "SignalScoutConfig") -> Iterator[None]:
             yield
             return
         lock_organization_trial(team.organization_id)
-        grant = SignalTrialGrant.objects.for_team(team_id, canonical=True).filter(exhausted_at__isnull=True).first()
-        if grant is not None:
+        grant = SignalTrialGrant.objects.for_team(team_id, canonical=True).first()
+        if grant is not None and not trial_usage(grant).exhaustion_reason(grant):
             count = (
                 SignalScoutConfig.objects.for_team(team_id, canonical=True)
                 .filter(enabled=True)
@@ -59,4 +60,4 @@ def trial_scout_limit(team_id: int) -> int | None:
     from posthog.models import Team  # noqa: PLC0415 -- avoid model registration cycle
 
     grant = TrialPolicy(Team.objects.get(id=team_id)).active_grant()
-    return grant.scout_limit if grant is not None and grant.exhausted_at is None else None
+    return grant.scout_limit if grant is not None and not trial_usage(grant).exhaustion_reason(grant) else None
