@@ -7,12 +7,16 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 import requests
 from botocore.exceptions import ClientError
 from parameterized import parameterized
 
+from posthog.admin.console.tools import Table
+
+from products.workflows.backend.console import EMPTY_QUEUES_TEXT, NO_SAMPLE_TEXT, SesEventsDlqTool
+from products.workflows.backend.facade.contracts import SesEventsDlqState
 from products.workflows.backend.services import ses_events_dlq
 from products.workflows.backend.services.ses_events_dlq import (
     MIN_MAX_PER_SECOND,
@@ -450,3 +454,35 @@ class TestSesEventsDlqConsoleTool(BaseTest):
         assert "r***@example.com" in content
         assert "recipient@example.com" not in content
         assert "2 h 0 min" in content
+
+
+class TestSesEventsDlqConsoleToolEmptySample(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("every_queue_read_and_empty", 0, None, EMPTY_QUEUES_TEXT),
+            ("a_queue_could_not_be_read", None, "AccessDenied", NO_SAMPLE_TEXT),
+            ("sqs_returned_no_sample_for_a_backlog", 3, None, NO_SAMPLE_TEXT),
+        ]
+    )
+    def test_says_the_queues_are_empty_only_when_the_counts_show_it(
+        self, _name: str, waiting: int | None, error: str | None, expected: str
+    ) -> None:
+        states = [
+            SesEventsDlqState(
+                queue_name="ses-events-dlq", waiting=0, in_flight=0, oldest_sampled_at=None, sample=(), error=None
+            ),
+            SesEventsDlqState(
+                queue_name="ses-events-other-dlq",
+                waiting=waiting,
+                in_flight=0 if error is None else None,
+                oldest_sampled_at=None,
+                sample=(),
+                error=error,
+            ),
+        ]
+        with patch("products.workflows.backend.console.inspect_ses_events_dlqs", return_value=states):
+            page = SesEventsDlqTool().page(RequestFactory().get("/"))
+
+        table = page.blocks[-1]
+        assert isinstance(table, Table)
+        assert table.empty_text == expected

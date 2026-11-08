@@ -189,7 +189,16 @@ REPLAY_NOTICE = (
 )
 NO_QUEUES_NOTICE = "No dead-letter queue is configured for this region. Set SES_EVENTS_DLQ_URLS to show them here."
 SAMPLE_NOTICE = "Up to 10 waiting events from each queue. Each team comes from the event's tracking code."
+EMPTY_QUEUES_TEXT = "No event is waiting in any queue."
+NO_SAMPLE_TEXT = "No events to show. SQS returned none, or a queue could not be read. Check the counts above."
 MISSING = Cell(text="-", muted=True)
+
+
+def _empty_sample_text(states: list[SesEventsDlqState]) -> str:
+    # SQS can answer a receive with no message while a backlog waits, so only the counts show that a queue is empty.
+    if all(state.error is None and state.waiting == 0 for state in states):
+        return EMPTY_QUEUES_TEXT
+    return NO_SAMPLE_TEXT
 
 
 def _age(since: datetime | None) -> Cell:
@@ -265,7 +274,7 @@ class SesEventsDlqTool(ConsoleTool):
                 Table(
                     columns=("Queue", "Event", "Team", "Recipient", "Waiting for", "Replayable"),
                     rows=tuple(_sample_row(state.queue_name, message) for state in states for message in state.sample),
-                    empty_text="No event is waiting in any queue.",
+                    empty_text=_empty_sample_text(states),
                 ),
             )
         )
