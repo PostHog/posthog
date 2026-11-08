@@ -1,4 +1,5 @@
 import { cn } from "@posthog/quill";
+import { cardOpenProps } from "@posthog/ui/primitives/ArtifactCard";
 import type { ReactNode } from "react";
 
 export function ArtifactListRow({
@@ -60,26 +61,13 @@ export function ArtifactListRow({
   }
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: nested real buttons forbid a <button> row
     <div
       data-artifact-card
-      role="button"
-      tabIndex={0}
-      aria-label={`View ${title}`}
       className={cn(
         baseClass,
         "cursor-pointer outline-none hover:bg-gray-3 focus-visible:bg-gray-3",
       )}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-      onPointerEnter={onHoverStart}
-      onFocus={onHoverStart}
+      {...cardOpenProps(title, onOpen, onHoverStart)}
     >
       {body}
     </div>
