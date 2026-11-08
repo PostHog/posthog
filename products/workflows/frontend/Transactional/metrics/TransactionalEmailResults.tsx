@@ -10,6 +10,14 @@ import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic
 import { TransactionalEmailResultsEmailPicker } from './TransactionalEmailResultsEmailPicker'
 import { TransactionalEmailResultsStats } from './TransactionalEmailResultsStats'
 
+// Clearing the field gives NaN, which the API rejects, so it changes nothing.
+function clampWindowDays(windowDays: number | undefined): number | null {
+    if (windowDays === undefined || !Number.isFinite(windowDays)) {
+        return null
+    }
+    return Math.min(Math.max(Math.round(windowDays), 1), 30)
+}
+
 export function TransactionalEmailResults(): JSX.Element {
     const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults, templatesFailed } =
         useValues(transactionalEmailMetricsLogic)
@@ -44,9 +52,9 @@ export function TransactionalEmailResults(): JSX.Element {
                         max={30}
                         value={resultsQuery.windowDays}
                         onChange={(windowDays) => {
-                            // Clearing the field gives NaN, which the API rejects.
-                            if (windowDays !== undefined && Number.isFinite(windowDays)) {
-                                setResultsQuery({ windowDays: Math.min(Math.max(Math.round(windowDays), 1), 30) })
+                            const clamped = clampWindowDays(windowDays)
+                            if (clamped !== null) {
+                                setResultsQuery({ windowDays: clamped })
                             }
                         }}
                         className="w-16"
