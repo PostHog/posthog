@@ -66,7 +66,7 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     # `posthog_user`, and creating that constraint locks a table every request writes.
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    # Set only for an alert with no source row. A copy's source row records who created it.
+    # Every source kind's alert carries it, so a source's pages can show and filter on it without its own row.
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,

@@ -257,6 +257,7 @@ def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
         schedule_restriction=alert.schedule_restriction,
         next_check_at=alert.next_check_at,
         snooze_until=alert.snoozed_until,
+        created_by_id=alert.created_by_id,
     )
 
 

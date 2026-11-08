@@ -373,6 +373,7 @@ class PlatformAlertUpsert:
     # Written only when the upsert creates the copy. An existing copy keeps the grouping its own
     # edits set, because a source row stores none.
     grouping: Grouping = Grouping()
+    created_by_id: int | None = None
 
 
 @frozen

@@ -734,6 +734,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             # A source's snooze mutes the whole alert. State is left alone because a muted alert
             # keeps tracking reality.
             "snooze_until": upsert.snooze_until,
+            "created_by_id": upsert.created_by_id,
         }
         if (
             existing is None
