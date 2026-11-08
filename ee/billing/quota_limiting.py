@@ -463,27 +463,38 @@ def _period_timestamp(value: str) -> int:
     return round(dateutil.parser.isoparse(value).timestamp())
 
 
+def counts_after_latest_report(
+    daily_usage: Mapping[str, int], period_start: str, latest_report_date: str | None
+) -> int:
+    """
+    PostHog's counts for the days of the billing period after billing's latest report.
+
+    Billing's total covers its billing period through `latest_report_date`, and no day when that
+    date is None.
+    """
+    first_lacking_day = dateutil.parser.isoparse(period_start).date()
+    if latest_report_date is not None:
+        first_lacking_day = max(
+            first_lacking_day, dateutil.parser.isoparse(latest_report_date).date() + timedelta(days=1)
+        )
+    return sum(count for day, count in daily_usage.items() if date.fromisoformat(day) >= first_lacking_day)
+
+
 def quota_usage(organization_usage: Mapping[str, Any], resource_usage: Mapping[str, Any]) -> int:
     """
     Billing's total plus PostHog's counts for the days that the total does not include.
 
-    Billing's total covers its billing period through `billing_latest_usage_report_date`, and no day
-    when that date is None. Without the stamp, or before a quota run stores `daily_usage`, PostHog
-    cannot tell which days the total covers, so the result is billing's total plus `todays_usage`.
+    `billing_latest_usage_report_date` says which days billing's total covers. Without the stamp,
+    or before a quota run stores `daily_usage`, PostHog cannot tell which days the total covers.
+    The result is then billing's total plus `todays_usage`.
     """
     billing_total = resource_usage.get("usage") or 0
     daily_usage = resource_usage.get(DAILY_USAGE_FIELD)
     period = organization_usage.get("period")
     if "billing_latest_usage_report_date" not in organization_usage or daily_usage is None or not period:
         return billing_total + (resource_usage.get("todays_usage") or 0)
-    first_lacking_day = dateutil.parser.isoparse(period[0]).date()
-    latest_report_date = organization_usage["billing_latest_usage_report_date"]
-    if latest_report_date is not None:
-        first_lacking_day = max(
-            first_lacking_day, dateutil.parser.isoparse(latest_report_date).date() + timedelta(days=1)
-        )
-    return billing_total + sum(
-        count for day, count in daily_usage.items() if date.fromisoformat(day) >= first_lacking_day
+    return billing_total + counts_after_latest_report(
+        daily_usage, period[0], organization_usage["billing_latest_usage_report_date"]
     )
 
 
