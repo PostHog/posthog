@@ -118,12 +118,12 @@ tools:
             Create an email sender for Workflows on a custom domain, for example hello@mail.example.com, the first step
             before any workflow can send email. Pass config with email (the from address), name (the from name shown in
             the inbox), and optionally mail_from_subdomain and reply_to. Ask the user before adding a sender: it is a
-            sending identity for a domain they control, and an address that cannot receive replies breaks any email
-            that asks for one. Use the domain people signed up at rather than a new one, so the mail comes from
-            somewhere they recognise. This registers the sending domain with the email provider and returns the new
-            integration; its `id` is the integration_id the other email tools take. The sender cannot send until its
-            domain is verified. Next, call integrations-email-status-retrieve to get the DNS records the domain needs,
-            then publish them: either with integrations-domain-connect-check-retrieve and
+            sending identity for a domain they control, and an address that cannot receive replies breaks any email that
+            asks for one. Use the domain people signed up at rather than a new one, so the mail comes from somewhere
+            they recognise. This registers the sending domain with the email provider and returns the new integration;
+            its `id` is the integration_id the other email tools take. The sender cannot send until its domain is
+            verified. Next, call integrations-email-status-retrieve to get the DNS records the domain needs, then
+            publish them: either with integrations-domain-connect-check-retrieve and
             integrations-domain-connect-apply-url-create, or with your own DNS tools. An address that already has a
             sender is rejected, so this cannot overwrite or unverify one: find that sender with integrations-list (kind
             email) and continue setup with its id, or change it with integrations-email-partial-update. A domain that
