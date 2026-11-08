@@ -124,17 +124,16 @@ describe('EmailTrackingService', () => {
             expect(signer.parse(code)?.workflowVersion).toBeUndefined()
         })
 
-        it('skips literal javascript: hrefs', () => {
-            const html = '<body><a href="javascript:alert(1)">x</a></body>'
-            const out = addTrackingToEmail(html, invocation, signer)
-            expect(out).toContain('href="javascript:alert(1)"')
-            expect(out).not.toContain('target=')
-        })
-
-        it('skips entity-encoded javascript: hrefs after decoding', () => {
-            const html = '<body><a href="java&#x73;cript:alert(1)">x</a></body>'
-            const out = addTrackingToEmail(html, invocation, signer)
-            expect(out).toContain('href="java&#x73;cript:alert(1)"')
+        it.each([
+            ['written out', 'javascript:alert(1)'],
+            ['entity-encoded', 'java&#x73;cript:alert(1)'],
+            ['split by a tab reference', 'java&#X09;script:alert(1)'],
+            ['split by a newline reference', 'jav&#10;ascript:alert(1)'],
+            ['split by a raw carriage return', 'java\rscript:alert(1)'],
+            ['led by a control character', '&#x01;javascript:alert(1)'],
+        ])('skips a javascript: href that is %s', (_, href) => {
+            const out = addTrackingToEmail(`<body><a href="${href}">x</a></body>`, invocation, signer)
+            expect(out).toContain(`href="${href}"`)
             expect(out).not.toContain('target=')
         })
 

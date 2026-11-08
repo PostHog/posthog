@@ -182,6 +182,16 @@ export const decodeHtmlEntitiesInHref = (value: string): string => {
     })
 }
 
+// A browser drops tabs and newlines anywhere in a URL, and control characters before it, then reads the scheme.
+const isJavascriptHref = (href: string): boolean => {
+    const url = href.replace(/[\t\n\r]/g, '')
+    let start = 0
+    while (start < url.length && (url.charCodeAt(start) <= 0x20 || /\s/.test(url[start]))) {
+        start++
+    }
+    return url.slice(start, start + 'javascript:'.length).toLowerCase() === 'javascript:'
+}
+
 export const addTrackingToEmail = (
     html: string,
     invocation: CyclotronJobInvocationHogFunction,
@@ -214,7 +224,7 @@ export const addTrackingToEmail = (
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
         // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
-        if (/^\s*javascript:/i.test(href)) {
+        if (isJavascriptHref(href)) {
             return m
         }
         // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
