@@ -168,6 +168,18 @@ describe('Hog Inputs', () => {
             return metric?.values.find((v) => v.labels.reason === reason)?.value ?? 0
         }
 
+        it('exports every render failure reason before the first failure', async () => {
+            const metric = await register.getSingleMetric('cdp_liquid_render_failures_total')?.get()
+            expect(metric?.values.map((v) => v.labels.reason).sort()).toEqual([
+                'contract',
+                'data',
+                'memory',
+                'output',
+                'parse_length',
+                'time',
+            ])
+        })
+
         it.each([
             ['an unsupported filter', '{{ event.event | where_exp: "i", "i" }}', 'contract', 'contract', undefined],
             ['a syntax error', '{% if %}', 'contract', 'contract', undefined],

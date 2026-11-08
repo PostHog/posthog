@@ -421,6 +421,12 @@ const LIQUID_LIMIT_REASONS: [string, string][] = [
     ['parse length limit', 'parse_length'],
 ]
 
+// Exported at 0 from startup, so a restarted pod shows a counter reset instead of hiding the failures
+// it counts before its first scrape.
+for (const reason of [...LIQUID_LIMIT_REASONS.map(([, reason]) => reason), 'data', 'contract']) {
+    liquidRenderFailures.inc({ reason }, 0)
+}
+
 const liquidFailureReason = (message: string, kind: HogVMErrorKind): string =>
     LIQUID_LIMIT_REASONS.find(([text]) => message.includes(text))?.[1] ?? kind
 
