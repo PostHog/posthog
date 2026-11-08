@@ -2646,6 +2646,15 @@ describe('CDP API', () => {
                 'a template send with the workflow version Django graded',
                 { tracking: { captureEngagement: false }, hogFlowVersion: 1 },
             ],
+            [
+                'a template send with copies',
+                {
+                    tracking: { captureEngagement: true },
+                    cc: ['copy@example.com'],
+                    bcc: ['audit@example.com'],
+                    hogFlowVersion: 1,
+                },
+            ],
         ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
             const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
 
@@ -2830,41 +2839,47 @@ describe('CDP API', () => {
             }
         })
 
-        it('refuses a new code send with files while attachments are off, and still replays one sent before', async () => {
-            const sentBefore = {
-                ...body,
-                idempotency_key: `key-${new UUIDT().toString()}`,
-                send: { ...codeSend, attachments: [attachment()] },
-            }
-            const accepted = await sendAccepted(hogFlow.id, sentBefore)
-            hub.CDP_EMAIL_ATTACHMENTS_ENABLED = false
-            const filename = `report-${new UUIDT().toString()}.pdf`
-            const refusedKey = `key-${new UUIDT().toString()}`
-
-            try {
-                const replay = await sendAccepted(hogFlow.id, sentBefore)
-                const refused = await sendAccepted(hogFlow.id, {
+        it.each([
+            ['code send', codeSend],
+            ['template send', { tracking: { captureEngagement: true }, hogFlowVersion: 1 }],
+        ])(
+            'refuses a new %s with files while attachments are off, and still replays one sent before',
+            async (_desc, accepted) => {
+                const sentBefore = {
                     ...body,
-                    idempotency_key: refusedKey,
-                    send: { ...codeSend, attachments: [attachment({ filename })] },
-                })
-                const withoutFiles = await sendAccepted(hogFlow.id, {
-                    ...body,
-                    idempotency_key: refusedKey,
-                    send: codeSend,
-                })
+                    idempotency_key: `key-${new UUIDT().toString()}`,
+                    send: { ...accepted, attachments: [attachment()] },
+                }
+                const first = await sendAccepted(hogFlow.id, sentBefore)
+                hub.CDP_EMAIL_ATTACHMENTS_ENABLED = false
+                const filename = `report-${new UUIDT().toString()}.pdf`
+                const refusedKey = `key-${new UUIDT().toString()}`
 
-                expect(replay.body).toMatchObject({ invocation_id: accepted.body.invocation_id, replayed: true })
-                expect(refused.status).toEqual(400)
-                expect(parseJSON(refused.body.error)).toEqual([
-                    expect.objectContaining({ code: 'unrecognized_keys', keys: ['attachments'], path: ['send'] }),
-                ])
-                expect(await storedAttachments(filename)).toEqual([])
-                expect(withoutFiles.status).toEqual(202)
-            } finally {
-                hub.CDP_EMAIL_ATTACHMENTS_ENABLED = true
+                try {
+                    const replay = await sendAccepted(hogFlow.id, sentBefore)
+                    const refused = await sendAccepted(hogFlow.id, {
+                        ...body,
+                        idempotency_key: refusedKey,
+                        send: { ...accepted, attachments: [attachment({ filename })] },
+                    })
+                    const withoutFiles = await sendAccepted(hogFlow.id, {
+                        ...body,
+                        idempotency_key: refusedKey,
+                        send: accepted,
+                    })
+
+                    expect(replay.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
+                    expect(refused.status).toEqual(400)
+                    expect(parseJSON(refused.body.error)).toEqual([
+                        expect.objectContaining({ code: 'unrecognized_keys', keys: ['attachments'], path: ['send'] }),
+                    ])
+                    expect(await storedAttachments(filename)).toEqual([])
+                    expect(withoutFiles.status).toEqual(202)
+                } finally {
+                    hub.CDP_EMAIL_ATTACHMENTS_ENABLED = true
+                }
             }
-        })
+        )
 
         it('keeps the stored files when the queue insert fails, as the job may be queued already', async () => {
             mockQueueInvocations.mockRejectedValueOnce(new Error('queue down'))
