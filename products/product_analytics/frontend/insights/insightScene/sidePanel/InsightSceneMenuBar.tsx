@@ -35,6 +35,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { unsavedSqlInsightQuery } from 'scenes/insights/utils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -138,6 +139,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     )
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
+    const unsavedSqlQuery = unsavedSqlInsightQuery(query, isSavedInsight)
     const canExport = exportContext != null && insight.short_id != null
     // Only an InsightViz renders the results card the browser-side capture targets. Anything else
     // still goes through the server-side PNG render.
@@ -397,9 +399,16 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                         <IconCopy />
                         Duplicate
                     </SceneMenuBarItem>
-                    {canEditInSqlEditor && (
+                    {(canEditInSqlEditor || unsavedSqlQuery) && (
                         <SceneMenuBarItem
-                            onClick={() => push(urls.sqlEditor({ query: hogQL ?? undefined }))}
+                            onClick={() =>
+                                push(
+                                    urls.sqlEditor({
+                                        query: unsavedSqlQuery ?? hogQL ?? undefined,
+                                        dashboard: unsavedSqlQuery ? (dashboardId ?? undefined) : undefined,
+                                    })
+                                )
+                            }
                             data-attr={`${RESOURCE_TYPE}-menubar-edit-sql`}
                         >
                             <IconPencil />

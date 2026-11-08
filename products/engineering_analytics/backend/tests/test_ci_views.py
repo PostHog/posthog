@@ -1,7 +1,7 @@
 import json
 import tempfile
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -40,6 +40,7 @@ from products.engineering_analytics.backend.logic.views import (
     job_costs,
     pr_friction,
 )
+from products.engineering_analytics.backend.logic.views.incremental_floor import SEED_LOOKBACK
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
@@ -444,8 +445,8 @@ class TestStoredCIConfig(SimpleTestCase):
 class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
-            ("runs", ci_rows.runs_select, ci_rows.RUN_FIELDS, 2, {"is_handoff_shell": 0}),
-            ("jobs", ci_rows.jobs_select, ci_rows.JOB_FIELDS, 3, {"is_rerun_copy": 0, "is_handoff_shell": 0}),
+            ("runs", ci_rows.runs_select, ci_rows.RUN_FIELDS, [100, 200], {"is_handoff_shell": 0}),
+            ("jobs", ci_rows.jobs_select, ci_rows.JOB_FIELDS, [1, 2, 3], {"is_rerun_copy": 0, "is_handoff_shell": 0}),
         ]
     )
     def test_view_runs_with_the_window_start_bound(
@@ -453,10 +454,12 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
         _name: str,
         select: Callable[[JobSourceTables], str],
         fields: dict[str, Any],
-        seeded_rows: int,
+        seeded_ids: list[int],
         flags: dict[str, int],
     ) -> None:
-        created_at = "2026-01-01T10:00:00.123Z"
+        recent = datetime.now(UTC).replace(microsecond=0) - timedelta(days=1)
+        created_at = recent.strftime("%Y-%m-%dT%H:%M:%S.123Z")
+        before_seed = (recent - SEED_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%S.123Z")
         jobs_table = _create_table(
             self,
             "github_workflow_jobs",
@@ -465,6 +468,7 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
                 {**_job_row(1, run_id=100, name="a"), "created_at": created_at},
                 {**_job_row(2, run_id=100, name="b"), "created_at": created_at},
                 {**_job_row(3, run_id=200, name="c"), "created_at": created_at},
+                {**_job_row(4, run_id=300, name="d"), "created_at": before_seed},
             ],
         )
         runs_table = _create_table(
@@ -474,6 +478,7 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
             [
                 {**_run_row(100, head_sha="s100", pr_numbers=[5], head_commit={}), "created_at": created_at},
                 {**_run_row(200, head_sha="s200", pr_numbers=[], head_commit={}), "created_at": created_at},
+                {**_run_row(300, head_sha="s300", pr_numbers=[], head_commit={}), "created_at": before_seed},
             ],
         )
         source = JobSourceTables(
@@ -485,10 +490,11 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
         query = f"SELECT {', '.join(fields)} FROM ({select(source)}) ORDER BY id"
 
         rows_by_window = {}
-        for since, expected_rows in (
-            (None, seeded_rows),
-            (datetime(2026, 1, 1, 10, tzinfo=UTC), seeded_rows),
-            (datetime(2026, 1, 1, 11, tzinfo=UTC), 0),
+        # A full build (NULL window start) seeds only the last SEED_LOOKBACK, so the older row stays out.
+        for since, expected_ids in (
+            (None, seeded_ids),
+            (recent, seeded_ids),
+            (recent + timedelta(hours=1), []),
         ):
             response = execute_hogql_query(
                 query=query,
@@ -497,7 +503,7 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
                 placeholders={"incremental_window_start": ast.Constant(value=since)},
             )
             assert response.columns == list(fields)
-            assert len(response.results) == expected_rows, since
+            assert [dict(zip(fields, row))["id"] for row in response.results] == expected_ids, since
             rows_by_window[since] = response.results
 
         first = dict(zip(fields, rows_by_window[None][0]))

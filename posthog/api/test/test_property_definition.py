@@ -9,12 +9,14 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
+from posthog.models import ActivityLog, Organization, Team
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
     PropertyDefinitionViewSet,
     QueryContext,
 )
+
+from products.event_definitions.backend.models import EventDefinition, EventProperty, PropertyDefinition
 
 
 def exclude_virtual_properties(results: list) -> list:

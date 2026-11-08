@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -7,7 +9,7 @@ from products.workflows.backend.facade.enums import (
     EmailDomainSetupRecordKind as Kind,
     EmailDomainSetupRecordType as RecordType,
 )
-from products.workflows.backend.services.email_domain_dns import find_published_records
+from products.workflows.backend.services.email_domain_dns import PublishedRecords, find_published_records
 from products.workflows.backend.tests.fakes.world import EmailDomainWorld
 
 DOMAIN = "mail.example.com"
@@ -52,3 +54,18 @@ class TestFindPublishedRecords(SimpleTestCase):
 
         with world.installed():
             assert (record in find_published_records(DOMAIN, [record]).records) is expected
+
+
+class TestOOBDomainGuard(SimpleTestCase):
+    @parameterized.expand([("on_cloud", True), ("off_cloud", False)])
+    def test_a_listed_domain_is_refused_on_cloud_only(self, _name: str, cloud: bool) -> None:
+        module = "products.workflows.backend.services.email_domain_dns"
+        with (
+            patch(f"{module}.is_cloud", return_value=cloud),
+            patch(f"{module}._authoritative_resolver", return_value=None) as resolver,
+            patch(f"{module}._published_with", return_value=PublishedRecords(records=frozenset())),
+        ):
+            published = find_published_records("abc.oast.live", [SPF])
+
+        assert resolver.called is not cloud
+        assert published.records == frozenset()

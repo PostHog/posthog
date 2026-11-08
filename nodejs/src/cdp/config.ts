@@ -56,6 +56,9 @@ export type CdpConfig = ClickhouseConfig & {
 
     CDP_EVENTS_CONSUMER_TOPIC: string
     CDP_EVENTS_CONSUMER_GROUP_ID: string
+    // Off until every produced event carries the event name header and
+    // cdp_events_unmatched_event_name_invoked stays at zero.
+    CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: boolean
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
@@ -162,6 +165,9 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_DLQ_REPLAY_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
+    // Attachment bytes are stored in the Cyclotron database, which the job queue also uses. While this is off,
+    // the API refuses a send with `attachments` before it stores any file.
+    CDP_EMAIL_ATTACHMENTS_ENABLED: boolean
 
     // Cyclotron (CDP job queue)
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
@@ -319,6 +325,7 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         CDP_EVENTS_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
+        CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: false,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
@@ -413,6 +420,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
+        CDP_EMAIL_ATTACHMENTS_ENABLED: false,
 
         // Cyclotron
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,

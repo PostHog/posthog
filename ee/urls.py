@@ -67,17 +67,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             pass
 
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.health_check_admin import (
-        health_check_list_view,
-        health_check_runs_fragment_view,
-        health_check_trigger_view,
-    )
     from posthog.admin.admins.notebook_markdown_migration_admin import (
         notebook_markdown_migration_run_view,
         notebook_markdown_migration_stats_view,
         notebook_markdown_migration_view,
     )
-    from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
     from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
     from posthog.admin.console.urls import urlpatterns as console_urlpatterns
 
@@ -92,7 +86,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
         path(
             "admin/resave-cohorts/",
-            admin.site.admin_view(resave_cohorts_view),
+            MovedToConsole.page_redirect("Re-save cohorts", "/admin/console/tools/resave-cohorts/"),
             name="resave-cohorts",
         ),
         path(
@@ -117,17 +111,17 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/health-checks/",
-            admin.site.admin_view(health_check_list_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/"),
             name="health-checks",
         ),
         path(
             "admin/health-checks/<str:kind>/",
-            admin.site.admin_view(health_check_trigger_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
             name="health-check-trigger",
         ),
         path(
             "admin/health-checks/<str:kind>/runs/",
-            admin.site.admin_view(health_check_runs_fragment_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
             name="health-check-runs",
         ),
         path(

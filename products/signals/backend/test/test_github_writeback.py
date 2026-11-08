@@ -10,19 +10,14 @@ from posthog.egress.limiter.policies import Priority
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import SourceIssue
-from products.signals.backend.github_writeback import (
-    CLAIM_LEASE,
-    MAX_COMMENT_PAGES,
-    _ingested_issue_urls,
-    post_report_link_to_github_issues,
-)
+from products.signals.backend.github_writeback import CLAIM_LEASE, MAX_COMMENT_PAGES, post_report_link_to_github_issues
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportGithubComment,
     SignalTeamConfig,
 )
-from products.signals.backend.test.test_signal_queries import _SignalEmbeddingsTestBase
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 WRITEBACK_MODULE_PATH = "products.signals.backend.github_writeback"
 
@@ -56,9 +51,11 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         )
         self.signal = _signal()
 
-    def _post(self, signals, *, issue=None):
+    def _post(self, signals, *, issue=None, connected=True):
         with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
             github = integration.first_for_team_repository.return_value
+            if not connected:
+                integration.first_for_team_repository.return_value = None
             github.api_request.return_value.json.return_value = (
                 issue if issue is not None else {"state": "open", "locked": False}
             )
@@ -146,28 +143,48 @@ class TestPostReportLinkToGithubIssues(BaseTest):
 
         assert integration.first_for_team_repository.call_args.kwargs["priority"] == Priority.BATCH
 
+    def _sync_issues(self, schema_name):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type="Github", status="Running", prefix="gh_", job_inputs={}
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=source, name=schema_name, should_sync=True)
+
     @parameterized.expand(
         [
-            ("a source issue the source ingested", False, {"https://github.com/acme/widgets/issues/42"}, 1),
-            ("a source issue the source never ingested", False, set(), 0),
-            ("the same issue from a signal and a source issue", True, set(), 1),
+            ("a synced repository", "acme/widgets.issues", True, False, 1),
+            ("another synced repository the installation also reaches", "acme/other.issues", True, False, 0),
+            ("a synced repository no team integration covers", "acme/widgets.issues", False, False, 0),
+            ("the same issue from a signal and a source issue", "acme/other.issues", True, True, 1),
         ]
     )
-    def test_comments_on_a_source_issue_only_once_the_source_ingested_it(self, _name, with_signal, synced, expected):
-        # Anyone who files a report can name any issue URL, so the app comments only on issues the
-        # team's GitHub source actually picked up.
+    def test_comments_on_a_source_issue_in_a_synced_repository_before_its_signal_is_ingested(
+        self, _name, schema_name, connected, with_signal, expected
+    ):
+        self._sync_issues(schema_name)
+        self._name_source_issue()
+
+        posted, comment = self._post([self.signal] if with_signal else [], connected=connected)
+
+        assert posted == expected
+        assert [call.args[:2] for call in comment.call_args_list] == [("acme/widgets", 42)] * expected
+
+    def test_posts_no_second_comment_when_the_issue_signal_joins_later(self):
+        self._sync_issues("acme/widgets.issues")
+        self._name_source_issue()
+
+        first, _ = self._post([])
+        joined, comment = self._post([self.signal])
+
+        assert (first, joined) == (1, 0)
+        comment.assert_not_called()
+
+    def _name_source_issue(self):
         SignalReportArtefact.add_log(
             team_id=self.team.pk,
             report_id=str(self.report.id),
             content=SourceIssue.github("Acme/Widgets", 42),
             attribution=ArtefactAttribution.system(),
         )
-
-        with patch(f"{WRITEBACK_MODULE_PATH}._ingested_issue_urls", return_value=synced):
-            posted, comment = self._post([self.signal] if with_signal else [])
-
-        assert posted == expected
-        assert [call.args[:2] for call in comment.call_args_list] == [("acme/widgets", 42)] * expected
 
     def test_comments_once_when_two_signals_name_the_same_issue(self):
         posted, comment = self._post([self.signal, _signal()])
@@ -247,25 +264,3 @@ class TestPostReportLinkToGithubIssues(BaseTest):
 
         assert posted == 0
         assert SignalReportGithubComment.objects.for_team(self.team.pk).get().commented_at is None
-
-
-class TestIngestedIssueUrls(_SignalEmbeddingsTestBase):
-    def test_finds_only_issues_with_a_live_github_issue_signal(self) -> None:
-        for document_id, source_product, html_url, deleted in [
-            ("ingested", "github", "https://github.com/Acme/Widgets/issues/7", False),
-            ("deleted", "github", "https://github.com/acme/widgets/issues/8", True),
-            ("other-source", "linear", "https://github.com/acme/widgets/issues/9", False),
-        ]:
-            self._emit_version(
-                document_id=document_id,
-                report_id="r-1",
-                source_product=source_product,
-                source_type="issue",
-                inserted_at=self.base,
-                deleted=deleted,
-                extra={"html_url": html_url},
-            )
-
-        urls = {f"https://github.com/acme/widgets/issues/{number}" for number in (7, 8, 9, 10)}
-
-        assert _ingested_issue_urls(self.team, urls) == {"https://github.com/acme/widgets/issues/7"}

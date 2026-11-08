@@ -41,7 +41,7 @@ export function EvaluationMethodPanel(): JSX.Element | null {
 
     return (
         <div className="flex flex-col gap-2">
-            <h4 className="mb-0 text-sm font-semibold">How it decides</h4>
+            <h4 className="mb-0 text-sm font-semibold">Choose how it decides</h4>
             <EvaluationChoiceCards<Method>
                 label="How it decides"
                 value={method}

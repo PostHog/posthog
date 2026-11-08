@@ -195,12 +195,14 @@ In practice, you should avoid both and access `person.properties.$browser`, whic
 
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
-Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type.
+Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type, including the empty string and text that starts with `[` or `{`.
 Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
-DateTime property definitions keep their conversions when compared with strings, for both event and person properties.
+DateTime property definitions keep their conversions when compared with strings, for both event and person properties; only a comparison with the empty string alone compares as text, and an `IN` list that also holds dates keeps the conversion.
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
-Constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
+For String and untyped properties, constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
 Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
+Empty property names, including nested path segments, use bound `getSubcolumn` calls because ClickHouse rejects empty SQL identifiers.
+Bound sub-object paths escape backticks with backslashes rather than SQL identifier quoting.
 A JSON function on the native `properties` column needs JSON text, and rebuilding the whole document as text from every path is the slowest way to get it.
 A call with a constant first key, such as `JSONLength(properties, 'details')`, serializes only that key's value and runs the function on it. This includes calls through `toString(properties)` and keys stored among the temporary properties.
 String, floating-point and Boolean extraction skip the serialization as well: they read the native value and apply the function's conversion and missing-value rules, independently of property-definition types. A stored floating-point value keeps the parser for string extraction, because JSON number formatting decides the result. It reads as false for Boolean extraction and as `Double` for `JSONType`, because the serialized form of an integral value is an integer token.
@@ -208,6 +210,9 @@ Integer extraction keeps ClickHouse's JSON parser on the serialized value, becau
 `JSONHas`, a key computed per row and a call with no key still rebuild the whole document.
 Grouping keys and expressions evaluated after grouping use the general property reader so conversions reference the same expression as GROUP BY.
 This includes window inputs, HAVING, ORDER BY and LIMIT BY; ordinary aggregate inputs and row-level predicates retain direct-path optimizations.
+A whole properties document cannot be a grouping key: HogQL rejects `GROUP BY properties` on both events tables, whether the document is named directly, by select-list position, through an alias, inside a tuple key, under GROUP BY ALL, or as a column of a subquery, CTE, view or union.
+The native table reads a key as a subcolumn, which ClickHouse does not accept as a function of the grouped document, so a key read after `GROUP BY properties` works on the legacy table only; rejecting the key everywhere keeps a query from changing behavior at the switch.
+Group by the keys the query reads, or by `uuid` for one row per event; an expression over the document such as `toString(properties)` is not rejected.
 When a join constraint needs a lazy join of the joined events table, HogQL wraps that table in a subquery and the outer query reads the subquery's columns.
 The subquery exports the columns, lazy-join fields and property keys the outer query reads, found by their resolved table binding rather than by alias text.
 A property key is exported as its stored value and the outer read keeps its own conversion, so a Numeric definition and an explicit string parser read the same export.

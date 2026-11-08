@@ -35,6 +35,7 @@ from products.knowledge_writer.backend.logic.records import (
 )
 from products.knowledge_writer.backend.logic.routing import docs_section
 from products.knowledge_writer.backend.settings import writer_settings
+from products.knowledge_writer.backend.task_profiles import WRITER
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
 
@@ -212,6 +213,7 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
     task = tasks_facade.get_task_by_origin_key(team.id, verdict.request.dedupe_id)
     assert task is not None
     assert task.origin_product == tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER
+    assert Task.objects.get(id=task.id).profile == WRITER.key
     assert task.repository == "posthog/posthog.com"
     stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
     assert isinstance(stored_request, dict)

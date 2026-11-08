@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
 
 # SonarQube Cloud v1 web API host per region. The token and organization are region-bound, so the
 # host the user picks decides which of these we hit. v2 (api.sonarcloud.io / api.sonarqube.us) is
@@ -16,6 +16,29 @@ REGION_HOSTS: dict[str, str] = {
 # windowing, which the v1 surface doesn't offer uniformly.
 MAX_PAGE_SIZE = 500
 RESULT_CAP = 10000
+
+# measures/search_history pages the history points of each metric, up to 1000 per page.
+HISTORY_PAGE_SIZE = 1000
+
+# The metric values a code-quality dashboard reads. measures/component_tree accepts at most 15 metric
+# keys per request, so the history table asks for the same 15 to keep the two tables joinable.
+MEASURE_METRIC_KEYS = (
+    "ncloc",
+    "lines",
+    "coverage",
+    "lines_to_cover",
+    "uncovered_lines",
+    "duplicated_lines_density",
+    "bugs",
+    "vulnerabilities",
+    "code_smells",
+    "security_hotspots",
+    "violations",
+    "sqale_index",
+    "reliability_rating",
+    "security_rating",
+    "sqale_rating",
+)
 
 
 @dataclass(frozen=False)
@@ -34,12 +57,21 @@ class SonarCloudEndpointConfig:
     # Some resources (quality gates) return a flat, unpaginated list.
     paginated: bool = True
     should_sync_default: bool = True
+    # Set for tables read per parent row (per project or per issue). The parent's organization and
+    # page size are added at request time.
+    fanout: Optional[DependentEndpointConfig] = None
+    page_size: int = MAX_PAGE_SIZE
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    default_incremental_field: Optional[str] = None
 
 
-# Endpoint catalog. Mirrors the streams the existing Airbyte SonarCloud connector ships (projects,
-# issues, metrics) plus quality gates, all reachable with just an organization key. Every stream is
-# full refresh: SonarQube Cloud exposes no uniform server-side update cursor, so there is no reliable
-# incremental field to advertise (see the source docstring).
+_METRIC_KEYS_PARAM: dict[str, Any] = {"metricKeys": ",".join(MEASURE_METRIC_KEYS)}
+
+
+# Endpoint catalog. Every stream is full refresh: SonarQube Cloud exposes no uniform server-side update
+# cursor. measures/search_history takes a `from` date, but its dates are analysis dates that become
+# readable only after background processing, and the per-project reads form no single ordered series,
+# so a max-date watermark could skip analyses.
 SONAR_CLOUD_ENDPOINTS: dict[str, SonarCloudEndpointConfig] = {
     "projects": SonarCloudEndpointConfig(
         name="projects",
@@ -65,9 +97,66 @@ SONAR_CLOUD_ENDPOINTS: dict[str, SonarCloudEndpointConfig] = {
         primary_keys=["id"],
         paginated=False,
     ),
+    "rules": SonarCloudEndpointConfig(
+        name="rules",
+        path="rules/search",
+        data_key="rules",
+    ),
+    # Current metric values per component (the project itself, its directories and its files).
+    "measures": SonarCloudEndpointConfig(
+        name="measures",
+        path="measures/component_tree?component={component}",
+        # The project row sits in `baseComponent`, the descendants in `components`. `paging` is
+        # selected too so the match is never a single object, which the client would unwrap.
+        data_key="($.paging) | ($.baseComponent) | ($.components[*])",
+        primary_keys=["key", "metric"],
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="component",
+            resolve_field="key",
+            include_from_parent=["key"],
+            parent_field_renames={"key": "project_key"},
+            child_params={**_METRIC_KEYS_PARAM, "strategy": "all", "ps": MAX_PAGE_SIZE},
+        ),
+    ),
+    # One row per project, metric and analysis.
+    "measures_history": SonarCloudEndpointConfig(
+        name="measures_history",
+        path="measures/search_history?component={component}",
+        data_key="measures",
+        primary_keys=["project_key", "metric", "date"],
+        partition_key="date",
+        page_size=HISTORY_PAGE_SIZE,
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="component",
+            resolve_field="key",
+            include_from_parent=["key"],
+            parent_field_renames={"key": "project_key"},
+            child_params={"metrics": _METRIC_KEYS_PARAM["metricKeys"], "ps": HISTORY_PAGE_SIZE},
+        ),
+    ),
+    # One request per issue, so this table is off by default.
+    "issue_changelog": SonarCloudEndpointConfig(
+        name="issue_changelog",
+        path="issues/changelog?issue={issue}",
+        data_key="changelog",
+        primary_keys=["issue_key", "creationDate"],
+        partition_key="creationDate",
+        paginated=False,
+        should_sync_default=False,
+        fanout=DependentEndpointConfig(
+            parent_name="issues",
+            resolve_param="issue",
+            resolve_field="key",
+            include_from_parent=["key", "project"],
+            parent_field_renames={"key": "issue_key", "project": "project_key"},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(SONAR_CLOUD_ENDPOINTS.keys())
 
-# No endpoint advertises a server-side timestamp filter we've verified, so none are incremental.
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in SONAR_CLOUD_ENDPOINTS}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    name: config.incremental_fields for name, config in SONAR_CLOUD_ENDPOINTS.items()
+}

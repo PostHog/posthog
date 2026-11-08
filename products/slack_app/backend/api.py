@@ -43,6 +43,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.commands.backend.facade import api as commands_api
 from products.slack_app.backend import inbox_channel
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
@@ -4269,6 +4270,7 @@ def post_thread_join_prompt(
             "event": inputs.event,
             "untagged_followup": inputs.untagged_followup,
             "untagged_followup_confirmed": inputs.untagged_followup_confirmed,
+            "report_implementation_message_ts": inputs.report_implementation_message_ts,
             "is_ext_shared_channel": inputs.is_ext_shared_channel,
         },
         timeout=THREAD_JOIN_PROMPT_MAX_AGE_SECONDS,
@@ -4434,6 +4436,7 @@ def _handle_thread_join_allow(payload: dict) -> HttpResponse:
         untagged_followup=bool(context.get("untagged_followup")),
         untagged_followup_confirmed=bool(context.get("untagged_followup_confirmed")),
         thread_join_approved=True,
+        report_implementation_message_ts=context.get("report_implementation_message_ts"),
         is_ext_shared_channel=bool(context.get("is_ext_shared_channel")),
     )
     _close_thread_join_prompt(context_token, context, response_url)
@@ -4633,8 +4636,8 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
 def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.ClickedSuggestion) -> HttpResponse:
     """Post the clicked reply in the thread and send it to the agent as the clicker's reply.
 
-    The click already says the message is for the agent, so it takes the confirmed untagged
-    follow-up path: no classifier, no creator prompt, and no new task in a thread without one.
+    A suggested reply takes the confirmed follow-up path. A report's Implement button can also
+    start a task, because its notification thread may not have one.
     The follow-up removes the buttons once the reply reaches the agent, which keeps that
     Slack call out of the three seconds Slack gives this request.
     """
@@ -4645,6 +4648,8 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
     channel = container.get("channel_id") or (payload.get("channel") or {}).get("id")
     message_ts = container.get("message_ts") or message.get("ts")
     thread_ts = container.get("thread_ts") or message.get("thread_ts")
+    if clicked.is_report_implementation:
+        thread_ts = thread_ts or message_ts
     if not (
         slack_team_id
         and clicker_slack_user_id
@@ -4693,6 +4698,39 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
         )
         return HttpResponse(status=200)
 
+    if clicked.is_report_implementation:
+        if not UserAccessControl(posthog_user, team=integration.team).check_access_level_for_resource("task", "editor"):
+            _post_slack_user_ephemeral(
+                slack,
+                channel,
+                clicker_slack_user_id,
+                thread_ts,
+                "You need task editor access to implement this report. Ask a project admin for access.",
+            )
+            return HttpResponse(status=200)
+
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 - keeps the signals model graph off the webhook import path
+            report_id_for_slack_thread,
+        )
+
+        if (
+            report_id_for_slack_thread(
+                team_id=integration.team_id,
+                slack_workspace_id=slack_team_id,
+                channel=channel,
+                thread_ts=thread_ts,
+            )
+            is None
+        ):
+            _post_slack_user_ephemeral(
+                slack,
+                channel,
+                clicker_slack_user_id,
+                thread_ts,
+                "This report is no longer linked to this Slack thread. Open it in PostHog to start implementation.",
+            )
+            return HttpResponse(status=200)
+
     # Two people can click before the buttons disappear, and only the first click may reach the agent.
     # The claim lasts as long as the buttons are tracked, in case removing them fails.
     if not cache.add(claim_key, clicker_slack_user_id, timeout=reply_suggestions.OPEN_SUGGESTIONS_TTL_SECONDS):
@@ -4732,8 +4770,10 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
             slack_team_id,
             None,
             posthog_user=posthog_user,
-            untagged_followup=True,
-            untagged_followup_confirmed=True,
+            untagged_followup=not clicked.is_report_implementation,
+            untagged_followup_confirmed=not clicked.is_report_implementation,
+            is_reply_suggestion=True,
+            report_implementation_message_ts=message_ts if clicked.is_report_implementation else None,
         )
     except Exception:
         # Nothing reached the agent, so the buttons stay usable and the reply does not stand in the thread.
@@ -4752,6 +4792,7 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
         slack_user_id=clicker_slack_user_id,
         posthog_user=posthog_user,
         suggestion_index=clicked.index,
+        reply_source="report_implementation" if clicked.is_report_implementation else "suggested_reply",
         slack_session_id=slack_session_id(slack_team_id, channel, thread_ts),
         ai_trace_id=clicked.trace_id,
     )
@@ -4933,6 +4974,8 @@ def _start_mention_workflow(
     event_id: str | None,
     *,
     posthog_user: User,
+    is_reply_suggestion: bool = False,
+    report_implementation_message_ts: str | None = None,
     untagged_followup: bool = False,
     untagged_followup_confirmed: bool = False,
     untagged_question: bool = False,
@@ -4961,9 +5004,10 @@ def _start_mention_workflow(
     They suppress the same two side effects: nobody mentioned us, and a reply in a
     forked DM can't be resolving a picker. ``untagged_question`` suppresses them
     for the same reason, and makes the workflow ask its classifier first.
+    Reply suggestions skip these side effects because their clicks have their own analytics event.
     """
     is_fork = bool(fork_source_channel and fork_source_thread_ts)
-    if not untagged_followup and not untagged_question and not is_fork:
+    if not untagged_followup and not untagged_question and not is_fork and not is_reply_suggestion:
         _report_slack_mention_received(
             event,
             integration,
@@ -4978,6 +5022,7 @@ def _start_mention_workflow(
         integration_id=integration.id,
         slack_team_id=slack_team_id,
         slack_event_id=event_id,
+        report_implementation_message_ts=report_implementation_message_ts,
         user_id=posthog_user.id,
         untagged_followup=untagged_followup,
         untagged_followup_confirmed=untagged_followup_confirmed,
