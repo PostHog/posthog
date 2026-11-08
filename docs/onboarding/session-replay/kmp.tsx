@@ -100,8 +100,8 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // Capture Android logcat output (Android only). Default is true.
                                             captureLogcat = true,
 
-                                            // Touch event debounce delay in milliseconds (Android only). Default is 1000.
-                                            debouncerDelayMs = 1000L,
+                                            // Minimum delay in milliseconds between replay snapshots (Android and iOS). Default is 1000.
+                                            throttleDelayMs = 1000L,
                                         ),
                                     )
                                 `,
