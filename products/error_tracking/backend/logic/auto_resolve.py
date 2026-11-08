@@ -18,10 +18,7 @@ _CANDIDATE_CHUNK_SIZE = 5000
 
 
 def find_auto_resolve_candidates(team: Team, after_days: int) -> list[UUID]:
-    """Return the ids of the team's active issues that had no exception in the last `after_days` days.
-
-    The preview and the daily sweep both call this, so the preview count matches what the sweep resolves.
-    """
+    """Return the ids of the team's active issues that had no exception in the last `after_days` days."""
     cutoff = timezone.now() - timedelta(days=after_days)
     candidate_ids = list(
         ErrorTrackingIssue.objects.filter(
