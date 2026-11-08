@@ -164,3 +164,40 @@ class TestAutoResolveTeam(ClickhouseTestMixin, BaseTest):
         assert call.kwargs["event"] == "error tracking issues auto resolved"
         assert call.kwargs["distinct_id"] == str(self.team.uuid)
         assert call.kwargs["properties"] == {"resolved_count": 2, "after_days": AFTER_DAYS}
+
+    @parameterized.expand(
+        [
+            ("sweep_fails", "sweep", (1, 1, 1)),
+            ("event_fails", "event", (2, 0, 2)),
+        ]
+    )
+    def test_activity_keeps_the_batch_going_when_one_team_fails(
+        self, _flag, _name, failing_step, expected_counts
+    ) -> None:
+        failing_team = Team.objects.create(organization=self.organization)
+        for team in (failing_team, self.team):
+            create_issue_with_exceptions(team, exception_days_ago=[[20]])
+            ErrorTrackingSettings.objects.update_or_create(team=team, defaults={"auto_resolve_after_days": AFTER_DAYS})
+        find_candidates = auto_resolve_sweep.find_auto_resolve_candidates
+
+        def find_or_fail(team, after_days):
+            if failing_step == "sweep" and team.id == failing_team.id:
+                raise RuntimeError("sweep failed")
+            return find_candidates(team, after_days)
+
+        def capture_or_fail(**kwargs):
+            if failing_step == "event" and kwargs["distinct_id"] == str(failing_team.uuid):
+                raise RuntimeError("capture failed")
+
+        capture = MagicMock(side_effect=capture_or_fail)
+        with (
+            patch.object(auto_resolve_sweep, "find_auto_resolve_candidates", side_effect=find_or_fail),
+            patch("products.error_tracking.backend.temporal.auto_resolve.activities.ph_scoped_capture") as scoped,
+        ):
+            scoped.return_value.__enter__.return_value = capture
+            result = ActivityEnvironment().run(
+                auto_resolve_teams_activity, AutoResolveTeamsInputs(team_ids=[failing_team.id, self.team.id])
+            )
+
+        assert (result.teams_processed, result.teams_failed, result.issues_resolved) == expected_counts
+        assert str(self.team.uuid) in [call.kwargs["distinct_id"] for call in capture.call_args_list]

@@ -3,7 +3,6 @@ from prometheus_client import Counter
 from temporalio import activity
 
 from posthog.event_usage import groups
-from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import close_stale_db_connections
@@ -56,13 +55,16 @@ def auto_resolve_teams_activity(inputs: AutoResolveTeamsInputs) -> AutoResolveTe
             teams_processed += 1
             issues_resolved += run.resolved_count
             ISSUES_AUTO_RESOLVED.inc(run.resolved_count)
-            team = Team.objects.get(id=team_id)
-            capture(
-                distinct_id=str(team.uuid),
-                event=ISSUES_AUTO_RESOLVED_EVENT,
-                groups=groups(team=team),
-                properties={"resolved_count": run.resolved_count, "after_days": run.after_days},
-            )
+            # The issues are already resolved, so a lost event must not count the team as failed.
+            try:
+                capture(
+                    distinct_id=str(run.team.uuid),
+                    event=ISSUES_AUTO_RESOLVED_EVENT,
+                    groups=groups(team=run.team),
+                    properties={"resolved_count": run.resolved_count, "after_days": run.after_days},
+                )
+            except Exception:
+                logger.exception("error_tracking.auto_resolve.event_failed", team_id=team_id)
     return AutoResolveTeamsResult(
         teams_processed=teams_processed, teams_failed=teams_failed, issues_resolved=issues_resolved
     )
