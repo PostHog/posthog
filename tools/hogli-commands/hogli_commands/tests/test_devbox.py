@@ -2297,6 +2297,27 @@ class TestResolveWorkspaceName:
 
         assert devbox_cli.resolve_workspace_name("@test-user")[0] == "devbox-test-user"
 
+    def test_moved_worktree_keeps_its_box(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, worktree_with_box: Path
+    ) -> None:
+        admin = tmp_path / "admin"
+        admin.mkdir()
+        moved = tmp_path / "moved"
+        moved.mkdir()
+        (moved / ".git").write_text(f"gitdir: {admin}\n")
+        devbox_config.record_worktree_box(
+            worktree_with_box,
+            devbox_config.WorktreeBoxRecord(
+                workspace="devbox-test-user-feat",
+                git_dir=str(admin),
+                workspace_id="id-devbox-test-user-feat",
+                worktree_id=devbox_config.ensure_worktree_id(admin),
+            ),
+        )
+        monkeypatch.chdir(moved)
+
+        assert devbox_cli.resolve_workspace_name(None)[0] == "devbox-test-user-feat"
+
     def test_listing_failure_in_a_worktree_stops_instead_of_retargeting(
         self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path
     ) -> None:

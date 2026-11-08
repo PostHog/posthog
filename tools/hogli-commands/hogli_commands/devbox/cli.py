@@ -109,6 +109,7 @@ from .config import (
     clear_worktree_provider,
     load_config,
     load_worktree_boxes,
+    read_worktree_id,
     save_dotfiles_uri,
     save_git_identity,
     save_region,
@@ -211,8 +212,25 @@ def current_worktree_box() -> WorktreeBoxRecord | None:
     """
     cwd = Path.cwd().resolve()
     root = next((candidate for candidate in (cwd, *cwd.parents) if (candidate / ".git").exists()), None)
-    record = load_worktree_boxes().get(str(root)) if root is not None else None
+    if root is None:
+        return None
+    boxes = load_worktree_boxes()
+    record = boxes.get(str(root))
+    if record is None:
+        worktree_id = read_worktree_id(_admin_dir(root))
+        record = next((box for box in boxes.values() if worktree_id and box.worktree_id == worktree_id), None)
     return record if record is not None and record.provider == "coder" else None
+
+
+def _admin_dir(root: Path) -> Path:
+    dot_git = root / ".git"
+    if dot_git.is_dir():
+        return dot_git
+    try:
+        pointer = dot_git.read_text().strip()
+    except OSError:
+        return dot_git
+    return root / pointer.removeprefix("gitdir:").strip()
 
 
 def resolve_default_workspace_name(
