@@ -18,14 +18,3 @@ def delete_orphaned_fragments(after: str | None = None) -> None:
     next_cursor = cleanup.delete_orphaned_fragment_batch(UUID(after) if after else None)
     if next_cursor is not None:
         delete_orphaned_fragments.delay(str(next_cursor))
-
-
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_backoff_max=300,
-    max_retries=5,
-)
-def delete_fragments_for_user(user_id: int) -> None:
-    cleanup.delete_fragments_for_user(user_id)

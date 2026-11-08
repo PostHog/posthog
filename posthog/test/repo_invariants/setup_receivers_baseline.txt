@@ -140,7 +140,6 @@ post_delete:products.slack_app.backend.signals.invalidate_repo_list_on_user_gith
 post_delete:products.surveys.backend.models.survey_changed
 post_delete:products.tasks.backend.models.delete_task_session_object
 post_delete:products.tasks.backend.search_index.channel_deleted
-post_delete:products.ui_customization.backend.signals.delete_layouts_of_deleted_account
 post_delete:products.web_analytics.backend.heatmap_history_expiry.delete_request_images
 post_delete:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_deleted
 post_delete:products.workflows.backend.receivers.optimization_deleted

@@ -17,9 +17,9 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 from products.ui_customization.backend.facade import api as customization_facade
 from products.ui_customization.backend.facade.enums import CustomizationContext
+from products.ui_customization.backend.facade.tasks import delete_orphaned_fragments
 from products.ui_customization.backend.logic.cleanup import delete_orphaned_fragment_batch
 from products.ui_customization.backend.models import UserInterfaceFragment
-from products.ui_customization.backend.tasks.tasks import delete_fragments_for_user
 from products.ui_customization.backend.tests.conftest import UICustomizationTeamScopedTestMixin
 from products.ui_customization.backend.tests.test_analytics_sidebar import GROWTH_LAYOUT
 
@@ -157,7 +157,7 @@ class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
     def test_account_cleanup_after_leaving_organization_preserves_other_users(self, deletion: str) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         teammate = self._create_user("remaining-user@example.com")
-        self._call("put", {"layout": self.layout})
+        self._call("put", {"layout": GROWTH_LAYOUT})
         for team_id in [self.team.id, other_team.id]:
             for user_id in [self.user.id, teammate.id]:
                 UserInterfaceFragment.objects.for_team(team_id).create(
@@ -165,15 +165,16 @@ class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
                 )
         OrganizationMembership.objects.filter(user=self.user).delete()
         deleted_user_id = self.user.id
-        with (
-            patch.object(delete_fragments_for_user, "delay", side_effect=delete_fragments_for_user.run),
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            if deletion == "api":
-                assert self.client.delete("/api/users/@me/").status_code == 204
-            else:
-                User.objects.filter(id=deleted_user_id).delete()
+        if deletion == "api":
+            assert self.client.delete("/api/users/@me/").status_code == 204
+        else:
+            User.objects.filter(id=deleted_user_id).delete()
 
+        with (
+            patch("products.ui_customization.backend.logic.cleanup.BATCH_SIZE", 2),
+            patch.object(delete_orphaned_fragments, "delay", side_effect=delete_orphaned_fragments.run),
+        ):
+            delete_orphaned_fragments.run()
         assert not User.objects.filter(id=deleted_user_id).exists()
         assert set(UserInterfaceFragment.objects.unscoped().values_list("team_id", "user_id", "context")) == {
             (team_id, teammate.id, "OtherSurface") for team_id in [self.team.id, other_team.id]
