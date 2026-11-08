@@ -11587,20 +11587,20 @@ Note: Used the official index and parsed OpenAPI blocks on its linked V1 and V2 
 
 ## SplitIo — gaps
 
-Today (10): `change_requests`, `environments`, `feature_flags`, `flag_sets`, `groups`, `rollout_statuses`, `segments`, `traffic_types`, `users`, `workspaces`
+Today (13): `attributes`, `change_requests`, `environments`, `feature_flag_definitions`, `feature_flags`, `flag_sets`, `groups`, `rollout_statuses`, `segment_keys`, `segments`, `traffic_types`, `users`, `workspaces`
 
 Diffed against: <https://docs.split.io/reference>
 
-- [ ] `feature flag definitions in environment (list-feature-flag-definitions-in-environment)` — the per-environment targeting rules, treatments, default rule and rollout percentages - the actual flag configuration; today only workspace-level flag metadata is synced (high)
-- [ ] `segment keys in environment (get-segment-keys-in-environment)` — segment membership rows; the membership table that turns segments into something joinable to your own users (high)
-- [ ] `attributes (get-attributes)` — traffic type attribute definitions; the lookup that resolves attribute keys used in targeting rules and identities (high)
+- [x] `feature flag definitions in environment (list-feature-flag-definitions-in-environment)` — the per-environment targeting rules, treatments, default rule and rollout percentages - the actual flag configuration; today only workspace-level flag metadata is synced (high) — added as `feature_flag_definitions`
+- [x] `segment keys in environment (get-segment-keys-in-environment)` — segment membership rows; the membership table that turns segments into something joinable to your own users (high) — added as `segment_keys`
+- [x] `attributes (get-attributes)` — traffic type attribute definitions; the lookup that resolves attribute keys used in targeting rules and identities (high) — added as `attributes`
 - [ ] `segments in environment (list-segments-in-environment)` — which segments are enabled per environment, plus their per-environment state (medium)
 - [ ] `large segments (listlargesegments, listlargesegmentsinenvironment)` — the large-segment variant is a separate resource entirely absent from the current tables (medium)
 - [ ] `rule-based segments` — rule-based segment definitions, a distinct segment class from the standard segments already synced (medium)
 - [ ] `identities (save/get identity)` — per-key attribute values used for targeting; lets flag exposure be joined to customer records (medium)
 - [ ] `restrictions (list-restrictions)` — governance restrictions applied to flags and environments; useful for change-control reporting (low)
 
-Note: Resource list taken from the ReadMe-generated reference index at docs.split.io/reference (119 pages), filtered to GET operations. Split's public Admin API has no impressions or metrics export, so experimentation result data is genuinely unavailable rather than missing from the connector. API keys, events ingestion (write-only) and tag association were excluded as config/plumbing.
+Note: Resource list taken from the ReadMe-generated reference index at docs.split.io/reference (119 pages), filtered to GET operations. Split's public Admin API has no impressions or metrics export, so experimentation result data is genuinely unavailable rather than missing from the connector. API keys, events ingestion (write-only) and tag association were excluded as config/plumbing. Identities cannot be synced: the Admin API only saves, updates and deletes them, and has no endpoint that reads an identity back. Segment keys walk the segments active in each environment (`GET /segments/ws/{ws}/environments/{env}`), because keys exist only where a segment is active.
 
 ## SplunkObservabilityCloud — gaps
 
