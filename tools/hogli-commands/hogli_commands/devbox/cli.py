@@ -1697,7 +1697,7 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
 
     status = get_workspace_status(ws)
     if status != "running":
-        suffix = _workspace_arg_suffix(source_name)
+        suffix = _workspace_arg_suffix(source_name) or f" --region {region}"
         _fail(
             f"The source devbox must be running to clone it (status: {status}). Start it: `hogli devbox:start{suffix}`."
         )

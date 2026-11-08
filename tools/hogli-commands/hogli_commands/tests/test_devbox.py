@@ -2286,15 +2286,25 @@ class TestResolveWorkspaceName:
 
         assert devbox_cli.resolve_workspace_name(workspace)[0] == expected
 
+    @pytest.mark.parametrize(
+        "status, expected",
+        [
+            pytest.param("running", "Clone 'devbox-test-user' -> 'devbox-test-user-copy'.", id="running"),
+            pytest.param("stopped", "`hogli devbox:start --region us-east-1`", id="stopped-source-hint"),
+        ],
+    )
     def test_clone_from_a_worktree_copies_the_default_box(
-        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, status: str, expected: str
     ) -> None:
+        workspaces = devbox_cli.list_user_workspaces()
+        workspaces[0]["latest_build"]["status"] = status
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.chdir(worktree_with_box)
 
         result = runner.invoke(cli, ["devbox:clone", "--as", "copy"], input="n\n")
 
-        assert "Clone 'devbox-test-user' -> 'devbox-test-user-copy'." in result.output, result.output
+        assert expected in result.output, result.output
 
 
 class TestDevboxCommands:
