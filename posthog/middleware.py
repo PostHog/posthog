@@ -47,7 +47,7 @@ from statshog.defaults.django import statsd
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
+from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
@@ -66,6 +66,7 @@ from posthog.models.activity_logging.utils import (
     record_agent_intent,
 )
 from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, new_events_schema_for_request
+from posthog.run_mode import derive_run_mode
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
@@ -1357,8 +1358,10 @@ class UnversionedStaticPathMiddleware:
 
     A posthog-js client with `strict_script_versioning` asks for its extension scripts under
     a version folder. Cloud serves those from a versioned CDN bucket. A self-hosted instance
-    holds one build of each script, so any version gets that build, as an unversioned request
-    does. Only self-hosted instances rewrite, so a request on cloud never changes.
+    or a local dev stack holds one build of each script, so any version gets that build, as an
+    unversioned request does. Without the rewrite the request reaches the frontend catch-all,
+    which answers with a login redirect that the browser then runs as a script. Cloud never
+    rewrites, so a request there never changes.
     """
 
     VERSIONED_STATIC_PATH = re.compile(r"^/static/\d+\.\d+\.\d+(?:-[\w.]+)?/")
@@ -1367,7 +1370,7 @@ class UnversionedStaticPathMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        if is_hobby():
+        if derive_run_mode(settings.CLOUD_DEPLOYMENT, settings.DEBUG).serves_one_posthog_js_build:
             request.path_info = self.VERSIONED_STATIC_PATH.sub("/static/", request.path_info, count=1)
         return self.get_response(request)
 

@@ -178,7 +178,9 @@ INSTALLED_APPS = [
 ]
 
 _UNVERSIONED_STATIC_MIDDLEWARE = (
-    ["posthog.middleware.UnversionedStaticPathMiddleware"] if derive_run_mode(CLOUD_DEPLOYMENT, DEBUG).is_hobby else []
+    ["posthog.middleware.UnversionedStaticPathMiddleware"]
+    if derive_run_mode(CLOUD_DEPLOYMENT, DEBUG).serves_one_posthog_js_build
+    else []
 )
 
 MIDDLEWARE = [
