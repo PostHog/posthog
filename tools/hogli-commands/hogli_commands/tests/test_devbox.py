@@ -3102,6 +3102,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: False)
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
 
         result = runner.invoke(cli, ["devbox:forward", "--port", "8010"])
 
@@ -3695,6 +3696,7 @@ class TestDevboxStop:
         expected: list[str],
         exit_code: int,
     ) -> None:
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         calls: list[str] = []
 
         def record(call: str, fails: bool = False) -> Callable[..., None]:
@@ -5431,6 +5433,7 @@ class TestDevboxSyncCommand:
     def test_default_run_fails_when_workspace_stopped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # A stopped box passes the SSH-config check but mutagen can't dial it;
         # surface a clear error before creating the session.
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         monkeypatch.setattr(
             devbox_sync,
             "resolve_workspace_name",
