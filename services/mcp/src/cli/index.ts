@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
+import { getToolDefinitions } from '@/tools/toolDefinitions'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import { buildAgentHelp } from './agent-help'
@@ -20,6 +21,7 @@ schema <tool_name> [field_path]
 call [--json] [--confirm] <tool_name> [json_input]`
 
 interface BuiltExec {
+    aiConsentGiven: boolean | undefined
     context: Context
     execTool: Tool<ZodObjectAny>
     tools: Tool<ZodObjectAny>[]
@@ -68,8 +70,9 @@ function printResult(result: unknown): void {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }
 
+// Discovery lists every tool. A real call only offers the AI consent tools when the organization allows them.
 function buildStaticExec(): BuiltStaticExec {
-    const tools = getCliTools()
+    const tools = getCliTools({ aiConsentGiven: true })
     const execTool = createExecTool(
         tools,
         undefined,
@@ -99,11 +102,11 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
         { requireDestructiveConfirmation: true }
     )
 
-    return { context, execTool, tools }
+    return { aiConsentGiven, context, execTool, tools }
 }
 
 function buildAgentHelpForStaticCatalog(): string {
-    return buildAgentHelp(getCliTools())
+    return buildAgentHelp(getCliTools({ aiConsentGiven: true }))
 }
 
 async function runStaticExecCommand(command: string): Promise<void> {
@@ -112,11 +115,14 @@ async function runStaticExecCommand(command: string): Promise<void> {
     printResult(result)
 }
 
-async function runExecCommand(command: string, config: CliConfig): Promise<void> {
+async function runExecCommand(command: string, config: CliConfig, toolName: string): Promise<void> {
     if (command.startsWith('call ')) {
         requireApiKey(config)
     }
-    const { execTool, context } = await buildExec(config)
+    const { aiConsentGiven, execTool, context } = await buildExec(config)
+    if (!aiConsentGiven && getToolDefinitions()[toolName]?.requires_ai_consent) {
+        throw new Error(`${toolName} sends data to an AI provider, and the organization has not allowed that.`)
+    }
     const result = await execTool.handler(context, { command })
     printResult(result)
 }
@@ -255,7 +261,8 @@ async function main(): Promise<void> {
             }
             await runExecCommand(
                 `call ${json ? '--json ' : ''}${confirmed ? '--confirm ' : ''}${toolName} ${jsonBody}`,
-                config
+                config,
+                toolName
             )
             return
         }
