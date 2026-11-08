@@ -9,6 +9,7 @@ from django.db.models.functions import Cast, Coalesce, TruncDate
 from django.db.models.lookups import GreaterThan, LessThanOrEqual
 
 from posthog.dataclasses import frozen
+from posthog.models import Team
 
 from products.signals.backend.models import SignalReport, SignalSpend
 from products.signals.backend.trial.models import SignalTrialGrant
@@ -49,8 +50,9 @@ def trial_usage(grant: SignalTrialGrant) -> TrialUsage:
         self_driving_funding__grant_id=str(grant.id),
         status__in=[SignalReport.Status.POTENTIAL, SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS],
     )
+    project_teams = Team.objects.filter(Q(id=grant.team_id) | Q(parent_team_id=grant.team_id)).values("id")
     reports = (
-        SignalReport.objects.filter(Q(team_id=grant.team_id) | Q(team__parent_team_id=grant.team_id))
+        SignalReport.objects.filter(team_id__in=project_teams)
         .filter(delivered | running)
         .filter(Q(billing_exempt_reason__isnull=True) | Q(billing_exempt_reason=""))
         .aggregate(
