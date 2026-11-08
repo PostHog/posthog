@@ -580,7 +580,11 @@ describe('EmailService', () => {
                     const result = await service.executeSendEmail(invocation, isTest)
 
                     expect(result.error).toBeUndefined()
-                    expect(result).toMatchObject({ finished: true, emailSendResult: { status: 'accepted' } })
+                    expect(result).toMatchObject({
+                        finished: true,
+                        usedSandboxSender: true,
+                        emailSendResult: { status: 'accepted' },
+                    })
                     expect(result.skipped).not.toBe(true)
                     expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
                     expect(sendEmailSpy).toHaveBeenCalledTimes(1)
@@ -656,6 +660,7 @@ describe('EmailService', () => {
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result).toMatchObject({
                     finished: true,
+                    usedSandboxSender: true,
                     error: 'The sandbox email template could not retain its identification footer. Update the template and try again.',
                 })
             })
@@ -2494,6 +2499,7 @@ describe('EmailService', () => {
             const normal = await service.executeSendEmail(invocation)
             expect(normal.metrics.map((m) => m.metric_name)).toContain('email_sent')
             expect(normal.metrics.map((m) => m.metric_name)).not.toContain('email_sandbox_sent')
+            expect(normal.usedSandboxSender).toBeUndefined()
 
             const testSend = await service.executeSendEmail(invocation, true)
             expect(testSend.metrics).toEqual([])

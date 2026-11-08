@@ -589,6 +589,9 @@ export class EmailService {
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
         const integration = await this.integrationManager.get(integrationId)
         const isSandbox = integration?.config.provider === 'sandbox'
+        if (isSandbox) {
+            result.usedSandboxSender = true
+        }
 
         let success: boolean = false
         let rescheduled: boolean = false

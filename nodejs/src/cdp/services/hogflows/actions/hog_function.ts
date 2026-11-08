@@ -264,7 +264,7 @@ export class HogFunctionHandler implements ActionHandler {
         // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
             // A step that does not send leaves this undefined and bills as before.
-            if (functionResult.deliveredToRecipient !== false) {
+            if (functionResult.deliveredToRecipient !== false && !functionResult.usedSandboxSender) {
                 trackHogFlowBillableInvocation(result, {
                     invocation: functionResult.invocation,
                     billingMetricType: this.hogFlowActionBillingType,

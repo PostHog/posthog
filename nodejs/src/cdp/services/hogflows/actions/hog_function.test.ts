@@ -838,9 +838,16 @@ describe('HogFunctionHandler', () => {
 
     // A push with no device token finishes unskipped, so only the send knows nobody was reached.
     it.each([
-        ['reached a device', true, true],
-        ['found no device token', false, false],
-    ] as const)('bills a push step only when the send %s', async (_label, delivered, shouldBill) => {
+        [
+            'a push that reached a device',
+            'push',
+            { deliveredToRecipient: true },
+            ['workflow_push_sent', 'workflow_billable_invocations'],
+        ],
+        ['a push that found no device token', 'push', { deliveredToRecipient: false }, []],
+        ['an email from an own sender', 'email', {}, ['workflow_emails_sent']],
+        ['an email from the sandbox sender', 'email', { usedSandboxSender: true }, []],
+    ] as const)('bills %s only when the step is billable', async (_label, billingType, sendOutcome, usageKeys) => {
         const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
             reportBillableInvocation: jest.fn(),
         }
@@ -848,7 +855,7 @@ describe('HogFunctionHandler', () => {
             mockHogFlowFunctionsService,
             mockRecipientPreferencesService,
             mockEmailValidationService,
-            'push',
+            billingType,
             null,
             usageReporter
         )
@@ -856,11 +863,10 @@ describe('HogFunctionHandler', () => {
         const executeWithAsyncFunctions =
             mockHogFlowFunctionsService.executeWithAsyncFunctions.bind(mockHogFlowFunctionsService)
         jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
-            async (hogFunctionInvocation, options) => {
-                const functionResult = await executeWithAsyncFunctions(hogFunctionInvocation, options)
-                functionResult.deliveredToRecipient = delivered
-                return functionResult
-            }
+            async (hogFunctionInvocation, options) => ({
+                ...(await executeWithAsyncFunctions(hogFunctionInvocation, options)),
+                ...sendOutcome,
+            })
         )
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -870,23 +876,13 @@ describe('HogFunctionHandler', () => {
 
         await handler.execute({ invocation, action, result: invocationResult })
 
-        expect(invocationResult.metrics.some((metric) => metric.metric_name === 'billable_invocation')).toBe(shouldBill)
-        if (shouldBill) {
-            const recordId = `flow:${invocation.id}:${invocation.state.actionStepCount}:push`
-            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
-                teamId: team.id,
-                usageKey: 'workflow_push_sent',
-                recordId,
-            })
-            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
-                teamId: team.id,
-                usageKey: 'workflow_billable_invocations',
-                recordId,
-            })
-            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(2)
-        } else {
-            expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
-        }
+        expect(invocationResult.metrics.filter((metric) => metric.metric_name === 'billable_invocation')).toEqual(
+            usageKeys.length ? [expect.objectContaining({ metric_kind: billingType, count: 1 })] : []
+        )
+        const recordId = `flow:${invocation.id}:${invocation.state.actionStepCount}:${billingType}`
+        expect(jest.mocked(usageReporter.reportBillableInvocation).mock.calls).toEqual(
+            usageKeys.map((usageKey) => [{ teamId: team.id, usageKey, recordId }])
+        )
     })
 
     // Live edits reach runs already in flight, so a run that entered on one version can send its
