@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import jwt
 from temporalio.common import WorkflowIDConflictPolicy
 
-from posthog.models.organization import Organization, _start_billing_active_sync_workflow
+from posthog.models.organization import (
+    Organization,
+    _start_billing_active_sync_workflow,
+    start_billing_active_sync_workflow,
+)
 from posthog.temporal.billing_active_sync.sync_organization_active_state import (
     RESYNC_SIGNAL,
     reconcile_organization_active_state,
@@ -159,6 +163,17 @@ class TestStartBillingActiveSyncWorkflow(BaseTest):
         logger_mock.warning.assert_called_once()
         assert logger_mock.warning.call_args.args == ("billing_active_state_sync_dispatch_failed",)
 
+    @patch("posthog.models.organization.BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS", 0.01)
+    @patch("posthog.temporal.common.client.async_connect")
+    def test_awaitable_dispatch_raises_when_temporal_does_not_answer(self, connect_mock):
+        async def _hang():
+            await asyncio.sleep(60)
+
+        connect_mock.side_effect = _hang
+
+        with self.assertRaises(TimeoutError):
+            asyncio.run(start_billing_active_sync_workflow(str(self.organization.pk)))
+
 
 class TestSyncTasks(BaseTest):
     def setUp(self):
@@ -196,6 +211,14 @@ class TestSyncTasks(BaseTest):
             sync_organization_active_state(str(self.organization.pk))
 
         set_mock.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
+    def test_sync_task_flags_a_deleted_organization(self, set_mock):
+        deleted_organization_id = "01900000-0000-0000-0000-000000000001"
+
+        self._run_with_cloud(sync_organization_active_state, deleted_organization_id)
+
+        set_mock.assert_called_once_with([deleted_organization_id], deactivated=True)
 
     @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
     @patch("ee.billing.billing_manager.BillingManager.get_deactivated_organizations")
