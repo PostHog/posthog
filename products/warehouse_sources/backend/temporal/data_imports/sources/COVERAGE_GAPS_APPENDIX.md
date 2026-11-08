@@ -11727,11 +11727,11 @@ Today (6): `Answers`, `Articles`, `Collections`, `Questions`, `Tags`, `Users`
 
 Diffed against: <https://api.stackoverflowteams.com/v3/swagger.json>
 
-- [ ] `GET /teams/{team}/questions/{questionId}/comments` — comment volume is a core engagement signal and is entirely missing (high)
-- [ ] `GET /teams/{team}/questions/{questionId}/answers/{answerId}/comments` — same engagement signal on answers, which we already sync (high)
-- [ ] `GET /teams/{team}/communities` — lookup resolving the community a question/user belongs to; needed to slice knowledge activity by group (medium)
+- [x] `GET /teams/{team}/questions/{questionId}/comments` — comment volume is a core engagement signal and is entirely missing (high)
+- [x] `GET /teams/{team}/questions/{questionId}/answers/{answerId}/comments` — same engagement signal on answers, which we already sync (high)
+- [x] `GET /teams/{team}/communities` — lookup resolving the community a question/user belongs to; needed to slice knowledge activity by group (medium)
 - [ ] `GET /teams/{team}/user-groups` — user group membership, the join table for per-team adoption reporting (medium)
-- [ ] `GET /teams/{team}/tags/{tagId}/subject-matter-experts` — lookup mapping the tags we already sync to their designated experts (medium)
+- [x] `GET /teams/{team}/tags/{tagId}/subject-matter-experts` — lookup mapping the tags we already sync to their designated experts (medium)
 - [ ] `GET /teams/{team}/articles/{articleId}/comments` — engagement on articles, which we already sync (medium)
 - [ ] `GET /teams/{team}/tags/{tagId}/tag-watchers and GET /teams/{team}/users/{userId}/watched-tags` — who follows which topic, an interest/expertise mapping (low)
 - [ ] `GET /teams/{team}/questions/{questionId}/linked and /related` — question-to-question graph for duplicate and topic-cluster analysis (low)
