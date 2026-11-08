@@ -49,7 +49,8 @@ tools:
             open a PostHog page or an insight, dashboard or notebook of this project, metrics that show the latest value
             of a trends insight, and lists that PostHog fills (pinned, recents, by_posthog). Get the IDs of insights,
             dashboards and notebooks from their tools first; never invent them. Saving rejects an insight, dashboard or
-            notebook that does not exist, and a metric whose insight is not a trends insight. Keep the default sections
-            the person did not ask to remove, and keep the IDs of the sections you keep. A 400 error names each value
-            that does not fit, so fix those values and send it again.
+            notebook that does not exist, and a metric whose insight is not a trends insight. Use at most 30 items total
+            across all sections, including at most 4 live metrics. Each built-in list counts as one item. Keep the
+            default sections the person did not ask to remove, and keep the IDs of the sections you keep. A 400 error
+            names each value that does not fit, so fix those values and send it again.
         feature_flag: ui-customization
