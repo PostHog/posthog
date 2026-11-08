@@ -203,5 +203,7 @@ class TestAnalyticsFragmentLayout(SimpleTestCase):
                 context={"view": SimpleNamespace(kwargs={"context": "analytics_sidebar"})}
             ).fields["layout"].to_internal_value(layout)
 
-        messages = str(raised.exception.detail[0]).split("; ")
+        detail = raised.exception.detail
+        assert isinstance(detail, list)
+        messages = str(detail[0]).split("; ")
         assert any(message.startswith(f"{path}:") for message in messages), messages

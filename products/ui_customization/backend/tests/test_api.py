@@ -15,7 +15,7 @@ from posthog.models.personal_api_key import hash_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.ui_customization.backend.facade import api as customization_facade
 from products.ui_customization.backend.facade.enums import CustomizationContext
 from products.ui_customization.backend.logic.cleanup import delete_orphaned_fragment_batch
