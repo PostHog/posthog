@@ -1491,6 +1491,8 @@ def _copy_static_cohort_rows_to_pg(
         nonlocal new_rows_read
         if replace_marker is not None and not population_marker_is_current(cohort.pk, replace_marker):
             raise PopulationSuperseded(cohort.pk)
+        # Tagged per page, because the batch writer between pages may retag.
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_sync_page")
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
             f"SELECT person_id, max(_timestamp) >= %(written_since)s FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s{timestamp_filter} AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
@@ -1503,6 +1505,7 @@ def _copy_static_cohort_rows_to_pg(
                 "replace_marker": replace_marker,
             },
             settings=read_settings,
+            # The cluster the population insert writes to, so a read never lands on another one.
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
             team_id=team_id,
@@ -1579,11 +1582,15 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
     one attempt can own the cohort at a time.
     """
     stored = cohort.population_marker
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_replace_mint_marker")
     # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
     rows = sync_execute(
         f"SELECT max(_timestamp) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
         {"team_id": team_id, "cohort_id": cohort.pk},
         settings=REPLACE_READ_SETTINGS,
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.COHORTS,
+        team_id=team_id,
     )
     floor = _as_utc(rows[0][0]) if rows and rows[0][0] is not None else None
     if stored is not None:
@@ -1611,18 +1618,30 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
     return marker
 
 
-def clear_population_run_fields(cohort: Cohort, *, marker: datetime | None) -> None:
-    """Clear the pending mode and marker, but only if ``marker`` is still the stored one.
+def clear_population_run_fields(cohort: Cohort, *, marker: datetime | None, mode: str | None) -> bool:
+    """Clear the pending mode and marker if ``mode`` and ``marker`` are still the stored ones.
 
-    The compare-and-clear leaves a newer attempt's marker, and the mode written with it, untouched.
+    Returns whether the attempt holding that pair still owns the cohort. A newer claim writes its own
+    mode, and a newer attempt its own marker, so their fields are never cleared here, and the caller
+    must not finalize over them. With both NULL there is nothing to clear, and ownership only needs
+    checking.
     """
     owned = Cohort.objects.filter(pk=cohort.pk)
     owned = (
         owned.filter(population_marker=marker) if marker is not None else owned.filter(population_marker__isnull=True)
     )
-    if owned.update(pending_population_mode=None, population_marker=None):
-        cohort.pending_population_mode = None
-        cohort.population_marker = None
+    owned = (
+        owned.filter(pending_population_mode=mode)
+        if mode is not None
+        else owned.filter(pending_population_mode__isnull=True)
+    )
+    if marker is None and mode is None:
+        return owned.exists()
+    if not owned.update(pending_population_mode=None, population_marker=None):
+        return False
+    cohort.pending_population_mode = None
+    cohort.population_marker = None
+    return True
 
 
 # ── Static population replace: prune ─────────────────────────────────
@@ -1636,14 +1655,22 @@ _GET_PERSONS_MAX_IDS = 250
 # it. The prune waits this long before re-checking what it removed. The repo has observed sub-second
 # lag between replicas; tests and local dev run one node.
 REPLACE_PRUNE_SETTLE_SECONDS = 0 if settings.TEST or settings.DEBUG else 1
+# The removed members waiting for that re-check. One wait then covers many pages, not one wait per page,
+# and memory stays bounded: 50,000 (id, uuid) pairs is a few megabytes.
+REPLACE_PRUNE_SETTLE_BATCH = 50_000
 
 
-def _iter_cohort_member_id_pages(cohort_id: int, page_size: int):
-    """Yield the cohort's Postgres member ids a page at a time, read from the primary."""
+def _iter_cohort_member_id_pages(team_id: int, cohort_id: int, page_size: int):
+    """Yield the cohort's Postgres member ids a page at a time, read from the primary.
+
+    The RPC has no team_id, so ownership is checked here, and a mismatch raises: the caller prunes.
+    """
     from posthog.personhog_client import consistency_to_read_options
     from posthog.personhog_client.client import get_personhog_client, personhog_call
     from posthog.personhog_client.proto import ListCohortMemberIdsRequest
 
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        raise CohortOwnershipMismatch(f"Cohort {cohort_id} does not belong to team {team_id}")
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
@@ -1696,27 +1723,58 @@ def _resolve_person_uuids(team_id: int, person_ids: list[int]) -> dict[int, str]
 def _uuids_present_at_marker(cohort_id: int, team_id: int, person_uuids: list[str], marker: datetime) -> set[str]:
     if not person_uuids:
         return set()
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_replace_membership")
     # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
     rows = sync_execute(
         f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND _timestamp >= %(marker)s AND person_id IN %(person_uuids)s",
         {"team_id": team_id, "cohort_id": cohort_id, "marker": marker, "person_uuids": person_uuids},
         settings=REPLACE_READ_SETTINGS,
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.COHORTS,
+        team_id=team_id,
     )
     return {str(row[0]) for row in rows}
+
+
+def _restore_members_whose_rows_arrived(
+    cohort: Cohort, *, team_id: int, marker: datetime, removed: dict[int, str], last_delete_at: float
+) -> int:
+    """Re-check the removed members once the settle time has passed since the last delete, restore
+    any whose row at the marker has arrived since, and return how many were restored."""
+    remaining = REPLACE_PRUNE_SETTLE_SECONDS - (time.monotonic() - last_delete_at)
+    if remaining > 0:
+        time.sleep(remaining)
+    restored_total = 0
+    pairs = list(removed.items())
+    for start in range(0, len(pairs), PRUNE_PAGE_SIZE):
+        chunk = dict(pairs[start : start + PRUNE_PAGE_SIZE])
+        arrived = _uuids_present_at_marker(cohort.pk, team_id, list(chunk.values()), marker)
+        if not arrived:
+            continue
+        if not population_marker_is_current(cohort.pk, marker):
+            raise PopulationSuperseded(cohort.pk)
+        restored = [person_id for person_id, person_uuid in chunk.items() if person_uuid in arrived]
+        insert_cohort_members(team_id, cohort.pk, restored, cohort.version)
+        restored_total += len(restored)
+    return restored_total
 
 
 def prune_members_absent_from_replace(cohort: Cohort, *, team_id: int, marker: datetime) -> int:
     """Remove every Postgres member the replace run didn't stamp, and return how many were removed.
 
     A member is removed only when it resolves to a person and that person has no ClickHouse row at or
-    after the marker. Rows a newer edit wrote also sit at or after it, so those members stay. After
-    each page's delete, the members it removed are checked again once the settle time has passed, and
-    any whose row has arrived since are restored. The re-check only ever restores people this prune
-    removed, so it can't bring back a member a manual remove deleted while that remove's ClickHouse
-    mutation is still pending.
+    after the marker. Rows a newer edit wrote also sit at or after it, so those members stay.
+
+    The removed members are checked again once the settle time has passed since the last delete, and
+    any whose row has arrived since are restored: a workflow add isn't a quorum write, so its row can
+    reach the replica after the prune read it. The re-check runs once per settle batch, not once per
+    page. It only ever restores people this prune removed, so it can't bring back a member a manual
+    remove deleted while that remove's ClickHouse mutation is still pending.
     """
     removed_total = 0
-    for page in _iter_cohort_member_id_pages(cohort.pk, PRUNE_PAGE_SIZE):
+    awaiting_recheck: dict[int, str] = {}
+    last_delete_at = 0.0
+    for page in _iter_cohort_member_id_pages(team_id, cohort.pk, PRUNE_PAGE_SIZE):
         if not population_marker_is_current(cohort.pk, marker):
             raise PopulationSuperseded(cohort.pk)
         uuids_by_id = _resolve_person_uuids(team_id, page)
@@ -1725,17 +1783,18 @@ def prune_members_absent_from_replace(cohort: Cohort, *, team_id: int, marker: d
         if not stale:
             continue
         delete_cohort_members_by_person_ids(team_id, cohort.pk, list(stale))
+        last_delete_at = time.monotonic()
         removed_total += len(stale)
-
-        if REPLACE_PRUNE_SETTLE_SECONDS:
-            time.sleep(REPLACE_PRUNE_SETTLE_SECONDS)
-        arrived = _uuids_present_at_marker(cohort.pk, team_id, list(stale.values()), marker)
-        if arrived:
-            if not population_marker_is_current(cohort.pk, marker):
-                raise PopulationSuperseded(cohort.pk)
-            restored = [person_id for person_id, person_uuid in stale.items() if person_uuid in arrived]
-            insert_cohort_members(team_id, cohort.pk, restored, cohort.version)
-            removed_total -= len(restored)
+        awaiting_recheck.update(stale)
+        if len(awaiting_recheck) >= REPLACE_PRUNE_SETTLE_BATCH:
+            removed_total -= _restore_members_whose_rows_arrived(
+                cohort, team_id=team_id, marker=marker, removed=awaiting_recheck, last_delete_at=last_delete_at
+            )
+            awaiting_recheck = {}
+    if awaiting_recheck:
+        removed_total -= _restore_members_whose_rows_arrived(
+            cohort, team_id=team_id, marker=marker, removed=awaiting_recheck, last_delete_at=last_delete_at
+        )
     return removed_total
 
 
@@ -1758,11 +1817,16 @@ def prune_static_cohort_rows_before_marker(cohort_id: int, *, team_id: int, mark
         team_id=team_id,
         name="prune_static_cohort_rows_before_marker",
         feature=Feature.COHORT,
+        query_type="static_cohort_replace_prune",
     )
+    # The default user, as the manual remove uses: the cohorts user's grants live outside this repo, so its
+    # right to delete can't be checked here.
     sync_execute(
         DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER,
         {"team_id": team_id, "cohort_id": cohort_id, "marker": marker},
         settings=_static_cohort_delete_settings(),
+        workload=Workload.OFFLINE,
+        team_id=team_id,
     )
 
 

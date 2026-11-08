@@ -43,7 +43,9 @@ from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
     COHORT_QUERY_TIMEOUT_SECONDS,
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
+    DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX,
     ERROR_CODE_MESSAGES,
+    PRUNE_PAGE_SIZE,
     REPLACE_INSERT_QUORUM_SETTINGS,
     STATIC_COHORT_READ_BACK_WAITS_SECONDS,
     CohortErrorCode,
@@ -53,6 +55,7 @@ from products.cohorts.backend.models.util import (
     _recalculate_cohortpeople_for_team_hogql,
     _sanitize_query_for_cohort,
     count_cohort_members,
+    delete_cohort_members_by_person_ids,
     get_all_cohort_dependencies,
     get_friendly_error_message,
     get_nested_cohort_ids,
@@ -1146,9 +1149,20 @@ class TestCohortUtils(BaseTest):
             insert_cohort_people_into_pg(cohort, team_id=self.team.pk, replace_marker=marker, min_rows=written)
             before_prune = self._static_cohort_stamps(cohort)
             # One member per page, so the cursor has to move past deleted members.
-            with patch("products.cohorts.backend.models.util.PRUNE_PAGE_SIZE", 1):
+            with (
+                patch("products.cohorts.backend.models.util.PRUNE_PAGE_SIZE", 1),
+                patch(
+                    "products.cohorts.backend.models.util.delete_cohort_members_by_person_ids",
+                    wraps=delete_cohort_members_by_person_ids,
+                ) as delete_calls,
+            ):
                 removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker)
             prune_static_cohort_rows_before_marker(cohort.pk, team_id=self.team.pk, marker=marker)
+
+        # One delete call per page that has stale members, never one per member. And the page size must
+        # stay within what that call accepts, or every replace would fail.
+        self.assertEqual(delete_calls.call_count, 1)
+        self.assertLessEqual(PRUNE_PAGE_SIZE, DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX)
 
         # The existing member who still matches gets a second row at the marker. The append insert
         # would skip them, and the prune would then delete a member the query still matches.
@@ -1168,11 +1182,27 @@ class TestCohortUtils(BaseTest):
         Cohort.objects.filter(pk=cohort.pk).update(population_marker=marker)
 
         # A workflow add's row lagged on the replica the prune read, then replicated before the re-check.
-        with patch(
-            "products.cohorts.backend.models.util._uuids_present_at_marker", side_effect=[set(), {str(late.uuid)}]
+        events: list[str] = []
+        presence = iter([set(), {str(late.uuid)}])
+
+        def check_presence(*args: Any) -> set[str]:
+            events.append("check")
+            return next(presence)
+
+        def delete(*args: Any) -> int:
+            events.append("delete")
+            return delete_cohort_members_by_person_ids(*args)
+
+        with (
+            patch("products.cohorts.backend.models.util.REPLACE_PRUNE_SETTLE_SECONDS", 1),
+            patch("products.cohorts.backend.models.util.time.sleep", side_effect=lambda _: events.append("wait")),
+            patch("products.cohorts.backend.models.util._uuids_present_at_marker", side_effect=check_presence),
+            patch("products.cohorts.backend.models.util.delete_cohort_members_by_person_ids", side_effect=delete),
         ):
             removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker)
 
+        # The re-check has to come after the delete and the wait, or it can't see a row that arrived late.
+        self.assertEqual(events, ["check", "delete", "wait", "check"])
         self.assertEqual((removed, list_cohort_member_ids(self.team.pk, cohort.pk)), (0, [late.id]))
 
     def test_mint_population_marker_loses_to_a_newer_attempt(self):

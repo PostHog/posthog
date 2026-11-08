@@ -29,6 +29,7 @@ from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.interceptor import is_transient_rpc_error
+from posthog.schema_enums import ProductKey
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
@@ -779,7 +780,11 @@ def _schedule_population_retry(
 
 
 def _tag_population_queries(task: Task, *, cohort_id: int, team_id: int) -> None:
-    tags = QueryTags(cohort_id=cohort_id, team_id=team_id)
+    # Product and feature come first because a replace queries ClickHouse to mint its marker before the
+    # insert tags anything, and an untagged query raises in local dev.
+    tags = QueryTags(
+        cohort_id=cohort_id, team_id=team_id, product=ProductKey.COHORTS, feature=query_tagging.Feature.COHORT
+    )
     if task.request.id:
         tags.celery_task_id = task.request.id
     update_tags(tags)
@@ -908,6 +913,10 @@ def calculate_cohort_from_list(
     )
 
 
+def _discard_population_history(history: CohortCalculationHistory) -> None:
+    history.delete()
+
+
 def _finalize_population_history(
     history: CohortCalculationHistory,
     *,
@@ -982,6 +991,7 @@ def _populate_static_cohort(
     processing_error: BaseException | None = None
     retry: Retry | None = None
     replacing = False
+    claimed_mode: str | None = None
     superseded: PopulationSuperseded | None = None
     marker: datetime | None = None
     try:
@@ -1013,7 +1023,11 @@ def _populate_static_cohort(
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
         claimed = cohort
+        claimed_mode = cohort.pending_population_mode
         cohort.refresh_from_db()
+        # The mode this attempt runs under is half of the token it finalizes with: a newer claim
+        # writes its own mode, so the compare-and-clear at the end can't take that claim's fields.
+        claimed_mode = cohort.pending_population_mode
 
         if replacing and marker is None:
             # Every insert attempt gets a fresh marker, so rows a lost acknowledgement left at an older
@@ -1022,6 +1036,10 @@ def _populate_static_cohort(
             marker = mint_population_marker(cohort, team_id=team_id)
             if marker is None:
                 raise PopulationSuperseded(cohort_id)
+        # Checked again before the history row exists: a retry that a sweep redispatch overtook while
+        # it started up must not open a row, because it would sort above the newer attempt's.
+        if marker is not None and not population_marker_is_current(cohort_id, marker):
+            raise PopulationSuperseded(cohort_id)
 
         # A history record is the only way a population failure reaches the user: the cohort API
         # reads `last_error_message` from the newest finished history row. Without one,
@@ -1066,9 +1084,10 @@ def _populate_static_cohort(
             prune_static_cohort_rows_before_marker(cohort_id, team_id=team_id, marker=marker)
             if not population_marker_is_current(cohort_id, marker):
                 raise PopulationSuperseded(cohort_id)
-            cohort._refresh_count(team_id=team_id)
             logger.info(f"{log_prefix}_replace_pruned", cohort_id=cohort_id, team_id=team_id, removed=removed)
         else:
+            # save_state=False is internal to insert_cohort_people_into_pg: releasing is_calculating inside the sync
+            # would let a new claim land before this attempt finalizes, and the finalize would then release that claim.
             insert_cohort_people_into_pg(cohort, team_id=team_id, min_rows=rows_written, written_since=written_since)
         logger.info(
             f"{log_prefix}_pg_complete",
@@ -1077,7 +1096,6 @@ def _populate_static_cohort(
         )
     except PopulationSuperseded as err:
         # A newer attempt owns is_calculating and the run fields from here, so this one stops writing.
-        # Only its own history row is closed, as not successful.
         superseded = err
         logger.info(f"{log_prefix}_superseded", cohort_id=cohort_id, team_id=team_id)
     except Exception as err:
@@ -1109,31 +1127,40 @@ def _populate_static_cohort(
         # One history row records one attempt, so every exit closes it, including a scheduled
         # retry. An open row left behind would read as a population still in flight.
         if history is not None and claimed is not None:
-            _finalize_population_history(
-                history,
-                cohort=claimed,
-                processing_error=processing_error or superseded,
-                will_retry=retry is not None,
-            )
+            if superseded is not None:
+                # Supersession is internal coordination, not an outcome. A closed row would show an error
+                # banner during the newer attempt, and could outrank its success in the history.
+                superseded_history = history
+                save_recovery_bookkeeping(
+                    lambda: _discard_population_history(superseded_history),
+                    cohort_id=cohort_id,
+                    team_id=claimed.team_id,
+                )
+            else:
+                _finalize_population_history(
+                    history, cohort=claimed, processing_error=processing_error, will_retry=retry is not None
+                )
         # Every exit but a scheduled retry finalizes state, so a retry whose broker publish failed
         # (Celery raises Reject in place of Retry) records the failure instead of stranding the
         # cohort in flight. A scheduled retry keeps is_calculating set for the next attempt, and a
         # superseded attempt leaves all of it to the attempt that replaced it.
         if claimed is not None and retry is None and superseded is None:
-            if replacing:
-                # Before is_calculating is released, so a request can't claim the cohort in between
-                # and have its new mode cleared. The compare-and-clear on the marker this attempt
-                # holds (or read, if it never minted one) skips a newer attempt's fields.
-                clear_population_run_fields(claimed, marker=claimed.population_marker)
-            claimed._safe_save_cohort_state(team_id=claimed.team_id, processing_error=processing_error)
-            claimed.refresh_from_db(fields=["is_calculating", "errors_calculating"])
-            logger.info(
-                f"{log_prefix}_finished",
-                cohort_id=cohort_id,
-                team_id=claimed.team_id,
-                is_calculating=claimed.is_calculating,
-                errors_calculating=claimed.errors_calculating,
-            )
+            # Finalize only while this attempt still owns the cohort: its mode and marker are still the
+            # stored ones. Otherwise a newer attempt took over at the last moment, and releasing
+            # is_calculating would release that attempt's run.
+            if clear_population_run_fields(claimed, marker=claimed.population_marker, mode=claimed_mode):
+                claimed._refresh_count(team_id=claimed.team_id)
+                claimed._safe_save_cohort_state(team_id=claimed.team_id, processing_error=processing_error)
+                claimed.refresh_from_db(fields=["is_calculating", "errors_calculating"])
+                logger.info(
+                    f"{log_prefix}_finished",
+                    cohort_id=cohort_id,
+                    team_id=claimed.team_id,
+                    is_calculating=claimed.is_calculating,
+                    errors_calculating=claimed.errors_calculating,
+                )
+            else:
+                logger.info(f"{log_prefix}_superseded_at_finalize", cohort_id=cohort_id, team_id=claimed.team_id)
     if settings.DEBUG and processing_error is not None:
         raise processing_error
 
