@@ -1,0 +1,26 @@
+import os
+import sys
+import fcntl
+from pathlib import Path
+
+# `hogli devbox:worktree` holds this lock while it builds the test database: see _TEST_DB_PREWARM_SCRIPT there.
+PREWARM_LOCK = Path.home() / ".cache" / "hogli" / "test-db-prewarm.lock"
+PREWARM_RUN_ENV = "HOGLI_TEST_DB_PREWARM"
+
+
+def wait_for_test_db_prewarm(lock_path: Path = PREWARM_LOCK) -> None:
+    if os.environ.get(PREWARM_RUN_ENV):
+        return
+    try:
+        lock = lock_path.open()
+    except FileNotFoundError:
+        return
+    with lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            sys.stderr.write(
+                "Waiting for the test database build that `hogli devbox:worktree` started. "
+                f"Log: {lock_path.with_suffix('.log')}\n"
+            )
+            fcntl.flock(lock, fcntl.LOCK_SH)

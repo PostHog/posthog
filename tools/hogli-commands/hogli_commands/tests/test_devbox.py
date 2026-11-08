@@ -1179,6 +1179,11 @@ class TestDevboxWorktreeCommand:
         monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
         monkeypatch.setattr(devbox_worktree.mutagen, "sync_list", lambda label_selector=None: [])
         monkeypatch.setattr(devbox_worktree, "_git_dir", lambda root: root / "admin")
+        monkeypatch.setattr(
+            devbox_worktree,
+            "run_in_workspace",
+            lambda name, command, timeout: subprocess.CompletedProcess(command, 0, "", ""),
+        )
         return root
 
     @pytest.mark.parametrize(
@@ -1252,12 +1257,20 @@ class TestDevboxWorktreeCommand:
 
         monkeypatch.setattr(devbox_worktree, "devbox_start", fake_start)
         monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda name, *a, **kw: synced.append(name))
+        prewarmed: list[str] = []
+
+        def fake_run_in_workspace(name: str, command: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
+            prewarmed.append(name)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        monkeypatch.setattr(devbox_worktree, "run_in_workspace", fake_run_in_workspace)
 
         result = runner.invoke(cli, ["devbox:worktree", *(["--label", label] if label else [])])
 
         assert result.exit_code == expected_exit, result.output
         expected_calls = [expected_box] if expected_exit == 0 else []
-        assert (started, synced) == (expected_calls, expected_calls)
+        created = [box for box in expected_calls if box not in (existing or [])]
+        assert (started, synced, prewarmed) == (expected_calls, expected_calls, created)
         assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_box
 
     @pytest.mark.parametrize(

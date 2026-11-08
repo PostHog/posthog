@@ -197,6 +197,8 @@ rules:
       owners: team-feature-flags
     - match:
           - '/packages/owners-yaml/'
+          - '/posthog/test/prewarmed_test_db.py'
+          - '/posthog/test/test_prewarmed_test_db.py'
           - '/tools/hogli-commands/'
           - '/tools/hogli/'
           - '/tools/phrocs/'

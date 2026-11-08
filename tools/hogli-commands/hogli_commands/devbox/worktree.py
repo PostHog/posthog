@@ -40,6 +40,7 @@ from .coder import (
     get_workspace_name,
     get_workspace_status,
     region_from_workspace_name,
+    run_in_workspace,
 )
 from .config import (
     WORKTREE_AUTO_SOURCES,
@@ -75,6 +76,17 @@ _SUBAGENT_WORKTREE_PREFIX = "agent-"
 _CONDUCTOR_LOCAL_SETTINGS = Path(".conductor") / "settings.local.toml"
 _CONDUCTOR_SETUP_SCRIPT = "bin/devbox-worktree-hook created conductor"
 _CONDUCTOR_SCRIPTS = f'[scripts]\nsetup = "{_CONDUCTOR_SETUP_SCRIPT}"\narchive = "bin/devbox-worktree-hook archiving"\n'
+_TEST_DB_LOG = "~/.cache/hogli/test-db-prewarm.log"
+# The root conftest waits on this lock before it sets up the test database, so keep both paths in sync.
+# `setsid -f` detaches the build, because ssh waits for a background job that stays in its session.
+_TEST_DB_PREWARM_SCRIPT = f"""
+mkdir -p ~/.cache/hogli
+cd {_REMOTE_REPO_PATH} || exit 1
+HOGLI_TEST_DB_PREWARM=1 setsid -f flock --nonblock ~/.cache/hogli/test-db-prewarm.lock \\
+    timeout 1h bash -lc 'flox activate -- pytest -q -x posthog/api/test/test_comments.py' \\
+    >> {_TEST_DB_LOG} 2>&1 < /dev/null
+"""
+_TEST_DB_PREWARM_START_TIMEOUT_SECONDS = 60
 
 
 def label_budget(username: str, region: str) -> int:
@@ -476,7 +488,10 @@ def devbox_worktree(
         else f"Mirror {root} to coder.{target.workspace_name}:{_REMOTE_REPO_PATH}"
     )
 
-    if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
+    steps = [box_step, sync_step]
+    if existing is None:
+        steps.append("Build the test database on the devbox in the background")
+    if not _print_plan(root, steps, on_clean, dry_run):
         return
     _reset_recreated_mirror(target)
     git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "coder")
@@ -505,16 +520,38 @@ def devbox_worktree(
     if _prune_box_of_worktree_removed_during_setup(root, git_dir):
         return
     ensure_sync_session(target.workspace_name, workspaces, root, verbose=verbose)
+    if existing is None:
+        _prewarm_test_db(target.workspace_name)
     click.echo()
     click.echo(f"App URL, once the stack runs on the box: {_app_url(target.workspace_name)}")
 
 
-def _print_plan(root: Path, box_step: str, sync_step: str, on_clean: str | None, dry_run: bool) -> bool:
-    click.echo(f"Worktree: {root}")
-    click.echo(f"  1. {box_step}")
-    click.echo(f"  2. {sync_step}")
+def _prewarm_test_db(workspace_name: str) -> None:
+    try:
+        result = run_in_workspace(
+            workspace_name, ["bash", "-c", _TEST_DB_PREWARM_SCRIPT], timeout=_TEST_DB_PREWARM_START_TIMEOUT_SECONDS
+        )
+    except subprocess.TimeoutExpired:
+        result = None
+    if result is None or result.returncode != 0:
+        click.echo(
+            click.style(
+                "Couldn't start the test database build on the devbox. The first backend test builds it instead.",
+                fg="yellow",
+            )
+        )
+        return
+    click.echo(
+        f"Building the test database on the devbox in the background. Tests wait for it. Log on the devbox: {_TEST_DB_LOG}"
+    )
+
+
+def _print_plan(root: Path, steps: list[str], on_clean: str | None, dry_run: bool) -> bool:
     if on_clean is not None:
-        click.echo(f"  3. Save worktrees:clean devbox action: {on_clean}")
+        steps = [*steps, f"Save worktrees:clean devbox action: {on_clean}"]
+    click.echo(f"Worktree: {root}")
+    for number, step in enumerate(steps, start=1):
+        click.echo(f"  {number}. {step}")
     if dry_run:
         click.echo("[DRY-RUN] Nothing changed.")
         return False
@@ -570,7 +607,7 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
         if has_sync
         else f"Mirror {root} to {hogland.ssh_alias(name)}:{hogland.REMOTE_REPO_PATH}"
     )
-    if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
+    if not _print_plan(root, [box_step, sync_step], on_clean, dry_run):
         return
     _reset_recreated_mirror(target)
     git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "hogland")

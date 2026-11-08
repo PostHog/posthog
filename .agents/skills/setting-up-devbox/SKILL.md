@@ -177,6 +177,7 @@ hogli devbox:worktree --on-clean stop           # save what worktrees:clean does
 ```
 
 - The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-` or `worktree/` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
+- A new box builds its test database in the background, logging to `~/.cache/hogli/test-db-prewarm.log` on the box. A pytest run that starts during the build prints a waiting line and blocks until the build ends.
 - hogli records the worktree path and box name in `~/.config/posthog/hogli_devbox_worktrees.json`. A re-run reuses that box, even after a branch rename, and keeps an existing mirror.
 - A worktree recreated at the same path, as t3code does when it resumes a thread it cleaned up, takes over the box of the worktree it replaced while that box still exists, and gets a new mirror.
 - It refuses a derived label whose box already exists and is not recorded for this worktree, so it never takes over a box the user made by hand. Pass `--label <label>` to use that box on purpose. It always refuses a box recorded for another worktree.
