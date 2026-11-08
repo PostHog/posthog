@@ -662,6 +662,22 @@ class TestCoderVersion:
         assert "unset CODER_SESSION_TOKEN to use the login stored on disk" in output
         assert "expired-example-token" not in output
 
+    def test_unreachable_coder_is_not_blamed_on_the_env_token(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        coder.get_username.cache_clear()
+        monkeypatch.setattr(coder, "get_coder_user_info", lambda: coder.CoderUserInfo())
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: coder._fail("Coder is unreachable."))
+        monkeypatch.setenv("CODER_SESSION_TOKEN", "example-token")
+
+        with pytest.raises(SystemExit):
+            coder.get_username()
+
+        output = capsys.readouterr().out
+        assert "Coder is unreachable." in output
+        assert "rejected" not in output
+
     @pytest.mark.parametrize("stored_login_works, expect_note", [(False, True), (True, False)])
     def test_setup_notes_when_the_login_lives_only_in_the_environment(
         self,

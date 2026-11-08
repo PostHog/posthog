@@ -1038,6 +1038,7 @@ def _note_login_only_in_env() -> None:
 
 
 def _fail_login_not_ready(message: str) -> NoReturn:
+    ensure_coder_reachable()
     coder_url = get_coder_url()
     if os.environ.get(_SESSION_TOKEN_ENV):
         _fail_env_token_rejected(coder_url)
