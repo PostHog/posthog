@@ -1027,7 +1027,10 @@ def _stored_login_works() -> bool:
     # Drop CODER_URL too: with it set, the CLI would send the stored session
     # token to that deployment even when the token belongs to another one.
     env = {key: value for key, value in os.environ.items() if key not in (_SESSION_TOKEN_ENV, "CODER_URL")}
-    result = _run(["coder", "whoami", "--output", "json"], capture_output=True, env=env)
+    try:
+        result = _run(["coder", "whoami", "--output", "json"], capture_output=True, env=env, timeout=10)
+    except subprocess.TimeoutExpired:
+        return False
     if result.returncode != 0:
         return False
     try:

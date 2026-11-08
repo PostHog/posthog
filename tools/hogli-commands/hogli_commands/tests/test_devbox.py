@@ -691,7 +691,12 @@ class TestCoderVersion:
 
     @pytest.mark.parametrize(
         "stored_url, expect_note",
-        [(None, True), ("https://coder.example.com", False), ("https://other.example.com", True)],
+        [
+            (None, True),
+            ("https://coder.example.com", False),
+            ("https://other.example.com", True),
+            ("https://unresponsive.example.com", True),
+        ],
     )
     def test_setup_notes_when_the_login_lives_only_in_the_environment(
         self,
@@ -707,9 +712,12 @@ class TestCoderVersion:
         monkeypatch.setenv("CODER_URL", "https://coder.example.com")
         stored_session_sent_to: list[str] = []
 
-        def fake_coder(args: list[str], env: dict[str, str] | None = None, **kwargs: object):
+        def fake_coder(args: list[str], env: dict[str, str] | None = None, **kwargs: Any):
             environ = os.environ if env is None else env
             target = environ.get("CODER_URL") or stored_url
+            if target == "https://unresponsive.example.com":
+                assert kwargs.get("timeout"), "a probe without a timeout hangs setup"
+                raise subprocess.TimeoutExpired(args, float(kwargs["timeout"]))
             if "CODER_SESSION_TOKEN" not in environ and stored_url and target != stored_url:
                 stored_session_sent_to.append(target or "")
             logged_in = target is not None and ("CODER_SESSION_TOKEN" in environ or stored_url is not None)
