@@ -217,10 +217,6 @@ function ReportCardRaw({
     )
     const cardBody = (
         <>
-            <div className="w-6 shrink-0">
-                {report.priority && <SignalReportPriorityBadge priority={report.priority} />}
-            </div>
-
             <div className={clsx('flex flex-col gap-1.5 min-w-0 flex-1', showImpactColumn && 'self-stretch')}>
                 {/* Keep the title clear of the PR badge. With the impact column shown the badge sits
                     over that column from `@lg` up, so only the stacked width needs the reserved space. */}
@@ -233,6 +229,12 @@ function ReportCardRaw({
                         hasPr && showImpactColumn && '@lg:pr-0'
                     )}
                 >
+                    {/* Inline like ConventionalCommitScopeTag, so wrapped title lines use the full width. */}
+                    {report.priority && (
+                        <span className="mr-1.5 inline-flex align-middle">
+                            <SignalReportPriorityBadge priority={report.priority} size="small" />
+                        </span>
+                    )}
                     {cardTitle}
                 </div>
 
@@ -260,7 +262,7 @@ function ReportCardRaw({
 
                 <div
                     className={clsx(
-                        'relative flex items-center flex-wrap min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none',
+                        'flex items-center flex-wrap min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none',
                         // Sit on the bottom edge of the column so the sources line up with the timestamp
                         // opposite, whichever column is taller.
                         showImpactColumn ? 'mt-auto pt-1' : 'mt-1.5'
@@ -268,13 +270,7 @@ function ReportCardRaw({
                 >
                     {report.status === SignalReportStatus.MONITORING && (
                         <Tooltip title="The fix is being monitored.">
-                            <span
-                                className={clsx(
-                                    'absolute -left-9 flex h-4 w-6 items-center justify-center text-success',
-                                    showImpactColumn ? 'top-1' : 'top-0'
-                                )}
-                                aria-label="Monitoring"
-                            >
+                            <span className="flex shrink-0 items-center text-success" aria-label="Monitoring">
                                 <IconEye className="text-base" />
                             </span>
                         </Tooltip>
