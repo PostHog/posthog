@@ -6,3 +6,6 @@ from django.apps import AppConfig
 class UiCustomizationConfig(AppConfig):
     name = "products.ui_customization.backend"
     label = "ui_customization"
+
+    def ready(self) -> None:
+        from . import signals  # noqa: F401, PLC0415

@@ -29,3 +29,11 @@ def delete_orphaned_fragment_batch(after: UUID | None = None) -> UUID | None:
     deleted, _ = fragments.filter(id__in=orphan_ids).delete()
     logger.info("ui_customization.orphan_cleanup_batch", inspected=len(rows), deleted=deleted)
     return rows[-1][0] if len(rows) == BATCH_SIZE else None
+
+
+def delete_fragments_for_user(user_id: int) -> None:
+    UserInterfaceFragment.objects.unscoped().filter(user_id=user_id).delete()
+
+
+def delete_fragments_for_teams(team_ids: list[int]) -> None:
+    UserInterfaceFragment.objects.unscoped().filter(team_id__in=team_ids).delete()

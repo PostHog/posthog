@@ -1,7 +1,6 @@
 from posthog.models import Team, User
 
-from ..logic import contexts, customization
-from ..models import UserInterfaceFragment
+from ..logic import cleanup, contexts, customization
 from . import contracts
 from .enums import CustomizationContext
 from .feature_flags import is_enabled_for as is_enabled_for
@@ -22,7 +21,7 @@ def reset_customization(*, team: Team, user: User, context: str) -> contracts.Cu
 
 
 def delete_fragments_for_teams(team_ids: list[int]) -> None:
-    UserInterfaceFragment.objects.unscoped().filter(team_id__in=team_ids).delete()
+    cleanup.delete_fragments_for_teams(team_ids)
 
 
 def validate_customization_layout(*, context: str, layout: object) -> contracts.CustomizationLayout:
