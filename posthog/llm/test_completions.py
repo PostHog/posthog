@@ -28,6 +28,7 @@ class TestHitOpenai(SimpleTestCase):
         completion = hit_openai(messages=[{"role": "user", "content": "hi"}], user="test")
 
         assert create.call_args.kwargs["model"] == "my-gateway-deployment"
+        assert "temperature" not in create.call_args.kwargs
         assert completion.content == "SELECT 1"
 
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)

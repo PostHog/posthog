@@ -55,7 +55,6 @@ def hit_openai(
         with gateway_client:
             result = gateway_client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
-                temperature=0,
                 messages=messages,
                 user=user,
                 **optional_params,
@@ -68,7 +67,6 @@ def hit_openai(
 
     result = openai_client.chat.completions.create(
         model=settings.OPENAI_MODEL,
-        temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
         posthog_distinct_id=distinct_id,
