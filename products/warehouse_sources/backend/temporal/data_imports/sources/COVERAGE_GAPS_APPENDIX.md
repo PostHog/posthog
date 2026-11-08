@@ -11554,16 +11554,16 @@ Note: Spacelift does not publish its GraphQL schema (docs only tell you to copy 
 
 ## SparkPost — gaps
 
-Today (7): `events`, `recipient_lists`, `sending_domains`, `subaccounts`, `suppression_list`, `templates`, `webhooks`
+Today (15): `bounce_reasons`, `bounce_reasons_by_domain`, `delay_reasons`, `delay_reasons_by_domain`, `deliverability_by_template`, `deliverability_time_series`, `events`, `recipient_lists`, `rejection_reasons`, `rejection_reasons_by_domain`, `sending_domains`, `subaccounts`, `suppression_list`, `templates`, `webhooks`
 
 Diffed against: <https://developers.sparkpost.com/api/metrics/>
 
-- [ ] `metrics/deliverability/time-series` — SparkPost's headline deliverability aggregate over time; the single most-queried table for an ESP and completely absent (high)
+- [x] `metrics/deliverability/time-series` — SparkPost's headline deliverability aggregate over time; the single most-queried table for an ESP and completely absent (high)
 - [ ] `metrics/deliverability/domain and /sending-domain` — deliverability broken down by recipient and sending domain - the primary reputation dimension (high)
 - [ ] `metrics/deliverability/campaign and /subject-campaign` — per-campaign send/open/click/bounce rollups; core marketing reporting dimension (high)
-- [ ] `metrics/deliverability/template` — per-template performance, joining directly to the templates table already synced (high)
-- [ ] `metrics/deliverability/bounce-reason, /rejection-reason, /delay-reason (+ their /domain variants)` — failure-reason breakdowns; the standard deliverability troubleshooting cut (high)
-- [ ] `transmissions` — the send jobs themselves with status and recipient counts; today only the resulting events are synced (high)
+- [x] `metrics/deliverability/template` — per-template performance, joining directly to the templates table already synced (high)
+- [x] `metrics/deliverability/bounce-reason, /rejection-reason, /delay-reason (+ their /domain variants)` — failure-reason breakdowns; the standard deliverability troubleshooting cut (high)
+- [ ] `transmissions` — the send jobs themselves with status and recipient counts; today only the resulting events are synced (high); skipped, the current API has no list call, and `GET /transmissions/{id}` is deprecated and returns only scheduled transmissions
 - [ ] `metrics/deliverability/subaccount` — per-subaccount deliverability, joining to the subaccounts table already synced (medium)
 - [ ] `metrics/deliverability/mailbox-provider and /mailbox-provider-region` — inbox performance by Gmail/Outlook/Yahoo etc, a headline deliverability cut (medium)
 - [ ] `metrics/deliverability/sending-ip and /ip-pool` — IP-level reputation and warmup tracking (medium)

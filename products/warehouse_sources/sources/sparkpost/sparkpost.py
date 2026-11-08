@@ -10,10 +10,11 @@ import orjson
 import pyarrow as pa
 import structlog
 from asgiref.sync import async_to_sync
-from requests import Response, Session
+from requests import Request, Response, Session
 
 from products.warehouse_sources.sources.sdk import (
     BaseNextUrlPaginator,
+    BasePaginator,
     ExternalWebhookInfo,
     RESTAPIConfig,
     ResumableSourceManager,
@@ -29,6 +30,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.sdk.internals import table_from_py_list
 from products.warehouse_sources.sources.sparkpost.settings import (
+    DAILY_WINDOW_FIELD,
     SPARKPOST_ENDPOINTS,
     WEBHOOK_BATCH_KEY,
     WEBHOOK_EVENT_GROUPING,
@@ -54,7 +56,9 @@ DEFAULT_REGION = "us"
 
 @dataclasses.dataclass
 class SparkPostResumeConfig:
-    next_url: str
+    next_url: Optional[str] = None
+    # The next UTC day (``YYYY-MM-DD``) a daily-window metrics endpoint requests.
+    next_day: Optional[str] = None
 
 
 def base_url(region: Optional[str]) -> str:
@@ -142,6 +146,65 @@ class SparkPostLinksPaginator(BaseNextUrlPaginator):
         return None
 
 
+class SparkPostDailyWindowPaginator(BasePaginator):
+    """Requests one UTC day per page, from ``start`` through ``end`` inclusive, via ``from``/``to``.
+
+    The Metrics API aggregates over the whole requested window and has no time column in the
+    breakdown rows, so each row is stamped with the day it covers.
+    """
+
+    def __init__(self, start: date, end: date) -> None:
+        super().__init__()
+        self._day = start
+        self._end = end
+        self._has_next_page = start <= end
+
+    def _apply(self, request: Request) -> None:
+        day = self._day.isoformat()
+        # ``to`` is rounded up to the end of its minute, so ``23:59`` closes the day at 23:59:59.
+        request.params = {**(request.params or {}), "from": f"{day}T00:00", "to": f"{day}T23:59"}
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        for row in data or []:
+            if isinstance(row, dict):
+                row[DAILY_WINDOW_FIELD] = self._day.isoformat()
+        self._day += timedelta(days=1)
+        self._has_next_page = self._day <= self._end
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"day": self._day.isoformat()} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        day = state.get("day")
+        if day:
+            self._day = date.fromisoformat(str(day))
+            self._has_next_page = self._day <= self._end
+
+
+def _to_date(value: Any) -> date:
+    if isinstance(value, datetime):
+        return value.astimezone(UTC).date() if value.tzinfo else value.date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
+
+
+def _daily_window_start(
+    should_use_incremental_field: bool, db_incremental_field_last_value: Any, lookback_days: int, today: date
+) -> date:
+    if should_use_incremental_field and db_incremental_field_last_value:
+        # Re-fetch the watermark day itself: it was usually still in progress at the last sync, and
+        # rows merge on the day so the complete totals replace the partial ones.
+        return min(_to_date(db_incremental_field_last_value), today)
+    return today - timedelta(days=lookback_days)
+
+
 def _iter_batch_events(batch: Any) -> Iterator[dict[str, Any]]:
     """Yield the message events in one SparkPost delivery.
 
@@ -225,14 +288,14 @@ def sparkpost_source(
     config = SPARKPOST_ENDPOINTS[endpoint]
     host = base_url(region)
 
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(config.extra_params)
     if config.pagination == "cursor":
         # ``cursor=initial`` opts the request into SparkPost's cursor-based pagination; we then walk
         # the ``rel: next`` links it returns.
         params["cursor"] = "initial"
         params["per_page"] = config.per_page
 
-    if config.timestamp_filter_param:
+    if config.timestamp_filter_param and config.pagination != "daily_window":
         # Continue from the stored watermark on incremental runs; otherwise seed the first sync with
         # the lookback window (bounded by SparkPost's 10-day event retention).
         if should_use_incremental_field and db_incremental_field_last_value:
@@ -244,7 +307,17 @@ def sparkpost_source(
         if cutoff is not None:
             params[config.timestamp_filter_param] = _format_from(cutoff)
 
-    paginator = SparkPostLinksPaginator(host) if config.pagination == "cursor" else SinglePagePaginator()
+    paginator: BasePaginator
+    if config.pagination == "cursor":
+        paginator = SparkPostLinksPaginator(host)
+    elif config.pagination == "daily_window":
+        today = datetime.now(UTC).date()
+        start = _daily_window_start(
+            should_use_incremental_field, db_incremental_field_last_value, config.default_lookback_days or 0, today
+        )
+        paginator = SparkPostDailyWindowPaginator(start=start, end=today)
+    else:
+        paginator = SinglePagePaginator()
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -274,7 +347,10 @@ def sparkpost_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
+        if resume_config is not None and config.pagination == "daily_window":
+            if resume_config.next_day:
+                initial_paginator_state = {"day": resume_config.next_day}
+        elif resume_config is not None and resume_config.next_url:
             # Guard the persisted resume URL — only ever saved from the host-pinned paginator, but
             # re-check so a tampered Redis state can't redirect our authenticated request.
             if not _is_same_host(resume_config.next_url, host):
@@ -282,10 +358,14 @@ def sparkpost_source(
             initial_paginator_state = {"next_url": resume_config.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Save AFTER a page is yielded and only while a next page remains — a crash re-yields the
-        # last batch (merge dedupes on the primary key) instead of skipping it.
-        if state and state.get("next_url"):
+        # Save only while a next page remains — a crash re-yields the last batch (merge dedupes on
+        # the primary key) instead of skipping it.
+        if not state:
+            return
+        if state.get("next_url"):
             resumable_source_manager.save_state(SparkPostResumeConfig(next_url=str(state["next_url"])))
+        elif state.get("day"):
+            resumable_source_manager.save_state(SparkPostResumeConfig(next_day=str(state["day"])))
 
     resource = rest_api_resource(
         rest_config,
