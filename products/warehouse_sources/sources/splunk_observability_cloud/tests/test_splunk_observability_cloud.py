@@ -197,17 +197,21 @@ class TestSyntheticRunsFanOut:
             ("/v2/synthetics/tests/2/runs", "1"),
             ("/v2/synthetics/tests/3/runs", "1"),
         ]
-        assert result.saved_states == [
-            SplunkObservabilityCloudResumeConfig(test_id=1, page=2),
-            SplunkObservabilityCloudResumeConfig(test_id=2, page=1),
-            SplunkObservabilityCloudResumeConfig(test_id=3, page=1),
-        ]
+        assert [(state.test_id, state.page) for state in result.saved_states] == [(1, 2), (2, 1), (3, 1)]
+        assert {(state.window_start, state.window_end) for state in result.saved_states} == {
+            (result.requests[2].param("startTime"), result.requests[2].param("endTime"))
+        }
 
     @pytest.mark.parametrize(
         ("resume_state", "expected_run_requests"),
         [
             (
-                SplunkObservabilityCloudResumeConfig(test_id=2, page=3),
+                SplunkObservabilityCloudResumeConfig(
+                    test_id=2,
+                    page=3,
+                    window_start="2026-01-01T00:00:00.000Z",
+                    window_end="2026-01-02T00:00:00.000Z",
+                ),
                 [("/v2/synthetics/tests/2/runs", "3"), ("/v2/synthetics/tests/3/runs", "1")],
             ),
             # The bookmarked test was deleted: start again from the first test.
@@ -230,9 +234,12 @@ class TestSyntheticRunsFanOut:
         result = _driver().run("synthetic_runs", responses, resume_state=resume_state)
 
         assert result.raised is None
-        assert [
-            (request.path, request.param("page")) for request in result.requests if request.path.endswith("/runs")
-        ] == expected_run_requests
+        run_requests = [request for request in result.requests if request.path.endswith("/runs")]
+        assert [(request.path, request.param("page")) for request in run_requests] == expected_run_requests
+        if resume_state.test_id in (1, 2, 3):
+            assert {(request.param("startTime"), request.param("endTime")) for request in run_requests} == {
+                (resume_state.window_start, resume_state.window_end)
+            }
 
     def test_incremental_watermark_sets_start_time(self) -> None:
         responses = [self._tests_page([1], next_page=None), self._runs_page(1, [], has_next=False)]
@@ -244,8 +251,7 @@ class TestSyntheticRunsFanOut:
         )
 
         assert result.raised is None
-        # One hour before the watermark, so runs that finished late are read again.
-        assert result.requests[1].param("startTime") == "2025-12-31T23:00:00.000Z"
+        assert result.requests[1].param("startTime") == "2026-01-01T00:00:00.000Z"
 
 
 class TestEventSearch:
@@ -269,17 +275,18 @@ class TestEventSearch:
                 [("0", "0"), ("0", "2"), ("4", "0"), ("4", "2")],
                 ["a", "b", "c", "d", "e"],
             ),
-            # More events than the cap share one timestamp: stop instead of reading the
-            # same window forever.
+            # More events than the cap share one timestamp: skip to the next millisecond
+            # instead of reading the same window forever or stopping before later events.
             (
                 [
                     [("a", 7), ("b", 7)],
                     [("c", 7), ("d", 7)],
                     [("a", 7), ("b", 7)],
                     [("c", 7), ("d", 7)],
+                    [("e", 9)],
                 ],
-                [("0", "0"), ("0", "2"), ("7", "0"), ("7", "2")],
-                ["a", "b", "c", "d"],
+                [("0", "0"), ("0", "2"), ("7", "0"), ("7", "2"), ("8", "0")],
+                ["a", "b", "c", "d", "e"],
             ),
         ],
     )
@@ -305,7 +312,7 @@ class TestEventSearch:
         )
 
         assert result.raised is None
-        assert result.requests[0].param("start_time") == str(1767225600000 - 60 * 60 * 1000)
+        assert result.requests[0].param("start_time") == "1767225600000"
         assert result.rows[0]["timestamp"] == datetime(2026, 1, 1, tzinfo=UTC)
 
     def test_resume_continues_saved_window(self) -> None:

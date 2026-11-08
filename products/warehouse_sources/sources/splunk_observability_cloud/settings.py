@@ -24,10 +24,9 @@ SYNTHETICS_PAGE_SIZE = 50
 # A synthetic_runs sync with no watermark reads this window of runs.
 SYNTHETIC_RUNS_DEFAULT_LOOKBACK_DAYS = 30
 
-# Incremental synthetic_runs and events syncs read again this far before the watermark. A
-# run still in progress, or an event sent late, can carry a timestamp below the newest row
-# of the previous sync. Merge dedupes the overlap on the primary key.
-INCREMENTAL_OVERLAP_MINUTES = 60
+# Default merge-sync lookback for synthetic_runs and events. A run still in progress, or an
+# event sent late, can carry a timestamp below the newest row of the previous sync.
+LATE_ROW_LOOKBACK_SECONDS = 3600
 
 # Hard stop for offset paging so a server that ignores `offset` can't loop us forever.
 MAX_OFFSET = 1_000_000
@@ -77,6 +76,7 @@ class SplunkObservabilityCloudEndpointConfig:
     # events set this (metadata objects are small enough to skip partitioning).
     partition_key: Optional[str] = None
     should_sync_default: bool = True
+    incremental_lookback_seconds: Optional[int] = None
 
 
 SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpointConfig] = {
@@ -148,11 +148,13 @@ SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpoint
         should_sync_default=False,
     ),
     # SLO definitions. The search endpoint takes a JSON body of optional filters; an empty
-    # body matches every SLO.
+    # body matches every SLO. Off by default: the search needs the admin or power role,
+    # while every other table works with read_only.
     "slos": SplunkObservabilityCloudEndpointConfig(
         name="slos",
         path="/slo/search",
         method="POST",
+        should_sync_default=False,
     ),
     # Detector alerts and custom events for the whole org. The search needs at least one
     # filter clause, and every event has an event type, so `sf_eventType:*` matches all.
@@ -164,6 +166,7 @@ SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpoint
         incremental_fields=_TIMESTAMP_INCREMENTAL_FIELD,
         is_event_search=True,
         partition_key="timestamp",
+        incremental_lookback_seconds=LATE_ROW_LOOKBACK_SECONDS,
     ),
     "synthetic_locations": SplunkObservabilityCloudEndpointConfig(
         name="synthetic_locations",
@@ -183,6 +186,7 @@ SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpoint
         incremental_fields=_TIMESTAMP_INCREMENTAL_FIELD,
         fan_out_over_synthetic_tests=True,
         partition_key="timestamp",
+        incremental_lookback_seconds=LATE_ROW_LOOKBACK_SECONDS,
     ),
     # Metric datapoints streamed from a SignalFlow computation (SSE), windowed by
     # start/stop epoch-ms params — incremental on the datapoint timestamp. Requires the

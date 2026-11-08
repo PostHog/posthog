@@ -141,6 +141,11 @@ To sync the optional `metric_time_series` table, also provide a [SignalFlow prog
                 )
             if endpoint == "dimensions":
                 return "Dimension metadata. Off by default because large organizations can have a very high dimension count"
+            if endpoint == "slos":
+                return (
+                    "SLO definitions. Off by default because the SLO search needs an access token with the "
+                    "admin or power role"
+                )
             if endpoint == "events":
                 return (
                     "Detector alerts and custom events for the whole organization. The first sync reads all "
@@ -168,6 +173,7 @@ To sync the optional `metric_time_series` table, also provide a [SignalFlow prog
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
                 description=_description(endpoint),
+                default_incremental_lookback_seconds=endpoint_config.incremental_lookback_seconds,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

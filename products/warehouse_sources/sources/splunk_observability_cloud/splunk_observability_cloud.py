@@ -20,7 +20,6 @@ from products.warehouse_sources.sources.splunk_observability_cloud.settings impo
     DETECTOR_EVENTS_RESULT_CAP,
     EVENT_SEARCH_PAGE_SIZE,
     EVENT_SEARCH_RESULT_CAP,
-    INCREMENTAL_OVERLAP_MINUTES,
     MAX_OFFSET,
     PAGE_SIZE,
     SIGNALFLOW_DEFAULT_LOOKBACK_DAYS,
@@ -49,7 +48,7 @@ class SplunkObservabilityCloudRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SplunkObservabilityCloudResumeConfig:
     # Offset of the next page to fetch within the current endpoint (or current detector
     # for the detector_events fan-out).
@@ -57,9 +56,13 @@ class SplunkObservabilityCloudResumeConfig:
     # Stable bookmark for the detector_events fan-out: the detector currently being
     # processed. None for every other endpoint.
     detector_id: str | None = None
-    # Bookmark for the synthetic_runs fan-out: the test and the page of its runs to fetch next.
+    # Bookmark for the synthetic_runs fan-out: the test and the page of its runs to fetch next,
+    # plus the run window of the interrupted attempt. A retry keeps that window, so tests it
+    # skips and tests it still reads cover the same time range.
     test_id: int | None = None
     page: int | None = None
+    window_start: str | None = None
+    window_end: str | None = None
     # Start of the current event search window. The search caps each query at 10,000
     # results, so a long history is read as a series of windows; `offset` is within it.
     event_start_ms: int | None = None
@@ -368,6 +371,8 @@ def _get_synthetic_run_rows(
     if resume is not None and resume.test_id is not None and resume.test_id in test_ids:
         remaining = test_ids[test_ids.index(resume.test_id) :]
         page = resume.page or 1
+        start_time = resume.window_start or start_time
+        end_time = resume.window_end or end_time
 
     for index, test_id in enumerate(remaining):
         path = config.path.format(test_id=test_id)
@@ -379,11 +384,15 @@ def _get_synthetic_run_rows(
 
             if has_more:
                 resumable_source_manager.save_state(
-                    SplunkObservabilityCloudResumeConfig(test_id=test_id, page=page + 1)
+                    SplunkObservabilityCloudResumeConfig(
+                        test_id=test_id, page=page + 1, window_start=start_time, window_end=end_time
+                    )
                 )
             elif index + 1 < len(remaining):
                 resumable_source_manager.save_state(
-                    SplunkObservabilityCloudResumeConfig(test_id=remaining[index + 1], page=1)
+                    SplunkObservabilityCloudResumeConfig(
+                        test_id=remaining[index + 1], page=1, window_start=start_time, window_end=end_time
+                    )
                 )
 
             if rows:
@@ -452,11 +461,16 @@ def _get_event_search_rows(
         if len(rows) >= limit and offset < EVENT_SEARCH_RESULT_CAP:
             next_state = SplunkObservabilityCloudResumeConfig(offset=offset, event_start_ms=window_start)
         elif len(rows) >= limit:
-            if latest_ms is None or latest_ms <= window_start:
+            if latest_ms is None:
+                logger.warning("Splunk Observability Cloud: event search page had no timestamps; stopping the read")
+            elif latest_ms <= window_start:
+                # The search cannot page past this timestamp, so skip to the next millisecond
+                # instead of stopping: later events, and later syncs, still make progress.
                 logger.warning(
                     f"Splunk Observability Cloud: more than {EVENT_SEARCH_RESULT_CAP} events share one timestamp; "
-                    f"some events may be missing. timestamp_ms={window_start}"
+                    f"some events at it are skipped. timestamp_ms={window_start}"
                 )
+                next_state = SplunkObservabilityCloudResumeConfig(offset=0, event_start_ms=window_start + 1)
             else:
                 next_state = SplunkObservabilityCloudResumeConfig(offset=0, event_start_ms=latest_ms)
 
@@ -626,8 +640,6 @@ def get_rows(
         yield from _get_signalflow_rows(session, realm, access_token, program, start_ms, now_ms, logger)
         return
 
-    overlap_ms = int(timedelta(minutes=INCREMENTAL_OVERLAP_MINUTES).total_seconds() * 1000)
-
     if config.pagination == "none":
         rows = _extract_page(
             config, _fetch(session, _build_url(base_url, config.path, config.extra_params), headers, logger)
@@ -638,7 +650,7 @@ def get_rows(
 
     if config.fan_out_over_synthetic_tests:
         if should_use_incremental_field and db_incremental_field_last_value is not None:
-            start_time = _to_iso8601(_to_epoch_ms(db_incremental_field_last_value) - overlap_ms)
+            start_time = _to_iso8601(db_incremental_field_last_value)
         else:
             start_time = _to_iso8601(
                 now_ms - int(timedelta(days=SYNTHETIC_RUNS_DEFAULT_LOOKBACK_DAYS).total_seconds() * 1000)
@@ -650,7 +662,7 @@ def get_rows(
 
     if config.is_event_search:
         if should_use_incremental_field and db_incremental_field_last_value is not None:
-            start_ms = max(_to_epoch_ms(db_incremental_field_last_value) - overlap_ms, 0)
+            start_ms = _to_epoch_ms(db_incremental_field_last_value)
         else:
             start_ms = 0
         yield from _get_event_search_rows(
