@@ -193,6 +193,50 @@ class TestBillingManager(BaseTest):
 
     @parameterized.expand(
         [
+            ("billing_total_lacks_yesterday", "2022-10-19", 1000 + 300 + 40),
+            ("billing_total_includes_yesterday", "2022-10-20", 1000 + 40),
+        ]
+    )
+    def test_get_billing_product_usage_is_the_quota_sum(
+        self, _name: str, latest_usage_report_date: str, expected_usage: int
+    ) -> None:
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        self.organization.usage = {
+            "events": {
+                "usage": 1000,
+                "todays_usage": 40,
+                "limit": 2000,
+                "daily_usage": {"2022-10-20": 300, "2022-10-21": 40},
+            },
+            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+            "billing_latest_usage_report_date": latest_usage_report_date,
+        }
+        manager = BillingManager(license)
+        billing_response = {
+            "customer": {
+                "products": [{"type": "product_analytics", "usage_key": "events"}],
+                "usage_summary": {
+                    "events": {"usage": 1000, "limit": 2000},
+                    "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+                },
+            }
+        }
+
+        with (
+            patch.object(manager, "_get_billing", return_value=billing_response),
+            patch.object(manager, "update_org_details"),
+        ):
+            response = manager.get_billing(self.organization)
+
+        assert response["products"][0]["current_usage"] == expected_usage
+        assert response["products"][0]["percentage_usage"] == expected_usage / 2000
+
+    @parameterized.expand(
+        [
             ("with_ip", "203.0.113.7", True),
             ("without_ip", None, False),
         ]

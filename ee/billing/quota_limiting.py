@@ -463,7 +463,7 @@ def _period_timestamp(value: str) -> int:
     return round(dateutil.parser.isoparse(value).timestamp())
 
 
-def _quota_usage(organization_usage: Mapping[str, Any], resource_usage: Mapping[str, Any]) -> int:
+def quota_usage(organization_usage: Mapping[str, Any], resource_usage: Mapping[str, Any]) -> int:
     """
     Billing's total plus PostHog's counts for the days that the total does not include.
 
@@ -516,7 +516,7 @@ def org_quota_limited_until(
     summary = organization.usage.get(resource.value, {})
     if not summary:
         return None
-    current_usage = _quota_usage(organization.usage, summary)
+    current_usage = quota_usage(organization.usage, summary)
     limit = summary.get("limit")
     if resource in {QuotaResource.SIGNALS_CREDITS, QuotaResource.SIGNALS_SPEND_CREDITS}:
         if resource != self_driving_quota_resource(organization):
@@ -1293,7 +1293,7 @@ def _identify_refresh_candidates(
          quota-limiting-suspended set;
       2. its cached `usage[resource]` already carries a `quota_limited_until` or
          `quota_limiting_suspended_until` marker;
-      3. it appears newly limitable from cached state: `_quota_usage` with this run's counts
+      3. it appears newly limitable from cached state: `quota_usage` with this run's counts
          reaches `limit + buffer` for any resource.
 
     A resource with a zero limit and no overage buffer never makes an org a candidate. That
@@ -1355,7 +1355,7 @@ def _identify_refresh_candidates(
                 yesterdays_count=None if org_finished_yesterday is None else org_finished_yesterday.get(field, 0),
             )
             this_runs_usage = {**usage_for_resource, "todays_usage": todays_for_field, DAILY_USAGE_FIELD: daily_usage}
-            if _quota_usage(org.usage, this_runs_usage) >= limit + OVERAGE_BUFFER[resource]:
+            if quota_usage(org.usage, this_runs_usage) >= limit + OVERAGE_BUFFER[resource]:
                 is_candidate = True
                 break
 
