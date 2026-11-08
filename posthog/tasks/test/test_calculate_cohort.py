@@ -1736,6 +1736,8 @@ class TestCohortCalculationTasks(APIBaseTest):
             ),
             # The create path never claims, so a NULL mode has to run as an append.
             ("null_mode_appends", None, None, 0, None, False),
+            # Every query PATCH claims an append, so this is the exit nearly every population takes.
+            ("append_success_clears", CohortPopulationMode.APPEND, None, 0, None, False),
         ]
     )
     def test_query_population_run_fields_on_each_exit(
@@ -1776,6 +1778,43 @@ class TestCohortCalculationTasks(APIBaseTest):
             (mode_left, marker_left, mode == CohortPopulationMode.REPLACE),
         )
         self.assertEqual(cohort.is_calculating, sync_error is not None and retries == 0)
+
+    @parameterized.expand(
+        [
+            # A sweep redispatch minted a newer marker mid-run, so this replace is fenced out.
+            ("replace_superseded_mid_run", CohortPopulationMode.REPLACE),
+            # A redispatched replace took the cohort over just before this append finalized.
+            ("append_overtaken_before_finalize", CohortPopulationMode.APPEND),
+        ]
+    )
+    def test_query_population_overtaken_mid_run_finalizes_nothing(self, _name: str, mode: CohortPopulationMode) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            query=PERSONS_HOGQL_QUERY,
+            is_calculating=True,
+            pending_population_mode=mode,
+        )
+        newer_marker = timezone.now().replace(microsecond=0) + timedelta(minutes=5)
+
+        def newer_attempt_takes_over(*args, **kwargs) -> int:
+            Cohort.objects.filter(pk=cohort.pk).update(
+                pending_population_mode=CohortPopulationMode.REPLACE, population_marker=newer_marker
+            )
+            return 0
+
+        with patch(QUERY_CH_INSERT_PATH, return_value=0), patch(PG_SYNC_PATH, side_effect=newer_attempt_takes_over):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        cohort.refresh_from_db()
+        # The newer attempt still holds the cohort: nothing was released or cleared under it.
+        self.assertEqual(
+            (cohort.is_calculating, cohort.pending_population_mode, cohort.population_marker),
+            (True, CohortPopulationMode.REPLACE, newer_marker),
+        )
+        # And no error row is left to show a failure banner on a cohort that never failed.
+        self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort, error_code__isnull=False).exists())
 
     @parameterized.expand([("resumes_at_its_marker", False), ("superseded_writes_nothing", True)])
     def test_query_replace_retry_after_the_clickhouse_insert(self, _name: str, superseded: bool) -> None:

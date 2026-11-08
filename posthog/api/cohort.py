@@ -2176,16 +2176,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # tell an abandoned claim from a queued upload, so a CSV-only cohort skips the check, and the next upload
             # recovers it.
             claimable |= ~HAS_STATIC_POPULATION_SOURCE
-        # The claim records an append, which overwrites any mode a failed replace left behind, so that the stuck
-        # cohort sweep never redispatches an old replace in place of this request's population.
+        # The claim records its mode, which overwrites any mode a failed replace left behind, so that the stuck
+        # cohort sweep never redispatches an old replace in place of this request's population. A CSV import
+        # records none: its task never reads or clears a mode, and NULL already means append.
+        mode = CohortPopulationMode.APPEND if source_field == "query" else None
         claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(
-            is_calculating=True, pending_population_mode=CohortPopulationMode.APPEND
+            is_calculating=True, pending_population_mode=mode
         )
         if not claimed:
             raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
         # cohort.save() writes every field, so the in-memory values must match the claim.
         cohort.is_calculating = True
-        cohort.pending_population_mode = CohortPopulationMode.APPEND
+        cohort.pending_population_mode = mode
 
     def _enqueue_query_population(self, cohort: Cohort) -> None:
         from posthog.tasks.calculate_cohort import insert_cohort_from_query

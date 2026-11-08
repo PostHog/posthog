@@ -951,7 +951,10 @@ email@example.org
         self.assertEqual(retried.status_code, 200, retried.json())
         self.assertEqual(mock_delay.call_count, 2)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.pending_population_mode, CohortPopulationMode.APPEND)
+        # Either way the stale replace is gone. A CSV import records no mode, because its task never clears one.
+        self.assertEqual(
+            cohort.pending_population_mode, CohortPopulationMode.APPEND if source_field == "query" else None
+        )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_csv_patch_recovers_csv_only_cohort_left_calculating(self, mock_csv_delay: MagicMock):
