@@ -194,8 +194,7 @@ NO_SAMPLE_TEXT = "No events to show. SQS returned none, or a queue could not be 
 MISSING = Cell(text="-", muted=True)
 
 
-def _empty_sample_text(states: list[SesEventsDlqState]) -> str:
-    # SQS can answer a receive with no message while a backlog waits, so only the counts show that a queue is empty.
+def _empty_sample_text_from_counts(states: list[SesEventsDlqState]) -> str:
     if all(state.error is None and state.waiting == 0 for state in states):
         return EMPTY_QUEUES_TEXT
     return NO_SAMPLE_TEXT
@@ -231,11 +230,13 @@ def _queue_row(state: SesEventsDlqState) -> Row:
 def _team(team_id: int | None) -> Cell:
     if team_id is None:
         return MISSING
-    # The ID comes from an unverified tracking code, and the team route refuses a negative ID, so
-    # linking one would fail the whole page.
-    if team_id < 1:
+    if not _has_team_page(team_id):
         return Cell(text=str(team_id))
     return Cell(text=str(team_id), href=reverse("admin_console_team", kwargs={"pk": team_id}))
+
+
+def _has_team_page(team_id: int) -> bool:
+    return team_id > 0
 
 
 def _sample_row(queue_name: str, message: SesEventsDlqMessage) -> Row:
@@ -243,7 +244,7 @@ def _sample_row(queue_name: str, message: SesEventsDlqMessage) -> Row:
         cells=(
             Cell(text=queue_name, mono=True),
             Cell(text=message.event_type),
-            _team(message.team_id),
+            _team(message.unverified_team_id),
             Cell(text=message.masked_recipient) if message.masked_recipient else MISSING,
             _age(message.dead_lettered_at),
             Cell(text="Yes") if message.replayable else Cell(text="No, not a signed SNS notification", muted=True),
@@ -274,7 +275,7 @@ class SesEventsDlqTool(ConsoleTool):
                 Table(
                     columns=("Queue", "Event", "Team", "Recipient", "Waiting for", "Replayable"),
                     rows=tuple(_sample_row(state.queue_name, message) for state in states for message in state.sample),
-                    empty_text=_empty_sample_text(states),
+                    empty_text=_empty_sample_text_from_counts(states),
                 ),
             )
         )

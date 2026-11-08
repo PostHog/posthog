@@ -1218,8 +1218,7 @@ class PushTokenImportRecord:
 class SesEventsDlqMessage:
     message_id: str
     event_type: str
-    # Read from the unverified tracking code, so it only says where to look, never who to trust.
-    team_id: int | None
+    unverified_team_id: int | None
     masked_recipient: str | None
     dead_lettered_at: datetime | None
     replayable: bool
