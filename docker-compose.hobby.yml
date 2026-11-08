@@ -114,6 +114,9 @@ services:
             service: worker
         logging: *default-logging
         environment:
+            # Each Celery pool process loads all of Django. Celery starts one per CPU by default,
+            # which is more memory than a small host has. Raise it in .env on a larger host.
+            WEB_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-2}
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
@@ -181,6 +184,9 @@ services:
             - ./compose:/compose
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
+            # Each granian worker loads all of Django, and bin/docker-server starts 4 by default.
+            # That is more memory than a small host has. Raise it in .env on a larger host.
+            GRANIAN_WORKERS: ${GRANIAN_WORKERS:-2}
             SITE_URL: https://$DOMAIN
             LIVESTREAM_HOST: 'https://${DOMAIN}/livestream'
             SECRET_KEY: $POSTHOG_SECRET
@@ -491,22 +497,34 @@ services:
             SKIP_ASYNC_MIGRATIONS_SETUP: 0
 
     # Temporal containers
+    # Defined in full instead of extending the base service, because `extends` copies the base
+    # depends_on, which waits for a healthy elasticsearch. Hobby runs Temporal with SQL visibility
+    # and has no elasticsearch service.
     temporal:
-        extends:
-            file: docker-compose.base.yml
-            service: temporal
+        image: temporalio/auto-setup:1.26.2
+        restart: on-failure
         logging: *default-logging
+        healthcheck:
+            test: ['CMD-SHELL', 'nc -z $(hostname) 7233']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 300s
         environment:
+            - DB=postgres12
+            - DB_PORT=5432
+            - POSTGRES_USER=posthog
+            - POSTGRES_PWD=posthog
+            - POSTGRES_SEEDS=db
+            - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
             - ENABLE_ES=false
+        depends_on:
+            db:
+                condition: service_healthy
         ports:
             - '127.0.0.1:7233:7233'
         volumes:
             - ./posthog/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
-    elasticsearch:
-        extends:
-            file: docker-compose.base.yml
-            service: elasticsearch
-        logging: *default-logging
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml
