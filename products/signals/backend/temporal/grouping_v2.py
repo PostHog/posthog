@@ -238,7 +238,6 @@ class TeamSignalGroupingV2Workflow:
             dropped, _type_examples = await _process_signal_batch(
                 collected.signals, report_prep_drops_for=report_prep_drops_for
             )
-            self._retried_batch_keys.difference_update(collected.object_keys)
             if self._signals_processed_counter is not None:
                 self._signals_processed_counter.add(len(collected.signals))
             if self._signals_dropped_counter is not None and dropped > 0:
