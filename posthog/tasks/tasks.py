@@ -25,7 +25,7 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
@@ -970,6 +970,11 @@ class Polling:
     time_limit=Polling.HARD_TIME_LIMIT_SECONDS,
 )
 def poll_query_performance(last_known_run_time_ns: int) -> None:
+    # Hobby does not schedule this poller, but the task reschedules itself after every run.
+    # Returning here without rescheduling ends a loop that started before the install upgraded.
+    if is_hobby():
+        return
+
     start_time_ns = time.time_ns()
 
     try:

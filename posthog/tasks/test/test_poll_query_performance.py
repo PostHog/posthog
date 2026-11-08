@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import posthog.tasks.tasks
 from posthog.redis import get_client
@@ -59,6 +59,8 @@ class TestPollQueryPerformance(SimpleTestCase):
         )
 
 
+# Tests default to the hobby run mode, where the task returns before it polls.
+@override_settings(CLOUD_DEPLOYMENT="US")
 class TestPollQueryPerformanceTask(SimpleTestCase):
     @patch("posthog.tasks.tasks.logger.error")
     def test_poll_query_performance_does_not_run_if_last_update_does_not_match(
@@ -92,6 +94,21 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
             redis_client.get(Polling._SINGLETON_REDIS_KEY),
             Polling._encode_redis_key(mock_apply_async.call_args.kwargs["args"][0]),
         )
+
+    @patch("posthog.tasks.poll_query_performance.poll_query_performance")
+    @patch("posthog.tasks.tasks.poll_query_performance.delay")
+    @patch("posthog.tasks.tasks.poll_query_performance.apply_async")
+    def test_poll_query_performance_stops_without_rescheduling_on_hobby(
+        self, mock_apply_async: MagicMock, mock_delay: MagicMock, mock_poll_query_performance_nontask: MagicMock
+    ) -> None:
+        key = 1234
+        get_client().set(Polling._SINGLETON_REDIS_KEY, Polling._encode_redis_key(key))
+        with self.settings(CLOUD_DEPLOYMENT=None, DEBUG=False):
+            posthog.tasks.tasks.poll_query_performance(key)
+
+        mock_poll_query_performance_nontask.assert_not_called()
+        mock_apply_async.assert_not_called()
+        mock_delay.assert_not_called()
 
     @patch("posthog.tasks.poll_query_performance.poll_query_performance")
     @patch("posthog.tasks.tasks.logger.error")

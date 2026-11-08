@@ -39,7 +39,8 @@ class TestPrivacyTaskScheduling(SimpleTestCase):
 class TestLLMGatewayQuotaReconcileScheduling(SimpleTestCase):
     def test_the_reconcile_runs_every_15_minutes(self) -> None:
         sender = MagicMock()
-        setup_periodic_tasks(sender)
+        with self.settings(CLOUD_DEPLOYMENT="US"):
+            setup_periodic_tasks(sender)
         calls = [
             call
             for call in sender.add_periodic_task.call_args_list
@@ -49,6 +50,23 @@ class TestLLMGatewayQuotaReconcileScheduling(SimpleTestCase):
         schedule, signature = calls[0].args
         self.assertEqual(schedule.minute, {7, 22, 37, 52})
         self.assertEqual(signature.task, reconcile_llm_gateway_quota_projection.name)
+
+
+class TestHobbySchedule(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("hobby", None, {"10 sec heartbeat"}),
+            ("cloud", "US", {"10 sec heartbeat", "query performance heartbeat"}),
+        ]
+    )
+    def test_hobby_keeps_the_heartbeat_and_skips_cloud_only_tasks(
+        self, _name: str, deployment: str | None, expected: set[str]
+    ) -> None:
+        sender = MagicMock()
+        with self.settings(CLOUD_DEPLOYMENT=deployment, DEBUG=False):
+            setup_periodic_tasks(sender)
+        scheduled = {call.kwargs.get("name") for call in sender.add_periodic_task.call_args_list}
+        self.assertEqual(scheduled & {"10 sec heartbeat", "query performance heartbeat"}, expected)
 
 
 class TestInstanceSpreadMinute(SimpleTestCase):
