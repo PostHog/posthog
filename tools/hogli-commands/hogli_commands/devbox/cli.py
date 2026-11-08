@@ -1685,10 +1685,9 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
     copy. The capture image is private to you and auto-expires.
     """
     ensure_runtime_ready()
-    if workspace is None:
-        source_name, workspaces = resolve_default_workspace_name()
-    else:
-        source_name, workspaces = resolve_workspace_name(workspace)
+    source_name, workspaces = (
+        resolve_default_workspace_name() if workspace is None else resolve_workspace_name(workspace)
+    )
     ws = _get_workspace_or_fail(source_name, workspaces)
 
     owner = get_username()
