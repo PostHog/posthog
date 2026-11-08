@@ -151,7 +151,9 @@ def _send(
             notify_refused(
                 team_id=team_id,
                 message=message,
-                destination=f"{destination_id}|{transport.channel_target(target)}",
+                # Where the send went, not the destination id: a converted alert has one id per event
+                # kind, so one broken URL would be noticed once for each kind it was refused on.
+                destination=transport.channel_target(target),
                 refusal=error,
             )
         raise

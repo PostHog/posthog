@@ -60,20 +60,23 @@ def notify_refused(
     refusal: DestinationRefused,
     now: datetime | None = None,
 ) -> None:
-    """Notices one refused send. `destination` names the destination and changes when it is repointed.
+    """Notices one refused send. `destination` is where the send went, and changes when it is repointed.
 
     A repointed destination is a new destination, so a URL fixed and broken again on the same day
     is noticed again. Never raises, because the send's own error is the one the caller reports.
     """
     day = (now or datetime.now(UTC)).date().isoformat()
     key = "alert-destination-refused:" + credential_digest(f"{team_id}|{message.configuration_id}|{destination}|{day}")
-    if not cache.add(key, True, timeout=_SEEN_TTL_SECONDS):
-        return
     try:
-        _notify_everyone(team_id, message, key, refusal)
+        if not cache.add(key, True, timeout=_SEEN_TTL_SECONDS):
+            return
+        try:
+            _notify_everyone(team_id, message, key, refusal)
+        except Exception:
+            # Dropped so the next refused send tries again.
+            cache.delete(key)
+            raise
     except Exception:
-        # Dropped so the next refused send tries again.
-        cache.delete(key)
         logger.exception("alert_destination_refused_notice_failed", team_id=team_id, alert_id=message.configuration_id)
 
 

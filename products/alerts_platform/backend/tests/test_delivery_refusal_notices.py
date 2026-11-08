@@ -16,6 +16,7 @@ from products.alerts_platform.backend.delivery.transport import DestinationRefus
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.tests.delivery_messages import alert_message
+from products.logs.backend.models import LogsAlertConfiguration
 from products.notifications.backend.facade.testing import stored_notifications_for_team
 
 NOW = datetime(2026, 11, 8, 15, 0, tzinfo=UTC)
@@ -91,9 +92,25 @@ class TestRefusalNotices(BaseTest):
         assert self._recipients() == [sorted([self.user.id, self.teammate.id])]
         self.email.assert_not_called()
 
-    def test_a_notice_that_fails_is_tried_again_on_the_next_refusal(self) -> None:
+    def test_a_notice_that_fails_never_raises_and_is_tried_again_on_the_next_refusal(self) -> None:
+        with patch.object(refusal_notices.cache, "add", side_effect=ConnectionError("cache down")):
+            self._notify(self.user)
         with patch.object(refusal_notices, "create_notification", side_effect=RuntimeError("notifications down")):
             self._notify(self.user)
         self._notify(self.user)
 
         assert self._recipients() == [[self.user.id]]
+
+    def test_a_converted_logs_alert_tells_the_creator_of_its_logs_alert(self) -> None:
+        logs_alert = LogsAlertConfiguration.objects.create(
+            team=self.team, name="API errors", enabled=False, created_by=self.teammate
+        )
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=logs_alert.id
+            )
+
+        message = replace(alert_message(), configuration_id=str(self.configuration.id))
+        notify_refused(team_id=self.team.id, message=message, destination="destination-1", refusal=REFUSAL, now=NOW)
+
+        assert self._recipients() == [[self.teammate.id]]
