@@ -76,20 +76,20 @@ export const uiCustomizationUpdateBodyLayoutOneSectionsItemItemsMax = 12
 
 export const uiCustomizationUpdateBodyLayoutOneSectionsMax = 10
 
-export const UiCustomizationUpdateBody = () => zod.object({
+export const UiCustomizationUpdateBody = () => zod.strictObject({
     layout: zod
-        .object({
+        .strictObject({
             version: zod.number().default(uiCustomizationUpdateBodyLayoutOneVersionDefault),
             sections: zod
                 .array(
-                    zod.object({
+                    zod.strictObject({
                         id: zod
                             .string()
                             .min(1)
                             .max(uiCustomizationUpdateBodyLayoutOneSectionsItemIdMax)
                             .regex(uiCustomizationUpdateBodyLayoutOneSectionsItemIdRegExp)
                             .describe(
-                                "Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID."
+                                "Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID, so keep the ID of an existing section when you move or rename it."
                             ),
                         title: zod
                             .union([
@@ -102,7 +102,7 @@ export const UiCustomizationUpdateBody = () => zod.object({
                             ])
                             .optional()
                             .describe(
-                                'Heading of the section. A section with a heading can be closed. Without one, its items show at the top.'
+                                'Heading of the section. A section with a heading can be closed. A section without one shows its items in its place in the layout, with no heading.'
                             ),
                         icon: zod
                             .union([
@@ -136,12 +136,12 @@ export const UiCustomizationUpdateBody = () => zod.object({
                             .array(
                                 zod.union([
                                     zod
-                                        .object({
+                                        .strictObject({
                                             type: zod.literal('link'),
                                             to: zod
                                                 .union([
                                                     zod
-                                                        .object({
+                                                        .strictObject({
                                                             kind: zod.literal('page'),
                                                             page: zod.enum([
                                                                 'analytics_all',
@@ -156,7 +156,7 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                                             ]),
                                                         })
                                                         .describe('A PostHog page. It has its own label and icon.'),
-                                                    zod.object({
+                                                    zod.strictObject({
                                                         kind: zod.literal('insight'),
                                                         short_id: zod
                                                             .string()
@@ -167,11 +167,11 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                                                 "The insight's short ID, as in \/insights\/<short_id>."
                                                             ),
                                                     }),
-                                                    zod.object({
+                                                    zod.strictObject({
                                                         kind: zod.literal('dashboard'),
                                                         id: zod.number().min(1).describe("The dashboard's numeric ID."),
                                                     }),
-                                                    zod.object({
+                                                    zod.strictObject({
                                                         kind: zod.literal('notebook'),
                                                         short_id: zod
                                                             .string()
@@ -184,7 +184,7 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                                     }),
                                                 ])
                                                 .describe(
-                                                    'What the item opens. Only pages and objects of this project.'
+                                                    'What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project.'
                                                 ),
                                             label: zod
                                                 .union([
@@ -229,15 +229,15 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                                 .optional(),
                                         })
                                         .describe(
-                                            'A link to an Analytics page or a project object. Object links require a label; pages supply their own label and icon.'
+                                            "A link to an Analytics page or a project object. Object links require a label. A page link shows the page's own label and icon unless you set them."
                                         ),
                                     zod
-                                        .object({
+                                        .strictObject({
                                             type: zod.literal('button'),
                                             to: zod
                                                 .union([
                                                     zod
-                                                        .object({
+                                                        .strictObject({
                                                             kind: zod.literal('page'),
                                                             page: zod.enum([
                                                                 'analytics_all',
@@ -252,7 +252,7 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                                             ]),
                                                         })
                                                         .describe('A PostHog page. It has its own label and icon.'),
-                                                    zod.object({
+                                                    zod.strictObject({
                                                         kind: zod.literal('insight'),
                                                         short_id: zod
                                                             .string()
@@ -263,11 +263,11 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                                                 "The insight's short ID, as in \/insights\/<short_id>."
                                                             ),
                                                     }),
-                                                    zod.object({
+                                                    zod.strictObject({
                                                         kind: zod.literal('dashboard'),
                                                         id: zod.number().min(1).describe("The dashboard's numeric ID."),
                                                     }),
-                                                    zod.object({
+                                                    zod.strictObject({
                                                         kind: zod.literal('notebook'),
                                                         short_id: zod
                                                             .string()
@@ -280,7 +280,7 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                                     }),
                                                 ])
                                                 .describe(
-                                                    'What the item opens. Only pages and objects of this project.'
+                                                    'What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project.'
                                                 ),
                                             label: zod
                                                 .string()
@@ -324,14 +324,16 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                         })
                                         .describe('A button that opens an Analytics page or a project object.'),
                                     zod
-                                        .object({
+                                        .strictObject({
                                             type: zod.literal('metric'),
                                             insight: zod
                                                 .string()
                                                 .regex(
                                                     uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemThreeInsightRegExp
                                                 )
-                                                .describe('Short ID of a trends insight.'),
+                                                .describe(
+                                                    'Short ID of a trends insight, one whose query source kind is TrendsQuery. Link to other insights.'
+                                                ),
                                             label: zod
                                                 .string()
                                                 .min(1)
@@ -347,7 +349,7 @@ export const UiCustomizationUpdateBody = () => zod.object({
                                             'The latest value of a trends insight, with a sparkline of its first series. Opens the insight.'
                                         ),
                                     zod
-                                        .object({
+                                        .strictObject({
                                             type: zod.literal('list'),
                                             source: zod.enum(['pinned', 'recents', 'by_posthog']),
                                         })
@@ -364,7 +366,6 @@ export const UiCustomizationUpdateBody = () => zod.object({
                     'Use at most 30 items across all sections, including at most 4 metrics. Each built-in list counts as one item. Section IDs must be unique. Each list source can appear only once in the layout.'
                 ),
         })
-        .describe("The Analytics context's fragment. A section with no items to show is hidden.")
         .describe(
             "The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole fragment, so send every section to keep."
         ),

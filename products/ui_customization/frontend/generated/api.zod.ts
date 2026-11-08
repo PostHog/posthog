@@ -64,7 +64,7 @@ export const UiCustomizationUpdateBody = /* @__PURE__ */ zod.object({
                             .max(uiCustomizationUpdateBodyLayoutOneSectionsItemIdMax)
                             .regex(uiCustomizationUpdateBodyLayoutOneSectionsItemIdRegExp)
                             .describe(
-                                "Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID."
+                                "Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID, so keep the ID of an existing section when you move or rename it."
                             ),
                         title: zod
                             .union([
@@ -77,7 +77,7 @@ export const UiCustomizationUpdateBody = /* @__PURE__ */ zod.object({
                             ])
                             .optional()
                             .describe(
-                                'Heading of the section. A section with a heading can be closed. Without one, its items show at the top.'
+                                'Heading of the section. A section with a heading can be closed. A section without one shows its items in its place in the layout, with no heading.'
                             ),
                         icon: zod
                             .union([
@@ -159,7 +159,7 @@ export const UiCustomizationUpdateBody = /* @__PURE__ */ zod.object({
                                                     }),
                                                 ])
                                                 .describe(
-                                                    'What the item opens. Only pages and objects of this project.'
+                                                    'What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project.'
                                                 ),
                                             label: zod
                                                 .union([
@@ -204,7 +204,7 @@ export const UiCustomizationUpdateBody = /* @__PURE__ */ zod.object({
                                                 .optional(),
                                         })
                                         .describe(
-                                            'A link to an Analytics page or a project object. Object links require a label; pages supply their own label and icon.'
+                                            "A link to an Analytics page or a project object. Object links require a label. A page link shows the page's own label and icon unless you set them."
                                         ),
                                     zod
                                         .object({
@@ -255,7 +255,7 @@ export const UiCustomizationUpdateBody = /* @__PURE__ */ zod.object({
                                                     }),
                                                 ])
                                                 .describe(
-                                                    'What the item opens. Only pages and objects of this project.'
+                                                    'What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project.'
                                                 ),
                                             label: zod
                                                 .string()
@@ -306,7 +306,9 @@ export const UiCustomizationUpdateBody = /* @__PURE__ */ zod.object({
                                                 .regex(
                                                     uiCustomizationUpdateBodyLayoutOneSectionsItemItemsItemThreeInsightRegExp
                                                 )
-                                                .describe('Short ID of a trends insight.'),
+                                                .describe(
+                                                    'Short ID of a trends insight, one whose query source kind is TrendsQuery. Link to other insights.'
+                                                ),
                                             label: zod
                                                 .string()
                                                 .min(1)

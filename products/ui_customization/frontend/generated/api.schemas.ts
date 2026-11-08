@@ -82,11 +82,11 @@ export interface AnalyticsNotebookTargetApi {
 }
 
 /**
- * A link to an Analytics page or a project object. Object links require a label; pages supply their own label and icon.
+ * A link to an Analytics page or a project object. Object links require a label. A page link shows the page's own label and icon unless you set them.
  */
 export interface AnalyticsFragmentLinkApi {
     type: 'link'
-    /** What the item opens. Only pages and objects of this project. */
+    /** What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project. */
     to: AnalyticsPageTargetApi | AnalyticsInsightTargetApi | AnalyticsDashboardTargetApi | AnalyticsNotebookTargetApi
     label?: string | null
     icon?: FragmentIconApi | null
@@ -105,7 +105,7 @@ export const FragmentButtonVariantApi = {
  */
 export interface AnalyticsFragmentButtonApi {
     type: 'button'
-    /** What the item opens. Only pages and objects of this project. */
+    /** What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project. */
     to: AnalyticsPageTargetApi | AnalyticsInsightTargetApi | AnalyticsDashboardTargetApi | AnalyticsNotebookTargetApi
     /**
      * @minLength 1
@@ -123,7 +123,7 @@ export interface AnalyticsFragmentButtonApi {
 export interface AnalyticsFragmentMetricApi {
     type: 'metric'
     /**
-     * Short ID of a trends insight.
+     * Short ID of a trends insight, one whose query source kind is TrendsQuery. Link to other insights.
      * @pattern ^[A-Za-z0-9]{1,12}$
      */
     insight: string
@@ -154,13 +154,13 @@ export interface AnalyticsFragmentListApi {
 
 export interface AnalyticsFragmentSectionApi {
     /**
-     * Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID.
+     * Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID, so keep the ID of an existing section when you move or rename it.
      * @minLength 1
      * @maxLength 32
      * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
      */
     id: string
-    /** Heading of the section. A section with a heading can be closed. Without one, its items show at the top. */
+    /** Heading of the section. A section with a heading can be closed. A section without one shows its items in its place in the layout, with no heading. */
     title?: string | null
     /** Icon before the heading. */
     icon?: FragmentIconApi | null

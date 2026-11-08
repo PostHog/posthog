@@ -65,7 +65,7 @@ const uiCustomizationReset = (): ToolBase<ReturnType<typeof UiCustomizationReset
 const UiCustomizationSetSchema = () => {
     const UiCustomizationUpdateBody = orvalSchemas.UiCustomizationUpdateBody()
     const UiCustomizationUpdateParams = orvalSchemas.UiCustomizationUpdateParams()
-    return UiCustomizationUpdateParams.omit({ project_id: true }).extend(UiCustomizationUpdateBody.shape)
+    return UiCustomizationUpdateParams.omit({ project_id: true }).extend(UiCustomizationUpdateBody.shape).strict()
 }
 
 const uiCustomizationSet = (): ToolBase<ReturnType<typeof UiCustomizationSetSchema>, Schemas.Customization> => ({

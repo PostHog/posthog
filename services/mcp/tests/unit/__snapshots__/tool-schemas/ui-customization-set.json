@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "properties": {
         "context": {
             "description": "The UI surface to customize. Each supported context defines its layout schema and defaults.",
@@ -7,11 +8,13 @@
             "type": "string"
         },
         "layout": {
+            "additionalProperties": false,
             "description": "The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole fragment, so send every section to keep.",
             "properties": {
                 "sections": {
                     "description": "Use at most 30 items across all sections, including at most 4 metrics. Each built-in list counts as one item. Section IDs must be unique. Each list source can appear only once in the layout.",
                     "items": {
+                        "additionalProperties": false,
                         "properties": {
                             "icon": {
                                 "anyOf": [
@@ -47,7 +50,7 @@
                                 "description": "Icon before the heading."
                             },
                             "id": {
-                                "description": "Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID.",
+                                "description": "Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID, so keep the ID of an existing section when you move or rename it.",
                                 "maxLength": 32,
                                 "minLength": 1,
                                 "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
@@ -57,7 +60,8 @@
                                 "items": {
                                     "anyOf": [
                                         {
-                                            "description": "A link to an Analytics page or a project object. Object links require a label; pages supply their own label and icon.",
+                                            "additionalProperties": false,
+                                            "description": "A link to an Analytics page or a project object. Object links require a label. A page link shows the page's own label and icon unless you set them.",
                                             "properties": {
                                                 "icon": {
                                                     "anyOf": [
@@ -107,6 +111,7 @@
                                                 "to": {
                                                     "anyOf": [
                                                         {
+                                                            "additionalProperties": false,
                                                             "description": "A PostHog page. It has its own label and icon.",
                                                             "properties": {
                                                                 "kind": {
@@ -132,6 +137,7 @@
                                                             "type": "object"
                                                         },
                                                         {
+                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "kind": {
                                                                     "const": "insight",
@@ -147,6 +153,7 @@
                                                             "type": "object"
                                                         },
                                                         {
+                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "id": {
                                                                     "description": "The dashboard's numeric ID.",
@@ -162,6 +169,7 @@
                                                             "type": "object"
                                                         },
                                                         {
+                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "kind": {
                                                                     "const": "notebook",
@@ -177,7 +185,7 @@
                                                             "type": "object"
                                                         }
                                                     ],
-                                                    "description": "What the item opens. Only pages and objects of this project."
+                                                    "description": "What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project."
                                                 },
                                                 "type": {
                                                     "const": "link",
@@ -188,6 +196,7 @@
                                             "type": "object"
                                         },
                                         {
+                                            "additionalProperties": false,
                                             "description": "A button that opens an Analytics page or a project object.",
                                             "properties": {
                                                 "icon": {
@@ -231,6 +240,7 @@
                                                 "to": {
                                                     "anyOf": [
                                                         {
+                                                            "additionalProperties": false,
                                                             "description": "A PostHog page. It has its own label and icon.",
                                                             "properties": {
                                                                 "kind": {
@@ -256,6 +266,7 @@
                                                             "type": "object"
                                                         },
                                                         {
+                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "kind": {
                                                                     "const": "insight",
@@ -271,6 +282,7 @@
                                                             "type": "object"
                                                         },
                                                         {
+                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "id": {
                                                                     "description": "The dashboard's numeric ID.",
@@ -286,6 +298,7 @@
                                                             "type": "object"
                                                         },
                                                         {
+                                                            "additionalProperties": false,
                                                             "properties": {
                                                                 "kind": {
                                                                     "const": "notebook",
@@ -301,7 +314,7 @@
                                                             "type": "object"
                                                         }
                                                     ],
-                                                    "description": "What the item opens. Only pages and objects of this project."
+                                                    "description": "What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project."
                                                 },
                                                 "type": {
                                                     "const": "button",
@@ -317,10 +330,11 @@
                                             "type": "object"
                                         },
                                         {
+                                            "additionalProperties": false,
                                             "description": "The latest value of a trends insight, with a sparkline of its first series. Opens the insight.",
                                             "properties": {
                                                 "insight": {
-                                                    "description": "Short ID of a trends insight.",
+                                                    "description": "Short ID of a trends insight, one whose query source kind is TrendsQuery. Link to other insights.",
                                                     "pattern": "^[A-Za-z0-9]{1,12}$",
                                                     "type": "string"
                                                 },
@@ -340,6 +354,7 @@
                                             "type": "object"
                                         },
                                         {
+                                            "additionalProperties": false,
                                             "description": "A list of pinned, recent, or built-in Analytics items.",
                                             "properties": {
                                                 "source": {
@@ -372,7 +387,7 @@
                                         "type": "null"
                                     }
                                 ],
-                                "description": "Heading of the section. A section with a heading can be closed. Without one, its items show at the top."
+                                "description": "Heading of the section. A section with a heading can be closed. A section without one shows its items in its place in the layout, with no heading."
                             }
                         },
                         "required": ["id", "items"],
