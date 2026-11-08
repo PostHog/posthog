@@ -36,11 +36,15 @@ export function AutoResolveSettings(): JSX.Element {
     const days = isValidAutoResolveDays(configForm.days) ? configForm.days : null
 
     return (
-        <Form logic={autoResolveConfigLogic} formKey="configForm" enableFormOnSubmit className="space-y-4 max-w-160">
-            <p className="text-muted-foreground">
-                Resolve active issues automatically once they stop receiving exceptions. A daily run checks your issues.
-            </p>
-
+        <Form
+            logic={autoResolveConfigLogic}
+            formKey="configForm"
+            enableFormOnSubmit
+            // The days input keeps min, max and step for its spinner. Without noValidate, the browser blocks the
+            // submit with its own tooltip, so the form never shows its range message under the field.
+            noValidate
+            className="space-y-4 max-w-160"
+        >
             <LemonField name="enabled">
                 {({ value, onChange }) => (
                     <LemonSwitch
