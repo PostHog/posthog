@@ -9,7 +9,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { PlayerMetaExperimentTags } from 'scenes/session-recordings/player/player-meta/PlayerMetaExperimentTags'
-import { PinToPlaylistButton } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { gatherIconProperties } from 'scenes/session-recordings/playlist/gatherIconProperties'
@@ -20,6 +19,7 @@ import { PersonIcon } from 'products/persons/frontend/components/PersonDisplay'
 import { asDisplay, asLink } from 'products/persons/frontend/person-utils'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { QuillPinToPlaylistButton } from './QuillPinToPlaylistButton'
 
 export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.Element {
     const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
@@ -32,7 +32,7 @@ export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.E
     const actionBar = (
         <div className="ml-auto flex items-center gap-2 flex-wrap" data-attr="watch-panel-title-actions">
             {actions}
-            <PinToPlaylistButton size="small" type="secondary" labelled />
+            <QuillPinToPlaylistButton />
         </div>
     )
 
@@ -67,11 +67,11 @@ export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.E
     return (
         <div
             data-quill
-            className="flex items-start gap-3 min-w-0 flex-wrap text-foreground"
+            className="flex items-center gap-3 min-w-0 flex-wrap text-foreground"
             data-attr="watch-panel-title"
         >
             {sessionPerson && <PersonIcon person={sessionPerson} size="lg" className="mr-0 shrink-0" />}
-            <div className="flex flex-col gap-0.5 min-w-0 flex-1 basis-72">
+            <div className="flex flex-col min-w-0 flex-1 basis-72">
                 <Heading size="base" render={<h2 />} className="truncate m-0 ph-no-capture">
                     {personHref ? (
                         <Button
@@ -86,20 +86,19 @@ export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.E
                         personName
                     )}
                 </Heading>
-                {personUUID && (
-                    <div>
+                <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap text-xs text-muted-foreground ph-no-capture">
+                    {personUUID && (
                         <Button
+                            variant="link-muted"
+                            size="inline"
                             onClick={showMoreFromPerson}
                             tooltip="Filter the list to this person's recordings"
-                            className="-ml-1"
                             data-attr="watch-panel-more-from-person"
                         >
                             More from this person
                             <IconChevronRight />
                         </Button>
-                    </div>
-                )}
-                <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap text-xs text-muted-foreground ph-no-capture">
+                    )}
                     {durationSeconds !== undefined && <span>{humanFriendlyDuration(durationSeconds)}</span>}
                     {startTime && <TZLabel time={startTime} showPopover={false} />}
                     {iconProperties.map(({ property, value, label }) => (
