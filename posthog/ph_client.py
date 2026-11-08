@@ -1,7 +1,7 @@
 import os
 import atexit
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from numbers import Number
 from typing import Any, cast
@@ -29,6 +29,40 @@ def filter_scout_experiment_capture(message: dict[str, Any]) -> dict[str, Any] |
     if get_query_tags().is_scout_experiment is True:
         return None
     return message
+
+
+def drop_exception_capture(message: dict[str, Any]) -> dict[str, Any] | None:
+    if message.get("event") == "$exception":
+        return None
+    return message
+
+
+BeforeSend = Callable[[dict[str, Any]], dict[str, Any] | None]
+
+
+def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> BeforeSend | None:
+    # A self-hosted install sends its usage events to the PostHog US project by default.
+    # Its exceptions hold that install's own stack traces and data, and its integrations
+    # are configured by its operator, so they must not reach our error tracking or Signals.
+    hooks: list[BeforeSend] = []
+    if private_scout_capture:
+        hooks.append(filter_scout_experiment_capture)
+    if self_hosted:
+        hooks.append(drop_exception_capture)
+    if not hooks:
+        return None
+    if len(hooks) == 1:
+        return hooks[0]
+
+    def chained(message: dict[str, Any]) -> dict[str, Any] | None:
+        result: dict[str, Any] | None = message
+        for hook in hooks:
+            result = hook(result)
+            if result is None:
+                return None
+        return result
+
+    return chained
 
 
 def feature_enabled_or_false(

@@ -8,9 +8,10 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
+from posthog.cloud_utils import is_hobby
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.organization_caching import connect_signal_handlers as connect_organization_cache_signal_handlers
-from posthog.ph_client import filter_scout_experiment_capture
+from posthog.ph_client import default_before_send
 from posthog.utils import (
     _build_flag_provider,
     get_available_timezones_with_offsets,
@@ -82,8 +83,12 @@ class PostHogConfig(AppConfig):
         posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
         posthoganalytics._enable_multimodal_capture = True  # ty: ignore[invalid-assignment]
         # Retained trial data still needs privacy when new launches are disabled.
-        if settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE:
-            posthoganalytics.before_send = filter_scout_experiment_capture  # ty: ignore[invalid-assignment]
+        before_send = default_before_send(
+            private_scout_capture=settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE,
+            self_hosted=is_hobby() and not settings.TEST,
+        )
+        if before_send is not None:
+            posthoganalytics.before_send = before_send  # ty: ignore[invalid-assignment]
 
         # Config for the SDK's `client.metrics` API. The pinned SDK version predates
         # the metrics API and ignores this attr; once posthoganalytics is bumped to
