@@ -315,11 +315,13 @@ class TestEventSearch:
         assert result.requests[0].param("start_time") == "1767225600000"
         assert result.rows[0]["timestamp"] == datetime(2026, 1, 1, tzinfo=UTC)
 
-    def test_resume_continues_saved_window(self) -> None:
+    def test_resume_continues_saved_window_and_skips_boundary_events(self) -> None:
         result = _driver().run(
             "events",
-            [self._events([])],
-            resume_state=SplunkObservabilityCloudResumeConfig(offset=2000, event_start_ms=1767225600000),
+            [self._events([("a", 1767225600000), ("b", 1767225600000)])],
+            resume_state=SplunkObservabilityCloudResumeConfig(
+                offset=2000, event_start_ms=1767225600000, event_boundary_ids=["a"]
+            ),
         )
 
         assert result.raised is None
@@ -327,6 +329,8 @@ class TestEventSearch:
             "1767225600000",
             "2000",
         )
+        # A resumed full refresh appends, so an event the interrupted attempt wrote must not repeat.
+        assert [row["id"] for row in result.rows] == ["b"]
 
 
 def _sse_lines(events: list[tuple[str, dict[str, Any]]]) -> list[str]:

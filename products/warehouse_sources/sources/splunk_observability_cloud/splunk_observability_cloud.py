@@ -66,6 +66,9 @@ class SplunkObservabilityCloudResumeConfig:
     # Start of the current event search window. The search caps each query at 10,000
     # results, so a long history is read as a series of windows; `offset` is within it.
     event_start_ms: int | None = None
+    # Ids of events at `event_start_ms` that an earlier window already yielded. A resumed full
+    # refresh appends rows, so it must skip them again.
+    event_boundary_ids: list[str] | None = None
 
 
 def normalize_realm(realm: str) -> str:
@@ -380,7 +383,12 @@ def _get_synthetic_run_rows(
             params = {"page": page, "perPage": SYNTHETICS_PAGE_SIZE, "startTime": start_time, "endTime": end_time}
             data = _fetch(session, _build_url(base_url, path, params), headers, logger)
             rows = _extract_page(config, data)
-            has_more = bool(rows) and _has_next_page(data) and page * SYNTHETICS_PAGE_SIZE < MAX_OFFSET
+            has_more = bool(rows) and _has_next_page(data)
+            if has_more and page * SYNTHETICS_PAGE_SIZE >= MAX_OFFSET:
+                logger.warning(
+                    f"Splunk Observability Cloud: synthetic run page cap reached, truncating results. test_id={test_id}"
+                )
+                has_more = False
 
             if has_more:
                 resumable_source_manager.save_state(
@@ -429,7 +437,7 @@ def _get_event_search_rows(
         window_start = resume.event_start_ms
         offset = resume.offset
 
-    already_yielded: set[str] = set()
+    already_yielded: set[str] = set(resume.event_boundary_ids or []) if resume is not None else set()
     latest_ms: int | None = None
     ids_at_latest: set[str] = set()
 
@@ -459,7 +467,9 @@ def _get_event_search_rows(
         offset += len(rows)
         next_state: SplunkObservabilityCloudResumeConfig | None = None
         if len(rows) >= limit and offset < EVENT_SEARCH_RESULT_CAP:
-            next_state = SplunkObservabilityCloudResumeConfig(offset=offset, event_start_ms=window_start)
+            next_state = SplunkObservabilityCloudResumeConfig(
+                offset=offset, event_start_ms=window_start, event_boundary_ids=sorted(already_yielded)
+            )
         elif len(rows) >= limit:
             if latest_ms is None:
                 logger.warning("Splunk Observability Cloud: event search page had no timestamps; stopping the read")
@@ -472,7 +482,9 @@ def _get_event_search_rows(
                 )
                 next_state = SplunkObservabilityCloudResumeConfig(offset=0, event_start_ms=window_start + 1)
             else:
-                next_state = SplunkObservabilityCloudResumeConfig(offset=0, event_start_ms=latest_ms)
+                next_state = SplunkObservabilityCloudResumeConfig(
+                    offset=0, event_start_ms=latest_ms, event_boundary_ids=sorted(ids_at_latest)
+                )
 
         if next_state is not None:
             resumable_source_manager.save_state(next_state)
