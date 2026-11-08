@@ -148,7 +148,7 @@ def resolve_workspace_name(
     """Resolve a workspace target into a full workspace name.
 
     Supports:
-    - ``None`` inside a worktree that ``devbox:worktree`` set up -> that worktree's box
+    - ``None`` inside a worktree that ``devbox:worktree`` set up -> that worktree's box, while it exists
     - ``None`` elsewhere -> user's default workspace (auto-selects when only one exists)
     - ``"@user"`` -> another user's default workspace
     - ``"@user/label"`` -> another user's labeled workspace
@@ -177,29 +177,36 @@ def resolve_workspace_name(
             return target_name, None
         return _resolve_own_label(target_name)
 
-    worktree_box = current_worktree_box()
+    workspaces = list_user_workspaces()
+    worktree_box = current_worktree_box(workspaces)
     if worktree_box is not None:
-        return worktree_box, None
-    return resolve_default_workspace_name(region=effective_region)
+        return worktree_box, workspaces
+    return resolve_default_workspace_name(region=effective_region, workspaces=workspaces)
 
 
-def current_worktree_box(cwd: Path | None = None) -> str | None:
-    """The Coder box that `devbox:worktree` registered for the worktree containing *cwd*."""
-    boxes = load_worktree_boxes()
-    if not boxes:
+def current_worktree_box(workspaces: list[dict[str, Any]]) -> str | None:
+    """The live Coder box that `devbox:worktree` set up for the checkout containing the current directory.
+
+    Only the nearest checkout counts, so a worktree nested inside another one
+    never gets the outer worktree's box. A box that is gone, or another box
+    recreated under its name, does not count either.
+    """
+    cwd = Path.cwd().resolve()
+    root = next((candidate for candidate in (cwd, *cwd.parents) if (candidate / ".git").exists()), None)
+    record = load_worktree_boxes().get(str(root)) if root is not None else None
+    if record is None or record.provider != "coder":
         return None
-    start = (cwd or Path.cwd()).resolve()
-    for candidate in (start, *start.parents):
-        record = boxes.get(str(candidate))
-        if record is not None:
-            return record.workspace if record.provider == "coder" else None
-    return None
+    live = get_workspace(record.workspace, workspaces)
+    return record.workspace if live is not None and record.may_adopt(live) else None
 
 
-def resolve_default_workspace_name(*, region: str | None = None) -> tuple[str, list[dict[str, Any]]]:
+def resolve_default_workspace_name(
+    *, region: str | None = None, workspaces: list[dict[str, Any]] | None = None
+) -> tuple[str, list[dict[str, Any]]]:
     """Resolve the user's default workspace, ignoring the worktree the command runs in."""
     effective_region = region if region is not None else _preferred_region()
-    workspaces = list_user_workspaces()
+    if workspaces is None:
+        workspaces = list_user_workspaces()
 
     if len(workspaces) == 0:
         return get_workspace_name(region=effective_region), workspaces
@@ -1670,7 +1677,6 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
     copy. The capture image is private to you and auto-expires.
     """
     ensure_runtime_ready()
-    # `devbox:worktree --clone-from default` registers the new box before it clones, so the source must skip that box.
     if workspace is None:
         source_name, workspaces = resolve_default_workspace_name()
     else:

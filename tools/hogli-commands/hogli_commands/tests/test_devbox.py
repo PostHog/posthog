@@ -61,7 +61,6 @@ def agent_ready_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def isolated_worktree_boxes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # A developer running the suite from a worktree with its own box must not see that box resolved.
     monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "worktree-boxes.json")
 
 
@@ -2217,25 +2216,56 @@ class TestResolveWorkspaceName:
             devbox_cli,
             "list_user_workspaces",
             lambda: [
-                {"name": name, "template_name": coder.DEFAULT_TEMPLATE, "latest_build": {"status": "running"}}
+                {
+                    "name": name,
+                    "id": f"id-{name}",
+                    "template_name": coder.DEFAULT_TEMPLATE,
+                    "latest_build": {"status": "running"},
+                }
                 for name in ("devbox-test-user", "devbox-test-user-feat", "devbox-test-user-api")
             ],
         )
         root = tmp_path / "wt"
         (root / "frontend").mkdir(parents=True)
+        (root / ".git").write_text("gitdir: elsewhere\n")
+        nested = root / ".claude" / "worktrees" / "agent-1"
+        nested.mkdir(parents=True)
+        (nested / ".git").write_text("gitdir: elsewhere\n")
         devbox_config.record_worktree_box(
-            root, devbox_config.WorktreeBoxRecord(workspace="devbox-test-user-feat", git_dir="admin")
+            root,
+            devbox_config.WorktreeBoxRecord(
+                workspace="devbox-test-user-feat", git_dir="admin", workspace_id="id-devbox-test-user-feat"
+            ),
         )
         return root
 
     @pytest.mark.parametrize(
-        "cwd, workspace, provider, expected",
+        "cwd, workspace, record, expected",
         [
-            pytest.param("wt/frontend", None, "coder", "devbox-test-user-feat", id="worktree-subdirectory"),
-            pytest.param("wt", "api", "coder", "devbox-test-user-api", id="explicit-label-wins"),
-            pytest.param("wt", "@alice", "coder", "devbox-alice", id="shared-target-wins"),
-            pytest.param("wt", None, "hogland", "devbox-test-user", id="hogland-box-is-not-a-coder-workspace"),
-            pytest.param(".", None, "coder", "devbox-test-user", id="outside-registered-worktree"),
+            pytest.param("wt/frontend", None, None, "devbox-test-user-feat", id="worktree-subdirectory"),
+            pytest.param("wt", "api", None, "devbox-test-user-api", id="explicit-label-wins"),
+            pytest.param("wt", "@alice", None, "devbox-alice", id="shared-target-wins"),
+            pytest.param(".", None, None, "devbox-test-user", id="outside-registered-worktree"),
+            pytest.param(
+                "wt/.claude/worktrees/agent-1", None, None, "devbox-test-user", id="nested-unregistered-worktree"
+            ),
+            pytest.param(
+                "wt",
+                None,
+                {"workspace": "wt-feat", "provider": "hogland"},
+                "devbox-test-user",
+                id="hogland-box-is-not-a-coder-workspace",
+            ),
+            pytest.param(
+                "wt", None, {"workspace": "devbox-test-user-gone"}, "devbox-test-user", id="registered-box-is-gone"
+            ),
+            pytest.param(
+                "wt",
+                None,
+                {"workspace": "devbox-test-user-feat", "workspace_id": "id-of-a-deleted-box"},
+                "devbox-test-user",
+                id="another-box-recreated-under-the-name",
+            ),
         ],
     )
     def test_default_target_is_the_box_of_the_current_worktree(
@@ -2245,13 +2275,12 @@ class TestResolveWorkspaceName:
         worktree_with_box: Path,
         cwd: str,
         workspace: str | None,
-        provider: str,
+        record: dict[str, str] | None,
         expected: str,
     ) -> None:
-        if provider != "coder":
+        if record is not None:
             devbox_config.record_worktree_box(
-                worktree_with_box,
-                devbox_config.WorktreeBoxRecord(workspace="wt-feat", git_dir="admin", provider=provider),
+                worktree_with_box, devbox_config.WorktreeBoxRecord(git_dir="admin", **record)
             )
         monkeypatch.chdir(tmp_path / cwd)
 
