@@ -814,7 +814,7 @@ export class KafkaConsumer {
                 isFatal: (error as any)?.isFatal,
                 isRetriable: (error as any)?.isRetriable,
                 config: this.config,
-                consumerConfig: this.consumerConfig,
+                consumerConfig: redactKafkaConfig(this.consumerConfig),
             })
             // We re-throw the error as that way it will be caught in server.ts and trigger a full shutdown
             throw error
@@ -846,7 +846,7 @@ export class KafkaConsumer {
                     isFatal: (error as any)?.isFatal,
                     isRetriable: (error as any)?.isRetriable,
                     config: this.config,
-                    consumerConfig: this.consumerConfig,
+                    consumerConfig: redactKafkaConfig(this.consumerConfig),
                 })
             })
         }

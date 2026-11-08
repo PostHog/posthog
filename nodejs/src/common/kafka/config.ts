@@ -1,6 +1,7 @@
 import { ConsumerGlobalConfig, GlobalConfig } from 'node-rdkafka'
 
 import { defaultConfig } from '../config/config'
+import { isSensitiveKafkaKey } from './sensitive-keys'
 
 export const RDKAFKA_LOG_LEVEL_MAPPING = {
     NOTHING: 0,
@@ -91,10 +92,7 @@ export const getKafkaConfigFromEnv = (target: KafkaConfigTarget): GlobalConfig =
 
 export function redactKafkaConfig(config: GlobalConfig): Record<string, unknown> {
     return Object.fromEntries(
-        Object.entries(config).map(([key, value]) => [
-            key,
-            key.includes('password') || key.includes('secret') || key.endsWith('.pem') ? '***' : value,
-        ])
+        Object.entries(config).map(([key, value]) => [key, isSensitiveKafkaKey(key) ? '***' : value])
     )
 }
 

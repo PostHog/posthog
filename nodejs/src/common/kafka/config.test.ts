@@ -1,4 +1,4 @@
-import { ConsumerGlobalConfig } from 'node-rdkafka'
+import { ConsumerGlobalConfig, GlobalConfig } from 'node-rdkafka'
 
 import { getKafkaConfigFromEnv, redactKafkaConfig, stripClassicProtocolConfig } from './config'
 
@@ -112,5 +112,31 @@ describe('stripClassicProtocolConfig', () => {
         stripClassicProtocolConfig(config)
 
         expect(config['session.timeout.ms']).toBe(30_000)
+    })
+})
+
+describe('redactKafkaConfig', () => {
+    it.each([
+        'sasl.username',
+        'sasl.password',
+        'sasl.oauthbearer.config',
+        'sasl.oauthbearer.assertion.private.key.file',
+        'ssl.key.location',
+        'ssl.keystore.password',
+        'sasl.oauthbearer.unreleased.passphrase',
+    ])('hides %s and keeps the settings needed to debug a connection', (key) => {
+        const config = {
+            [key]: 'hunter2',
+            'security.protocol': 'sasl_ssl',
+            'sasl.mechanisms': 'SCRAM-SHA-512',
+            'metadata.broker.list': 'kafka:9092',
+        } as GlobalConfig
+
+        expect(redactKafkaConfig(config)).toEqual({
+            [key]: '***',
+            'security.protocol': 'sasl_ssl',
+            'sasl.mechanisms': 'SCRAM-SHA-512',
+            'metadata.broker.list': 'kafka:9092',
+        })
     })
 })

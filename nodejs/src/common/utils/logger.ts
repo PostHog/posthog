@@ -3,12 +3,23 @@ import pino from 'pino'
 
 import type { LogLevel } from '~/types'
 
+import { SENSITIVE_KAFKA_KEYS } from '../kafka/sensitive-keys'
 import { isProdEnv, isTestEnv } from './env-utils'
 
 // Read from env directly instead of defaultConfig: that module throws at import when
 // Postgres env vars are missing, and entrypoints without them (e.g. the recording
 // rasterizer) reach this logger transitively.
 const logLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) || (isTestEnv() ? 'warn' : 'info')
+
+// A fallback for a Kafka config logged without redactKafkaConfig. _log spreads the extra object
+// into the log line, so a config passed directly sits at the top level and a config passed as
+// { config } sits one level down. pino cannot match deeper levels, and it cannot rewrite a value
+// on a frozen object or behind a getter, so callers must still redact explicitly. The bracket
+// syntax is required because pino reads `sasl.password` as key `password` inside key `sasl`.
+export const KAFKA_LOG_REDACTION = {
+    paths: [...SENSITIVE_KAFKA_KEYS].flatMap((key) => [`["${key}"]`, `*["${key}"]`]),
+    censor: '***',
+}
 
 // Correlate log lines with the active OTel trace, using the same `trace_id`/`span_id` keys as the
 // Django logger so the log collector links them to their trace. Read at emit time so nested spans get
@@ -42,6 +53,7 @@ export class Logger {
                     },
                 },
                 level: logLevel,
+                redact: KAFKA_LOG_REDACTION,
             })
         } else {
             // If we're not in production, we ensure that:
@@ -58,7 +70,7 @@ export class Logger {
                     level: logLevel,
                 },
             })
-            this.pino = pino({ level: logLevel }, this.transport)
+            this.pino = pino({ level: logLevel, redact: KAFKA_LOG_REDACTION }, this.transport)
         }
     }
 
