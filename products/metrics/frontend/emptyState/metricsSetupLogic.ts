@@ -79,4 +79,6 @@ export const metricsSetupLogic = createSetupDetectionLogic({
     // often enough for the flip to feel immediate.
     pollIntervalMs: 5000,
     cacheHasData: true,
+    // A team with only derived series loses them when the experiment ends or its spans and logs age out.
+    revalidateCachedHasData: true,
 })

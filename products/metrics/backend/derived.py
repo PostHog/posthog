@@ -6,7 +6,7 @@ so a later ingestion-time rollup can serve the same names without changes for us
 """
 
 import datetime as dt
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from enum import StrEnum
 
 from django.core.cache import cache
@@ -64,6 +64,15 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
 
 _DATA_PRESENCE_WINDOW = dt.timedelta(hours=24)
 _DATA_PRESENCE_CACHE_TTL_SECONDS = 300
+# The setup screen polls for data every few seconds. An empty or failed check expires sooner, so new
+# spans or logs show up within a minute, but polling never re-runs the probes on every request.
+_DATA_PRESENCE_RECHECK_TTL_SECONDS = 60
+# A presence probe reads at most one row, so it gets a tighter time limit than a chart query.
+_PRESENCE_QUERY_SETTINGS = HogQLGlobalSettings(
+    max_execution_time=10,
+    max_bytes_to_read=10_000_000_000,
+    read_overflow_mode="throw",
+)
 
 
 class DerivedSource(StrEnum):
@@ -210,9 +219,9 @@ def derived_metrics_enabled(team: Team) -> bool:
     return variant is True or variant == "test"
 
 
-def team_has_derived_sources(team: Team) -> bool:
-    """True when the team sent spans or logs in the last day, so derived series would have data."""
-    return bool(_sources_with_data(team))
+def team_has_derived_sources(team: Team, *, can_read: Callable[[APIScopeObject], bool]) -> bool:
+    """True when the team sent spans or logs in the last day from a source the caller can read."""
+    return any(can_read(SOURCE_RESOURCES[source]) for source in _sources_with_data(team))
 
 
 def _window_expr(date_from: dt.datetime, date_to: dt.datetime) -> ast.Expr:
@@ -252,7 +261,7 @@ def _sources_with_data(team: Team) -> set[DerivedSource]:
                 query=query,
                 team=team,
                 workload=Workload.LOGS,
-                settings=_QUERY_SETTINGS,
+                settings=_PRESENCE_QUERY_SETTINGS,
             )
         except Exception:
             logger.warning("metrics_derived_presence_check_failed", team_id=team.id, source=source.value, exc_info=True)
@@ -260,9 +269,12 @@ def _sources_with_data(team: Team) -> set[DerivedSource]:
             continue
         if response.results:
             sources.add(source)
-    # Cache only a complete answer, so the next request checks a failed source again.
-    if not failed:
-        cache.set(cache_key, sorted(sources), _DATA_PRESENCE_CACHE_TTL_SECONDS)
+    complete = bool(sources) and not failed
+    cache.set(
+        cache_key,
+        sorted(sources),
+        _DATA_PRESENCE_CACHE_TTL_SECONDS if complete else _DATA_PRESENCE_RECHECK_TTL_SECONDS,
+    )
     return sources
 
 

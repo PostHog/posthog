@@ -596,9 +596,13 @@ def is_derived_metric_name(name: str) -> bool:
     return _is_derived_metric_name(name)
 
 
-def get_derived_series_status(team: Team) -> DerivedSeriesStatus:
-    """Whether the team has spans or logs to derive series from, and whether derived series are on for it."""
-    has_sources = team_has_derived_sources(team)
+def get_derived_series_status(team: Team, *, can_read: Callable[[APIScopeObject], bool]) -> DerivedSeriesStatus:
+    """Whether the team has spans or logs to derive series from, and whether derived series are on for it.
+
+    `can_read` says whether the caller can read a source's resource (`logs`, `tracing`). A source the
+    caller cannot read counts as absent, so the answer does not reveal that the team sends it.
+    """
+    has_sources = team_has_derived_sources(team, can_read=can_read)
     return DerivedSeriesStatus(has_sources=has_sources, enabled=has_sources and derived_metrics_enabled(team))
 
 

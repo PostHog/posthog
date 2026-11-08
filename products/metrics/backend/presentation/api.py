@@ -36,6 +36,7 @@ from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_en
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled, scopes_caller_lacks
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.scopes import APIScopeObject
 from posthog.utils import relative_date_parse
 
 from products.metrics.backend.facade.api import (
@@ -1038,7 +1039,9 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def has_metrics(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
         has_metrics = team_has_metrics(self.team)
-        derived = get_derived_series_status(self.team)
+        derived = get_derived_series_status(
+            self.team, can_read=lambda resource: self._can_read_derived_source(request, resource)
+        )
 
         report_user_action(
             request.user,
@@ -1367,6 +1370,11 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return _series_response(series)
+
+    def _can_read_derived_source(self, request: Request, resource: APIScopeObject) -> bool:
+        return not scopes_caller_lacks(
+            request, [f"{resource}:read"]
+        ) and self.user_access_control.check_access_level_for_resource(resource, "viewer")
 
     def _enforce_derived_source_access(self, request: Request, clauses: Sequence[MetricQueryClause]) -> None:
         # A derived metric reads spans or logs, so metrics access alone must not expose their attributes.

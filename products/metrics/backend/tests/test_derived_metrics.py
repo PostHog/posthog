@@ -288,11 +288,19 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
         ):
             names = {row["name"] for row in list_metric_picker_names(team=self.team)}
 
+        # A failed check is held for a minute, so polling does not re-run a slow probe on every request.
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
+            held = {row["name"] for row in list_metric_picker_names(team=self.team)}
+
+        with (
+            time_machine.travel(DATE_TO + dt.timedelta(minutes=1, seconds=1), tick=False),
+            _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
+        ):
             retried = {row["name"] for row in list_metric_picker_names(team=self.team)}
 
         assert LOG_RECORDS in names
         assert REQUESTS not in names
+        assert REQUESTS not in held
         assert REQUESTS in retried
 
     @parameterized.expand(
@@ -343,6 +351,36 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json() == {"hasMetrics": False, "hasDerivedSources": True, "hasDerivedMetrics": derived_on}
+
+    @parameterized.expand(
+        [
+            ("token_without_source_scopes", ["metrics:read"], True, False),
+            ("token_with_tracing_scope", ["metrics:read", "tracing:read"], True, True),
+            ("user_without_source_access", None, False, False),
+        ]
+    )
+    @time_machine.travel(DATE_TO, tick=False)
+    def test_has_metrics_hides_sources_the_caller_cannot_read(
+        self, _name: str, scopes: list[str] | None, has_source_access: bool, expected: bool
+    ) -> None:
+        if scopes is not None:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {value}")
+
+        with (
+            _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+                side_effect=lambda resource, *_, **__: resource not in ("logs", "tracing") or has_source_access,
+            ),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"hasMetrics": False, "hasDerivedSources": expected, "hasDerivedMetrics": expected}
 
     def test_query_event_marks_derived_queries(self) -> None:
         with (
