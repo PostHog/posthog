@@ -497,30 +497,11 @@ services:
             SKIP_ASYNC_MIGRATIONS_SETUP: 0
 
     # Temporal containers
-    # Defined in full instead of extending the base service, because `extends` copies the base
-    # depends_on, which waits for a healthy elasticsearch. Hobby runs Temporal with SQL visibility
-    # and has no elasticsearch service.
     temporal:
-        image: temporalio/auto-setup:1.26.2
-        restart: on-failure
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-sql-visibility
         logging: *default-logging
-        healthcheck:
-            test: ['CMD-SHELL', 'nc -z $(hostname) 7233']
-            interval: 5s
-            timeout: 5s
-            retries: 30
-            start_period: 300s
-        environment:
-            - DB=postgres12
-            - DB_PORT=5432
-            - POSTGRES_USER=posthog
-            - POSTGRES_PWD=posthog
-            - POSTGRES_SEEDS=db
-            - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-            - ENABLE_ES=false
-        depends_on:
-            db:
-                condition: service_healthy
         ports:
             - '127.0.0.1:7233:7233'
         volumes:
