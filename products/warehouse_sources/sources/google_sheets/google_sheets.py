@@ -199,7 +199,6 @@ def _resolve_column_names(headers: list[str]) -> list[str]:
     return resolved
 
 
-# Each of these spaces can group the digits of a number in a sheet.
 _GROUP_SPACES = (" ", " ", " ")
 
 

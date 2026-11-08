@@ -403,9 +403,7 @@ def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_tex
 
 _DOT_GROUPED_DECIMAL_COMMA_LOCALES = ["de_DE", "es_ES", "it_IT", "nl_NL", "pt_BR", "tr_TR", "id_ID"]
 _SPACE_GROUPED_DECIMAL_COMMA_LOCALES = ["fr_FR", "pl_PL", "ru_RU", "cs_CZ", "sv_SE", "pt_PT", "uk_UA", "nb_NO"]
-# Locales disagree on which space groups digits, and a sheet can hold any of them.
 _SPACES = {"space": " ", "no_break_space": " ", "narrow_no_break_space": " "}
-# One locale for each parsing path: dot-grouped, space-grouped and decimal point.
 _ONE_LOCALE_PER_PATH = ["de_DE", "fr_FR", "en_US"]
 
 
