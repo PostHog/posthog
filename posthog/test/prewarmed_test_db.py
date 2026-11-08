@@ -9,7 +9,8 @@ PREWARM_RUN_ENV = "HOGLI_TEST_DB_PREWARM"
 
 
 def wait_for_test_db_prewarm(lock_path: Path = PREWARM_LOCK) -> None:
-    if os.environ.get(PREWARM_RUN_ENV):
+    # An xdist worker sets up its own suffixed databases, which the build does not touch.
+    if os.environ.get(PREWARM_RUN_ENV) or os.environ.get("PYTEST_XDIST_WORKER"):
         return
     try:
         lock = lock_path.open()

@@ -20,19 +20,20 @@ class _SignallingStream(io.StringIO):
 
 
 @pytest.mark.parametrize(
-    "prewarm_env, waits",
+    "env, waits",
     [
-        pytest.param(None, True, id="a-test-run-waits-for-the-build"),
-        pytest.param("1", False, id="the-build-does-not-wait-for-its-own-lock"),
+        pytest.param({}, True, id="a-test-run-waits-for-the-build"),
+        pytest.param({PREWARM_RUN_ENV: "1"}, False, id="the-build-does-not-wait-for-its-own-lock"),
+        pytest.param({"PYTEST_XDIST_WORKER": "gw0"}, False, id="an-xdist-worker-uses-its-own-database"),
     ],
 )
 def test_waits_only_while_the_prewarm_holds_its_lock(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prewarm_env: str | None, waits: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: dict[str, str], waits: bool
 ) -> None:
-    if prewarm_env is None:
-        monkeypatch.delenv(PREWARM_RUN_ENV, raising=False)
-    else:
-        monkeypatch.setenv(PREWARM_RUN_ENV, prewarm_env)
+    for name in (PREWARM_RUN_ENV, "PYTEST_XDIST_WORKER"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
     stderr = _SignallingStream()
     monkeypatch.setattr(sys, "stderr", stderr)
     lock_path = tmp_path / "test-db-prewarm.lock"

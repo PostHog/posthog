@@ -77,13 +77,17 @@ _CONDUCTOR_LOCAL_SETTINGS = Path(".conductor") / "settings.local.toml"
 _CONDUCTOR_SETUP_SCRIPT = "bin/devbox-worktree-hook created conductor"
 _CONDUCTOR_SCRIPTS = f'[scripts]\nsetup = "{_CONDUCTOR_SETUP_SCRIPT}"\narchive = "bin/devbox-worktree-hook archiving"\n'
 _TEST_DB_LOG = "~/.cache/hogli/test-db-prewarm.log"
-# The root conftest waits on this lock before it sets up the test database, so keep both paths in sync.
-# `setsid -f` detaches the build, because ssh waits for a background job that stays in its session.
+_TEST_DB_BRANCH_CANNOT_WAIT = 3
+# The root conftest waits on this lock, so keep both paths in sync. The lock is taken before `setsid -f`
+# detaches the build, so no test starts in between, and `setsid -f` stops ssh from waiting on the build.
 _TEST_DB_PREWARM_SCRIPT = f"""
-mkdir -p ~/.cache/hogli
 cd {_REMOTE_REPO_PATH} || exit 1
-HOGLI_TEST_DB_PREWARM=1 setsid -f flock --nonblock ~/.cache/hogli/test-db-prewarm.lock \\
-    timeout 1h bash -lc 'flox activate -- pytest -q -x posthog/api/test/test_comments.py' \\
+[ -f posthog/test/prewarmed_test_db.py ] || exit {_TEST_DB_BRANCH_CANNOT_WAIT}
+mkdir -p ~/.cache/hogli
+exec 9>> ~/.cache/hogli/test-db-prewarm.lock
+flock --nonblock 9 || exit 0
+HOGLI_TEST_DB_PREWARM=1 setsid -f timeout 1h bash -lc \\
+    'flox activate -- pytest -q posthog/api/test/test_comments.py::TestComments::test_creates_comment_successfully' \\
     >> {_TEST_DB_LOG} 2>&1 < /dev/null
 """
 _TEST_DB_PREWARM_START_TIMEOUT_SECONDS = 60
@@ -527,23 +531,28 @@ def devbox_worktree(
 
 
 def _prewarm_test_db(workspace_name: str) -> None:
+    click.echo("Waiting for the first sync before the test database build...")
     try:
+        mutagen.sync_flush(mutagen.workspace_label_selector(workspace_name))
         result = run_in_workspace(
             workspace_name, ["bash", "-c", _TEST_DB_PREWARM_SCRIPT], timeout=_TEST_DB_PREWARM_START_TIMEOUT_SECONDS
         )
-    except subprocess.TimeoutExpired:
+    except (SystemExit, subprocess.TimeoutExpired):
         result = None
-    if result is None or result.returncode != 0:
+    if result is not None and result.returncode == _TEST_DB_BRANCH_CANNOT_WAIT:
+        click.echo("This branch's tests can't wait for a test database build, so the first backend test builds it.")
+    elif result is None or result.returncode != 0:
         click.echo(
             click.style(
                 "Couldn't start the test database build on the devbox. The first backend test builds it instead.",
                 fg="yellow",
             )
         )
-        return
-    click.echo(
-        f"Building the test database on the devbox in the background. Tests wait for it. Log on the devbox: {_TEST_DB_LOG}"
-    )
+    else:
+        click.echo(
+            "Building the test database on the devbox in the background. Tests wait for it. "
+            f"Log on the devbox: {_TEST_DB_LOG}"
+        )
 
 
 def _print_plan(root: Path, steps: list[str], on_clean: str | None, dry_run: bool) -> bool:
