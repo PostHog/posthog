@@ -152,7 +152,7 @@ def resolve_workspace_name(
     Supports:
     - ``None`` inside a worktree that ``devbox:worktree`` set up -> that worktree's box, while it exists
     - ``None`` elsewhere -> user's default workspace (auto-selects when only one exists)
-    - ``"@user"`` -> another user's default workspace
+    - ``"@user"`` -> another user's default workspace, or your own default when it is your username
     - ``"@user/label"`` -> another user's labeled workspace
     - ``"label"`` -> current user's labeled workspace
 
@@ -175,6 +175,8 @@ def resolve_workspace_name(
         # Shared workspace targets (`@user[/label]`) are looked up against the
         # remote owner, so cross-region label fallback is the owner's
         # responsibility -- skip it here.
+        if workspace == f"@{get_username()}":
+            return resolve_default_workspace_name(region=effective_region)
         if workspace.startswith("@"):
             return target_name, None
         return _resolve_own_label(target_name)
@@ -318,9 +320,11 @@ def _print_connection_info(name: str) -> None:
 
 
 def _workspace_arg_suffix(name: str) -> str:
-    """Return the optional CLI suffix for a named workspace."""
+    """Return the CLI suffix that targets *name*, which a bare command inside a registered worktree would not."""
     label = extract_workspace_label(name)
-    return f" {label}" if label else ""
+    if label:
+        return f" {label}"
+    return f" @{get_username()}" if current_worktree_box() is not None else ""
 
 
 _NOT_READY_REASONS = {
@@ -1707,7 +1711,7 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
 
     status = get_workspace_status(ws)
     if status != "running":
-        suffix = _workspace_arg_suffix(source_name) or f" --region {region}"
+        suffix = _workspace_arg_suffix(source_name)
         _fail(
             f"The source devbox must be running to clone it (status: {status}). Start it: `hogli devbox:start{suffix}`."
         )

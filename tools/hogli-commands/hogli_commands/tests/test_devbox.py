@@ -2211,6 +2211,7 @@ class TestResolveWorkspaceName:
     @pytest.fixture
     def worktree_with_box(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "get_username", lambda: "test-user")
         monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "us-east-1")
         workspaces = [
             {
@@ -2243,6 +2244,7 @@ class TestResolveWorkspaceName:
             pytest.param("wt/frontend", None, None, "devbox-test-user-feat", id="worktree-subdirectory"),
             pytest.param("wt", "api", None, "devbox-test-user-api", id="explicit-label-wins"),
             pytest.param("wt", "@alice", None, "devbox-alice", id="shared-target-wins"),
+            pytest.param("wt", "@test-user", None, "devbox-test-user", id="own-username-targets-the-default-box"),
             pytest.param(".", None, None, "devbox-test-user", id="outside-registered-worktree"),
             pytest.param(
                 "wt/.claude/worktrees/agent-1", None, None, "devbox-test-user", id="nested-unregistered-worktree"
@@ -2301,7 +2303,7 @@ class TestResolveWorkspaceName:
         "status, expected",
         [
             pytest.param("running", "Clone 'devbox-test-user' -> 'devbox-test-user-copy'.", id="running"),
-            pytest.param("stopped", "`hogli devbox:start --region us-east-1`", id="stopped-source-hint"),
+            pytest.param("stopped", "`hogli devbox:start @test-user`", id="stopped-source-hint"),
         ],
     )
     def test_clone_from_a_worktree_copies_the_default_box(

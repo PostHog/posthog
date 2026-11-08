@@ -81,7 +81,7 @@ The default box is `devbox-<coder-user>`, and a labeled box is `devbox-<coder-us
 Boxes in `eu-central-1` add an `-eu` suffix, for example `devbox-<coder-user>-eu`.
 `hogli devbox:list` shows the exact names.
 Target a labeled box with `-n <label>` on commands that act on a box.
-Inside a worktree that `devbox:worktree` set up, those commands target the worktree's box without `-n`. An explicit `-n <label>` or `@user` still wins, and `devbox:clone` without a source still copies the default box.
+Inside a worktree that `devbox:worktree` set up, those commands target the worktree's box without `-n`. An explicit `-n <label>` or `@user` still wins, `-n @<coder-user>` targets your default box, and `devbox:clone` without a source still copies the default box.
 
 ### 4. Connect
 
