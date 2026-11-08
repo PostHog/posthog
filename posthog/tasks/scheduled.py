@@ -305,7 +305,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="reconcile wizard runs",
     )
 
-    sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")
+    # The preflight page reports Celery offline when this heartbeat is more than 300 seconds old.
+    # Hobby has no monitoring that needs a fresher value, so it writes the heartbeat less often.
+    sender.add_periodic_task(60 if is_hobby() else 10, redis_heartbeat.s(), name="10 sec heartbeat")
 
     # Just after the hour. The task then starts each team at its own point in the next ten minutes.
     sender.add_periodic_task(
