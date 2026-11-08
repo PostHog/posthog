@@ -61,6 +61,7 @@ _SANDBOX_COMPUTE_DESTINATION_KEYS = (
 )
 _LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
 _TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
+_SANDBOX_EMAILS_QUERY_NAME = "teams_with_workflow_sandbox_emails_sent_in_period"
 _MCP_EVENT_COUNT_QUERY_NAME = "teams_with_mcp_event_count_in_period"
 _REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME = "replay_vision_spend_projection"
 _REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS = (
@@ -123,6 +124,13 @@ def add_pre_transactional_emails_patch_defaults(
 ) -> None:
     if not any(result.query_name == _TRANSACTIONAL_EMAILS_QUERY_NAME for result in query_results):
         all_data[_TRANSACTIONAL_EMAILS_QUERY_NAME] = {}
+
+
+def add_pre_sandbox_emails_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _SANDBOX_EMAILS_QUERY_NAME for result in query_results):
+        all_data[_SANDBOX_EMAILS_QUERY_NAME] = {}
 
 
 def add_pre_mcp_event_count_patch_defaults(

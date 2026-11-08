@@ -56,6 +56,7 @@ from posthog.temporal.usage_report.workflow import (
     QUERY_CONCURRENCY,
     REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME,
     SANDBOX_COMPUTE_QUERY_NAME,
+    SANDBOX_EMAILS_QUERY_NAME,
     SIGNALS_SPEND_QUERY_NAME,
     SIGNALS_SPEND_QUERY_PATCH_ID,
     TRANSACTIONAL_EMAILS_QUERY_NAME,
@@ -67,6 +68,7 @@ from posthog.temporal.usage_report.workflow import (
     _queries_for_mcp_event_count_patch,
     _queries_for_replay_vision_spend_projection_patch,
     _queries_for_sandbox_compute_patch,
+    _queries_for_sandbox_emails_patch,
     _queries_for_signals_spend_patch,
     _queries_for_transactional_emails_patch,
     build_context,
@@ -103,6 +105,7 @@ def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
             _queries_for_local_evaluation_not_modified_patch,
             LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,
         ),
+        ("sandbox_emails", _queries_for_sandbox_emails_patch, SANDBOX_EMAILS_QUERY_NAME),
     ]
 )
 def test_single_query_is_versioned_for_existing_histories(

@@ -410,6 +410,8 @@ class UsageReportCounters:
     workflow_emails_sent_in_period: int
     # Report-only: the part of workflow_emails_sent_in_period sent through the transactional email API.
     workflow_transactional_emails_sent_in_period: int
+    # Report-only: the part of workflow_emails_sent_in_period sent through the sandbox sender.
+    workflow_sandbox_emails_sent_in_period: int
     workflow_push_sent_in_period: int
     workflow_sms_sent_in_period: int
     workflow_billable_invocations_in_period: int
@@ -2634,6 +2636,27 @@ def get_teams_with_workflow_transactional_emails_sent_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_sandbox_emails_sent_in_period(
+    begin: datetime,
+    end: datetime,
+) -> TeamUsageRows:
+    with tags_context(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT):
+        return sync_execute(
+            """
+            SELECT team_id, SUM(count) as count
+            FROM app_metrics2
+            WHERE app_source='hog_flow' AND metric_name IN ('email_sandbox_sent') AND metric_kind IN ('email') AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id
+        """,
+            {"begin": begin, "end": end},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_workflow_push_sent_in_period(
     begin: datetime,
     end: datetime,
@@ -3437,6 +3460,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_workflow_transactional_emails_sent_in_period": get_teams_with_workflow_transactional_emails_sent_in_period(
             period_start, period_end
         ),
+        "teams_with_workflow_sandbox_emails_sent_in_period": get_teams_with_workflow_sandbox_emails_sent_in_period(
+            period_start, period_end
+        ),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_logs_records_in_period": logs_records_rows,
@@ -3745,6 +3771,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         workflow_transactional_emails_sent_in_period=all_data[
             "teams_with_workflow_transactional_emails_sent_in_period"
         ].get(team.id, 0),
+        workflow_sandbox_emails_sent_in_period=all_data["teams_with_workflow_sandbox_emails_sent_in_period"].get(
+            team.id, 0
+        ),
         workflow_push_sent_in_period=all_data["teams_with_workflow_push_sent_in_period"].get(team.id, 0),
         workflow_sms_sent_in_period=all_data["teams_with_workflow_sms_sent_in_period"].get(team.id, 0),
         workflow_billable_invocations_in_period=all_data["teams_with_workflow_billable_invocations_in_period"].get(

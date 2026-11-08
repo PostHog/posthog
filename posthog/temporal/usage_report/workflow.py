@@ -60,6 +60,8 @@ LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID = "usage-report-logs-distinct-patterns-que
 LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
 TRANSACTIONAL_EMAILS_QUERY_PATCH_ID = "usage-report-transactional-emails-query-2026-10"
 TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
+SANDBOX_EMAILS_QUERY_PATCH_ID = "usage-report-sandbox-emails-query-2026-11"
+SANDBOX_EMAILS_QUERY_NAME = "teams_with_workflow_sandbox_emails_sent_in_period"
 SIGNALS_SPEND_QUERY_PATCH_ID = "usage-report-signals-spend-query-2026-11"
 SIGNALS_SPEND_QUERY_NAME = "teams_with_signals_spend_credits_used_in_period"
 MCP_EVENT_COUNT_QUERY_PATCH_ID = "usage-report-mcp-event-count-query-2026-10"
@@ -88,6 +90,12 @@ def _queries_for_transactional_emails_patch(queries: list[QuerySpec], patch_appl
     if patch_applied:
         return queries
     return [spec for spec in queries if spec.name != TRANSACTIONAL_EMAILS_QUERY_NAME]
+
+
+def _queries_for_sandbox_emails_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != SANDBOX_EMAILS_QUERY_NAME]
 
 
 def _queries_for_signals_spend_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
@@ -197,6 +205,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             queries = _queries_for_local_evaluation_not_modified_patch(
                 queries, workflow.patched(LOCAL_EVALUATION_NOT_MODIFIED_QUERY_PATCH_ID)
             )
+            queries = _queries_for_sandbox_emails_patch(queries, workflow.patched(SANDBOX_EMAILS_QUERY_PATCH_ID))
             if workflow.patched(USAGE_COUNTER_SERVICE_PATCH_ID):
                 ctx.usage_counter_plan = await workflow.execute_activity(
                     plan_usage_counters,

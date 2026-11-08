@@ -32,6 +32,7 @@ from posthog.temporal.usage_report.aggregator import (
     add_pre_mcp_event_count_patch_defaults,
     add_pre_replay_vision_spend_projection_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
+    add_pre_sandbox_emails_patch_defaults,
     add_pre_signals_spend_patch_defaults,
     add_pre_transactional_emails_patch_defaults,
     get_org_user_counts,
@@ -259,6 +260,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
                 add_pre_replay_vision_spend_projection_patch_defaults(all_data, inputs.query_results)
                 add_pre_business_knowledge_usage_patch_defaults(all_data, inputs.query_results)
                 add_pre_local_evaluation_not_modified_patch_defaults(all_data, inputs.query_results)
+                add_pre_sandbox_emails_patch_defaults(all_data, inputs.query_results)
                 check_cancelled()
                 counter_report = load_usage_counter_report(inputs)
                 all_data.update({field: dict(rows) for field, rows in counter_report.counts.items()})
