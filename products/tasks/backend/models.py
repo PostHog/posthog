@@ -1102,15 +1102,19 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # A manual resume can share an internal Task with an automated run. Freeze billing
             # on this run so historical PR charges and pipeline attribution do not change.
             if (
-                task.origin_product == Task.OriginProduct.SIGNAL_REPORT
-                and state.get("ai_stage")
-                not in {
-                    "research",
-                    "implementation",
-                    "repo_selection",
-                    "custom_agent",
-                }
-            ) or (task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and not state.get("ai_stage")):
+                (
+                    task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+                    and state.get("ai_stage")
+                    not in {
+                        "research",
+                        "implementation",
+                        "repo_selection",
+                        "custom_agent",
+                    }
+                )
+                or (task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and not state.get("ai_stage"))
+                or task.origin_product == Task.OriginProduct.SLACK
+            ):
                 state["billing_product"] = "posthog_ai"
 
             if (
@@ -1431,7 +1435,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
-        profile: TaskProfile | None = None,
+        profile: TaskProfile,
         github_access: GithubAccess | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Prepare an unsaved Task and the initial run's `extra_state`.
@@ -1537,8 +1541,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         expected_agent_key = Task.mcp_agent_key_for(origin_product, profile)
         if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
-        if profile is not None:
-            mcp_builtin_agent_key = expected_agent_key
+        mcp_builtin_agent_key = expected_agent_key
 
         initial_state: dict[str, Any] = {}
         if mcp_builtin_agent_key:
@@ -1558,7 +1561,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             title_manually_set=title_manually_set,
             description=description,
             origin_product=origin_product,
-            profile=profile.key if profile else None,
+            profile=profile.key,
             client_provenance=client_provenance,
             created_by=created_by,
             github_integration_id=github_integration_id,
@@ -1723,8 +1726,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         title: str,
         description: str,
         user_id: int,
-        origin_product: "Task.OriginProduct | None" = None,
-        profile: TaskProfile | None = None,
+        profile: TaskProfile,
         repository: str | None = None,
         repositories: list[str] | None = None,
         channel: Channel | None = None,
@@ -1733,7 +1735,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         branch: str | None = None,
         signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
-        internal: bool | None = None,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
         model: str | None = None,
@@ -1751,11 +1752,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         (`products/tasks/backend/logic/services/warm.py`), which creates the first run with its
         own state. The run `extra_state` assembled by `_build_task` is discarded here.
         """
-        origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
+        origin = resolve_task_origin(profile=profile)
         columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=None)
-        if profile is not None:
-            check_task_source(profile=profile, source=columns.source)
-        runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
+        check_task_source(profile=profile, source=columns.source)
+        runtime = profile.runtimes[0]
         validate_run_options(profile, options)
         if options is not None:
             settings = apply_run_options(
@@ -1814,8 +1814,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         title: str,
         description: str,
         user_id: int,
-        origin_product: "Task.OriginProduct | None" = None,
-        profile: TaskProfile | None = None,
+        profile: TaskProfile,
         title_manually_set: bool = False,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         repositories: list[str] | None = None,
@@ -1834,7 +1833,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         origin_key: str | None = None,
         extra_run_state: dict[str, Any] | None = None,
         sandbox_environment_id: str | None = None,
-        internal: bool | None = None,
         client_provenance: TaskClientProvenance | None = None,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
@@ -1861,10 +1859,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
         github_read_access: bool = False,
+        github_token_scope: Literal["read", "push"] | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
+        before_task_create: Callable[[], None] | None = None,
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
         options: TaskRunOptions | None = None,
         source: TaskSource | None = None,
@@ -1885,14 +1885,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if carried_template is not None:
                 sandbox_template = carried_template
 
-        origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
+        origin = resolve_task_origin(profile=profile)
         origin_product = cast("Task.OriginProduct", origin.origin_product)
         internal = origin.internal
         columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
         signal_report_id = columns.signal_report_id
         hog_flow_id = columns.hog_flow_id
-        if profile is not None:
-            check_task_source(profile=profile, source=columns.source)
+        check_task_source(profile=profile, source=columns.source)
         validate_run_options(profile, options)
         if options is not None:
             settings = apply_run_options(
@@ -1931,7 +1930,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             mcp_gateway_server_ids = settings.mcp_gateway_server_ids
             extra_run_state = settings.extra_run_state
         if runtime is None:
-            runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
+            runtime = profile.runtimes[0]
         task, extra_state = Task._build_task(
             team=team,
             title=title,
@@ -1995,6 +1994,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # whether or not the run clones, so a repo-pinned caller that asks for read access
             # gets a checkout it can read and never write capability it did not ask for.
             run_extra_state["github_read_access"] = True
+        if github_token_scope is not None:
+            run_extra_state["github_token_scope"] = github_token_scope
         # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
         # reconciler can re-dispatch faithfully if the workflow start is ever lost.
         run_extra_state["pending_dispatch"] = {
@@ -2008,6 +2009,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             run_extra_state["use_dedicated_stream"] = dedicated_stream_configured()
 
         with transaction.atomic():
+            # Preparation can call GitHub, so admission locks must wait until it completes.
+            if before_task_create is not None:
+                before_task_create()
             task.save()
             task_run = task.create_run(
                 mode=mode,
@@ -2721,6 +2725,11 @@ class TaskRun(models.Model):
                 include=["status", "environment", "origin_product"],
                 name="task_run_terminal_updated_idx",
                 condition=models.Q(status__in=["completed", "failed", "cancelled"]),
+            ),
+            models.Index(
+                fields=["origin_product"],
+                name="task_run_warm_pool_idx",
+                condition=models.Q(status__in=["queued", "in_progress"], state__await_user_message=True),
             ),
         ]
 
@@ -3929,6 +3938,7 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
 
     class ComputeSettleParkReason(models.TextChoices):
         HTTP_400 = "http_400", "HTTP 400"
+        HTTP_402 = "http_402", "HTTP 402"
         HTTP_409 = "http_409", "HTTP 409"
         ATTEMPTS_EXHAUSTED = "attempts_exhausted", "Attempts exhausted"
         UNEXPECTED_STATUS = "unexpected_status", "Unexpected status"

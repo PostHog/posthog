@@ -16,10 +16,8 @@ from django.core.cache import cache
 from django.template import Context, Engine
 
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync
 from openai.types.chat import ChatCompletionMessageParam
-from posthoganalytics.ai.openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
@@ -33,6 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.llm.gateway_client import build_async_openai_client, team_distinct_id
 from posthog.models import Team
 from posthog.rate_limit import (
     AIObservabilitySummarizationBurstThrottle,
@@ -223,36 +222,38 @@ async def explain_log_with_openai(log_data: dict, team_id: int) -> LogExplanatio
     system_prompt = load_prompt_template("explain_system.djt", {})
     user_prompt = load_prompt_template("explain_user.djt", log_data)
 
-    client = AsyncOpenAI(posthog_client=posthoganalytics.default_client, timeout=EXPLAIN_TIMEOUT)
-
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
 
     try:
-        response = await client.chat.completions.create(
-            model="gpt-4.1",
-            messages=messages,
-            response_format=cast(
-                Any,
-                {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "log_explanation_response",
-                        "strict": True,
-                        "schema": LogExplanationResponse.model_json_schema(),
-                    },
-                },
-            ),
-            posthog_privacy_mode=True,
-            posthog_distinct_id=f"team-{team_id}",
-            posthog_properties={
-                "ai_product": "logs",
-                "ai_feature": "explain-log",
-                "team_id": team_id,
-            },
+        client = build_async_openai_client(
+            "django",
+            ai_product="logs",
+            properties={"ai_feature": "explain-log", "team_id": str(team_id)},
+            distinct_id=team_distinct_id(team_id),
+            privacy_mode=True,
         )
+        try:
+            response = await client.chat.completions.create(
+                model="gpt-4.1",
+                messages=messages,
+                response_format=cast(
+                    Any,
+                    {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "log_explanation_response",
+                            "strict": True,
+                            "schema": LogExplanationResponse.model_json_schema(),
+                        },
+                    },
+                ),
+                timeout=EXPLAIN_TIMEOUT,
+            )
+        finally:
+            await client.close()
 
         content = response.choices[0].message.content
         if not content:

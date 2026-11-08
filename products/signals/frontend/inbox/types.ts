@@ -13,6 +13,7 @@ import {
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
+    type SignalReportListApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
     type SignalReportSuppressionSourceEnumApi,
@@ -168,8 +169,12 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     refund_ineligibility_reason?: string | null
     /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
-    /** Sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
+    /** Sort key from the list response's ranker, for the Recommended and Personalized sorts only. Lower keys rank first. */
     inbox_merge_key?: number | null
+    /** For the Personalized sort: the tier the user's personal ranking gave the report. Null when it did not rank the report. */
+    personal_tier?: SignalReportListApi['personal_tier']
+    /** For the Personalized sort: why the personal ranking put the report where it is. Null when it did not rank the report. */
+    personal_reason?: SignalReportListApi['personal_reason']
 }
 
 export enum SignalReportStatus {
