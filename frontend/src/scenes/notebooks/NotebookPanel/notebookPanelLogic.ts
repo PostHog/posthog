@@ -1,6 +1,10 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { withBackLink } from 'scenes/analytics/analyticsBackLink'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
@@ -121,6 +125,11 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
     listeners(({ actions, values }) => ({
         selectNotebook: (options) => {
             if (options.silent) {
+                return
+            }
+            // The Today layout has no notebook side panel, so the notebook opens as a page
+            if (values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+                router.actions.push(withBackLink(urls.notebook(options.id)))
                 return
             }
             actions.openSidePanel(SidePanelTab.Notebooks)

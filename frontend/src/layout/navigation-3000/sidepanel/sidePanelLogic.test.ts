@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -84,6 +85,16 @@ describe('sidePanelLogic', () => {
             await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: true, selectedTab: tab })
         }
     )
+
+    it('under today-rail-nav, leaves out the Notebooks tab and closes it when a link opens it', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+        })
+        expect(logic.values.enabledTabs).not.toContain(SidePanelTab.Notebooks)
+
+        await navigate(urls.settings('user'), { panel: 'notebook' })
+        await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: false })
+    })
 
     it('closes a context-bound tab when navigating between settings sections', async () => {
         await navigate(urls.settings('user'))
