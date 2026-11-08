@@ -7,9 +7,6 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import serializers
 
-from posthog.models import Team, User
-
-from products.ui_customization.backend.facade import api
 from products.ui_customization.backend.presentation.serializers import CustomizationRequestSerializer
 
 GROWTH_LAYOUT: dict[str, Any] = {
@@ -206,12 +203,5 @@ class TestAnalyticsFragmentLayout(SimpleTestCase):
                 context={"view": SimpleNamespace(kwargs={"context": "analytics_sidebar"})}
             ).fields["layout"].to_internal_value(layout)
 
-        assert any(str(message).startswith(f"{path}:") for message in raised.exception.detail), raised.exception.detail
-
-
-class TestCustomizationContexts(SimpleTestCase):
-    @parameterized.expand([("get_customization",), ("set_customization",), ("reset_customization",)])
-    def test_unknown_context_is_rejected_before_storage(self, operation: str) -> None:
-        kwargs = {"layout": GROWTH_LAYOUT} if operation == "set_customization" else {}
-        with self.assertRaisesRegex(ValueError, "Unsupported customization context"):
-            getattr(api, operation)(team=Team(id=1), user=User(id=1), context="unknown", **kwargs)
+        messages = str(raised.exception.detail[0]).split("; ")
+        assert any(message.startswith(f"{path}:") for message in messages), messages

@@ -3,7 +3,7 @@ from typing import cast
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, UserRateThrottle
@@ -14,8 +14,14 @@ from posthog.models import User
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from ..facade import api
+from ..facade.contracts import UnavailableTargets
 from ..facade.enums import CustomizationContext
-from .serializers import CustomizationDescriptionSerializer, CustomizationRequestSerializer, CustomizationSerializer
+from .serializers import (
+    CustomizationDescriptionSerializer,
+    CustomizationRequestSerializer,
+    CustomizationSerializer,
+    layout_error_detail,
+)
 
 
 class CustomizationBurstThrottle(UserRateThrottle):
@@ -105,9 +111,15 @@ class UICustomizationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @get_customization.mapping.put
     def set_customization(self, request: Request, context: str, **kwargs) -> Response:
-        saved = api.set_customization(
-            team=self.team, user=self._customization_user(), context=context, layout=request.validated_data["layout"]
-        )
+        try:
+            saved = api.set_customization(
+                team=self.team,
+                user=self._customization_user(),
+                context=context,
+                layout=request.validated_data["layout"],
+            )
+        except UnavailableTargets as unavailable:
+            raise ValidationError({"layout": layout_error_detail(unavailable.problems)}) from None
         return Response(CustomizationSerializer(saved).data)
 
     @validated_request(

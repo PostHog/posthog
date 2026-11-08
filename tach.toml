@@ -2028,7 +2028,12 @@ from = [
 
 [[modules]]
 path = "products.ui_customization"
-depends_on = ["posthog"]
+depends_on = [
+    "posthog",
+    "products.dashboards",
+    "products.notebooks",
+    "products.product_analytics",
+]
 layer = "modules"
 
 [[interfaces]]

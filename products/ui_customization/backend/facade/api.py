@@ -14,7 +14,7 @@ def get_customization(*, team: Team, user: User, context: str) -> contracts.Cust
 def set_customization(
     *, team: Team, user: User, context: str, layout: contracts.CustomizationLayout
 ) -> contracts.Customization:
-    return customization.set_customization(team=team, user_id=user.id, context=context, layout=layout)
+    return customization.set_customization(team=team, user=user, context=context, layout=layout)
 
 
 def reset_customization(*, team: Team, user: User, context: str) -> contracts.Customization:

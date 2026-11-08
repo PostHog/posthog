@@ -10,6 +10,11 @@ from ..facade.contracts import CustomizationLayout
 from ..facade.enums import CustomizationContext
 
 
+def layout_error_detail(messages: list[str]) -> str:
+    # The API error body carries only the first message of a field, so join them to name every value to fix.
+    return "; ".join(messages)
+
+
 @extend_schema_field(CustomizationLayout)  # type: ignore[arg-type]
 class CustomizationLayoutField(serializers.Field):
     def to_internal_value(self, data: Any) -> CustomizationLayout:
@@ -17,10 +22,12 @@ class CustomizationLayoutField(serializers.Field):
             return api.validate_customization_layout(context=self.context["view"].kwargs["context"], layout=data)
         except PydanticValidationError as error:
             raise serializers.ValidationError(
-                [
-                    f"{'.'.join(str(part) for part in issue['loc']) or 'layout'}: {issue['msg']}"
-                    for issue in error.errors()
-                ]
+                layout_error_detail(
+                    [
+                        f"{'.'.join(str(part) for part in issue['loc']) or 'layout'}: {issue['msg']}"
+                        for issue in error.errors()
+                    ]
+                )
             )
 
     def to_representation(self, value: CustomizationLayout) -> dict[str, Any]:

@@ -1,12 +1,11 @@
-from django.db import IntegrityError, router, transaction
-from django.utils import timezone
+from django.db import router, transaction
 
 import structlog
 from pydantic import ValidationError
 
-from posthog.models import Team
+from posthog.models import Team, User
 
-from ..facade.contracts import Customization, CustomizationLayout
+from ..facade.contracts import Customization, CustomizationLayout, UnavailableTargets
 from ..models import UserInterfaceFragment
 from .contexts import resolve_context
 
@@ -29,20 +28,20 @@ def get_customization(*, team: Team, user_id: int, context: str) -> Customizatio
     return Customization(layout=definition.defaults, customized=False)
 
 
-def set_customization(*, team: Team, user_id: int, context: str, layout: CustomizationLayout) -> Customization:
+def set_customization(*, team: Team, user: User, context: str, layout: CustomizationLayout) -> Customization:
+    # Imported here so team deletion, which imports this module, does not load three other products' facades.
+    from .targets import unavailable_targets  # noqa: PLC0415
+
     definition = resolve_context(context)
     validated = definition.layout_schema.model_validate(layout)
+    if problems := unavailable_targets(team=team, user=user, layout=validated):
+        raise UnavailableTargets(problems)
     team_id = team.parent_team_id or team.id
     stored = validated.model_dump(mode="json", exclude_none=True)
-    try:
-        with transaction.atomic(using=router.db_for_write(UserInterfaceFragment)):
-            UserInterfaceFragment.objects.for_team(team_id, canonical=True).update_or_create(
-                team_id=team_id, user_id=user_id, context=definition.context, defaults={"content": stored}
-            )
-    except IntegrityError:
-        UserInterfaceFragment.objects.for_team(team_id, canonical=True).filter(
-            user_id=user_id, context=definition.context
-        ).update(content=stored, updated_at=timezone.now())
+    with transaction.atomic(using=router.db_for_write(UserInterfaceFragment)):
+        UserInterfaceFragment.objects.for_team(team_id, canonical=True).update_or_create(
+            team_id=team_id, user_id=user.id, context=definition.context, defaults={"content": stored}
+        )
     return Customization(layout=validated, customized=True)
 
 

@@ -19,3 +19,11 @@ class CustomizationDescription:
     context: CustomizationContext
     layout_schema: dict[str, JsonValue]
     default_layout: CustomizationLayout
+
+
+class UnavailableTargets(Exception):
+    """The layout points at insights, dashboards or notebooks this person cannot open in this project."""
+
+    def __init__(self, problems: list[str]) -> None:
+        super().__init__("; ".join(problems))
+        self.problems = problems

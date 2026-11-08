@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING
+from copy import deepcopy
+from typing import TYPE_CHECKING, Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -12,6 +13,9 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 from products.ui_customization.backend.facade import api as customization_facade
 from products.ui_customization.backend.facade.enums import CustomizationContext
 from products.ui_customization.backend.facade.tasks import delete_orphaned_fragments
@@ -26,6 +30,21 @@ if TYPE_CHECKING:
 
 class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
     databases = {"default", "ui_customization_db_writer", "ui_customization_db_reader"}
+
+    def setUp(self) -> None:
+        super().setUp()
+        trends = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}}
+        Insight.objects.create(team=self.team, short_id="aB3dE5fG", name="Signups", query=trends)
+        Insight.objects.create(
+            team=self.team,
+            short_id="fUnN3l00",
+            name="Checkout",
+            query={"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "series": []}},
+        )
+        Notebook.objects.create(team=self.team, short_id="Zx9Yw8Vu", title="Launch notes")
+        Notebook.objects.create(team=self.team, short_id="dEl3t3d0", title="Old notes", deleted=True)
+        self.layout = deepcopy(GROWTH_LAYOUT)
+        self.layout["sections"][0]["items"][1]["to"]["id"] = Dashboard.objects.create(team=self.team, name="Growth").id
 
     def _call(
         self, method: str, body: dict | None = None, flag: bool = True, context: str = "analytics_sidebar"
@@ -98,7 +117,7 @@ class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
         )
         default = (False, ["browse", "pinned", "recents", "by-posthog", "monitor"])
         before = self._section_ids(self._call("get"))
-        saved = self._call("put", {"layout": GROWTH_LAYOUT})
+        saved = self._call("put", {"layout": self.layout})
         read = self._call("get")
         self.client.force_login(self._create_user("teammate@example.com"))
         teammate = self._section_ids(self._call("get"))
@@ -108,8 +127,8 @@ class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
 
         assert (before, saved.json(), read.json(), teammate, reset, after) == (
             default,
-            {"layout": GROWTH_LAYOUT, "customized": True},
-            {"layout": GROWTH_LAYOUT, "customized": True},
+            {"layout": self.layout, "customized": True},
+            {"layout": self.layout, "customized": True},
             default,
             default,
             default,
@@ -121,13 +140,13 @@ class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
         child = Team.objects.create(
             organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
         )
-        self._call("put", {"layout": GROWTH_LAYOUT})
+        self._call("put", {"layout": self.layout})
 
         assert (
             customization_facade.get_customization(
                 team=child, user=self.user, context="analytics_sidebar"
             ).layout.model_dump(mode="json", exclude_none=True)
-            == GROWTH_LAYOUT
+            == self.layout
         )
         customization_facade.reset_customization(team=child, user=self.user, context="analytics_sidebar")
 
@@ -168,7 +187,7 @@ class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
         orphan = UserInterfaceFragment.objects.create(
             team_id=self.team.id, user_id=deleted_user_id, context="OtherSurface", content={}
         )
-        self._call("put", {"layout": GROWTH_LAYOUT})
+        self._call("put", {"layout": self.layout})
 
         def fail_user_lookup(execute, sql, params, many, context):
             if 'FROM "posthog_user"' in sql:
@@ -209,15 +228,43 @@ class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
             for context in [CustomizationContext.ANALYTICS_SIDEBAR, "OtherSurface"]
         }
 
-    def test_a_layout_outside_the_schema_is_rejected_and_names_the_value(self) -> None:
-        layout = {
-            "sections": [{"id": "x", "items": [{"type": "link", "to": {"kind": "url", "url": "https://example.com"}}]}]
-        }
+    @parameterized.expand(
+        [
+            (
+                "outside the schema",
+                [(0, 0, {"type": "link", "to": {"kind": "url", "url": "https://example.com"}})],
+                ["sections.0.items.0.link.to"],
+            ),
+            (
+                "every unavailable target",
+                [
+                    (0, 0, {"type": "metric", "insight": "fUnN3l00", "label": "Checkout"}),
+                    (0, 1, {"type": "link", "to": {"kind": "dashboard", "id": 999999}, "label": "Gone"}),
+                    (0, 2, {"type": "link", "to": {"kind": "notebook", "short_id": "dEl3t3d0"}, "label": "Old"}),
+                    (0, 3, {"type": "button", "to": {"kind": "insight", "short_id": "nOtH3r3"}, "label": "Missing"}),
+                ],
+                [
+                    "sections.0.items.0.insight: Insight fUnN3l00 is not a trends insight",
+                    "sections.0.items.1.to: No dashboard 999999",
+                    "sections.0.items.2.to: No notebook dEl3t3d0",
+                    "sections.0.items.3.to: No insight nOtH3r3",
+                ],
+            ),
+        ]
+    )
+    def test_a_layout_it_cannot_show_is_rejected_and_names_every_value(
+        self, _name: str, replacements: list[tuple[int, int, dict[str, Any]]], expected: list[str]
+    ) -> None:
+        layout = deepcopy(self.layout)
+        for section, index, item in replacements:
+            layout["sections"][section]["items"][index] = item
 
         response = self._call("put", {"layout": layout})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "sections.0.items.0.link.to" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert all(message in detail for message in expected), detail
+        assert not UserInterfaceFragment.objects.for_team(self.team.id).exists()
 
     def test_a_stored_layout_the_schema_no_longer_accepts_shows_the_default_and_stays_stored(self) -> None:
         stored = {"sections": [{"id": "x", "items": [{"type": "retired_widget"}]}]}
@@ -258,7 +305,7 @@ class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
         ):
             response = getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/ui_customization/analytics_sidebar/",
-                {"layout": GROWTH_LAYOUT} if method == "put" else None,
+                {"layout": self.layout} if method == "put" else None,
                 format="json",
                 HTTP_AUTHORIZATION=f"Bearer {raw_key}",
             )
@@ -282,7 +329,7 @@ class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
         )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
-        body = {"layout": GROWTH_LAYOUT} if method == "put" else None
+        body = {"layout": self.layout} if method == "put" else None
 
         assert self._call(method, body).status_code == status.HTTP_403_FORBIDDEN
         assert not UserInterfaceFragment.objects.for_team(self.team.id).exists()
@@ -312,7 +359,7 @@ class TestUICustomizationAPI(UICustomizationTeamScopedTestMixin, APIBaseTest):
         )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
-        body = {"layout": GROWTH_LAYOUT} if method == "put" else None
+        body = {"layout": self.layout} if method == "put" else None
 
         assert self._call(method, body).status_code == status.HTTP_403_FORBIDDEN
         assert not UserInterfaceFragment.objects.for_team(self.team.id).exists()
