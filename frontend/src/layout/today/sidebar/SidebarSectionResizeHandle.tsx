@@ -1,18 +1,14 @@
 import { cn } from '@posthog/quill'
 
-import { TodaySectionResizer } from './useTodaySectionLayout'
+import { SidebarSectionResizer } from './types'
 
-interface TodayPaneSectionResizeHandleProps {
+interface SidebarSectionResizeHandleProps {
     label: string
     active: boolean
-    resizer: TodaySectionResizer
+    resizer: SidebarSectionResizer
 }
 
-export function TodayPaneSectionResizeHandle({
-    label,
-    active,
-    resizer,
-}: TodayPaneSectionResizeHandleProps): JSX.Element {
+export function SidebarSectionResizeHandle({ label, active, resizer }: SidebarSectionResizeHandleProps): JSX.Element {
     return (
         <button
             type="button"

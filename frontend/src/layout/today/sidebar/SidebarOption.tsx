@@ -4,7 +4,7 @@ import { AutocompleteItem, Button, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-export interface TodayPaneOptionProps extends Omit<
+export interface SidebarOptionProps extends Omit<
     ComponentProps<typeof AutocompleteItem>,
     'value' | 'render' | 'className' | 'children'
 > {
@@ -17,7 +17,7 @@ export interface TodayPaneOptionProps extends Omit<
 }
 
 // Like Desktop's sidebar, the keyboard highlight tints the row like a hover, without a focus ring.
-export function TodayPaneOption({
+export function SidebarOption({
     value,
     to,
     active,
@@ -25,7 +25,7 @@ export function TodayPaneOption({
     className,
     children,
     ...props
-}: TodayPaneOptionProps): JSX.Element {
+}: SidebarOptionProps): JSX.Element {
     return (
         <AutocompleteItem
             value={value}
