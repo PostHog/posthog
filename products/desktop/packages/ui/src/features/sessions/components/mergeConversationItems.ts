@@ -56,12 +56,7 @@ function reconcileInitialPromptEcho(
 // Cloud's initial optimistic is pinned to the top so the user's prompt stays
 // visible above setup progress. Follow-up optimistics render at the tail, but
 // before trailing progress cards, to match where the streamed `session/prompt`
-// will appear. With `tailAnchors`, each follow-up stays after the row that was
-// last when it was first rendered, and after every user message in the thread,
-// so that the echo of an earlier follow-up never renders below a later
-// follow-up that shares its anchor. A cloud steer that the run declines gets its
-// echo only when the turn ends, so without the anchor the agent output of the
-// whole turn renders above the message.
+// will appear, or where they were sent when `tailAnchors` is given.
 //
 // Local sessions keep optimistic at the chronological end — they rely on
 // `replaceOptimisticWithEvent` to swap optimistic↔real in place.
