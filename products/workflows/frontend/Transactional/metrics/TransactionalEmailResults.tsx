@@ -4,23 +4,15 @@ import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { messageTemplatesLogic } from '../../TemplateLibrary/messageTemplatesLogic'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
+import { TransactionalEmailResultsEmailPicker } from './TransactionalEmailResultsEmailPicker'
 import { TransactionalEmailResultsStats } from './TransactionalEmailResultsStats'
 
 export function TransactionalEmailResults(): JSX.Element {
-    const {
-        resultsQuery,
-        results,
-        resultsLoading,
-        resultsFailed,
-        canLoadResults,
-        templatesFailed,
-        resultsEmailOptions,
-    } = useValues(transactionalEmailMetricsLogic)
+    const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults, templatesFailed } =
+        useValues(transactionalEmailMetricsLogic)
     const { setResultsQuery, loadResults, loadTemplates } = useActions(transactionalEmailMetricsLogic)
     const { templatesLoading } = useValues(messageTemplatesLogic)
 
@@ -30,30 +22,7 @@ export function TransactionalEmailResults(): JSX.Element {
                 {/* Each part of the sentence keeps its label and control together, so a narrow page breaks between parts. */}
                 <span className="inline-flex items-center gap-2">
                     <span className="whitespace-nowrap">Of everyone who got</span>
-                    <LemonInputSelect
-                        mode="single"
-                        size="small"
-                        placeholder="Choose an email"
-                        value={resultsQuery.workflowId ? [resultsQuery.workflowId] : []}
-                        onChange={(values) => setResultsQuery({ workflowId: values[0] ?? null })}
-                        options={resultsEmailOptions.map((option) => ({
-                            key: option.workflowId,
-                            label: option.name,
-                            labelComponent: (
-                                <span className="flex w-full items-center justify-between gap-4">
-                                    <span className="truncate">{option.name}</span>
-                                    <span className="text-secondary text-xs whitespace-nowrap">
-                                        {option.sent > 0
-                                            ? `${humanFriendlyNumber(option.sent)} sent`
-                                            : 'No sends in this period'}
-                                    </span>
-                                </span>
-                            ),
-                        }))}
-                        loading={templatesLoading}
-                        className="min-w-48"
-                        data-attr="transactional-email-results-email"
-                    />
+                    <TransactionalEmailResultsEmailPicker />
                 </span>
                 <span className="inline-flex items-center gap-2">
                     <span className="whitespace-nowrap">how many did</span>
