@@ -559,35 +559,57 @@ function socialIconsHtml(values: Record<string, any>): string {
     return `<table role="presentation" align="${align(values.align) ?? 'center'}" cellpadding="0" cellspacing="0" border="0"><tr>${cells}</tr></table>`
 }
 
-function menuHtml(values: Record<string, any>): string {
-    const vertical = values.layout === 'vertical'
-    const itemCss = [
+function hexColor(value: unknown, fallback: string): string {
+    return /^#[0-9a-f]{3,8}$/i.test(String(value ?? '')) ? String(value) : fallback
+}
+
+function menuItemCss(values: Record<string, any>): string {
+    const fontFamily = fontStyleFrom(values).fontFamily?.replace(/["<>;]/g, '')
+    const fontWeight = parsePx(values.fontWeight)
+    const letterSpacing = parsePx(values.letterSpacing)
+    return [
         `padding:${String(values.padding ?? '5px 15px').replace(/[^0-9a-z .%-]/gi, '')}`,
-        `display:${vertical ? 'block' : 'inline-block'}`,
+        `display:${values.layout === 'vertical' ? 'block' : 'inline-block'}`,
         `font-size:${parsePx(values.fontSize) ?? 14}px`,
-        fontStyleFrom(values).fontFamily
-            ? `font-family:${String(fontStyleFrom(values).fontFamily).replace(/["<>;]/g, '')}`
-            : '',
-        parsePx(values.fontWeight) ? `font-weight:${parsePx(values.fontWeight)}` : '',
-        parsePx(values.letterSpacing) ? `letter-spacing:${parsePx(values.letterSpacing)}px` : '',
+        fontFamily && `font-family:${fontFamily}`,
+        fontWeight && `font-weight:${fontWeight}`,
+        letterSpacing && `letter-spacing:${letterSpacing}px`,
     ]
         .filter(Boolean)
         .join(';')
-    const color = (value: unknown, fallback: string): string =>
-        /^#[0-9a-f]{3,8}$/i.test(String(value ?? '')) ? String(value) : fallback
-    const separator = vertical ? '' : String(values.separator ?? '')
-    const items = (values.menu?.items ?? []).map((item: { text?: string; link?: unknown }) => {
-        const text = escapeHtml(String(item.text ?? ''))
-        const href = linkUrl(item.link)
-        const target = (item.link as { values?: { target?: string } } | undefined)?.values?.target
-        return href
-            ? `<a href="${escapeHtml(href)}" target="${target === '_self' ? '_self' : '_blank'}" style="${itemCss};color:${color(values.linkColor, '#0068A5')};text-decoration:none">${text}</a>`
-            : `<span style="${itemCss};color:${color(values.textColor, '#444444')}">${text}</span>`
-    })
-    const between = separator
-        ? `<span style="${itemCss};color:${color(values.textColor, '#444444')}">${escapeHtml(separator)}</span>`
-        : ''
-    return `<div style="text-align:${align(values.align) ?? 'center'}">${items.join(between ? ` ${between} ` : ' ')}</div>`
+}
+
+function menuItemHtml(item: { text?: string; link?: any }, values: Record<string, any>, itemCss: string): string {
+    const text = escapeHtml(String(item.text ?? ''))
+    const href = linkUrl(item.link)
+    if (!href) {
+        return `<span style="${itemCss};color:${hexColor(values.textColor, '#444444')}">${text}</span>`
+    }
+    const target = item.link?.values?.target === '_self' ? '_self' : '_blank'
+    return `<a href="${escapeHtml(href)}" target="${target}" style="${itemCss};color:${hexColor(values.linkColor, '#0068A5')};text-decoration:none">${text}</a>`
+}
+
+function menuHtml(values: Record<string, any>): string {
+    const itemCss = menuItemCss(values)
+    const items = (values.menu?.items ?? []).map((item: { text?: string }) => menuItemHtml(item, values, itemCss))
+    const separator = values.layout === 'vertical' ? '' : String(values.separator ?? '')
+    const between = separator ? ` ${menuItemHtml({ text: separator }, values, itemCss)} ` : ' '
+    return `<div style="text-align:${align(values.align) ?? 'center'}">${items.join(between)}</div>`
+}
+
+function menuBlocks(values: Record<string, any>): JSONContent[] {
+    const padding = containerPadding(values)
+    if (values.menu?.items?.length) {
+        return [
+            {
+                type: 'emailHtml',
+                attrs: { html: menuHtml(values), emailStyle: compact({ padding, inheritText: true }) },
+            },
+        ]
+    }
+    // An empty menu still took up its padding in the old editor.
+    const height = (padding?.top ?? 0) + (padding?.bottom ?? 0)
+    return height ? [{ type: 'emailSpacer', attrs: { height } }] : []
 }
 
 function isRightToLeft(values: Record<string, any>): boolean {
@@ -737,20 +759,8 @@ function convertContent(
                     },
                 },
             ]
-        case 'menu': {
-            const padding = containerPadding(values)
-            if (values.menu?.items?.length) {
-                return [
-                    {
-                        type: 'emailHtml',
-                        attrs: { html: menuHtml(values), emailStyle: compact({ padding, inheritText: true }) },
-                    },
-                ]
-            }
-            // An empty menu still took up its padding in the old editor.
-            const height = (padding?.top ?? 0) + (padding?.bottom ?? 0)
-            return height ? [{ type: 'emailSpacer', attrs: { height } }] : []
-        }
+        case 'menu':
+            return menuBlocks(values)
         case 'custom':
             if (content.slug === 'unsubscribe_link') {
                 return richTextBlocks(
