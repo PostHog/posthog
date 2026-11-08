@@ -2212,19 +2212,17 @@ class TestResolveWorkspaceName:
     def worktree_with_box(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "us-east-1")
-        monkeypatch.setattr(
-            devbox_cli,
-            "list_user_workspaces",
-            lambda: [
-                {
-                    "name": name,
-                    "id": f"id-{name}",
-                    "template_name": coder.DEFAULT_TEMPLATE,
-                    "latest_build": {"status": "running"},
-                }
-                for name in ("devbox-test-user", "devbox-test-user-feat", "devbox-test-user-api")
-            ],
-        )
+        workspaces = [
+            {
+                "name": name,
+                "id": f"id-{name}",
+                "template_name": coder.DEFAULT_TEMPLATE,
+                "latest_build": {"status": "running"},
+            }
+            for name in ("devbox-test-user", "devbox-test-user-feat", "devbox-test-user-api")
+        ]
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_cli, "fetch_user_workspaces", lambda: workspaces)
         root = tmp_path / "wt"
         (root / "frontend").mkdir(parents=True)
         (root / ".git").write_text("gitdir: elsewhere\n")
@@ -2290,6 +2288,14 @@ class TestResolveWorkspaceName:
         else:
             assert devbox_cli.resolve_workspace_name(workspace)[0] == expected
 
+    def test_listing_failure_keeps_the_worktree_box(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "fetch_user_workspaces", lambda: None)
+        monkeypatch.chdir(worktree_with_box)
+
+        assert devbox_cli.resolve_workspace_name(None) == ("devbox-test-user-feat", None)
+
     @pytest.mark.parametrize(
         "status, expected",
         [
@@ -2300,9 +2306,7 @@ class TestResolveWorkspaceName:
     def test_clone_from_a_worktree_copies_the_default_box(
         self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, status: str, expected: str
     ) -> None:
-        workspaces = devbox_cli.list_user_workspaces()
-        workspaces[0]["latest_build"]["status"] = status
-        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
+        devbox_cli.list_user_workspaces()[0]["latest_build"]["status"] = status
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.chdir(worktree_with_box)
 

@@ -56,6 +56,7 @@ from .coder import (
     ensure_runtime_ready,
     exec_replace,
     extract_workspace_label,
+    fetch_user_workspaces,
     get_coder_url,
     get_coder_user_info,
     get_default_git_identity,
@@ -99,6 +100,7 @@ from .coder import (
 )
 from .config import (
     DevboxConfig,
+    WorktreeBoxRecord,
     clear_dotfiles_uri,
     clear_git_identity,
     clear_region,
@@ -177,35 +179,33 @@ def resolve_workspace_name(
             return target_name, None
         return _resolve_own_label(target_name)
 
-    workspaces = list_user_workspaces()
-    worktree_box = current_worktree_box(workspaces)
-    if worktree_box is not None:
-        return worktree_box, workspaces
-    return resolve_default_workspace_name(region=effective_region, workspaces=workspaces)
-
-
-def current_worktree_box(workspaces: list[dict[str, Any]]) -> str | None:
-    """The live Coder box that `devbox:worktree` set up for the checkout containing the current directory.
-
-    Only the nearest checkout counts, so a worktree nested inside another one
-    never gets the outer worktree's box. A box that is gone falls back to the
-    default target, but another box recreated under its name stops the command,
-    because any fallback could select that box again.
-    """
-    cwd = Path.cwd().resolve()
-    root = next((candidate for candidate in (cwd, *cwd.parents) if (candidate / ".git").exists()), None)
-    record = load_worktree_boxes().get(str(root)) if root is not None else None
-    if record is None or record.provider != "coder":
-        return None
+    record = current_worktree_box()
+    if record is None:
+        return resolve_default_workspace_name(region=effective_region)
+    workspaces = fetch_user_workspaces()
+    if workspaces is None:
+        return record.workspace, None
     live = get_workspace(record.workspace, workspaces)
     if live is None:
-        return None
+        return resolve_default_workspace_name(region=effective_region, workspaces=workspaces)
     if not record.may_adopt(live):
         _fail(
             f"This worktree's devbox '{record.workspace}' was replaced by another box with the same name. "
             "Pass `-n <label>` to choose a box."
         )
-    return record.workspace
+    return record.workspace, workspaces
+
+
+def current_worktree_box() -> WorktreeBoxRecord | None:
+    """The Coder box record that `devbox:worktree` saved for the checkout containing the current directory.
+
+    Only the nearest checkout counts, so a worktree nested inside another one
+    never gets the outer worktree's box.
+    """
+    cwd = Path.cwd().resolve()
+    root = next((candidate for candidate in (cwd, *cwd.parents) if (candidate / ".git").exists()), None)
+    record = load_worktree_boxes().get(str(root)) if root is not None else None
+    return record if record is not None and record.provider == "coder" else None
 
 
 def resolve_default_workspace_name(
