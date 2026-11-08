@@ -1,18 +1,18 @@
 from typing import Annotated, Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from posthog.enums import LabeledStrEnum
 
-from .fragments import (
-    FragmentButton,
-    FragmentLayout,
-    FragmentLink,
-    FragmentList,
-    FragmentMetric,
-    FragmentModel,
-    FragmentSection,
-)
+from .enums import FragmentButtonVariant, FragmentIcon
+
+FragmentLabel = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60, pattern=r"^[^\x00]*$")
+]
+
+
+class FragmentModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 # Analytics context content is person- or agent-authored: closed targets, no URLs, HTML, or colors.
@@ -77,8 +77,13 @@ AnalyticsTarget = Annotated[
 ]
 
 
-class AnalyticsFragmentLink(FragmentLink[AnalyticsTarget]):
+class AnalyticsFragmentLink(FragmentModel):
     """A link to an Analytics page or a project object. Object links require a label. A page link shows the page's own label and icon unless you set them."""
+
+    type: Literal["link"]
+    to: AnalyticsTarget
+    label: FragmentLabel | None = None
+    icon: FragmentIcon | None = None
 
     @model_validator(mode="after")
     def _object_links_have_a_label(self) -> Self:
@@ -87,21 +92,32 @@ class AnalyticsFragmentLink(FragmentLink[AnalyticsTarget]):
         return self
 
 
-class AnalyticsFragmentButton(FragmentButton[AnalyticsTarget]):
+class AnalyticsFragmentButton(FragmentModel):
     """A button that opens an Analytics page or a project object."""
 
+    type: Literal["button"]
+    to: AnalyticsTarget
+    label: FragmentLabel
+    icon: FragmentIcon | None = None
+    variant: FragmentButtonVariant = FragmentButtonVariant.OUTLINE
 
-class AnalyticsFragmentMetric(FragmentMetric):
+
+class AnalyticsFragmentMetric(FragmentModel):
     """The latest value of a trends insight, with a sparkline of its first series. Opens the insight."""
 
+    type: Literal["metric"]
     insight: str = Field(
         pattern=ANALYTICS_SHORT_ID_PATTERN,
         description="Short ID of a trends insight, one whose query source kind is TrendsQuery. Link to other insights.",
     )
+    label: FragmentLabel = Field(description="Short name of the number, such as Signups.")
 
 
-class AnalyticsFragmentList(FragmentList[AnalyticsListSource]):
+class AnalyticsFragmentList(FragmentModel):
     """A list of pinned, recent, or built-in Analytics items."""
+
+    type: Literal["list"]
+    source: AnalyticsListSource
 
 
 AnalyticsFragmentItem = Annotated[
@@ -110,12 +126,31 @@ AnalyticsFragmentItem = Annotated[
 ]
 
 
-class AnalyticsFragmentSection(FragmentSection[AnalyticsFragmentItem]):
+class AnalyticsFragmentSection(FragmentModel):
+    id: str = Field(
+        min_length=1,
+        max_length=32,
+        pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        description=(
+            "Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept "
+            "by this ID, so keep the ID of an existing section when you move or rename it."
+        ),
+    )
+    title: FragmentLabel | None = Field(
+        default=None,
+        description=(
+            "Heading of the section. A section with a heading can be closed. A section without one shows its items "
+            "in its place in the layout, with no heading."
+        ),
+    )
+    icon: FragmentIcon | None = Field(default=None, description="Icon before the heading.")
     items: list[AnalyticsFragmentItem] = Field(min_length=1, max_length=MAX_ANALYTICS_SECTION_ITEMS)
 
 
-class AnalyticsFragmentLayout(FragmentLayout[AnalyticsFragmentSection]):
+class AnalyticsFragmentLayout(FragmentModel):
     """The Analytics context's fragment. A section with no items to show is hidden."""
+
+    version: Literal[1] = 1
 
     sections: list[AnalyticsFragmentSection] = Field(
         min_length=1,
