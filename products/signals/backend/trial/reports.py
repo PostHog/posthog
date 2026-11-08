@@ -113,7 +113,7 @@ def report_pass_admission(
     elif report is not None and report["billing_exempt_reason"]:
         parent = TrialFunding(funding="existing")
     else:
-        parent = signal_funding(team.id, signal_id, for_report=True)
+        parent = signal_funding(team.id, signal_id, for_report=True) if previous is None else None
     return prepare_self_driving_admission(team, parent=parent)
 
 

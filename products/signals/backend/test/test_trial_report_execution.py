@@ -20,6 +20,7 @@ from requests.exceptions import ReadTimeout
 
 from posthog.llm.gateway_client import AIGatewayConfig
 from posthog.llm.gateway_usage import GatewayRequestCost
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
@@ -161,6 +162,31 @@ class TestTrialReportExecution(NonAtomicBaseTest):
 
         report_id = async_to_sync(persist)()
         self._assert_report_continues_with_grant(report_id, grant)
+
+    def test_funded_report_identity_is_scoped_to_the_environment(self) -> None:
+        self.claim()
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        report_ids: list[str] = []
+        for team in (self.team, child):
+            with funded_report_sync(team=team, run_id=None, emission_key="same-emission") as report_id:
+                result = create_scout_report(
+                    team_id=team.id,
+                    title="Synthetic scout report",
+                    summary="An independent environment finding.",
+                    signals=[ScoutReportSignal(description="Synthetic finding", source_id="fixture", weight=1)],
+                    attribution=ArtefactAttribution.system(),
+                    funded_report_id=report_id,
+                    emit_signals=False,
+                )
+                report_ids.append(result.report_id)
+        assert report_ids[0] != report_ids[1]
+        for team, expected in zip((self.team, child), report_ids):
+            with funded_report_sync(team=team, run_id=None, emission_key="same-emission") as report_id:
+                assert str(report_id) == expected
+        assert set(SignalReport.objects.filter(id__in=report_ids).values_list("team_id", flat=True)) == {
+            self.team.id,
+            child.id,
+        }
 
     @parameterized.expand([(True,), (False,)])
     def test_grouping_settlement_and_report_start_share_lock_order(self, existing_spend: bool) -> None:
@@ -521,7 +547,9 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.READY)
         with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False):
             with self.assertRaises(TrialRefused):
-                prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="explicit-later-rerun")
+                prepare_report_pass(
+                    team=self.team, report_id=str(report.id), operation_key="explicit-later-rerun", signal_id=signal_id
+                )
 
     def test_nontrial_receipt_does_not_bypass_current_quota(self) -> None:
         from products.signals.backend.quota import self_driving_quota_gate

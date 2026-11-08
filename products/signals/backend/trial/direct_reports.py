@@ -26,11 +26,7 @@ def _funded_report(team: Team, run_id: UUID | None, emission_key: str, funding: 
     try:
         # Accepted scouts and custom agents can publish after exhaustion. The report row,
         # once written, contributes to subsequent admission checks through first_visible_at.
-        yield (
-            uuid5(NAMESPACE_URL, f"signals-funded-report:{team.parent_team_id or team.id}:{emission_key}")
-            if funding.grant_id
-            else None
-        )
+        yield uuid5(NAMESPACE_URL, f"signals-funded-report:{team.id}:{emission_key}") if funding.grant_id else None
     finally:
         direct_report_funding.reset(funding_token)
         task_trial_context.reset(task_token)
