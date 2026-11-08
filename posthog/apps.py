@@ -8,10 +8,9 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
-from posthog.cloud_utils import is_hobby
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.organization_caching import connect_signal_handlers as connect_organization_cache_signal_handlers
-from posthog.ph_client import default_before_send
+from posthog.ph_client import default_before_send, self_hosted_capture_reaches_posthog
 from posthog.utils import (
     _build_flag_provider,
     get_available_timezones_with_offsets,
@@ -85,7 +84,7 @@ class PostHogConfig(AppConfig):
         # Retained trial data still needs privacy when new launches are disabled.
         before_send = default_before_send(
             private_scout_capture=settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE,
-            self_hosted=is_hobby() and not settings.TEST,
+            self_hosted=self_hosted_capture_reaches_posthog(),
         )
         if before_send is not None:
             posthoganalytics.before_send = before_send  # ty: ignore[invalid-assignment]

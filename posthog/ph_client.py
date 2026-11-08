@@ -13,7 +13,7 @@ import structlog
 import posthoganalytics
 
 from posthog.clickhouse.query_tagging import get_query_tags
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.utils import get_instance_region
 
 PH_US_API_KEY = "sTMFPsFhdP1Ssg"
@@ -38,6 +38,10 @@ def drop_exception_capture(message: dict[str, Any]) -> dict[str, Any] | None:
 
 
 BeforeSend = Callable[[dict[str, Any]], dict[str, Any] | None]
+
+
+def self_hosted_capture_reaches_posthog() -> bool:
+    return is_hobby() and not settings.TEST and not settings.SELF_CAPTURE
 
 
 def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> BeforeSend | None:

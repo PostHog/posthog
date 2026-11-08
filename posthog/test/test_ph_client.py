@@ -13,6 +13,7 @@ from posthog.ph_client import (
     filter_scout_experiment_capture,
     get_client,
     ph_scoped_capture,
+    self_hosted_capture_reaches_posthog,
 )
 
 
@@ -103,6 +104,22 @@ class TestPrivateScoutCapture(SimpleTestCase):
         if private_scout_capture and before_send is not None:
             with tags_context(is_scout_experiment=True):
                 self.assertIsNone(before_send({"event": "query executed", "distinct_id": "synthetic"}))
+
+    @parameterized.expand(
+        [
+            ("self_hosted", True, False, True),
+            ("self_hosted_self_capture", True, True, False),
+            ("cloud_or_local", False, False, False),
+        ]
+    )
+    def test_self_hosted_capture_reaches_posthog(
+        self, _name: str, hobby: bool, self_capture: bool, expected: bool
+    ) -> None:
+        with (
+            patch("posthog.ph_client.is_hobby", return_value=hobby),
+            override_settings(TEST=False, SELF_CAPTURE=self_capture),
+        ):
+            self.assertEqual(self_hosted_capture_reaches_posthog(), expected)
 
     @override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False)
     def test_unconfigured_regional_client_has_no_capture_filter(self) -> None:
