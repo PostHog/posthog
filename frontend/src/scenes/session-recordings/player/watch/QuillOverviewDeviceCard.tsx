@@ -15,13 +15,13 @@ export function QuillOverviewDeviceCard(): JSX.Element {
 
     // Pixel sizes instead of CSS aspect-ratio, so unknown or extreme resolutions still draw as a screen.
     const aspect = resolution && resolution.width > 0 ? resolution.height / resolution.width : 10 / 16
-    const frameWidth = aspect > 1 ? Math.round(34 / aspect) : 68
-    const frameHeight = aspect > 1 ? 34 : Math.round(68 * Math.min(Math.max(aspect, 0.35), 0.56))
+    const frameWidth = aspect > 1 ? Math.round(56 / aspect) : 88
+    const frameHeight = aspect > 1 ? 56 : Math.round(88 * Math.min(Math.max(aspect, 0.5), 0.65))
     const visiblePercent = Math.round(Math.min(Math.max(scale, 0), 1) * 80)
 
     return (
         <>
-            <div className="rounded border border-border bg-card px-2 py-2 flex items-center gap-3 min-w-0">
+            <div className="rounded border border-border bg-card px-2 py-2.5 flex items-center gap-3 min-w-0">
                 {loading ? (
                     <Skeleton className="h-10 w-full" />
                 ) : (
@@ -39,7 +39,7 @@ export function QuillOverviewDeviceCard(): JSX.Element {
                                         style={{ width: `${visiblePercent}%`, height: `${visiblePercent}%` }}
                                     />
                                 </span>
-                                <span className="block h-1.5 w-7 rounded-b-sm bg-border" />
+                                <span className="block h-1.5 w-9 rounded-b-sm bg-border" />
                             </TooltipTrigger>
                             <TooltipContent className="max-w-72">
                                 The page was captured at <b>{resolutionDisplay}</b>. The dashed box is the part you see

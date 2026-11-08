@@ -14,6 +14,7 @@ from .oom_event import ExternalDataSchemaOOMEvent
 from .pending_source_credential import PendingSourceCredential
 from .source_inputs_backup import ExternalDataSourceInputsBackup
 from .table import DataWarehouseTable
+from .warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 
 __all__ = [
     "CustomOAuth2Integration",
@@ -30,4 +31,6 @@ __all__ = [
     "PendingSourceCredential",
     "WarehouseColumnAnnotation",
     "WarehouseColumnStatistics",
+    "WarehouseMigration",
+    "WarehouseMigrationItem",
 ]

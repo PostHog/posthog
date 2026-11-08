@@ -342,7 +342,7 @@ class SessionStrategy(ActorStrategy):
         if search:
             where_exprs.append(
                 parse_expr(
-                    "person_id in (select id from persons where ilike(properties.email, {search}) or ilike(properties.name, {search}))",
+                    "person_id in (select id from persons where ilike(toString(properties.email), {search}) or ilike(toString(properties.name), {search}))",
                     {"search": ast.Constant(value=f"%{search}%")},
                 )
             )

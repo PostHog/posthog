@@ -65,7 +65,7 @@ import {
 } from '~/types'
 
 import { BIVisualizationNode } from './schema-business-intelligence'
-import { integer, numerical_key, positive_integer } from './type-utils'
+import { integer, non_negative_integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
 // Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
@@ -631,6 +631,13 @@ export interface AccessControlFilterWarning {
     message: string
 }
 
+export interface BreakdownNotAppliedWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'breakdown_not_applied'
+    /** Human-readable warning shown to the user */
+    message: string
+}
+
 /**
  * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
  * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
@@ -754,6 +761,8 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     variables?: Record<string, HogQLVariable>
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
+    /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+    offset?: non_negative_integer
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
     /** Client provided name of the query */
@@ -2884,9 +2893,10 @@ export interface AnalyticsQueryResponseBase {
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
      * Accumulated across every HogQL execution that contributes to this response — so insights backed
      * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
-     * Also carries access control warnings when a system-table query filters out objects the user can't access.
+     * Also carries access control warnings when a system-table query filters out objects the user can't access,
+     * and a breakdown warning when the query ran without its requested breakdown.
      */
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[]
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
 }
