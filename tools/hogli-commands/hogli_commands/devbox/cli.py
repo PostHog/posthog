@@ -186,7 +186,7 @@ def resolve_workspace_name(
     if workspaces is None:
         _fail(
             f"Couldn't list your devboxes in Coder, so this worktree's devbox '{record.workspace}' can't be checked. "
-            f"Try again, or pass `-n {extract_workspace_label(record.workspace)}` to use it anyway."
+            "Try again in a moment."
         )
     live = get_workspace(record.workspace, workspaces)
     if live is None:
