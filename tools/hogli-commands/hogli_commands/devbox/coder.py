@@ -233,10 +233,14 @@ def _resolve_coder(args: list[str]) -> list[str]:
 
 
 def _run(
-    args: list[str], *, capture_output: bool = False, timeout: float | None = None
+    args: list[str],
+    *,
+    capture_output: bool = False,
+    timeout: float | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent text handling."""
-    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True, timeout=timeout)
+    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True, timeout=timeout, env=env)
 
 
 def _execvp(file: str, args: list[str]) -> NoReturn:
@@ -1007,18 +1011,15 @@ def _env_login_hint(coder_url: str) -> str:
 def _fail_env_token_rejected(coder_url: str) -> NoReturn:
     _fail(
         f"Coder rejected the CODER_SESSION_TOKEN set in this shell for {coder_url}.\n"
-        f"  Check that CODER_URL is {coder_url} and the token has not expired. Get a new token at {coder_url}/cli-auth.",
+        f"  Check that CODER_URL is {coder_url} and the token has not expired. Get a new token at {coder_url}/cli-auth,\n"
+        "  or unset CODER_SESSION_TOKEN to use the login stored on disk.",
         cause="coder_env_token_rejected",
     )
 
 
 def _stored_login_works() -> bool:
-    """Return whether the login stored on disk works without CODER_SESSION_TOKEN."""
     env = {key: value for key, value in os.environ.items() if key != _SESSION_TOKEN_ENV}
-    result = subprocess.run(
-        _resolve_coder(["coder", "whoami", "--output", "json"]), capture_output=True, text=True, env=env
-    )
-    return result.returncode == 0
+    return _run(["coder", "whoami", "--output", "json"], capture_output=True, env=env).returncode == 0
 
 
 def _note_login_only_in_env() -> None:
@@ -1029,12 +1030,20 @@ def _note_login_only_in_env() -> None:
             "Coder login comes only from CODER_SESSION_TOKEN, and no working login is stored on disk.\n"
             "  SSH to a devbox fails from programs that don't inherit that variable, such as an editor"
             " or a mutagen daemon started elsewhere.\n"
-            f"  To store the login, pipe the token into"
-            f" `env -u CODER_SESSION_TOKEN {coder_command_hint()} login {get_coder_url()}`."
-            " Do it again when the token changes.",
+            f"  To store it, run `{coder_command_hint()} login --use-token-as-session {get_coder_url()}` in this shell."
+            " Run it again when the token changes.",
             fg="yellow",
         )
     )
+
+
+def _fail_login_not_ready(message: str) -> NoReturn:
+    coder_url = get_coder_url()
+    if os.environ.get(_SESSION_TOKEN_ENV):
+        _fail_env_token_rejected(coder_url)
+    if not sys.stdin.isatty():
+        message += f"\n{_env_login_hint(coder_url)}"
+    _fail(message, cause="coder_login_not_ready")
 
 
 def ensure_coder_authenticated() -> None:
@@ -1075,13 +1084,7 @@ def ensure_runtime_ready() -> None:
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     if not coder_authenticated():
-        coder_url = get_coder_url()
-        if os.environ.get(_SESSION_TOKEN_ENV):
-            _fail_env_token_rejected(coder_url)
-        message = f"Coder login is not ready for {coder_url}. {RUNTIME_SETUP_HINT}"
-        if not sys.stdin.isatty():
-            message += f"\n{_env_login_hint(coder_url)}"
-        _fail(message, cause="coder_login_not_ready")
+        _fail_login_not_ready(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}")
 
     _warn_version_mismatch()
 
@@ -1214,9 +1217,8 @@ def get_username() -> str:
     if username:
         return username.lower()
 
-    _fail(
-        "Could not determine your Coder username from `coder whoami`.\n"
-        f"  Your login may have expired. {RUNTIME_SETUP_HINT}"
+    _fail_login_not_ready(
+        f"Could not determine your Coder username from `coder whoami`.\n  Your login may have expired. {RUNTIME_SETUP_HINT}"
     )
 
 

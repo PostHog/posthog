@@ -615,9 +615,12 @@ class TestCoderVersion:
         assert "CODER_SESSION_TOKEN" in output
         assert "CODER_URL to https://coder.example.com" in output
 
-    def test_runtime_ready_names_the_token_variables_without_a_terminal(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    @pytest.mark.parametrize("entrypoint", ["ensure_runtime_ready", "get_username"])
+    def test_runtime_login_failures_name_the_token_variables_without_a_terminal(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], entrypoint: str
     ) -> None:
+        coder.get_username.cache_clear()
+        monkeypatch.setattr(coder, "get_coder_user_info", lambda: coder.CoderUserInfo())
         monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
         monkeypatch.setattr(coder, "coder_authenticated", lambda: False)
@@ -626,17 +629,19 @@ class TestCoderVersion:
         monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
 
         with pytest.raises(SystemExit):
-            coder.ensure_runtime_ready()
+            getattr(coder, entrypoint)()
 
         output = capsys.readouterr().out
         assert "Run `hogli devbox:setup`." in output
         assert "CODER_SESSION_TOKEN" in output
         assert "CODER_URL to https://coder.example.com" in output
 
-    @pytest.mark.parametrize("entrypoint", ["ensure_coder_authenticated", "ensure_runtime_ready"])
+    @pytest.mark.parametrize("entrypoint", ["ensure_coder_authenticated", "ensure_runtime_ready", "get_username"])
     def test_rejected_env_token_is_named_instead_of_a_login_prompt(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], entrypoint: str
     ) -> None:
+        coder.get_username.cache_clear()
+        monkeypatch.setattr(coder, "get_coder_user_info", lambda: coder.CoderUserInfo())
         monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
         monkeypatch.setattr(coder, "coder_authenticated", lambda: False)
@@ -654,6 +659,7 @@ class TestCoderVersion:
 
         output = capsys.readouterr().out
         assert "Coder rejected the CODER_SESSION_TOKEN" in output
+        assert "unset CODER_SESSION_TOKEN to use the login stored on disk" in output
         assert "expired-example-token" not in output
 
     @pytest.mark.parametrize("stored_login_works, expect_note", [(False, True), (True, False)])
@@ -680,7 +686,7 @@ class TestCoderVersion:
 
         output = capsys.readouterr().out
         assert "Coder login is ready." in output
-        assert ("env -u CODER_SESSION_TOKEN coder login https://coder.example.com" in output) is expect_note
+        assert ("coder login --use-token-as-session https://coder.example.com" in output) is expect_note
         assert "example-token" not in output.replace("CODER_SESSION_TOKEN", "")
 
     @pytest.mark.parametrize("user_bin_on_path", [True, False])
