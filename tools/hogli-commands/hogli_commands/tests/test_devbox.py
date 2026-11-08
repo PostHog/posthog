@@ -2297,6 +2297,24 @@ class TestResolveWorkspaceName:
 
         assert devbox_cli.resolve_workspace_name("@test-user")[0] == "devbox-test-user"
 
+    @pytest.mark.parametrize(
+        "args",
+        [
+            pytest.param(["devbox:status", "@test-user"], id="status"),
+            pytest.param(["devbox:cleanup:disk", "@test-user"], id="command-that-needs-the-box"),
+        ],
+    )
+    def test_missing_default_box_hint_keeps_the_explicit_target(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, args: list[str]
+    ) -> None:
+        del devbox_cli.list_user_workspaces()[0]
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.chdir(worktree_with_box)
+
+        result = runner.invoke(cli, args)
+
+        assert "Run 'hogli devbox:start @test-user' to create one." in result.output, result.output
+
     def test_moved_worktree_keeps_its_box(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, worktree_with_box: Path
     ) -> None:

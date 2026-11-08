@@ -391,7 +391,7 @@ def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = 
     workspace = get_workspace(name, workspaces)
     if workspace is not None:
         return workspace
-    _fail("No devbox found. Run 'hogli devbox:start' to create one.")
+    _fail(f"No devbox found. Run 'hogli devbox:start{_workspace_arg_suffix(name)}' to create one.")
     raise SystemExit(1)  # unreachable; helps ty see the function doesn't fall through
 
 
@@ -2121,7 +2121,7 @@ def devbox_status(workspace: str | None) -> None:
 
     ws = get_workspace(name, workspaces)
     if ws is None:
-        click.echo("No devbox found. Run 'hogli devbox:start' to create one.")
+        click.echo(f"No devbox found. Run 'hogli devbox:start{_workspace_arg_suffix(name)}' to create one.")
         return
 
     status = get_workspace_status(ws)
