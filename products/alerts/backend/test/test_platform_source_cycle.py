@@ -22,6 +22,7 @@ from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 from posthog.query_cache.single_flight import query_single_flight_skipped
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
@@ -244,6 +245,15 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
         self.deliveries = evaluation.deliveries if evaluation is not None else ()
         return (evaluation.outcomes[0] if evaluation is not None else None), query
+
+    @parameterized.expand([("recorded_on_the_copy", True), ("not_yet_backfilled", False)])
+    def test_the_check_runs_as_the_creator_the_copy_records(self, _name: str, recorded: bool) -> None:
+        copy_creator = User.objects.create_and_join(self.organization, "copy-creator@example.com", None)
+        configuration = self._copy(self._alert(), created_by_id=copy_creator.id if recorded else None)
+
+        _, query = self._evaluate(configuration, result=AlertEvaluationResult(value=1.0, breaches=[]))
+
+        assert query.call_args.args[0].created_by == (copy_creator if recorded else self.user)
 
     @parameterized.expand(
         [
