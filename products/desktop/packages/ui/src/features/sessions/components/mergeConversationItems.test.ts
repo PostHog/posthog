@@ -250,6 +250,30 @@ describe("mergeConversationItems", () => {
     expect(result.map((i) => i.id)).toEqual(["setup", "opt"]);
   });
 
+  it("cloud: keeps a follow-up waiting on its echo above later agent output", () => {
+    const tailAnchors = new Map<string, string | null>();
+    const optimisticItems = [userMessage("opt", "steer", false)];
+    mergeConversationItems({
+      conversationItems: [userMessage("setup", "setup"), progressGroup("p")],
+      optimisticItems,
+      isCloud: true,
+      tailAnchors,
+    });
+
+    const result = mergeConversationItems({
+      conversationItems: [
+        userMessage("setup", "setup"),
+        progressGroup("p"),
+        userMessage("later", "agent output"),
+      ],
+      optimisticItems,
+      isCloud: true,
+      tailAnchors,
+    });
+
+    expect(result.map((i) => i.id)).toEqual(["setup", "opt", "p", "later"]);
+  });
+
   it("cloud: keeps a resumed prompt before trailing setup progress", () => {
     const result = mergeConversationItems({
       conversationItems: [

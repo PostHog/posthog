@@ -9,6 +9,7 @@ interface MergeConversationItemsArgs {
   conversationItems: ConversationItem[];
   optimisticItems: ConversationItem[];
   isCloud: boolean;
+  tailAnchors?: Map<string, string | null>;
 }
 
 type UserMessageItem = Extract<ConversationItem, { type: "user_message" }>;
@@ -55,7 +56,10 @@ function reconcileInitialPromptEcho(
 // Cloud's initial optimistic is pinned to the top so the user's prompt stays
 // visible above setup progress. Follow-up optimistics render at the tail, but
 // before trailing progress cards, to match where the streamed `session/prompt`
-// will appear.
+// will appear. With `tailAnchors`, each follow-up stays after the row that was
+// last when it was first rendered. A cloud steer that the run declines gets its
+// echo only when the turn ends, so without the anchor the agent output of the
+// whole turn renders above the message.
 //
 // Local sessions keep optimistic at the chronological end — they rely on
 // `replaceOptimisticWithEvent` to swap optimistic↔real in place.
@@ -63,6 +67,7 @@ export function mergeConversationItems({
   conversationItems,
   optimisticItems,
   isCloud,
+  tailAnchors,
 }: MergeConversationItemsArgs): ConversationItem[] {
   if (isCloud) {
     conversationItems = reconcileInitialPromptEcho(conversationItems);
@@ -159,10 +164,45 @@ export function mergeConversationItems({
     }
   }
 
-  return [
-    ...resolvedPinnedItems,
-    ...dedupedConversation.slice(0, tailInsertionIndex),
-    ...tailOptimisticItems,
-    ...dedupedConversation.slice(tailInsertionIndex),
-  ];
+  if (!tailAnchors || tailOptimisticItems.length === 0) {
+    return [
+      ...resolvedPinnedItems,
+      ...dedupedConversation.slice(0, tailInsertionIndex),
+      ...tailOptimisticItems,
+      ...dedupedConversation.slice(tailInsertionIndex),
+    ];
+  }
+
+  const tailIds = new Set(tailOptimisticItems.map((item) => item.id));
+  for (const id of tailAnchors.keys()) {
+    if (!tailIds.has(id)) tailAnchors.delete(id);
+  }
+  const indexById = new Map(
+    dedupedConversation.map((item, index) => [item.id, index]),
+  );
+  const tailItemsByIndex = new Map<number, ConversationItem[]>();
+  for (const item of tailOptimisticItems) {
+    if (!tailAnchors.has(item.id)) {
+      tailAnchors.set(
+        item.id,
+        dedupedConversation[tailInsertionIndex - 1]?.id ?? null,
+      );
+    }
+    const anchorId = tailAnchors.get(item.id);
+    const anchorIndex = anchorId == null ? -1 : indexById.get(anchorId);
+    const insertionIndex =
+      anchorIndex === undefined ? tailInsertionIndex : anchorIndex + 1;
+    const itemsAtIndex = tailItemsByIndex.get(insertionIndex) ?? [];
+    itemsAtIndex.push(item);
+    tailItemsByIndex.set(insertionIndex, itemsAtIndex);
+  }
+
+  const merged = [...resolvedPinnedItems];
+  for (let index = 0; index <= dedupedConversation.length; index++) {
+    merged.push(...(tailItemsByIndex.get(index) ?? []));
+    if (index < dedupedConversation.length) {
+      merged.push(dedupedConversation[index]);
+    }
+  }
+  return merged;
 }
