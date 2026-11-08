@@ -57,7 +57,9 @@ function reconcileInitialPromptEcho(
 // visible above setup progress. Follow-up optimistics render at the tail, but
 // before trailing progress cards, to match where the streamed `session/prompt`
 // will appear. With `tailAnchors`, each follow-up stays after the row that was
-// last when it was first rendered. A cloud steer that the run declines gets its
+// last when it was first rendered, and after every user message in the thread,
+// so that the echo of an earlier follow-up never renders below a later
+// follow-up that shares its anchor. A cloud steer that the run declines gets its
 // echo only when the turn ends, so without the anchor the agent output of the
 // whole turn renders above the message.
 //
@@ -177,6 +179,9 @@ export function mergeConversationItems({
   for (const id of tailAnchors.keys()) {
     if (!tailIds.has(id)) tailAnchors.delete(id);
   }
+  const lastUserMessageIndex = dedupedConversation.findLastIndex(
+    (entry) => entry.type === "user_message",
+  );
   const placements = tailOptimisticItems.map((item) => {
     if (!tailAnchors.has(item.id)) {
       tailAnchors.set(
@@ -185,13 +190,16 @@ export function mergeConversationItems({
       );
     }
     const anchorId = tailAnchors.get(item.id);
-    if (anchorId == null) return { item, index: 0 };
-    const anchorIndex = dedupedConversation.findLastIndex(
-      (entry) => entry.id === anchorId,
-    );
+    const anchorIndex =
+      anchorId == null
+        ? -1
+        : dedupedConversation.findLastIndex((entry) => entry.id === anchorId);
+    if (anchorId != null && anchorIndex === -1) {
+      return { item, index: tailInsertionIndex };
+    }
     return {
       item,
-      index: anchorIndex === -1 ? tailInsertionIndex : anchorIndex + 1,
+      index: Math.max(anchorIndex, lastUserMessageIndex) + 1,
     };
   });
   placements.sort((left, right) => left.index - right.index);

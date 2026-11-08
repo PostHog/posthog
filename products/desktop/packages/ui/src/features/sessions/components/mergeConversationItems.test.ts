@@ -264,7 +264,7 @@ describe("mergeConversationItems", () => {
       conversationItems: [
         userMessage("setup", "setup"),
         progressGroup("p"),
-        userMessage("later", "agent output"),
+        { type: "turn_cancelled", id: "later" },
       ],
       optimisticItems,
       isCloud: true,
@@ -272,6 +272,35 @@ describe("mergeConversationItems", () => {
     });
 
     expect(result.map((i) => i.id)).toEqual(["setup", "opt", "p", "later"]);
+  });
+
+  it("cloud: keeps a later follow-up below the echo of an earlier one that shared its anchor", () => {
+    const tailAnchors = new Map<string, string | null>();
+    const second = userMessage("opt-2", "second", false);
+    mergeConversationItems({
+      conversationItems: [userMessage("setup", "setup")],
+      optimisticItems: [userMessage("opt-1", "first", false), second],
+      isCloud: true,
+      tailAnchors,
+    });
+
+    const result = mergeConversationItems({
+      conversationItems: [
+        userMessage("setup", "setup"),
+        userMessage("echo-1", "first"),
+        { type: "turn_cancelled", id: "agent" },
+      ],
+      optimisticItems: [second],
+      isCloud: true,
+      tailAnchors,
+    });
+
+    expect(result.map((i) => i.id)).toEqual([
+      "setup",
+      "echo-1",
+      "opt-2",
+      "agent",
+    ]);
   });
 
   it("cloud: keeps a resumed prompt before trailing setup progress", () => {
