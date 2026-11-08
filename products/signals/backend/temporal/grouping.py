@@ -1454,7 +1454,7 @@ async def _complete_signal_batch(batch: list[EmitSignalInputs], reports: dict[st
 async def _process_signal_batch(
     batch: list[EmitSignalInputs],
     cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None,
-    report_prep_drops_for: Optional[list[EmitSignalInputs]] = None,
+    attempts: Optional[list[int]] = None,
 ) -> tuple[int, FetchSignalTypeExamplesOutput]:
     """
     Process a batch of signals with parallel preparation (steps 1-4) and sequential
@@ -1465,15 +1465,17 @@ async def _process_signal_batch(
     local cosine distance comparison, eliminating the need for per-signal CH waits
     within a batch.
 
-    When preparation fails, `signal_dropped` is captured for every batch signal, or only for the
-    signals in `report_prep_drops_for` when it is set. Callers that retry a failed batch pass only
-    the signals not yet reported, so that one lost signal produces one `signal_dropped` event.
+    Callers that retry a failed batch pass `attempts`, the processing attempt of each signal in
+    batch order. Every failed round captures `signal_dropped` again, and the attempt on each event
+    separates repeated failures of the same signals from distinct lost signals.
     """
     team_id = batch[0].team_id
     original_batch = batch
     # Purely defensive
     if not all(signal.team_id == team_id for signal in batch):
         raise ValueError("All signals in a batch must belong to the same team")
+    if attempts is not None and len(attempts) != len(batch):
+        raise ValueError("attempts must align with the batch")
     dropped = 0
     isolate_refusals = workflow.patched("signals-query-refusal-review-v1")
 
@@ -1551,6 +1553,8 @@ async def _process_signal_batch(
             retained_indices = [i for i, result in enumerate(query_gen_results) if not result.quarantined]
             dropped = len(batch) - len(retained_indices)
             batch = [batch[i] for i in retained_indices]
+            if attempts is not None:
+                attempts = [attempts[i] for i in retained_indices]
             signal_embeddings = [signal_embeddings[i] for i in retained_indices]
             query_gen_results = [query_gen_results[i] for i in retained_indices]
             if not batch:
@@ -1632,11 +1636,13 @@ async def _process_signal_batch(
             team_id=team_id,
             batch_size=len(batch),
         )
-        to_report = batch
-        if report_prep_drops_for is not None:
-            report_ids = {id(signal) for signal in report_prep_drops_for}
-            to_report = [signal for signal in batch if id(signal) in report_ids]
-        await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in to_report))
+        signal_attempts: list[int | None] = list(attempts) if attempts is not None else [None] * len(batch)
+        await asyncio.gather(
+            *(
+                capture_signal_dropped(signal, e, stage="grouping_prep", attempt=attempt)
+                for signal, attempt in zip(batch, signal_attempts, strict=True)
+            )
+        )
         raise
 
     # === SEQUENTIAL PHASE (steps 5-7) ===

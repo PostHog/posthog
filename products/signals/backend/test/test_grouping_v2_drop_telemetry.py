@@ -46,18 +46,23 @@ BATCHES = {
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "pending_keys,retried_keys,expected_drops",
+    "pending_keys,failed_rounds_by_batch_key",
     [
-        (["batch-a"], [], ["a-1", "a-2"]),
-        (["batch-a", "batch-b"], ["batch-a"], ["b-1"]),
+        (["batch-a"], {}),
+        (["batch-a", "batch-b"], {"batch-a": 2}),
     ],
 )
-async def test_failed_batch_retries_report_one_drop_per_signal(
-    pending_keys: list[str], retried_keys: list[str], expected_drops: list[str]
+async def test_failed_batch_retries_report_each_attempt(
+    pending_keys: list[str], failed_rounds_by_batch_key: dict[str, int]
 ) -> None:
-    drops: list[str] = []
-    embedding_calls = 0
-    signal_count = sum(len(BATCHES[key]) for key in pending_keys)
+    expected_drops = sorted(
+        (signal.source_id, failed_rounds_by_batch_key.get(key, 0) + round_index + 1)
+        for round_index in range(ROUNDS)
+        for key in pending_keys
+        for signal in BATCHES[key]
+    )
+    last_attempt = dict(expected_drops)
+    drops: list[tuple[str, int | None]] = []
     rounds_done = asyncio.Event()
 
     @activity.defn(name="read_signals_from_s3_activity")
@@ -66,15 +71,13 @@ async def test_failed_batch_retries_report_one_drop_per_signal(
 
     @activity.defn(name="get_embedding_activity")
     async def fake_embedding(_input: GenerateEmbeddingInput) -> GenerateEmbeddingOutput:
-        nonlocal embedding_calls
-        embedding_calls += 1
-        if embedding_calls >= ROUNDS * signal_count:
-            rounds_done.set()
         raise ApplicationError("Embedding worker returned 403", type="HTTPStatusError", non_retryable=True)
 
     @activity.defn(name="capture_signal_dropped_activity")
     async def fake_capture(input: CaptureSignalDroppedInput) -> None:
-        drops.append(input.source_id)
+        drops.append((input.source_id, input.attempt))
+        if len(drops) >= len(expected_drops):
+            rounds_done.set()
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -86,7 +89,11 @@ async def test_failed_batch_retries_report_one_drop_per_signal(
         ):
             handle = await env.client.start_workflow(
                 TeamSignalGroupingV2Workflow.run,
-                TeamSignalGroupingV2Input(team_id=1, pending_batch_keys=pending_keys, retried_batch_keys=retried_keys),
+                TeamSignalGroupingV2Input(
+                    team_id=1,
+                    pending_batch_keys=pending_keys,
+                    failed_rounds_by_batch_key=failed_rounds_by_batch_key,
+                ),
                 id=f"grouping-v2-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
             )
@@ -100,4 +107,5 @@ async def test_failed_batch_retries_report_one_drop_per_signal(
             with suppress(RPCError):
                 await env.client.get_workflow_handle(handle.id).terminate()
 
-    assert sorted(drops) == expected_drops
+    # The workflow keeps retrying until it is terminated, so ignore any round that started after the last checked one.
+    assert sorted(drop for drop in drops if drop[1] is None or drop[1] <= last_attempt[drop[0]]) == expected_drops

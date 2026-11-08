@@ -43,10 +43,6 @@ RETRY_BACKOFF = timedelta(seconds=10)
 # workflow.patched() call with workflow.deprecate_patch() and eventually remove.
 _PATCH_COLLECT_BATCH = "collect-batch-signals-v1"
 
-# Gates the reduced set of signal_dropped captures on a retried batch. Histories recorded before
-# this patch captured a drop for every signal on every failed round, and must replay that way.
-_PATCH_DROP_TELEMETRY_ONCE = "signal-dropped-once-per-retry-v1"
-
 
 @dataclass
 class CollectedBatch:
@@ -54,8 +50,9 @@ class CollectedBatch:
 
     signals: list[EmitSignalInputs] = field(default_factory=list)
     object_keys: list[str] = field(default_factory=list)
-    # Signals from keys that have not failed a processing round yet.
-    unreported_signals: list[EmitSignalInputs] = field(default_factory=list)
+    # Processing attempt of each signal, aligned with `signals`. A failed batch is retried with no
+    # limit, so the attempt lets drop telemetry tell a retry storm apart from new lost signals.
+    attempts: list[int] = field(default_factory=list)
 
 
 @activity.defn
@@ -84,7 +81,7 @@ class TeamSignalGroupingV2Workflow:
 
     def __init__(self) -> None:
         self._batch_key_buffer: list[str] = []
-        self._retried_batch_keys: set[str] = set()
+        self._failed_rounds_by_batch_key: dict[str, int] = {}
         self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
         self._type_examples_fetched_at: Optional[datetime] = None
         self._paused_until: Optional[datetime] = None
@@ -127,7 +124,11 @@ class TeamSignalGroupingV2Workflow:
                 team_id=input.team_id,
                 pending_batch_keys=list(self._batch_key_buffer),
                 paused_until=self._paused_until,
-                retried_batch_keys=[key for key in self._batch_key_buffer if key in self._retried_batch_keys],
+                failed_rounds_by_batch_key={
+                    key: self._failed_rounds_by_batch_key[key]
+                    for key in self._batch_key_buffer
+                    if key in self._failed_rounds_by_batch_key
+                },
             )
         )
 
@@ -163,8 +164,8 @@ class TeamSignalGroupingV2Workflow:
             )
 
             collected.signals.extend(read_result.signals)
-            if object_key not in self._retried_batch_keys:
-                collected.unreported_signals.extend(read_result.signals)
+            attempt = self._failed_rounds_by_batch_key.get(object_key, 0) + 1
+            collected.attempts.extend([attempt] * len(read_result.signals))
 
         return collected
 
@@ -231,13 +232,8 @@ class TeamSignalGroupingV2Workflow:
                 self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
             return
 
-        # A failed batch goes back to the buffer and runs again, so a deterministic failure repeats
-        # every round. Report each signal's drop on its first failed round only.
-        report_prep_drops_for = collected.unreported_signals if workflow.patched(_PATCH_DROP_TELEMETRY_ONCE) else None
         try:
-            dropped, _type_examples = await _process_signal_batch(
-                collected.signals, report_prep_drops_for=report_prep_drops_for
-            )
+            dropped, _type_examples = await _process_signal_batch(collected.signals, attempts=collected.attempts)
             if self._signals_processed_counter is not None:
                 self._signals_processed_counter.add(len(collected.signals))
             if self._signals_dropped_counter is not None and dropped > 0:
@@ -252,7 +248,8 @@ class TeamSignalGroupingV2Workflow:
             # Stash keys back so they're retried after continue_as_new.
             # Sleep first to avoid hot-looping on deterministic failures.
             self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
-            self._retried_batch_keys.update(collected.object_keys)
+            for key in collected.object_keys:
+                self._failed_rounds_by_batch_key[key] = self._failed_rounds_by_batch_key.get(key, 0) + 1
             if self._batch_buffer_size_gauge is not None:
                 self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
             await workflow.sleep(RETRY_BACKOFF)
@@ -271,7 +268,7 @@ class TeamSignalGroupingV2Workflow:
     async def _run_impl(self, input: TeamSignalGroupingV2Input) -> None:
         # Restore state carried over from continue_as_new
         self._batch_key_buffer.extend(input.pending_batch_keys)
-        self._retried_batch_keys.update(input.retried_batch_keys)
+        self._failed_rounds_by_batch_key.update(input.failed_rounds_by_batch_key)
         self._paused_until = input.paused_until
         start_time = workflow.now()
 
