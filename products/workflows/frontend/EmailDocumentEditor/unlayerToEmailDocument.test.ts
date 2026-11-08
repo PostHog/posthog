@@ -298,8 +298,8 @@ describe('unlayerToEmailDocument', () => {
 
         const blank = (inner: string): string[] =>
             (
-                unlayerToEmailDocument(design([content('text', { text: `<p>One</p><p>${inner}</p><p>Two</p>` })]))
-                    .document?.doc.content as Record<string, any>[]
+                (unlayerToEmailDocument(design([content('text', { text: `<p>One</p><p>${inner}</p><p>Two</p>` })]))
+                    .document?.doc.content ?? []) as Record<string, any>[]
             ).map((node) => node.content?.[0]?.type ?? 'empty')
         expect(blank('<span> </span>')).toEqual(['text', 'text'])
         expect(blank('&nbsp;')).toEqual(['text', 'text', 'text'])

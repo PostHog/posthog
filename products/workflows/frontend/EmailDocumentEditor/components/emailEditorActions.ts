@@ -23,11 +23,6 @@ export function insertBlockOption(
     }
     if (option.content) {
         insertBlock(editor, option.content)
-        // So typing replaces the placeholder label.
-        const { $from } = editor.state.selection
-        if ($from.parent.type.name === 'emailButton') {
-            editor.commands.setTextSelection({ from: $from.start(), to: $from.end() })
-        }
     }
 }
 

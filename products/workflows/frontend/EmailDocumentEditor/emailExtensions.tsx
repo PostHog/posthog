@@ -496,6 +496,7 @@ export function buildEmailExtensions(placeholder: string): any[] {
             heading: { levels: [1, 2, 3] },
             codeBlock: false,
             trailingNode: { node: 'paragraph', notAfter: ['paragraph'] },
+            dropcursor: { color: false, width: 3, class: 'EmailDropCursor' },
         }).extend({
             addExtensions(this: any) {
                 return (this.parent?.() ?? []).map((extension: any) =>

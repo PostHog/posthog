@@ -79,7 +79,7 @@ export function setPageStyle(editor: Editor, patch: Partial<EmailPageStyle>): vo
     editor.view.dispatch(editor.state.tr.setDocAttribute('page', page))
 }
 
-function selectInserted(editor: Editor, pos: number): void {
+export function selectInserted(editor: Editor, pos: number): void {
     const { doc, tr } = editor.state
     const node = doc.nodeAt(pos)
     if (!node) {
@@ -88,7 +88,10 @@ function selectInserted(editor: Editor, pos: number): void {
     const selection =
         node.isAtom || node.type.name === 'horizontalRule'
             ? NodeSelection.create(doc, pos)
-            : TextSelection.near(doc.resolve(pos + 1))
+            : node.type.name === 'emailButton'
+              ? // So typing replaces the placeholder label.
+                TextSelection.create(doc, pos + 1, pos + 1 + node.content.size)
+              : TextSelection.near(doc.resolve(pos + 1))
     editor.view.dispatch(tr.setSelection(selection).scrollIntoView())
     editor.view.focus()
 }

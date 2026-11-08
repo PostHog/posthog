@@ -28,6 +28,7 @@ import { EMAIL_BLOCK_OPTIONS } from './emailBlockCatalog'
 import { EmailBlockKeymap, EmailLiquidHighlight } from './emailCanvasPlugins'
 import { hasUnsubscribeLink, insertBlock } from './emailCommands'
 import { emailDocumentFromValue, emailFontUrls, resolvePageStyle } from './emailDocument'
+import { EmailDragSource } from './emailDragDrop'
 import { createEmailEditorAdapter, isDocumentEdit } from './emailEditorAdapter'
 import { EmailEditorContext, EmailEditorContextValue } from './emailEditorContext'
 import { buildEmailExtensions } from './emailExtensions'
@@ -116,10 +117,11 @@ export function EmailDocumentEditor(): JSX.Element {
             ...buildEmailExtensions(PLACEHOLDER),
             EmailLiquidHighlight,
             EmailBlockKeymap,
+            EmailDragSource,
             createEmailSuggestion({
                 name: 'emailBlockSuggestion',
                 char: '/',
-                empty: '',
+                empty: 'No blocks match. Keep typing to write text.',
                 items: (query) => {
                     const lower = query.toLowerCase()
                     return EMAIL_BLOCK_OPTIONS.filter(

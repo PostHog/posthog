@@ -200,6 +200,14 @@
         border-color: rgb(128 128 128 / 70%);
     }
 
+    .email-canvas-drag-source {
+        opacity: 0.35;
+    }
+
+    &--dragging .email-canvas-column::after {
+        border-color: rgb(128 128 128 / 50%);
+    }
+
     .email-canvas-spacer {
         background-image: repeating-linear-gradient(
             135deg,
@@ -306,6 +314,21 @@
         background: #f4f0fa;
         border-radius: 3px;
     }
+}
+
+// Drawn over the canvas, so it uses the canvas's own neutral rather than a theme color.
+.EmailDocumentEditor__block-outline {
+    position: absolute;
+    z-index: 1;
+    pointer-events: none;
+    border: 1px dashed rgb(128 128 128 / 50%);
+    border-radius: 2px;
+}
+
+// The editor puts the line in its offset parent, which can sit outside the canvas.
+.EmailDropCursor {
+    background: var(--color-accent);
+    border-radius: 2px;
 }
 
 // The gutter holds the insert toolbar and the block handle, so neither sits on the email or on each other.

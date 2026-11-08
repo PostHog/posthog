@@ -5,7 +5,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { IconCopy, IconDrag, IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+
 import { EmailBlockAt, blockAtPos, deleteBlock, duplicateBlock, moveBlock } from '../emailCommands'
+import { trackDrag } from '../emailDragDrop'
 import { useEscapeToClose } from './useEscapeToClose'
 
 const HANDLE_GAP = 8
@@ -13,6 +16,8 @@ const HANDLE_GAP = 8
 interface HandlePosition {
     top: number
     left: number
+    width: number
+    height: number
     pos: number
 }
 
@@ -61,6 +66,8 @@ export function EmailBlockHandle({
             setPosition({
                 top: rect.top - parent.top + container.scrollTop,
                 left: rect.left - parent.left + container.scrollLeft - HANDLE_GAP,
+                width: rect.width,
+                height: rect.height,
                 pos: block.pos,
             })
         }
@@ -88,6 +95,7 @@ export function EmailBlockHandle({
     if (!position) {
         return null
     }
+    const menuBlock = menuOpen ? currentBlock() : null
 
     const onDragStart = (event: React.DragEvent): void => {
         const block = currentBlock()
@@ -106,82 +114,100 @@ export function EmailBlockHandle({
         event.dataTransfer.effectAllowed = 'copyMove'
         const blockDom = view.nodeDOM(block.pos) as HTMLElement | null
         if (blockDom) {
-            event.dataTransfer.setDragImage(blockDom, 0, 0)
+            const rect = blockDom.getBoundingClientRect()
+            event.dataTransfer.setDragImage(blockDom, 0, Math.min(Math.max(event.clientY - rect.top, 0), rect.height))
         }
         view.dragging = { slice, move: true }
+        trackDrag(editor, slice, block.pos)
     }
 
     return (
-        <div
-            data-email-handle
-            className="absolute z-10 flex items-center rounded border bg-surface-primary shadow-sm -translate-x-full"
-            style={{ top: position.top + 4, left: position.left }}
-            contentEditable={false}
-        >
-            <LemonMenu
-                visible={menuOpen}
-                onVisibilityChange={setMenuOpen}
-                placement="bottom-start"
-                items={[
-                    {
-                        label: 'Move up',
-                        'data-attr': 'email-editor-block-move-up',
-                        onClick: () => {
-                            const block = currentBlock()
-                            block && moveBlock(editor, block, -1)
-                        },
-                    },
-                    {
-                        label: 'Move down',
-                        'data-attr': 'email-editor-block-move-down',
-                        onClick: () => {
-                            const block = currentBlock()
-                            block && moveBlock(editor, block, 1)
-                        },
-                    },
-                    {
-                        label: 'Duplicate',
-                        icon: <IconCopy />,
-                        'data-attr': 'email-editor-block-duplicate',
-                        onClick: () => {
-                            const block = currentBlock()
-                            block && duplicateBlock(editor, block)
-                        },
-                    },
-                    {
-                        label: 'Delete',
-                        icon: <IconTrash />,
-                        status: 'danger',
-                        'data-attr': 'email-editor-block-delete',
-                        onClick: () => {
-                            const block = currentBlock()
-                            block && deleteBlock(editor, block)
-                        },
-                    },
-                ]}
-            >
-                <LemonButton
-                    size="xsmall"
-                    icon={<IconEllipsis />}
-                    aria-label="Block options"
-                    tooltip="Block options"
-                    data-attr="email-editor-block-menu"
-                />
-            </LemonMenu>
-            {/* Mouse only: the menu has the same moves for the keyboard, and so do Alt+Arrow keys. */}
+        <>
             <div
-                draggable
                 aria-hidden
-                title="Drag to move"
-                className="cursor-grab text-secondary flex items-center justify-center w-5 h-6 rounded hover:bg-fill-button-tertiary-hover"
-                onDragStart={onDragStart}
-                onDragEnd={() => {
-                    editor.view.dragging = null
+                className="EmailDocumentEditor__block-outline"
+                style={{
+                    top: position.top,
+                    left: position.left + HANDLE_GAP,
+                    width: position.width,
+                    height: position.height,
                 }}
-                data-attr="email-editor-block-handle"
+            />
+            <div
+                data-email-handle
+                className="absolute z-10 flex items-center rounded border bg-surface-primary shadow-sm -translate-x-full"
+                style={{ top: position.top + 4, left: position.left }}
+                contentEditable={false}
             >
-                <IconDrag />
+                <LemonMenu
+                    visible={menuOpen}
+                    onVisibilityChange={setMenuOpen}
+                    placement="bottom-start"
+                    items={[
+                        {
+                            label: 'Move up',
+                            icon: <IconArrowUp />,
+                            disabledReason: menuBlock && menuBlock.index === 0 ? 'Already at the top' : undefined,
+                            'data-attr': 'email-editor-block-move-up',
+                            onClick: () => {
+                                const block = currentBlock()
+                                block && moveBlock(editor, block, -1)
+                            },
+                        },
+                        {
+                            label: 'Move down',
+                            icon: <IconArrowDown />,
+                            disabledReason:
+                                menuBlock && menuBlock.index === menuBlock.parent.childCount - 1
+                                    ? 'Already at the bottom'
+                                    : undefined,
+                            'data-attr': 'email-editor-block-move-down',
+                            onClick: () => {
+                                const block = currentBlock()
+                                block && moveBlock(editor, block, 1)
+                            },
+                        },
+                        {
+                            label: 'Duplicate',
+                            icon: <IconCopy />,
+                            'data-attr': 'email-editor-block-duplicate',
+                            onClick: () => {
+                                const block = currentBlock()
+                                block && duplicateBlock(editor, block)
+                            },
+                        },
+                        {
+                            label: 'Delete',
+                            icon: <IconTrash />,
+                            status: 'danger',
+                            'data-attr': 'email-editor-block-delete',
+                            onClick: () => {
+                                const block = currentBlock()
+                                block && deleteBlock(editor, block)
+                            },
+                        },
+                    ]}
+                >
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconEllipsis />}
+                        aria-label="Block options"
+                        tooltip="Block options"
+                        data-attr="email-editor-block-menu"
+                    />
+                </LemonMenu>
+                {/* Mouse only: the menu has the same moves for the keyboard, and so do Alt+Arrow keys. */}
+                <div
+                    draggable
+                    aria-hidden
+                    title="Drag to move"
+                    className="cursor-grab text-secondary flex items-center justify-center w-5 h-6 rounded hover:bg-fill-button-tertiary-hover"
+                    onDragStart={onDragStart}
+                    data-attr="email-editor-block-handle"
+                >
+                    <IconDrag />
+                </div>
             </div>
-        </div>
+        </>
     )
 }

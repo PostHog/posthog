@@ -59,7 +59,7 @@ const EmailSuggestionList = forwardRef<MenuRef, MenuProps>(function EmailSuggest
             fallbackPlacements={['top-start']}
             referenceElement={decorationNode as HTMLElement}
             overlay={
-                <div className="flex flex-col max-h-72 overflow-y-auto w-72 p-1" data-attr="email-editor-suggestions">
+                <div className="flex flex-col max-h-72 overflow-y-auto w-80 p-1" data-attr="email-editor-suggestions">
                     {items.length ? (
                         items.map((item, itemIndex) => (
                             <LemonButton
@@ -73,9 +73,9 @@ const EmailSuggestionList = forwardRef<MenuRef, MenuProps>(function EmailSuggest
                                 sideIcon={null}
                             >
                                 <span className="flex flex-col items-start min-w-0">
-                                    <span className="truncate max-w-60">{item.title}</span>
+                                    <span className="truncate max-w-68">{item.title}</span>
                                     {item.detail ? (
-                                        <span className="text-xs text-secondary font-normal truncate max-w-60">
+                                        <span className="text-xs text-secondary font-normal truncate max-w-68">
                                             {item.detail}
                                         </span>
                                     ) : null}
