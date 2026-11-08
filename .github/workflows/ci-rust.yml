@@ -918,6 +918,7 @@ jobs:
             - name: Restore cargo-binstall archive
               id: binstall-cache
               continue-on-error: true
+              timeout-minutes: 1
               uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
@@ -942,6 +943,7 @@ jobs:
             - name: Save cargo-binstall archive
               if: steps.binstall-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
               continue-on-error: true
+              timeout-minutes: 1
               uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
