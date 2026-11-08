@@ -6,13 +6,18 @@ Lives in its own module (not `billing.py`) to avoid a circular import: `billing.
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 import structlog
 import posthoganalytics
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.temporal.common.metrics import get_metric_meter
+
+from products.signals.backend.trial.funding import TrialFunding
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited, self_driving_quota_resource
 
@@ -58,7 +63,8 @@ def is_team_signals_quota_limited(team_api_token: str, resource: QuotaResource) 
 @dataclass(frozen=True)
 class SelfDrivingQuotaGate:
     """One pipeline gate decision: `limited` is the raw quota state (for telemetry), `enforced`
-    is whether the gate should actually block (limited AND the enforcement flag is on)."""
+    is whether the gate should actually block. Billing limits respect the enforcement flag;
+    trial allowances require funding for new work."""
 
     limited: bool
     enforced: bool
@@ -88,40 +94,76 @@ def self_driving_quota_enforcement_enabled(team: "Team") -> bool:
         return False
 
 
-def trial_quota_gate(team: "Team") -> SelfDrivingQuotaGate | None:
-    from products.signals.backend.trial.billing import (
-        paid_trial_continuation_authorized,  # noqa: PLC0415 -- trial policy imports Signals models
-    )
-    from products.signals.backend.trial.policy import TrialPolicy  # noqa: PLC0415 -- avoid model registration cycle
+@frozen
+class SelfDrivingAdmission:
+    team: "Team"
+    gate: SelfDrivingQuotaGate
+    parent: TrialFunding | None = None
+    paid_authorized: bool = False
+    reason: str = "billing_limit"
 
-    policy = TrialPolicy(team)
-    grant = policy.active_grant()
+    def bind(self, *, report_id: UUID | None = None) -> TrialFunding:
+        from products.signals.backend.trial.policy import (  # noqa: PLC0415 -- avoid model registration cycle
+            TrialPolicy,
+            TrialRefused,
+        )
+
+        if self.gate.enforced:
+            if self.reason == "billing_limit":
+                raise QuotaLimitExceeded()
+            raise TrialRefused(self.reason)
+        return TrialPolicy(self.team).admit(
+            parent=self.parent, paid_authorized=self.paid_authorized, report_id=report_id
+        )
+
+
+def prepare_self_driving_admission(team: "Team", *, parent: TrialFunding | None = None) -> SelfDrivingAdmission:
+    """Resolve funding and limits before callers acquire admission locks.
+
+    Accepted pipelines keep their funding. New trial work uses the project allowance; paid
+    work uses the org quota that Billing syncs into Redis. Binding rechecks trial capacity
+    under the grant lock, so concurrent direct report starts see each other's admissions.
+    """
+    from products.signals.backend.trial.billing import (  # noqa: PLC0415 -- trial policy imports Signals models
+        paid_trial_continuation_authorized,
+    )
+    from products.signals.backend.trial.policy import (  # noqa: PLC0415 -- avoid model registration cycle
+        TrialPolicy,
+        TrialRefused,
+    )
+    from products.signals.backend.usage import trial_usage  # noqa: PLC0415 -- avoid model registration cycle
+
+    allowed = SelfDrivingQuotaGate(limited=False, enforced=False)
+    if parent is not None:
+        return SelfDrivingAdmission(team=team, gate=allowed, parent=parent)
+    try:
+        grant = TrialPolicy(team).admission_grant()
+    except TrialRefused as error:
+        return SelfDrivingAdmission(
+            team=team, gate=SelfDrivingQuotaGate(limited=True, enforced=True), reason=error.reason
+        )
     if grant is not None:
-        if grant.exhausted_at is None:
-            return SelfDrivingQuotaGate(limited=False, enforced=False)
-        limited = not paid_trial_continuation_authorized(team)
-        return SelfDrivingQuotaGate(limited=limited, enforced=limited)
-    return None
+        reason = trial_usage(grant).exhaustion_reason(grant)
+        if not reason:
+            return SelfDrivingAdmission(team=team, gate=allowed)
+        paid_authorized = paid_trial_continuation_authorized(team)
+        return SelfDrivingAdmission(
+            team=team,
+            gate=SelfDrivingQuotaGate(limited=not paid_authorized, enforced=not paid_authorized),
+            paid_authorized=paid_authorized,
+            reason=reason,
+        )
+    limited = is_team_signals_quota_limited(team.api_token, self_driving_quota_resource(team.organization))
+    return SelfDrivingAdmission(
+        team=team,
+        gate=SelfDrivingQuotaGate(limited=limited, enforced=limited and self_driving_quota_enforcement_enabled(team)),
+        parent=TrialFunding(funding="existing"),
+    )
 
 
 def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
-    """Resolve the quota gate for one team: is it quota-limited, and is enforcement on.
-
-    The limit itself is org-level (the org's billing cap): the quota cron sums usage across all
-    of the org's teams and, when the org crosses its limit, writes every one of the org's team
-    tokens into the Redis limited set. This per-team check therefore reads an org-wide verdict,
-    and all teams in an org pause together.
-
-    The enforcement flag is only read when the team is actually limited, so the fleet-wide hot
-    paths pay a single cached Redis read. Blocking network I/O; wrap in `sync_to_async` from
-    async code.
-    """
-    trial_gate = trial_quota_gate(team)
-    if trial_gate is not None:
-        return trial_gate
-    if not is_team_signals_quota_limited(team.api_token, self_driving_quota_resource(team.organization)):
-        return SelfDrivingQuotaGate(limited=False, enforced=False)
-    return SelfDrivingQuotaGate(limited=True, enforced=self_driving_quota_enforcement_enabled(team))
+    """Expose the same new-work decision to workflows and the paused-state UI."""
+    return prepare_self_driving_admission(team).gate
 
 
 def self_driving_limit_name(team: "Team") -> str:

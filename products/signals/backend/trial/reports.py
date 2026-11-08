@@ -9,10 +9,9 @@ from django.db import transaction
 
 from posthog.models import Team
 
-from products.signals.backend.trial.billing import paid_trial_continuation_authorized
+from products.signals.backend.quota import prepare_self_driving_admission
 from products.signals.backend.trial.funding import TrialFunding, direct_report_funding
-from products.signals.backend.trial.models import SignalTrialReportReservation
-from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.trial.policy import TrialRefused
 from products.tasks.backend.facade.api import get_task_run
 
 report_trial_context: ContextVar[tuple[int, str] | None] = ContextVar("report_trial_context", default=None)
@@ -76,33 +75,20 @@ def context_funding(team: Team) -> TrialFunding | None:
 
 def requires_trial_accounting(team_id: int) -> bool:
     team = Team.objects.get(id=team_id)
-    parent = context_funding(team)
-    if parent is not None:
-        return parent.grant_id is not None
-    grant = TrialPolicy(team).admission_grant()
-    if grant is not None and grant.exhausted_at is None:
-        return True
-    if grant is not None:
-        return not paid_trial_continuation_authorized(team)
-    return False
+    return prepare_self_driving_admission(team, parent=context_funding(team)).bind().grant_id is not None
 
 
 def implementation_requires_trial_opt_in(team_id: int, report_id: str) -> bool:
     team = Team.objects.get(id=team_id)
     funding = report_funding(team, report_id)
-    if funding is not None and funding.funding == "trial":
-        return True
-    if not TrialPolicy(team).enabled():
-        return False
-    return SignalTrialReportReservation.objects.for_team(team_id).filter(
-        report_id=report_id, status=SignalTrialReportReservation.Status.CONSUMED
-    ).exists() or requires_trial_accounting(team_id)
+    if funding is not None:
+        return funding.funding == "trial"
+    return requires_trial_accounting(team_id)
 
 
 def prepare_report_pass(*, team: Team, report_id: str, operation_key: str) -> None:
     from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
-    policy = TrialPolicy(team)
     snapshot = (
         SignalReport.objects.filter(team_id=team.id, id=report_id)
         .values_list("self_driving_funding", flat=True)
@@ -111,10 +97,7 @@ def prepare_report_pass(*, team: Team, report_id: str, operation_key: str) -> No
     previous = TrialFunding.from_dict(snapshot)
     if previous is not None and previous.report_pass_key == operation_key:
         return
-    grant = policy.admission_grant()
-    if grant is None:
-        return
-    paid_authorized = paid_trial_continuation_authorized(team) if grant.exhausted_at else False
+    admission = prepare_self_driving_admission(team)
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(team_id=team.id, id=report_id)
         previous = TrialFunding.from_dict(report.self_driving_funding)
@@ -122,7 +105,7 @@ def prepare_report_pass(*, team: Team, report_id: str, operation_key: str) -> No
             return
         if previous is not None and report.status == SignalReport.Status.IN_PROGRESS:
             raise TrialRefused("report_pass_in_progress")
-        funding = policy.admit(paid_authorized=paid_authorized, report_id=report.id)
+        funding = admission.bind(report_id=report.id)
         SignalReport.objects.filter(team_id=team.id, id=report.id).update(
             self_driving_funding=replace(funding, report_pass_key=operation_key).as_dict()
         )

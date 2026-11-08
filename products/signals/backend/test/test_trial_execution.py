@@ -19,11 +19,12 @@ from products.signals.backend.facade.trial import (
 )
 from products.signals.backend.free_trial import FreeTrialPullRequestRefused, self_driving_free_trial_enabled
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSpend
-from products.signals.backend.quota import self_driving_quota_gate, trial_quota_gate
+from products.signals.backend.quota import self_driving_quota_gate
 from products.signals.backend.spend import record_llm_spend, record_task_spend
+from products.signals.backend.task_profiles import IMPLEMENTATION
 from products.signals.backend.task_run_artefacts import record_report_task
 from products.signals.backend.trial.funding import TrialFunding
-from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
+from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 from products.signals.backend.trial.reports import (
     implementation_requires_trial_opt_in,
@@ -31,6 +32,7 @@ from products.signals.backend.trial.reports import (
     requires_trial_accounting,
 )
 from products.signals.backend.trial.scouts import trial_scout_limit
+from products.signals.backend.usage import trial_usage
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.billing import get_task_run_token_usage, process_pending_gateway_usage
 from products.tasks.backend.facade.contracts import CreatedTaskDTO
@@ -121,17 +123,17 @@ class TestTrialExecution(BaseTest):
         record_task_spend(team_id=self.team.id, run_id=str(run.id), stage="scout", scout_run_id=str(scout_run.id))
         assert start_task_trial(team=self.team, run_id=run.id)
 
-    def test_cost_notification_updates_grant_without_trial_polling(self) -> None:
+    def test_cost_notification_updates_trial_usage_without_trial_polling(self) -> None:
         grant = self.claim()
         run = self.make_run()
         assert start_task_trial(team=self.team, run_id=run.id)
         self.record_token_cost(run)
         grant.refresh_from_db()
-        assert grant.settled_microusd == 40_123
+        assert trial_usage(grant).spend_microusd == 40_123
 
     def test_trial_start_requires_successful_receipt_registration(self) -> None:
         self.claim()
-        with patch("products.signals.backend.spend.save_trial_spend", side_effect=RuntimeError("write failed")):
+        with patch("products.signals.backend.models.SignalSpend.save", side_effect=RuntimeError("write failed")):
             with self.assertRaisesMessage(RuntimeError, "write failed"):
                 self.make_run()
         assert not SignalSpend.objects.for_team(self.team.id).exists()
@@ -147,8 +149,8 @@ class TestTrialExecution(BaseTest):
             assert refresh_trial_run_spend(team_id=self.team.id, run_id=run.id)
         cancel.assert_not_called()
         grant.refresh_from_db()
-        assert grant.settled_microusd == 10_040_001
-        assert grant.exhaustion_reason == "cost_limit"
+        assert trial_usage(grant).spend_microusd == 10_040_001
+        assert trial_usage(grant).exhaustion_reason(grant) == "cost_limit"
         run.refresh_from_db()
         assert run.status == TaskRun.Status.IN_PROGRESS
 
@@ -168,11 +170,13 @@ class TestTrialExecution(BaseTest):
         run = self.make_run("implementation", mode, environment)
         assert (run.state.get("billing_product") == "posthog_ai") == (mode == "interactive")
         accounted = mode == "background" and environment == TaskRun.Environment.CLOUD
-        assert ("self_driving_funding" in run.state) == (claimed and accounted)
+        assert ("self_driving_funding" in run.state) == accounted
         assert SignalSpend.objects.for_team(self.team.id).filter(task_run_id=run.id).exists() == accounted
         if claimed and not accounted:
             grant = self.policy.grant()
-            assert grant is not None and grant.incomplete_sources == 0
+            assert (
+                grant is not None and not SignalSpend.objects.for_team(self.team.id).filter(trial_grant=grant).exists()
+            )
 
     def test_custom_agent_registers_spend_before_trial_provisioning(self) -> None:
         grant = self.claim()
@@ -185,7 +189,7 @@ class TestTrialExecution(BaseTest):
         assert spend.report_id is None and spend.signal_id is None
         self.record_token_cost(run)
         grant.refresh_from_db()
-        assert grant.settled_microusd == 40_123
+        assert trial_usage(grant).spend_microusd == 40_123
 
     @parameterized.expand([("scout_suggestions",), ("signals_chat",)])
     def test_configuration_helpers_do_not_use_report_trial_funding(self, origin: str) -> None:
@@ -259,17 +263,13 @@ class TestTrialExecution(BaseTest):
         assert requires_trial_accounting(self.team.id) is enabled
         assert self_driving_free_trial_enabled(self.team) is (not enabled)
         assert trial_scout_limit(self.team.id) == (3 if enabled else None)
-        quota = trial_quota_gate(self.team)
-        if enabled:
-            assert quota is not None and not quota.enforced
-        else:
-            assert quota is None
+        assert not self_driving_quota_gate(self.team).enforced
         admission = prepare_task_trial(team=self.team, origin="signals_scout")
         if not enabled:
-            assert admission is None
+            assert admission is not None
             task = Task.objects.create(team=self.team, title="Scout outside rollout", origin_product="signals_scout")
             run = task.create_run()
-            assert "self_driving_funding" not in run.state
+            assert run.state["self_driving_funding"]["funding"] == "existing"
             assert not start_task_trial(team=self.team, run_id=run.id)
             assert not refresh_trial_run_spend(team_id=self.team.id, run_id=run.id)
             report = SignalReport.objects.create(
@@ -277,9 +277,9 @@ class TestTrialExecution(BaseTest):
             )
             prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="outside-rollout")
             report.refresh_from_db()
-            assert report.self_driving_funding is None
+            assert report.self_driving_funding is not None
+            assert report.self_driving_funding["funding"] == "existing"
             assert not implementation_requires_trial_opt_in(self.team.id, str(report.id))
-            assert not SignalTrialReportReservation.objects.for_team(self.team.id).exists()
             return
         assert admission is not None
         funding = admission.bind(
@@ -314,12 +314,12 @@ class TestTrialExecution(BaseTest):
         assert start_task_trial(team=self.team, run_id=research.id)
         for run in (queued, implementation):
             assert start_task_trial(team=self.team, run_id=run.id)
-        with patch("products.signals.backend.facade.trial.paid_trial_continuation_authorized", return_value=False):
+        with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False):
             with self.assertRaisesMessage(TrialRefused, "cost_limit"):
                 self.make_run()
-        report.status = SignalReport.Status.PENDING_INPUT
-        report.save(update_fields=["status"])
-        assert SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report.id).status == "consumed"
+        report.refresh_from_db()
+        report.save(update_fields=report.transition_to(SignalReport.Status.PENDING_INPUT, error="Needs user input"))
+        assert trial_usage(grant).reports == 1
 
     @parameterized.expand([("task",), ("report",), ("gateway",)])
     def test_unknown_flag_refuses_new_work_instead_of_bypassing_trial(self, entrypoint: str) -> None:
@@ -379,7 +379,7 @@ class TestTrialExecution(BaseTest):
         receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
         assert receipt.trial_grant_id == grant.id and receipt.billing_exempt
         self.flag_mock.return_value = True
-        with patch("products.signals.backend.facade.trial.paid_trial_continuation_authorized", return_value=False):
+        with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False):
             with self.assertRaisesMessage(TrialRefused, "cost_limit"):
                 task.create_run()
         assert task.runs.count() == 1
@@ -395,8 +395,10 @@ class TestTrialExecution(BaseTest):
         run = task.create_run()
         assert "self_driving_funding" not in run.state
         grant.refresh_from_db()
-        assert grant.settled_microusd == 0
-        assert grant.incomplete_sources == 0
+        assert trial_usage(grant).spend_microusd == 0
+        assert (
+            not SignalSpend.objects.for_team(self.team.id).filter(trial_grant=grant, accounting_pending=True).exists()
+        )
 
     @parameterized.expand(
         [
@@ -430,7 +432,7 @@ class TestTrialExecution(BaseTest):
             trial_grant_id=str(grant.id),
         )
         with (
-            patch("products.signals.backend.facade.trial.paid_trial_continuation_authorized", return_value=False),
+            patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False),
             patch(
                 "products.tasks.backend.max_tools.execute_task_processing_workflow_async", new_callable=AsyncMock
             ) as dispatch,
@@ -466,9 +468,6 @@ class TestTrialExecution(BaseTest):
             team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
         )
         with (
-            patch(
-                "products.signals.backend.facade.self_driving.self_driving_quota_gate", wraps=self_driving_quota_gate
-            ) as resolve_quota,
             patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=limited),
             patch("products.signals.backend.quota.self_driving_quota_enforcement_enabled", return_value=True),
             patch(
@@ -504,8 +503,6 @@ class TestTrialExecution(BaseTest):
                         free_trial_enabled=False,
                     )
                     assert result is not None and result.error is None and result.run_error is None
-        if entrypoint == "canvas":
-            resolve_quota.assert_called_once()
         assert task.runs.count() == (0 if limited else 1)
 
     def test_bootstrapped_run_can_start_after_the_quota_is_reached(self) -> None:
@@ -684,7 +681,7 @@ class TestTrialExecution(BaseTest):
                     token_cost_microusd=10_000_001,
                     trial_grant_id=str(grant.id),
                 )
-            with patch("products.signals.backend.trial.reports.paid_trial_continuation_authorized", return_value=True):
+            with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=True):
                 prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="accepted")
             report.refresh_from_db()
         elif funding is not None:
@@ -699,9 +696,8 @@ class TestTrialExecution(BaseTest):
                 title="Implementation",
                 description="Continue the accepted report",
                 user_id=self.user.pk,
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile=IMPLEMENTATION,
                 signal_report_id=str(report.id),
-                internal=True,
                 start_workflow=False,
                 free_trial_enabled=True,
                 continue_admitted_pipeline=continue_admitted_pipeline,
@@ -726,5 +722,5 @@ class TestTrialExecution(BaseTest):
         self.flag_mock.return_value = None
         with patch("products.signals.backend.trial.policy.cache.get", return_value=None):
             run = self.make_run()
-        assert "self_driving_funding" not in run.state
+        assert run.state["self_driving_funding"]["funding"] == "existing"
         assert SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id).trial_grant_id is None

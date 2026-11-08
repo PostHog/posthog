@@ -1174,7 +1174,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             elif task.origin_product == Task.OriginProduct.SLACK:
                 state["billing_product"] = "posthog_ai"
 
-
             if (
                 effective_environment == TaskRun.Environment.CLOUD
                 and task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT)

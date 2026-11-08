@@ -5,7 +5,7 @@ from posthog.migration_helpers import ValidateConstraint
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0243_custom_agent_spend"),
+        ("signals", "0242_custom_agent_spend"),
     ]
 
     operations = [

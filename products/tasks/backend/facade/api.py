@@ -2162,7 +2162,6 @@ def create_and_run_task(
         branch=branch,
         signal_report_id=signal_report_id,
         continue_admitted_pipeline=continue_admitted_pipeline,
-
         sandbox_environment_id=sandbox_environment_id,
         **extra,
     )

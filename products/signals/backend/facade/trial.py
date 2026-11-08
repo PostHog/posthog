@@ -4,14 +4,12 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db import transaction
-
 from posthog.dataclasses import frozen
 
+from products.signals.backend.quota import SelfDrivingAdmission, prepare_self_driving_admission
 from products.signals.backend.spend import refresh_task_spend
-from products.signals.backend.trial.billing import paid_trial_continuation_authorized
 from products.signals.backend.trial.funding import TrialFunding
-from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.trial.policy import TrialRefused
 from products.signals.backend.trial.reports import context_funding, report_funding
 from products.tasks.backend.facade.api import get_task_run
 
@@ -24,24 +22,16 @@ SELF_DRIVING_ORIGINS = frozenset({"signal_report", "signals_scout"})
 
 @frozen
 class TaskTrialAdmission:
-    team: "Team"
-    paid_authorized: bool
-    parent: TrialFunding | None = None
+    admission: SelfDrivingAdmission
 
     def lock_report(self, report_id: UUID | None) -> None:
         from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- Tasks model import cycle
 
         if report_id is not None:
-            SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
+            SignalReport.objects.select_for_update().get(team_id=self.admission.team.id, id=report_id)
 
     def bind(self, *, origin: str, stage: str, report_id: UUID | None) -> dict[str, str | int]:
-        policy = TrialPolicy(self.team)
-        with transaction.atomic():
-            funding = policy.admit(
-                paid_authorized=self.paid_authorized,
-                parent=self.parent,
-                report_id=report_id if stage == "research" else None,
-            )
+        funding = self.admission.bind(report_id=report_id if stage == "research" else None)
         return {**funding.as_dict(), "stage": "scout" if origin == "signals_scout" else stage}
 
 
@@ -99,22 +89,10 @@ def prepare_task_trial(
         and prepared.report_id == (str(report_id) if report_id else None)
     ):
         return prepared.admission
-    policy = TrialPolicy(team)
     parent = context_funding(team)
     if parent is None and report_id is not None and continue_admitted_pipeline:
         parent = report_funding(team, report_id) or TrialFunding(funding="existing")
-    if parent is not None:
-        return TaskTrialAdmission(team=team, paid_authorized=parent.funding == "paid", parent=parent)
-    grant = policy.admission_grant()
-    if grant is None:
-        return None
-    paid_authorized = False
-    if grant.exhausted_at is not None:
-        try:
-            paid_authorized = paid_trial_continuation_authorized(team)
-        except Exception as error:
-            raise TrialRefused("billing_unavailable") from error
-    return TaskTrialAdmission(team=team, paid_authorized=paid_authorized)
+    return TaskTrialAdmission(admission=prepare_self_driving_admission(team, parent=parent))
 
 
 def start_task_trial(*, team: "Team", run_id: UUID) -> bool:

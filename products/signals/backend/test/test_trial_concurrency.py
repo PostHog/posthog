@@ -18,6 +18,7 @@ from products.signals.backend.models import SignalReport, SignalSpend
 from products.signals.backend.report_generation.research import ReportLayer
 from products.signals.backend.spend import record_llm_spend
 from products.signals.backend.stack_plan import create_layer_reports
+from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 from products.signals.backend.usage import trial_usage
 from products.tasks.backend.models import Task
@@ -306,5 +307,5 @@ class TestTrialConcurrency(NonAtomicBaseTest):
                 first.result(timeout=20)
                 second.result(timeout=20)
             grant.refresh_from_db()
-            assert grant.settled_microusd == 40_003
+            assert trial_usage(grant).spend_microusd == 40_003
             assert task.runs.count() == 1

@@ -8,7 +8,7 @@ from posthog.migration_helpers import AddConstraintNotValid
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1415_organizationaiterms"),
-        ("signals", "0242_trial_grant_spend_index"),
+        ("signals", "0241_spend_settlement"),
     ]
 
     operations = [
