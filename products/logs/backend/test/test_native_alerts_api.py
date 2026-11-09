@@ -104,6 +104,7 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
                 check_interval_minutes=5,
                 next_check_at=_NOW,
                 owner=PlatformAlertOwner.PLATFORM,
+                created_by=self.user,
                 first_enabled_at=_NOW,
             )
         return str(created.id)
