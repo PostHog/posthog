@@ -210,15 +210,21 @@ describe('transactionalEmailsLogic', () => {
         }
     })
 
-    it.each([200, 500])(
-        'shows the stored tags of an email sent from code when its tag save fails and the read-back answers %s',
-        async (status) => {
+    it.each([
+        [1, 200],
+        [1, 500],
+        [2, 500],
+    ])(
+        'shows the stored tags of an email sent from code when a burst of %s tag edits fails to save and the read-back answers %s',
+        async (edits, status) => {
             useMocks({
                 patch: { [`${CODE_EMAILS}:id/`]: () => [500, { detail: 'Unavailable' }] },
                 get: { [`${CODE_EMAILS}:id/`]: () => [status, codeEmail('k', 'password-changed', ['auth'])] },
             })
 
-            logic.actions.saveTransactionalTags(codeRow(), ['auth', 'security'])
+            for (const tag of ['security', 'urgent'].slice(0, edits)) {
+                logic.actions.saveTransactionalTags(codeRow(), [...codeRow().tags, tag])
+            }
             await expectLogic(logic).toFinishAllListeners()
 
             expect(codeRow().tags).toEqual(['auth'])
