@@ -110,6 +110,9 @@ class PropertyDefinition(Taggable, UUIDTModel):
     # Number of times an insight has been saved with this property in its filter in the last 30 rolling days (computed asynchronously when stars align)
     query_usage_30_day = models.IntegerField(default=None, null=True)
 
+    # The table also has columns that copy the enterprise fields (description, verified, and others).
+    # Django does not track them yet; see enterprise_copies.py.
+
     class Meta:
         db_table = "posthog_propertydefinition"
         indexes = [
