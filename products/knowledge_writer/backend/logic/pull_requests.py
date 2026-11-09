@@ -87,7 +87,7 @@ def joined_source_comment(request: DocsRequest) -> str:
 
 def refused_push_comment() -> str:
     return (
-        "The knowledge writer's latest push to this branch did not pass its checks. "
+        "This branch did not pass the knowledge writer's checks after its latest run, so the run's source was not added. "
         "Review the new commits before you merge."
     )
 
@@ -231,10 +231,6 @@ def release_publication_claim(task_id: UUID, team_id: int, task_run_id: UUID) ->
 def publish_claimed_pull_request(
     task_id: UUID, team_id: int, task_run_id: UUID, writer: WriterSettings, reported_branches: list[str]
 ) -> str | None:
-    head_branch = tasks_facade.read_task_state_entry(task_id, team_id, HEAD_BRANCH_STATE_KEY)
-    if not isinstance(head_branch, str) or reported_branches != [head_branch]:
-        refuse_publication(task_id, team_id, task_run_id, "head_branch_not_issued")
-        return None
     request = request_json.validate_python(tasks_facade.read_task_state_entry(task_id, team_id, REQUEST_STATE_KEY))
     docs_owner, docs_name = writer.docs_repository.split("/", 1)
     github = docs_github(team_id, docs_owner, priority=Priority.CRITICAL)
@@ -244,11 +240,13 @@ def publish_claimed_pull_request(
         return None
     joined = tasks_facade.read_task_state_entry(task_id, team_id, JOIN_STATE_KEY)
     joined_pull_request = pull_request_json.validate_python(joined) if isinstance(joined, dict) else None
-    refusal = publication_refusal(github, writer, head_branch)
-    if refusal is not None:
+    issued = tasks_facade.read_task_state_entry(task_id, team_id, HEAD_BRANCH_STATE_KEY)
+    head_branch = issued if isinstance(issued, str) and reported_branches == [issued] else None
+    refusal = "head_branch_not_issued" if head_branch is None else publication_refusal(github, writer, head_branch)
+    if head_branch is None or refusal is not None:
+        refuse_publication(task_id, team_id, task_run_id, refusal or "head_branch_not_issued")
         if joined_pull_request is not None:
             warn_on_joined_pull_request(github, docs_name, joined_pull_request, team_id, task_run_id)
-        refuse_publication(task_id, team_id, task_run_id, refusal)
         return None
     pull_request = (
         add_source_to_pull_request(github, docs_name, joined_pull_request, request)
@@ -263,7 +261,7 @@ def publish_claimed_pull_request(
     return pull_request.url
 
 
-def changed_paths(github: GitHubIntegration, docs_repository: str, head_branch: str) -> list[str] | None:
+def comparison_with_default_branch(github: GitHubIntegration, docs_repository: str, head_branch: str) -> dict:
     default_branch = github.get_default_branch(docs_repository)
     # GitHub lists a comparison's changed files on the first page only, capped at COMPARE_FILE_LIMIT.
     response = github.api_request(
@@ -274,8 +272,14 @@ def changed_paths(github: GitHubIntegration, docs_repository: str, head_branch: 
     )
     if response.status_code != 200:
         raise WriterPullRequestFailed(f"knowledge writer could not compare its docs branch: {response.status_code}")
-    changed_files = response.json().get("files") or []
-    if len(changed_files) >= COMPARE_FILE_LIMIT:
+    comparison = response.json()
+    return comparison if isinstance(comparison, dict) else {}
+
+
+def changed_paths(changed_files: list) -> list[str] | None:
+    if not all(isinstance(changed_file, dict) for changed_file in changed_files):
+        return None
+    if not all(isinstance(changed_file.get("filename"), str) for changed_file in changed_files):
         return None
     return [
         path
@@ -286,9 +290,18 @@ def changed_paths(github: GitHubIntegration, docs_repository: str, head_branch: 
 
 
 def publication_refusal(github: GitHubIntegration, writer: WriterSettings, head_branch: str) -> str | None:
-    paths = changed_paths(github, writer.docs_repository, head_branch)
-    if paths is None:
+    comparison = comparison_with_default_branch(github, writer.docs_repository, head_branch)
+    changed_files = comparison.get("files")
+    commits_ahead = comparison.get("ahead_by")
+    if not isinstance(changed_files, list) or not isinstance(commits_ahead, int):
+        return "comparison_unreadable"
+    if commits_ahead == 0:
+        return "no_changes"
+    if len(changed_files) >= COMPARE_FILE_LIMIT:
         return "too_many_changed_files"
+    paths = changed_paths(changed_files)
+    if paths is None:
+        return "comparison_unreadable"
     if any(not is_docs_path(path, writer.docs_paths) for path in paths):
         return "changed_paths_outside_docs"
     return None
@@ -301,9 +314,13 @@ def is_docs_path(path: str, docs_paths: tuple[str, ...]) -> bool:
 def warn_on_joined_pull_request(
     github: GitHubIntegration, docs_name: str, pull_request: WriterPullRequest, team_id: int, task_run_id: UUID
 ) -> None:
-    commented = github.comment_on_pull_request(docs_name, pull_request.number, refused_push_comment())
+    try:
+        commented = github.comment_on_pull_request(docs_name, pull_request.number, refused_push_comment())
+    except Exception as error:
+        capture_exception(error, {"team_id": team_id, "task_run_id": str(task_run_id)})
+        return
     if not commented.get("success"):
-        raise reported_step_failure(github_step_failed("comment_on_pull_request", commented), team_id, task_run_id)
+        reported_step_failure(github_step_failed("comment_on_pull_request", commented), team_id, task_run_id)
 
 
 def reported_step_failure(step_failed: GitHubStepFailed, team_id: int, task_run_id: UUID) -> WriterPullRequestFailed:

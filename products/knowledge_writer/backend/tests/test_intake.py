@@ -123,9 +123,10 @@ def _open_on_github(
     return respond
 
 
-def _changed_on_branch(*filenames: str) -> Callable[..., MagicMock]:
-    compared = {"files": [{"filename": filename} for filename in filenames]}
-    return lambda method, path, **kwargs: MagicMock(status_code=200, json=MagicMock(return_value=compared))
+def _changed_on_branch(*changed_files: str | dict[str, str], status_code: int = 200) -> Callable[..., MagicMock]:
+    listed = [changed if isinstance(changed, dict) else {"filename": changed} for changed in changed_files]
+    compared = {"ahead_by": 1, "files": listed}
+    return lambda method, path, **kwargs: MagicMock(status_code=status_code, json=MagicMock(return_value=compared))
 
 
 def _verdict(pull_request_number: int = 123, suggested_page_urls: tuple[str, ...] = ()):
@@ -161,18 +162,21 @@ def _finish_run(
     task_id,
     django_capture_on_commit_callbacks,
     *,
-    pushed_branch: str | None = None,
-    changed_files: tuple[str, ...] = (DOCS_PAGE_PATH,),
-) -> None:
+    pushed_branches: tuple[str, ...] | None = None,
+    changed_files: tuple[str | dict[str, str], ...] = (DOCS_PAGE_PATH,),
+    compare_status_code: int = 200,
+) -> list[str]:
     run = TaskRun.objects.get(task_id=task_id)
-    head = {"repository": DOCS_HEAD["repository"], "branch": pushed_branch or _issued_branch(task_id)}
+    branches = pushed_branches or (_issued_branch(task_id),)
+    compared = _changed_on_branch(*changed_files, status_code=compare_status_code)
     with (
-        patch(LIST_PULL_REQUESTS, side_effect=_changed_on_branch(*changed_files)),
+        patch(LIST_PULL_REQUESTS, side_effect=compared) as github_request,
         django_capture_on_commit_callbacks(execute=True),
     ):
         run.status = TaskRun.Status.COMPLETED
-        run.output = {"head_branches": [head]}
+        run.output = {"head_branches": [{"repository": DOCS_HEAD["repository"], "branch": b} for b in branches]}
         run.save(update_fields=["status", "output"])
+    return [call.args[1] for call in github_request.call_args_list]
 
 
 @pytest.mark.django_db
@@ -282,21 +286,28 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
         busy = intake.submit(second_verdict, team_id=team.id)
     assert busy.status == "section_busy"
     start_workflow.assert_not_called()
-    with patch(CREATE_PULL_REQUEST) as create_for_another_branch:
-        _finish_run(started.task_id, django_capture_on_commit_callbacks, pushed_branch="docs/another-branch")
-    create_for_another_branch.assert_not_called()
-    assert (
-        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
-        == "head_branch_not_issued"
-    )
+    issued_branch = _issued_branch(started.task_id)
+    for pushed_branches in (("docs/another-branch",), (issued_branch, "docs/another-branch")):
+        with patch(CREATE_PULL_REQUEST) as create_for_another_branch:
+            _finish_run(started.task_id, django_capture_on_commit_callbacks, pushed_branches=pushed_branches)
+        create_for_another_branch.assert_not_called()
+        assert (
+            tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
+            == "head_branch_not_issued"
+        )
+    with patch(CREATE_PULL_REQUEST) as create_after_failed_compare:
+        _finish_run(started.task_id, django_capture_on_commit_callbacks, compare_status_code=500)
+    create_after_failed_compare.assert_not_called()
     for changed_files, refusal in (
         ((DOCS_PAGE_PATH, WORKFLOW_PATH), "changed_paths_outside_docs"),
+        (({"filename": DOCS_PAGE_PATH, "previous_filename": WORKFLOW_PATH},), "changed_paths_outside_docs"),
         ((SIBLING_OF_DOCS_PATH,), "changed_paths_outside_docs"),
         ((DOCS_PAGE_PATH,) * COMPARE_FILE_LIMIT, "too_many_changed_files"),
     ):
         with patch(CREATE_PULL_REQUEST) as create_for_refused_files:
-            _finish_run(started.task_id, django_capture_on_commit_callbacks, changed_files=changed_files)
+            requested = _finish_run(started.task_id, django_capture_on_commit_callbacks, changed_files=changed_files)
         create_for_refused_files.assert_not_called()
+        assert requested == [f"/repos/PostHog/posthog.com/compare/master...{issued_branch}"]
         assert tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY) == refusal
     with patch(CREATE_PULL_REQUEST, side_effect=ConnectionError("GitHub unreachable")):
         _finish_run(started.task_id, django_capture_on_commit_callbacks)
@@ -553,6 +564,9 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
         dataclasses.replace(COMMAND, head_sha="fff999", note="Only touch the API reference.")
     )
     later_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(dataclasses.replace(COMMAND, head_sha="eee111"))
+    after_refusal_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
+        dataclasses.replace(COMMAND, head_sha="ddd222")
+    )
 
     with (
         patch(FLAG_CHECK, return_value=True),
@@ -598,7 +612,20 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
         patch(START_WORKFLOW),
     ):
         intake.submit(later_verdict, team_id=team.id)
-    assert _issued_branch(started.task_id) != first_branch
+    branch_after_join = _issued_branch(started.task_id)
+    assert branch_after_join != first_branch
+
+    TaskRun.objects.filter(task_id=started.task_id).update(status=TaskRun.Status.FAILED)
+    tasks_facade.update_task_state_entry(
+        started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY, lambda _current: ("changed_paths_outside_docs", None)
+    )
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        intake.submit(after_refusal_verdict, team_id=team.id)
+    assert _issued_branch(started.task_id) != branch_after_join
 
 
 @pytest.mark.django_db

@@ -15,8 +15,10 @@ from ..settings import WriterSettings
 from ..task_profiles import WRITER
 from .caps import WriterRerunTaken, claim_section
 from .records import (
+    BRANCH_REFUSALS,
     HEAD_BRANCH_STATE_KEY,
     JOIN_STATE_KEY,
+    PULL_REQUEST_FAILURE_STATE_KEY,
     REQUEST_STATE_KEY,
     SECTION_STATE_KEY,
     WriterPullRequest,
@@ -53,6 +55,8 @@ def issued_head_branch(joining: WriterPullRequest | None, rerun_task_id: UUID | 
 
 def branch_issued_to_task(task_id: UUID, team_id: int) -> str | None:
     if tasks_facade.read_task_state_entry(task_id, team_id, JOIN_STATE_KEY) is not None:
+        return None
+    if tasks_facade.read_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY) in BRANCH_REFUSALS:
         return None
     stored = tasks_facade.read_task_state_entry(task_id, team_id, HEAD_BRANCH_STATE_KEY)
     if isinstance(stored, str) and stored.startswith(HEAD_BRANCH_PREFIX):
