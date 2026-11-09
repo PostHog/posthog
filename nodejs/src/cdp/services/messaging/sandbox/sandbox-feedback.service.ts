@@ -306,10 +306,9 @@ export class SandboxFeedbackService {
                 logger.warn('[SandboxFeedbackService] Failed to report sandbox email feedback', { teamId, error })
             }
         }
-        try {
-            await this.monitoring.flush()
-        } catch (error) {
+        // SNS redelivers after 15 seconds without an answer, so a stalled Kafka must not hold the response.
+        void this.monitoring.flush().catch((error) => {
             logger.warn('[SandboxFeedbackService] Failed to flush sandbox email feedback metrics', { error })
-        }
+        })
     }
 }

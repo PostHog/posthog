@@ -439,11 +439,19 @@ describe('SandboxFeedbackService', () => {
             expect(capture).not.toHaveBeenCalled()
         })
 
-        it('answers 200 when reporting fails after the suppression write', async () => {
-            monitoring.flush.mockRejectedValue(new Error('kafka unavailable'))
-            capture.mockImplementation(() => {
-                throw new Error('capture failed')
-            })
+        it.each([
+            [
+                'fails',
+                () => {
+                    monitoring.flush.mockRejectedValue(new Error('kafka unavailable'))
+                    capture.mockImplementation(() => {
+                        throw new Error('capture failed')
+                    })
+                },
+            ],
+            ['stalls', () => monitoring.flush.mockReturnValue(new Promise(() => {}))],
+        ])('answers 200 when reporting %s after the suppression write', async (_label, breakReporting) => {
+            breakReporting()
 
             const result = await service.handle({ body: notification(sesRecord(TEAM_ID, complaint())) })
 
