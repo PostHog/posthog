@@ -4,7 +4,7 @@ Lives in its own module (not `billing.py`) to avoid a circular import: `billing.
 `posthog.tasks.usage_report`, which `ee.billing.quota_limiting` imports in turn.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -129,6 +129,23 @@ class SelfDrivingAdmission:
 def prepare_self_driving_admission(
     team: "Team", *, parent: TrialFunding | None = None, billing_status: "TrialBillingStatus | None" = None
 ) -> SelfDrivingAdmission:
+    """Snapshot implementation eligibility before new work acquires admission locks."""
+    admission = _self_driving_admission(team, parent=parent, billing_status=billing_status)
+    if parent is None and admission.parent is not None:
+        from products.signals.backend.free_trial import (  # noqa: PLC0415 -- legacy gate imports trial policy
+            self_driving_free_trial_enabled,
+        )
+
+        return replace(
+            admission,
+            parent=replace(admission.parent, implementation_allowed=not self_driving_free_trial_enabled(team)),
+        )
+    return admission
+
+
+def _self_driving_admission(
+    team: "Team", *, parent: TrialFunding | None = None, billing_status: "TrialBillingStatus | None" = None
+) -> SelfDrivingAdmission:
     """Resolve funding and limits before callers acquire admission locks.
 
     Accepted pipelines keep their funding. New trial work uses the project allowance; paid
@@ -159,25 +176,25 @@ def prepare_self_driving_admission(
             reason=reason,
         )
     limited = is_team_signals_quota_limited(team.api_token, self_driving_quota_resource(team.organization))
-    from products.signals.backend.free_trial import (  # noqa: PLC0415 -- legacy gate imports trial policy
-        self_driving_free_trial_enabled,
-    )
-
     return SelfDrivingAdmission(
         team=team,
         gate=SelfDrivingQuotaGate(limited=limited, enforced=limited and self_driving_quota_enforcement_enabled(team)),
-        parent=TrialFunding(funding="existing", implementation_allowed=not self_driving_free_trial_enabled(team)),
+        parent=TrialFunding(funding="existing"),
     )
 
 
-def self_driving_quota_gate(team: "Team", *, signal_id: str | None = None) -> SelfDrivingQuotaGate:
+def self_driving_quota_gate(
+    team: "Team", *, signal_id: str | None = None, billing_status: "TrialBillingStatus | None" = None
+) -> SelfDrivingQuotaGate:
     """Expose the same admission decision to workflows and the paused-state UI."""
     from products.signals.backend.trial.policy import TrialRefused  # noqa: PLC0415 -- avoid model registration cycle
 
     parent = signal_funding(team.id, signal_id) if signal_id else None
     try:
         # A legacy signal receipt pins funding but does not admit a new report pipeline.
-        return prepare_self_driving_admission(team, parent=parent if parent and parent.grant_id else None).gate
+        return _self_driving_admission(
+            team, parent=parent if parent and parent.grant_id else None, billing_status=billing_status
+        ).gate
     except TrialRefused:
         return SelfDrivingQuotaGate(limited=True, enforced=True)
 

@@ -13,7 +13,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.free_trial import self_driving_free_trial_enabled
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.quota import prepare_self_driving_admission
+from products.signals.backend.quota import self_driving_quota_gate
 from products.signals.backend.rated_usage_tasks import report_signals_trial_grant
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation, trial_billing_status
 from products.signals.backend.trial.limits import MAX_TRIAL_GRANTS_PER_ORGANIZATION
@@ -149,10 +149,7 @@ class TrialService:
             else TrialUsage(settled_microusd=0, running_microusd=0, reports=0, running_reports=0)
         )
         reason = usage.exhaustion_reason(grant) if grant else ""
-        try:
-            paused = prepare_self_driving_admission(self.team, billing_status=billing).gate.enforced
-        except TrialRefused:
-            paused = True
+        paused = self_driving_quota_gate(self.team, billing_status=billing).enforced
         enabled_scouts = (
             SignalScoutConfig.objects.for_team(self.policy.team_id, canonical=True).filter(enabled=True).count()
         )
