@@ -7005,6 +7005,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             (self.team, "$ai_trace", {}, in_period),
             (self.team, "$ai_generation", {"$ai_event_bytes": int64_max}, in_period),
             (self.team, "$ai_generation", {"$ai_event_bytes": int64_max}, in_period),
+            (self.team, "$ai_generation", {"$ai_event_bytes": -int64_max - 1}, in_period),
             (
                 self.team,
                 "$ai_generation",

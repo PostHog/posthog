@@ -1936,8 +1936,10 @@ def _query_teams_with_ai_overage_bytes_in_period(begin: datetime, end: datetime)
             f"""
             SELECT
                 team_id,
-                sum(greatest(least(toInt64OrZero({event_bytes_expr}), %(max_event_bytes)s) - %(included_bytes)s, 0))
-                    AS overage_bytes
+                sum(
+                    greatest(least(toInt64OrZero({event_bytes_expr}), %(max_event_bytes)s), %(included_bytes)s)
+                    - %(included_bytes)s
+                ) AS overage_bytes
             FROM {events_read_table(use_new)}
             WHERE startsWith(event, %(ai_event_prefix)s) AND timestamp >= %(begin)s AND timestamp < %(end)s
             GROUP BY team_id
