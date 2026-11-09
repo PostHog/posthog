@@ -286,7 +286,7 @@ export function summarizeKafkaBatch(messages: Message[]): KafkaBatchSummary {
         }
 
         const headers = parseKafkaHeaders(message.headers)
-        functions.add(`${headers.teamId ?? 'unknown'}:${headers.functionId ?? headers.hogFunctionId ?? 'unknown'}`)
+        functions.add(`${headers.teamId ?? 'unknown'}:${headers.functionId ?? 'unknown'}`)
     }
 
     return {
