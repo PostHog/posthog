@@ -1640,8 +1640,23 @@ describe('EmailService', () => {
 
         it.each([
             ['To', { to: { email: 'jo\u0000@example.com', name: 'Jo' } }, 'To "jo\\u0000@example.com"'],
-            ['CC', { cc: 'ok@example.com, "Jo" <jo\u0001@example.com>' }, 'CC "jo\\u0001@example.com"'],
-            ['BCC', { bcc: 'ok@example.com; jo\u007F@example.com' }, 'BCC "jo\\u007f@example.com"'],
+            [
+                'CC',
+                { cc: 'ok@example.com, "Jo" <jo\u0001@example.com>' },
+                'CC "ok@example.com, "Jo" <jo\\u0001@example.com>"',
+            ],
+            [
+                'a CC display name',
+                { cc: '"One\u0001" <one@example.com>, two@example.com' },
+                'CC ""One\\u0001" <one@example.com>, two@example.com"',
+            ],
+            [
+                'a CC comment',
+                { cc: 'one@example.com (One\u0002), two@example.com' },
+                'CC "one@example.com (One\\u0002), two@example.com"',
+            ],
+            ['BCC', { bcc: 'ok@example.com; jo\u007F@example.com' }, 'BCC "ok@example.com; jo\\u007f@example.com"'],
+            ['a BCC display name', { bcc: 'One\u007F <one@example.com>' }, 'BCC "One\\u007f <one@example.com>"'],
             [
                 'every field',
                 {
@@ -1662,7 +1677,7 @@ describe('EmailService', () => {
             expect(isSuppressed).not.toHaveBeenCalled()
             expect(result).toMatchObject({
                 finished: true,
-                error: `Email not sent: an email address can't contain a control character. Fix the template or person property that fills ${named}.`,
+                error: `Email not sent: To, CC and BCC can't contain a control character. Fix the template or person property that fills ${named}.`,
             })
             expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_failed'])
         })
@@ -1674,19 +1689,6 @@ describe('EmailService', () => {
                 ['one@example.com', 'two@example.com'],
                 [],
             ],
-            [
-                'a CC display name holds a control character',
-                { cc: '"One\u0001" <one@example.com>, two@example.com' },
-                ['"One" <one@example.com>', 'two@example.com'],
-                [],
-            ],
-            [
-                'a CC comment holds a control character',
-                { cc: 'one@example.com (One\u0002), two@example.com' },
-                ['"One" <one@example.com>', 'two@example.com'],
-                [],
-            ],
-            ['a BCC display name holds DEL', { bcc: 'One\u007F <one@example.com>' }, [], ['"One" <one@example.com>']],
             [
                 'the To display name holds a control character',
                 { to: { email: 'jo@example.com', name: 'Jo\u0001' } },

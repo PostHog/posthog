@@ -434,7 +434,7 @@ describe('HogFunctionHandler', () => {
         ['the To address', { to: { email: 'jo\u000B@example.com' } }, true],
         ['a CC address', { to: { email: 'jo@example.com' }, cc: 'ok@example.com, jo\u0001@example.com' }, true],
         ['a BCC address', { to: { email: 'jo@example.com' }, bcc: 'jo\u007F@example.com' }, true],
-        ['only a CC display name', { to: { email: 'jo@example.com' }, cc: '"Ann\u0001" <ann@example.com>' }, false],
+        ['a CC display name', { to: { email: 'jo@example.com' }, cc: '"Ann\u0001" <ann@example.com>' }, true],
         ['only the To display name', { to: { email: 'jo@example.com', name: 'Jo\u0001' } }, false],
     ]
     it.each(
