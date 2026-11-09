@@ -1669,6 +1669,7 @@ def test_trino_registration_compares_row_counts_against_the_file_footers(
     [
         ("utf8", pa.string(), "VARCHAR"),
         ("large_utf8", pa.large_string(), "VARCHAR"),
+        ("utf8_view", pa.string_view(), "VARCHAR"),
         ("int64", pa.int64(), "BIGINT"),
         ("int32", pa.int32(), "INTEGER"),
         ("int16", pa.int16(), "SMALLINT"),
@@ -1679,6 +1680,7 @@ def test_trino_registration_compares_row_counts_against_the_file_footers(
         ("date32", pa.date32(), "DATE"),
         ("binary", pa.binary(), "VARBINARY"),
         ("large_binary", pa.large_binary(), "VARBINARY"),
+        ("binary_view", pa.binary_view(), "VARBINARY"),
         ("timestamp_us", pa.timestamp("us"), "TIMESTAMP(6)"),
         ("timestamp_us_tz", pa.timestamp("us", tz="UTC"), "TIMESTAMP(6) WITH TIME ZONE"),
         ("timestamp_us_named_tz", pa.timestamp("us", tz="America/New_York"), "TIMESTAMP(6) WITH TIME ZONE"),
@@ -1705,7 +1707,7 @@ def test_staging_schema_unions_file_columns_and_appends_hive_partitions() -> Non
     schema = trino_module.staging_table_schema(
         [
             _footer("a.parquet", id=pa.int64(), name=pa.string()),
-            _footer("b.parquet", id=pa.int64(), created_at=pa.timestamp("us")),
+            _footer("b.parquet", id=pa.int64(), name=pa.string_view(), created_at=pa.timestamp("us")),
         ],
         ["_ph_partition_key"],
     )
