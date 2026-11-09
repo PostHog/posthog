@@ -229,6 +229,7 @@ export enum NodeKind {
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
     MCPMissingCapabilitiesQuery = 'MCPMissingCapabilitiesQuery',
+    MCPDashboardQuery = 'MCPDashboardQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -321,6 +322,7 @@ export type AnyDataNode =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPDashboardQuery
 
 /**
  * @discriminator kind
@@ -460,6 +462,7 @@ export type QuerySchema =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPDashboardQuery
 
     // Property values
     | PropertyValuesQuery
@@ -3774,6 +3777,59 @@ export interface MCPProtocolVersionBreakdownQuery extends DataNode<MCPProtocolVe
 
 export type CachedMCPProtocolVersionBreakdownQueryResponse =
     CachedQueryResponse<MCPProtocolVersionBreakdownQueryResponse>
+
+/** A section of the MCP Analytics dashboard. The server owns the query behind each one. */
+export enum MCPDashboardSection {
+    Kpis = 'kpis',
+    PeriodTotals = 'periodTotals',
+    ToolRows = 'toolRows',
+    SessionRows = 'sessionRows',
+    HarnessRows = 'harnessRows',
+    ModelRows = 'modelRows',
+    ProtocolVersionRows = 'protocolVersionRows',
+    ActivityRows = 'activityRows',
+    ToolDailyRows = 'toolDailyRows',
+    Model = 'model',
+    ProtocolVersion = 'protocolVersion',
+    Tool = 'tool',
+    ErrorType = 'errorType',
+    LabUsers = 'labUsers',
+    NamedModelUsers = 'namedModelUsers',
+    Reliability = 'reliability',
+}
+
+/** The doubled window the KPI tiles compare the selected period against. */
+export interface MCPDashboardComparison {
+    /** Start of the preceding period of equal length, as an ISO 8601 instant with an offset. */
+    dateFrom: string
+    /** Bucket the selected period starts in, as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"). */
+    currentStartBucket: string
+}
+
+/** A section's rows, or why the section failed. One failed section leaves the others intact. */
+export interface MCPDashboardSectionResult {
+    results?: any
+    error?: string
+}
+
+export interface MCPDashboardQueryResponse extends AnalyticsQueryResponseBase {
+    /** Keyed by MCPDashboardSection, in the order the query asked for them. */
+    results: Record<string, MCPDashboardSectionResult>
+}
+
+/** Every section of the MCP Analytics dashboard in one request. */
+export interface MCPDashboardQuery extends DataNode<MCPDashboardQueryResponse> {
+    kind: NodeKind.MCPDashboardQuery
+    /** @minItems 1 */
+    sections: MCPDashboardSection[]
+    dateRange: DateRange
+    interval: IntervalType
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
+    comparison: MCPDashboardComparison
+}
+
+export type CachedMCPDashboardQueryResponse = CachedQueryResponse<MCPDashboardQueryResponse>
 
 /** One row of the per-tool "Top users" table: a user and their activity on a tool. */
 export interface MCPToolTopUserItem {
@@ -8759,8 +8815,9 @@ export type MarketingAnalyticsRecommendationRule =
     | 'keyword_gap'
     | 'spend_without_conversions'
     | 'striking_distance'
+    | 'keyword_tracking'
 
-export type MarketingAnalyticsRecommendationLevel = 'campaign' | 'search_term'
+export type MarketingAnalyticsRecommendationLevel = 'account' | 'campaign' | 'search_term'
 
 export type MarketingAnalyticsRecommendationImpactDirection = 'save' | 'gain' | 'invest' | 'keep'
 
@@ -8819,7 +8876,7 @@ export interface MarketingAnalyticsRecommendationsDataGap {
 export interface MarketingAnalyticsRecommendation {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendationLevel
-    /** The campaign name or the search term the recommendation is about. */
+    /** The ad account, campaign or search term the recommendation is about. */
     subject: string
     /** The campaign a search term recommendation applies to, when it applies to one. */
     campaign?: string | null

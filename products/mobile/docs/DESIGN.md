@@ -279,7 +279,8 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   within each organization. It initially shows five projects in total. See more expands the full list,
   and See less collapses it again. Organization labels stay visible for accounts with multiple organizations.
   Appearance is Match system, Light or Dark, saved on the device; screens wait for it to load so they never paint in the wrong scheme.
-  Start page picks the tab the app opens on (Inbox, Chats or Views) and is saved on the device (`defaultPageStore`).
+  Start page picks the tab the app opens on (Inbox, Chats, Views, Web analytics or Live) and is saved on the device (`defaultPageStore`).
+  Web analytics and Live open as their tabs; an unpinned one keeps its bar slot until the person leaves it.
   Sign in also lands there, and so do Back on Settings or a view and closing the chat when there is no screen to go back to.
   Until the person picks one, the app saves a start page once, on the first launch that knows whether the selected project's organization approved AI data processing: Views if it did not, Inbox if it did.
   While that status is unknown, the app opens the inbox and saves nothing.

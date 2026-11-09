@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -236,13 +237,32 @@ describe('mcpSessionsLogic', () => {
                 () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true),
                 { filter_test_accounts: true },
             ],
-        ])('reloads the list with %s', async (_label, change, expectedParams) => {
+            [
+                "the team's test-account default",
+                () =>
+                    teamLogic.actions.loadCurrentTeamSuccess({
+                        ...teamLogic.values.currentTeam!,
+                        test_account_filters_default_checked: true,
+                    }),
+                { filter_test_accounts: true },
+            ],
+        ])('reloads the list and selected session with %s', async (_label, change, expectedParams) => {
+            listMock.mockResolvedValue({ results: [{ session_id: 'A', session_start: '2026-01-01T00:05:00Z' }] })
+            toolCallsMock.mockResolvedValue({ results: [toolCall('a1')], has_next: false })
+            await expectLogic(logic, () => logic.actions.loadSessions()).toDispatchActions([
+                'loadSessionsSuccess',
+                'loadToolCallsSuccess',
+            ])
             listMock.mockClear()
+            toolCallsMock.mockClear()
 
-            await expectLogic(logic, change).toDispatchActions(['loadSessionsSuccess'])
+            await expectLogic(logic, change).toDispatchActions(['loadSessionsSuccess', 'loadToolCallsSuccess'])
 
             expect(listMock).toHaveBeenCalledTimes(1)
             expect(listMock.mock.calls[0][1]).toMatchObject(expectedParams)
+            expect(toolCallsMock).toHaveBeenCalledTimes(1)
+            expect(toolCallsMock.mock.calls[0][2]).toMatchObject(expectedParams)
+            expect(logic.values.selectedSessionToolCalls).toMatchObject({ loading: false, calls: [toolCall('a1')] })
         })
 
         it.each([false, true])("reloads the selected session's calls with failure=%s", async (fails) => {
@@ -295,6 +315,25 @@ describe('mcpSessionsLogic', () => {
                 expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
                 consoleErrorSpy.mockRestore()
             }
+        })
+
+        it.each([
+            ['no URL params', {}],
+            ['shared filters', { filter_test_accounts: true, properties: [TOOL_FILTER] }],
+            [
+                'shared filters and a date range',
+                { filter_test_accounts: true, properties: [TOOL_FILTER], date_from: '-30d' },
+            ],
+        ])('loads the list once when mounting with %s', async (_label, searchParams) => {
+            logic.unmount()
+            listMock.mockClear()
+            router.actions.push(urls.mcpAnalyticsSessions(), searchParams)
+
+            logic = mcpSessionsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listMock).toHaveBeenCalledTimes(1)
         })
 
         it('drops a load-more page fetched under the previous filters', async () => {
