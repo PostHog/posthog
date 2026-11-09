@@ -322,8 +322,7 @@ class UsageReportCounters:
 
     # AI observability
     ai_event_count_in_period: int
-    # Bytes of each AI event above the bytes its event price includes. The MB is floored per team, so an org's MB is
-    # the sum of its teams' floors, like logs_mb_in_period. The MB is the field to bill. The bytes are report-only.
+    # The MB is the field to bill, floored per team like logs_mb_in_period. The bytes are report-only.
     ai_overage_bytes_in_period: int
     ai_overage_mb_in_period: int
     ai_ingested_event_count_in_period: int = dataclasses.field(default=0, kw_only=True)
