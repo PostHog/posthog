@@ -937,8 +937,13 @@ email@example.org
     def test_static_cohort_patch_releases_claim_when_enqueue_fails(
         self, source_field: str, delay_path: str, request_kwargs: Callable[[], dict[str, Any]]
     ):
+        # The run fields a replace the sweep gave up on leaves behind, while its worker may still be running.
         cohort = Cohort.objects.create(
-            team=self.team, name="static", is_static=True, pending_population_mode=CohortPopulationMode.REPLACE
+            team=self.team,
+            name="static",
+            is_static=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=timezone.now().replace(microsecond=0) - timedelta(hours=1),
         )
         url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
 
@@ -951,9 +956,11 @@ email@example.org
         self.assertEqual(retried.status_code, 200, retried.json())
         self.assertEqual(mock_delay.call_count, 2)
         cohort.refresh_from_db()
-        # Either way the stale replace is gone. A CSV import records no mode, because its task never clears one.
+        # Either way the stale replace is gone. A CSV import records no mode, because its task never clears one. The
+        # marker is gone too, so the old worker fails its next marker check instead of pruning during this run.
         self.assertEqual(
-            cohort.pending_population_mode, CohortPopulationMode.APPEND if source_field == "query" else None
+            (cohort.pending_population_mode, cohort.population_marker),
+            (CohortPopulationMode.APPEND if source_field == "query" else None, None),
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")

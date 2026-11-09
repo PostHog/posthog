@@ -2179,15 +2179,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # The claim records its mode, which overwrites any mode a failed replace left behind, so that the stuck
         # cohort sweep never redispatches an old replace in place of this request's population. A CSV import
         # records none: its task never reads or clears a mode, and NULL already means append.
+        # It also clears the marker. A replace worker checks its marker before every write, so a worker the sweep gave
+        # up on but that is still running stops at its next check instead of pruning during this request's run.
         mode = CohortPopulationMode.APPEND if source_field == "query" else None
         claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(
-            is_calculating=True, pending_population_mode=mode
+            is_calculating=True, pending_population_mode=mode, population_marker=None
         )
         if not claimed:
             raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
         # cohort.save() writes every field, so the in-memory values must match the claim.
         cohort.is_calculating = True
         cohort.pending_population_mode = mode
+        cohort.population_marker = None
 
     def _enqueue_query_population(self, cohort: Cohort) -> None:
         from posthog.tasks.calculate_cohort import insert_cohort_from_query

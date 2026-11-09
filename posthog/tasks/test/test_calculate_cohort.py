@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from contextlib import nullcontext, suppress
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -1798,7 +1798,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         newer_marker = timezone.now().replace(microsecond=0) + timedelta(minutes=5)
 
-        def newer_attempt_takes_over(*args, **kwargs) -> int:
+        def newer_attempt_takes_over(*args: Any, **kwargs: Any) -> int:
             Cohort.objects.filter(pk=cohort.pk).update(
                 pending_population_mode=CohortPopulationMode.REPLACE, population_marker=newer_marker
             )
@@ -1816,8 +1816,27 @@ class TestCohortCalculationTasks(APIBaseTest):
         # And no error row is left to show a failure banner on a cohort that never failed.
         self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort, error_code__isnull=False).exists())
 
-    @parameterized.expand([("resumes_at_its_marker", False), ("superseded_writes_nothing", True)])
-    def test_query_replace_retry_after_the_clickhouse_insert(self, _name: str, superseded: bool) -> None:
+    @parameterized.expand(
+        [
+            ("resumes_at_its_marker", None),
+            # A sweep redispatch minted a newer marker while this retry waited in its backoff.
+            ("newer_marker_minted", lambda marker: {"population_marker": marker + timedelta(seconds=30)}),
+            # The sweep gave up on the run: it released the cohort and ended the replace.
+            (
+                "sweep_ended_the_run",
+                lambda _marker: {"is_calculating": False, "pending_population_mode": None, "population_marker": None},
+            ),
+            # A user's append claimed the cohort after the sweep released it. Its token (no marker, mode append) is
+            # one the retry would also hold if it ran as an append.
+            (
+                "user_claimed_an_append",
+                lambda _marker: {"pending_population_mode": CohortPopulationMode.APPEND, "population_marker": None},
+            ),
+        ]
+    )
+    def test_query_replace_retry_after_the_clickhouse_insert(
+        self, _name: str, takeover: Callable[[datetime], dict[str, Any]] | None
+    ) -> None:
         cohort = Cohort.objects.create(
             team=self.team,
             name="static cohort",
@@ -1835,10 +1854,12 @@ class TestCohortCalculationTasks(APIBaseTest):
             ):
                 insert_cohort_from_query.run(cohort.id, self.team.pk)
             first_marker = Cohort.objects.get(pk=cohort.pk).population_marker
-            if superseded:
-                # A sweep redispatch minted a newer marker while this retry waited in its backoff.
-                Cohort.objects.filter(pk=cohort.pk).update(population_marker=first_marker + timedelta(seconds=30))
-            stored_before_retry = Cohort.objects.get(pk=cohort.pk).population_marker
+            assert first_marker is not None
+            if takeover is not None:
+                Cohort.objects.filter(pk=cohort.pk).update(**takeover(first_marker))
+            run_state = ("is_calculating", "pending_population_mode", "population_marker", "errors_calculating")
+            stored_before_retry = Cohort.objects.values_list(*run_state).get(pk=cohort.pk)
+            history_rows_before_retry = CohortCalculationHistory.objects.filter(cohort=cohort).count()
 
             with patch(QUERY_CH_INSERT_PATH) as mock_insert_ch, patch(PG_SYNC_PATH, return_value=0) as mock_sync:
                 insert_cohort_from_query.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
@@ -1847,9 +1868,12 @@ class TestCohortCalculationTasks(APIBaseTest):
 
         mock_insert_ch.assert_not_called()
         cohort.refresh_from_db()
-        if superseded:
+        if takeover is not None:
+            # The retry belongs to a run the cohort no longer runs, so it writes nothing and leaves every run field,
+            # the error count and the history as the newer owner (or the sweep) left them.
             mock_sync.assert_not_called()
-            self.assertEqual((cohort.is_calculating, cohort.population_marker), (True, stored_before_retry))
+            self.assertEqual(Cohort.objects.values_list(*run_state).get(pk=cohort.pk), stored_before_retry)
+            self.assertEqual(CohortCalculationHistory.objects.filter(cohort=cohort).count(), history_rows_before_retry)
         else:
             self.assertEqual(mock_sync.call_args.kwargs["replace_marker"], first_marker)
             self.assertEqual((cohort.is_calculating, cohort.population_marker), (False, None))
