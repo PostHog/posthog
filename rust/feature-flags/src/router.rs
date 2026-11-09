@@ -724,21 +724,33 @@ fn spawn_rate_limiter_cleanup_task<C>(
     });
 }
 
-/// Tests a single database pool by acquiring a connection and optionally running a test query.
+/// Opens `min_connections` connections in a pool (at least one) and optionally runs a test
+/// query on each.
+///
+/// A lazy sqlx pool with an `idle_timeout` does not open `min_connections` at startup. It
+/// tops up only after it reaps an idle connection, so a pool that stays busy never reaches
+/// its minimum. Holding all connections at once makes the pool open each of them.
 ///
 /// When `skip_query` is true (because `test_before_acquire` is enabled), only connection
 /// acquisition is tested since sqlx already validates connections on acquire.
 async fn test_pool_connection(pool: &PgPool, name: &str, skip_query: bool) -> Result<(), String> {
-    let mut conn = pool
-        .acquire()
-        .await
-        .map_err(|e| format!("{name} pool unavailable: {e}"))?;
+    let count = pool.options().get_min_connections().max(1);
+    let mut conns = Vec::with_capacity(count as usize);
 
-    if !skip_query {
-        sqlx::query("SELECT 1")
-            .execute(&mut *conn)
+    for _ in 0..count {
+        let mut conn = pool
+            .acquire()
             .await
-            .map_err(|e| format!("{name} connection test failed: {e}"))?;
+            .map_err(|e| format!("{name} pool unavailable: {e}"))?;
+
+        if !skip_query {
+            sqlx::query("SELECT 1")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| format!("{name} connection test failed: {e}"))?;
+        }
+
+        conns.push(conn);
     }
 
     Ok(())
@@ -851,7 +863,9 @@ mod tests {
             .unwrap_or("postgres://posthog:posthog@localhost:5432/test_database".to_string());
 
         let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
+            .min_connections(3)
+            .max_connections(5)
+            .idle_timeout(std::time::Duration::from_secs(300))
             .connect_lazy(&database_url)
             .expect("Failed to create pool");
 
@@ -860,7 +874,7 @@ mod tests {
         // If database is available, connection test should succeed
         // If not, it will fail - both are acceptable in test environment
         match result {
-            Ok(()) => {}
+            Ok(()) => assert_eq!(pool.size(), 3),
             Err(e) => {
                 assert!(e.contains("test_pool"));
             }
