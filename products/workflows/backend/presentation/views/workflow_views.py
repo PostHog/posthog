@@ -187,8 +187,8 @@ class WorkflowViewViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return super().handle_exception(WorkflowViewConflictError())
         return super().handle_exception(exc)
 
-    @validated_request(responses={200: WorkflowViewSerializer(many=True)})
-    def list(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+    @extend_schema(responses={200: WorkflowViewSerializer(many=True)})
+    def list(self, request: Request, *args: object, **kwargs: object) -> Response:
         return facade_page_response(self, lambda page: list_workflow_views(self.team_id, page))
 
     @validated_request(responses={200: WorkflowViewSerializer})
