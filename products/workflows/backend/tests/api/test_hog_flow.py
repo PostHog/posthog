@@ -7773,6 +7773,38 @@ class TestHogFlowSecretInputs(APIBaseTest):
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["secret_headers"]["value"] == expected_stored
 
+    def test_a_step_secret_keeps_its_binding_when_the_step_moves_to_another_template(self):
+        for template_id, origin in (
+            ("template-bound-a", "https://example.com"),
+            ("template-bound-b", "https://other.example"),
+        ):
+            template = _secret_input_template()
+            template["id"] = template_id
+            template["inputs_schema"][1] = {
+                **template["inputs_schema"][1],
+                "auth": {"scheme": "bearer", "origins": [origin]},
+            }
+            sync_template_to_db(template)
+        payload = self._flow_payload()
+        payload["actions"][1]["config"]["template_id"] = "template-bound-a"
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload)
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+
+        body = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        step = next(a for a in body["actions"] if a["id"] == "action_1")
+        step["config"]["template_id"] = "template-bound-b"
+        patch_res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": body["actions"], "edges": body["edges"]}
+        )
+        assert patch_res.status_code == 200, patch_res.json()
+
+        stored = HogFlow.objects.get(id=flow_id).encrypted_inputs["action_1"]["api_key"]
+        assert (stored["value"], stored["auth"]) == (
+            "SUPER-SECRET",
+            {"scheme": "bearer", "origins": ["https://example.com"]},
+        )
+
     def test_metadata_only_update_leaves_secret_intact(self):
         # A PATCH that carries no actions must not clear the stored secret.
         flow_id = self._create()
