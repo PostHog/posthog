@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -12,10 +13,12 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import ProjectSecretAPIKey
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, ProjectSecretAPIKey, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.presentation.views.attachment_uploads import AttachmentUploadsRequestSerializer
 
 INVOICE = "a" * 64
@@ -202,6 +205,36 @@ class TestAttachmentUploads(APIBaseTest):
         mock_post.configure_mock(**_cdp_answers(200, {"files": [UPLOAD_INVOICE, PRESENT_LOGO]}))
 
         response = self._upload(TWO_FILES, scopes)
+
+        assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("editor_access_to_one_workflow", {None: "viewer", "one-workflow": "editor"}, status.HTTP_200_OK),
+            ("viewer_access_to_workflows", {None: "viewer"}, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_takes_uploads_from_a_member_who_can_send_through_some_workflow(
+        self, mock_post, _flag, _capture, _name, levels, expected_status
+    ):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        membership_id = OrganizationMembership.objects.get(user=member, organization=self.organization).id
+        for resource_id, access_level in levels.items():
+            create_access_control(
+                team_id=self.team.id,
+                resource="hog_flow",
+                resource_id=str(uuid4()) if resource_id else None,
+                access_level=access_level,
+                organization_member_id=membership_id,
+            )
+        self.client.force_login(member)
+        mock_post.configure_mock(**_cdp_answers(200, {"files": [UPLOAD_INVOICE, PRESENT_LOGO]}))
+
+        response = self.client.post(self.url, TWO_FILES, format="json")
 
         assert response.status_code == expected_status, response.json()
 

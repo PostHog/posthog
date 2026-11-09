@@ -33,7 +33,6 @@ from products.messaging.backend.presentation.views.code_send_fields import MAX_A
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_SEND_SCOPE,
     require_email_from_code,
-    require_workflow_editor,
     transactional_email_authorized_by,
     transactional_email_throttles,
 )
@@ -255,7 +254,6 @@ class MessagingAttachmentsViewSet(RequestBodyCapMixin, TeamAndOrgViewSetMixin, v
     @action(detail=False, methods=["POST"], required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def uploads(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         require_email_from_code(self.team)
-        require_workflow_editor(request, self.user_access_control, "You need editor access to workflows to send files.")
         files = [AttachmentUploadRequest(**file) for file in request.validated_data["files"]]
         requested = self._requested(request.validated_data)
         try:

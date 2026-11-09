@@ -723,13 +723,6 @@ def require_email_from_code(team: Any) -> None:
     _require_flag(team, EMAIL_FROM_CODE_FLAG)
 
 
-def require_workflow_editor(request: Any, user_access_control: Any, denial: str) -> None:
-    if is_authenticated_via_project_secret_api_key(request):
-        return
-    if not user_access_control.check_access_level_for_resource("hog_flow", "editor"):
-        raise exceptions.PermissionDenied(denial)
-
-
 def require_email_status_read(team: Any) -> None:
     if not (_flag_enabled(team, TRANSACTIONAL_EMAIL_API_FLAG) or _flag_enabled(team, EMAIL_FROM_CODE_FLAG)):
         raise NotFound()
@@ -952,9 +945,10 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             return
 
     def _require_workflow_create(self) -> None:
-        require_workflow_editor(
-            self.request, self.user_access_control, "You need editor access to workflows to send under a new key."
-        )
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
 
     def _report_first_code_send_after_commit(self, request: Any, addressed_by: str) -> None:
         if not self._takes_code_sends() or not isinstance(request.user, ProjectSecretAPIKeyUser):
