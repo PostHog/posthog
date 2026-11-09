@@ -25,9 +25,10 @@ import { type NotableSession } from '../mcpDashboardOverviewLogic'
 import { mcpSessionUrl, mcpSessionsUrl } from '../sessionUrls'
 import { CardError } from './Card'
 import { DESTRUCTIVE_ERROR_RATE_PCT, formatDuration, truncateSessionId } from './formatters'
+import { SkeletonLine } from './SkeletonLine'
 
 const WARNING_ERROR_PCT = 1
-const SKELETON_REASON_WIDTHS = [200, 260, 120]
+const SKELETON_REASON_WIDTHS = ['60%', '80%', '40%']
 
 function statusVariant(errorRatePct: number): 'destructive' | 'warning' | 'success' {
     if (errorRatePct >= DESTRUCTIVE_ERROR_RATE_PCT) {
@@ -45,15 +46,6 @@ function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
     }
     return (
         <Badge variant={statusVariant(errorRatePct)}>{formatPercentage(errorRatePct, { compact: true })} errors</Badge>
-    )
-}
-
-// A placeholder in a text line box, so a placeholder row is as tall as a row of text.
-function SkeletonLine({ className, style }: { className?: string; style?: React.CSSProperties }): JSX.Element {
-    return (
-        <div className="flex h-lh items-center">
-            <Skeleton className={cn('h-3', className)} style={style} />
-        </div>
     )
 }
 
