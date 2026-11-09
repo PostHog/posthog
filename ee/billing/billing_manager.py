@@ -29,12 +29,14 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
+from posthog.models.events_plan_deletion import apply_events_retention_change
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import BILLING_PACKAGE_USAGE_KEY, OrganizationMembership, OrganizationUsageInfo
 from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.event_retention import (
+    billed_events_retention_months,
+    has_standard_retention,
     organization_events_retention_months,
-    reconcile_organization_events_retention,
 )
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
@@ -542,7 +544,8 @@ class BillingManager:
         previous_feature_keys = {
             feature.get("key") for feature in (organization.available_product_features or []) if feature
         }
-        previous_retention_months = organization_events_retention_months(organization)
+        previous_retention_months = billed_events_retention_months(organization)
+        previous_standard_retention = has_standard_retention(organization)
         organization.available_product_features = available_product_features
         organization.save()
 
@@ -550,7 +553,7 @@ class BillingManager:
             available_product_features
             and organization_events_retention_months(organization) != previous_retention_months
         ):
-            reconcile_organization_events_retention(organization)
+            apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
 
         # Only reset on a non-empty list: the retention reset is not self-healing, so an
         # empty error-path response must not permanently downgrade team settings.
@@ -847,6 +850,8 @@ class BillingManager:
         revoked_feature_keys: set[str] = set()
         events_retention_changed = False
         plan_changed = False
+        previous_retention_months: int | None = None
+        previous_standard_retention = False
         # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
         # reports) and a partial or error-path billing response must not downgrade the org.
         # Genuine cancellations still send the (non-empty) free-tier feature list.
@@ -856,7 +861,8 @@ class BillingManager:
             }
             new_feature_keys = {feature.get("key") for feature in available_product_features if feature}
             revoked_feature_keys = previous_feature_keys - new_feature_keys
-            previous_retention_months = organization_events_retention_months(organization)
+            previous_retention_months = billed_events_retention_months(organization)
+            previous_standard_retention = has_standard_retention(organization)
             organization.available_product_features = data["available_product_features"]
             events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
             org_modified = True
@@ -928,7 +934,7 @@ class BillingManager:
                 data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 
         if events_retention_changed:
-            reconcile_organization_events_retention(organization)
+            apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
 
         if revoked_feature_keys:
             reset_revoked_logs_retention(organization, revoked_feature_keys)
@@ -1152,6 +1158,23 @@ class BillingManager:
         handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()
+
+    def record_rated_usage(self, organization: Organization, items: list[dict[str, str | int]]) -> None:
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/rated-usage",
+            headers=self.get_auth_headers(organization, service_action="rated_usage"),
+            json={"items": items},
+            timeout=30,
+        )
+        handle_billing_service_error(res, valid_codes=(200,))
+        body = res.json()
+        results = body.get("results") if isinstance(body, dict) else None
+        if (
+            not isinstance(results, list)
+            or len(results) != len(items)
+            or any(result not in ("created", "replayed") for result in results)
+        ):
+            raise ValueError("Billing did not accept every rated usage item")
 
     def _system_auth_headers(self, service_action: str) -> dict[str, str]:
         if not self.license:  # mypy

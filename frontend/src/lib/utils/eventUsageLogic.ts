@@ -9,6 +9,7 @@ import { objectClean } from 'lib/utils/objects'
 import { retryImport } from 'lib/utils/retryImport'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import type { ExperimentWizardStepNavigation } from 'scenes/experiments/ExperimentWizard/experimentWizardLogic'
+import type { ExposureSource } from 'scenes/experiments/exposureContract'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
@@ -1042,6 +1043,9 @@ export interface eventUsageLogicActions {
     reportExperimentWizardAskAiClicked: (currentStep: string) => {
         currentStep: string
     }
+    reportExperimentWizardExposureSourceSelected: (exposureSource: ExposureSource) => {
+        exposureSource: ExposureSource
+    }
     reportExperimentWizardStarted: () => {
         value: true
     }
@@ -1550,6 +1554,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
         reportExperimentWizardStarted: true,
         reportExperimentWizardAskAiClicked: (currentStep: string) => ({ currentStep }),
+        reportExperimentWizardExposureSourceSelected: (exposureSource: ExposureSource) => ({ exposureSource }),
         reportExperimentsListAiBadgeClicked: true,
         reportExperimentsListViewed: (listView: {
             experimentsShown: number
@@ -2030,6 +2035,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentWizardAskAiClicked: ({ currentStep }) => {
             posthog.capture('experiment wizard ask ai clicked', { current_step: currentStep })
+        },
+        reportExperimentWizardExposureSourceSelected: ({ exposureSource }) => {
+            posthog.capture('experiment wizard exposure source selected', { exposure_source: exposureSource })
         },
         reportExperimentsListAiBadgeClicked: () => {
             posthog.capture('experiments list ai badge clicked')

@@ -356,6 +356,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- Organization-scoped (correctly above team level) ---
         "PendingOrganizationReconcile",  # Plain organization_id survives organization deletion; no API endpoint.
         "OrganizationDomain",
+        "OrganizationIPRestrictions",
         "OrganizationIntegration",
         "OrganizationInvite",
         "OrganizationMembership",
