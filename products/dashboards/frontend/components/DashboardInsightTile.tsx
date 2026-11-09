@@ -58,7 +58,7 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         setTileOverride,
         zoomDateRange,
     } = useActions(dashboardLogic)
-    const { zoomPreview, layoutEditMode } = useValues(dashboardLogic)
+    const { zoomPreview } = useValues(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { tile, insight } = cardProps
     const [keepMountedForOverlay, setKeepMountedForOverlay] = useState(false)
@@ -128,10 +128,9 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
     const overrides = tile.filters_overrides
     // A tile with its own dates ignores the dashboard's, so zooming it would change every tile but this one.
     const tileOwnsDates = !!(overrides?.date_from || overrides?.date_to || overrides?.ignoreDashboardFilters)
-    // Off while editing the layout, where a drag on the tile moves it rather than selecting a range.
     const onDateRangeZoom = useMemo(
         () =>
-            cardProps.placement === DashboardPlacement.Dashboard && !layoutEditMode && !tileOwnsDates
+            cardProps.placement === DashboardPlacement.Dashboard && !tileOwnsDates
                 ? (dateFrom: string, dateTo: string): void =>
                       zoomDateRange(
                           dateFrom,
@@ -140,7 +139,7 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
                           zoomQueryKind
                       )
                 : undefined,
-        [cardProps.placement, layoutEditMode, tileOwnsDates, zoomInterval, zoomQueryKind, zoomDateRange]
+        [cardProps.placement, tileOwnsDates, zoomInterval, zoomQueryKind, zoomDateRange]
     )
     const displayedInsight = useMemo(() => {
         const dateRange = isInsightVizNode(insight.query) ? insight.query.source.dateRange : undefined
