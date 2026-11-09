@@ -1915,6 +1915,33 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # The assertions above also pass without the lock, which truly concurrent requests need.
         assert any('FOR NO KEY UPDATE OF "posthog_dashboarditem"' in query["sql"] for query in queries.captured_queries)
 
+    def test_patch_restoring_a_query_changed_since_the_read_regenerates_its_metadata(self) -> None:
+        def trends_query(event: str) -> dict:
+            return {
+                "kind": "InsightVizNode",
+                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": event}]},
+            }
+
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight name", "query": trends_query("event_a")})
+        original_get_object = InsightViewSet.get_object
+
+        def get_object_then_land_a_concurrent_query_change(viewset):
+            insight = original_get_object(viewset)
+            concurrent = Insight.objects.get(pk=insight.pk)
+            concurrent.query = trends_query("event_b")
+            concurrent.save()
+            return insight
+
+        with patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_query_change):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}",
+                {"query": trends_query("event_a")},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert Insight.objects.get(pk=insight_id).query_metadata["events"] == ["event_a"]
+
     def test_patch_after_a_concurrent_delete_returns_404_without_adding_a_tile(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "insight name"})
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})

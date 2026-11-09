@@ -920,6 +920,8 @@ class InsightSerializer(InsightBasicSerializer):
             )
         except Insight.DoesNotExist:
             raise NotFound()
+        # save() regenerates query_metadata only when the query differs from this snapshot.
+        instance._original_query = instance.query
         # A delete can commit while this request waits for the lock.
         if instance.deleted and validated_data.get("deleted") is not False:
             raise NotFound()
