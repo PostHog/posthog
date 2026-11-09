@@ -51,7 +51,7 @@ from products.alerts.backend.models.investigation import InsightAlertInvestigati
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
 from products.alerts.backend.platform_firing_signal import prepare_platform_firing_signals
-from products.alerts.backend.platform_firing_signal_detail import FIRING_SIGNAL_REQUESTED_KEY, requested_firing_signals
+from products.alerts.backend.platform_firing_signal_detail import requested_firing_signals
 from products.alerts.backend.platform_investigation import claim_requested_investigations
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
@@ -303,8 +303,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "tags": [],
             "team_name": self.team.name,
             **({CHART_PENDING_KEY: str(alert.id)} if wants_chart else {}),
-            # An owned firing that starts an episode asks for its inbox signal.
-            **({FIRING_SIGNAL_REQUESTED_KEY: str(alert.id)} if owner == "platform" else {}),
         }
 
         with patch(f"{_MODULE}.render_alert_insight_chart") as render:
@@ -1132,15 +1130,21 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 False,
             ),
             ("an alert already firing stays in its episode", {}, PlatformAlertOwner.PLATFORM, "firing", False),
-            ("errors that interrupted a firing resume it", {}, PlatformAlertOwner.PLATFORM, "firing", False, True),
+            (
+                "errors that interrupted a firing resume it",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored after firing",
+                False,
+            ),
             (
                 "errors after a quiet alert end in a new episode",
                 {},
                 PlatformAlertOwner.PLATFORM,
-                "not_firing",
-                True,
+                "errored after not_firing",
                 True,
             ),
+            ("a team without the all-firing scope", {}, PlatformAlertOwner.PLATFORM, None, False, "investigated_only"),
         ]
     )
     def test_a_firing_asks_for_an_inbox_signal_only_when_it_starts_an_uninvestigated_episode(
@@ -1150,23 +1154,27 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         owner: str,
         before: str | None,
         requested: bool,
-        errored_since: bool = False,
+        scope: str = "all_firing_alerts",
     ) -> None:
         configuration = self._copy(self._alert(**overrides), owner=owner)
         with team_scope(self.team.id):
-            if errored_since:
-                platform_testing.set_instance_state(configuration.id, team_id=self.team.id, state="errored")
-            elif before == "firing":
+            if before == "firing":
                 platform_testing.start_firing(configuration.id, team_id=self.team.id, at=CUTOFF - timedelta(hours=1))
+            elif before is not None:
+                platform_testing.set_check_status(configuration.id, "errored")
+        interrupted = (before or "").removeprefix("errored after ") or "not_firing"
         history = PlatformCheckEventPage(
             events=(
                 _check_event(previous_state="errored", state="errored"),
-                _check_event(previous_state=before or "not_firing", state="errored"),
+                _check_event(previous_state=interrupted, state="errored"),
             ),
             total=2,
         )
 
-        with patch(f"{_FIRING_SIGNAL_MODULE}.platform.notable_checks_by_public_id", return_value=history):
+        with (
+            patch(f"{_FIRING_SIGNAL_MODULE}.get_analytics_alert_scope", return_value=scope),
+            patch(f"{_FIRING_SIGNAL_MODULE}.platform.notable_checks_by_public_id", return_value=history),
+        ):
             outcome = self._fire(configuration)
 
         assert bool(requested_firing_signals(self.team.id, (outcome,))) is requested
@@ -1186,7 +1194,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             owner=PlatformAlertOwner.PLATFORM, detector_config={"type": "zscore", "threshold": 0.95, "window": 30}
         )
         configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
-        outcome = self._fire(configuration)
+        with patch(f"{_FIRING_SIGNAL_MODULE}.get_analytics_alert_scope", return_value="all_firing_alerts"):
+            outcome = self._fire(configuration)
         AlertConfiguration.objects.filter(id=alert.id).update(**changed)
 
         with (

@@ -471,8 +471,8 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # From the workflow's clock, so a retried plan reuses the expiry and gets its slots back. A
         # check releases its slot only while the slot still carries this expiry.
         expires_at = (workflow.now() + source_evaluation_timeout(SourceKind.INSIGHT)).timestamp()
-        self._investigating: list[asyncio.Task[None]] = []
-        self._signalling: list[asyncio.Task[None]] = []
+        # A record's investigation claims and inbox signals, which the batch waits for before it ends.
+        self._after_record: list[asyncio.Task[None]] = []
         if workflow.patched(_PATCH_READMISSION) and workflow.patched(_PATCH_RECORD_AS_FINISHED):
             return await self._evaluate_and_record_in_rounds(inputs, expires_at)
         if workflow.patched(_PATCH_READMISSION):
@@ -510,7 +510,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         if not outcomes:
             return 0
         await self._record(inputs, evaluations, chunked=workflow.patched(_PATCH_CHUNKED_RECORD))
-        await asyncio.gather(*self._investigating, *self._signalling)
+        await asyncio.gather(*self._after_record)
         return len(outcomes)
 
     async def _with_charts(
@@ -704,7 +704,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     continue
                 recorded += await self._record_waiting(inputs, waiting, last_chance=True)
                 await asyncio.gather(*stopping, return_exceptions=True)
-                await asyncio.gather(*self._investigating, *self._signalling)
+                await asyncio.gather(*self._after_record)
                 return recorded
             running = [task for task in unrecorded.values() if not task.done()]
             if not running:
@@ -862,11 +862,11 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         investigated = tuple(outcome for outcome in chunk if requested_investigation(outcome) is not None)
         if workflow.patched(_PATCH_INVESTIGATIONS) and investigated:
             # A task, so a slow claim holds back only the firings it holds, not the next record or round.
-            self._investigating.append(asyncio.create_task(self._investigate(inputs, investigated)))
+            self._after_record.append(asyncio.create_task(self._investigate(inputs, investigated)))
         signals = requested_firing_signals(inputs.batch_key.team_id, chunk)
         if workflow.patched(_PATCH_FIRING_SIGNALS) and signals:
             # Beside the claim and inside its share of the budget, so a slow send holds back nothing.
-            self._signalling.append(asyncio.create_task(self._emit_firing_signals(signals)))
+            self._after_record.append(asyncio.create_task(self._emit_firing_signals(signals)))
 
     async def _emit_firing_signals(self, requests: tuple[FiringSignalRequest, ...]) -> None:
         try:

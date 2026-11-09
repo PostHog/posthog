@@ -9,6 +9,7 @@ own gates, cap and payload.
 from dataclasses import replace
 from datetime import timedelta
 from typing import Final
+from uuid import UUID
 
 from django.utils import timezone
 
@@ -22,6 +23,7 @@ from products.alerts.backend.platform_firing_signal_detail import FIRING_SIGNAL_
 from products.alerts_platform.backend.facade import api as platform
 from products.alerts_platform.backend.facade.contracts import PlatformAlertCheckInput, SourceBatchEvaluation
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.signals.backend.facade.source_configs import AlertScope, get_analytics_alert_scope
 
 logger = structlog.get_logger(__name__)
 
@@ -55,29 +57,33 @@ def with_firing_signal(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
     )
     if alert is None or investigates(alert, firing=True):
         return evaluation
-    if previous_state == PlatformAlertState.ERRORED.value and _resumes_interrupted_firing(check):
+    # Before the history read, because few teams turn every firing into a signal.
+    if get_analytics_alert_scope(team_id=check.team_id) != AlertScope.ALL_FIRING_ALERTS:
+        return evaluation
+    if previous_state == PlatformAlertState.ERRORED.value and _resumes_interrupted_firing(
+        check.team_id, check.legacy_configuration_id
+    ):
         return evaluation
     group = replace(group, source_detail={**group.source_detail, FIRING_SIGNAL_REQUESTED_KEY: str(alert.id)})
     return replace(evaluation, outcomes=(replace(outcome, groups=(group,)),))
 
 
-def _resumes_interrupted_firing(check: PlatformAlertCheckInput) -> bool:
+def _resumes_interrupted_firing(team_id: int, public_id: UUID) -> bool:
     """Whether the errors before this check interrupted a firing, as the insight stack decides it.
 
     An insight alert's failed check ends its platform firing, so without this a transient query
     error during an incident would file a second signal. An unreadable history counts as resumed,
     because a missed signal costs less than a duplicate report.
     """
-    assert check.legacy_configuration_id is not None
     try:
         page = platform.notable_checks_by_public_id(
-            team_id=check.team_id,
-            public_id=check.legacy_configuration_id,
+            team_id=team_id,
+            public_id=public_id,
             since=timezone.now() - _INTERRUPTION_LOOKBACK,
             limit=_INTERRUPTION_PAGE,
         )
     except Exception:
-        logger.exception("Failed to read a platform insight alert's history", check_id=str(check.id))
+        logger.exception("Failed to read a platform insight alert's history", alert_id=str(public_id))
         return True
     if page is None:
         return True
@@ -108,7 +114,7 @@ def prepare_platform_firing_signals(requests: tuple[FiringSignalRequest, ...]) -
                 # The platform's id for the episode, so a retried emission keeps the same source id.
                 check_id=f"{request.configuration_id}:{request.episode_started_at.isoformat()}",
                 started_at=request.episode_started_at,
-                triggered_dates=list(request.triggered_dates) or None,
+                triggered_dates=request.triggered_dates,
             )
             signal = prepare_platform_firing_signal(alert, firing, breaches=list(request.breaches))
         except Exception:

@@ -187,16 +187,6 @@ def start_firing(
         )
 
 
-def set_instance_state(configuration_id: UUID, *, team_id: int, state: str, grouping_key: str = "") -> None:
-    """Put a configuration's instance in a state outside a firing, as a failed or quiet check leaves it."""
-    PlatformAlert.objects.update_or_create(
-        team_id=team_id,
-        configuration_id=configuration_id,
-        grouping_key=grouping_key,
-        defaults={"state": state, "firing_started_at": None},
-    )
-
-
 def set_check_status(configuration_id: UUID, check_status: str) -> None:
     """Mark a configuration's checks as failing or not, as checks outside the test can leave it."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
