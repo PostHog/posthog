@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -177,14 +179,15 @@ class TestWorkflowFolders(APIBaseTest):
     def test_create_in_folder_rejects_paths_past_the_tree_limits(
         self, _name: str, resource: str, folder: str, _reload: MagicMock
     ) -> None:
-        payload = {
+        payloads: dict[str, dict[str, Any]] = {
             "hog_flows": {
                 "name": "Bounded",
                 "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
                 "edges": [],
             },
             "messaging_templates": {"name": "Bounded", "type": "email"},
-        }[resource]
+        }
+        payload = payloads[resource]
 
         created = self.client.post(
             f"/api/projects/{self.team.id}/{resource}/", {**payload, "_create_in_folder": folder}, format="json"
