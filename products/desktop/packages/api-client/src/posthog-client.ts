@@ -5443,23 +5443,36 @@ export class PostHogAPIClient {
 
   async getGithubRepositories(
     integrationId: string | number,
+    signal?: AbortSignal,
   ): Promise<string[]> {
+    const controller = new AbortController();
+    const requestSignal = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     const repositories: string[] = [];
     let offset = 0;
 
-    while (true) {
-      const page = await this.getGithubRepositoriesPage(
-        integrationId,
-        offset,
-        500,
-      );
-      repositories.push(...page.repositories);
+    try {
+      while (true) {
+        requestSignal.throwIfAborted();
+        const page = await this.getGithubRepositoriesPage(
+          integrationId,
+          offset,
+          500,
+          undefined,
+          requestSignal,
+        );
+        repositories.push(...page.repositories);
 
-      if (!page.hasMore) {
-        return repositories;
+        if (!page.hasMore) {
+          return repositories;
+        }
+
+        offset += page.repositories.length;
       }
-
-      offset += page.repositories.length;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -5468,6 +5481,7 @@ export class PostHogAPIClient {
     offset: number,
     limit: number,
     search?: string,
+    signal?: AbortSignal,
   ): Promise<{
     repositories: string[];
     hasMore: boolean;
@@ -5486,6 +5500,7 @@ export class PostHogAPIClient {
       method: "get",
       url,
       path: `/api/environments/${teamId}/integrations/${integrationId}/github_repos/`,
+      overrides: { signal },
     });
 
     if (!response.ok) {

@@ -1,6 +1,5 @@
 import type {
   GithubConnectClient,
-  GitProviderClient,
   RepositoriesClient,
   TeamFlowResult,
 } from "@posthog/core/integrations/identifiers";
@@ -27,12 +26,6 @@ export class UiRepositoriesClient implements RepositoriesClient {
 
   async refreshUserRepository(installationId: string): Promise<unknown> {
     return (await authedClient()).refreshGithubUserRepositories(installationId);
-  }
-}
-
-export class UiGitProviderClient implements GitProviderClient {
-  async listGithubRepositories(integrationId: number): Promise<string[]> {
-    return (await authedClient()).getGithubRepositories(integrationId);
   }
 }
 

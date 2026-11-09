@@ -1,66 +1,79 @@
 import { describe, expect, it, vi } from "vitest";
 import { GitProviderService } from "./gitProviderService";
-import type { GitProviderClient } from "./identifiers";
+import { RepositoriesService } from "./repositoriesService";
 import type { Integration } from "./selectors";
 
 const integrations: Integration[] = [
-  { id: 1, kind: "github", display_name: "posthog" },
-  { id: 2, kind: "github", display_name: "broken-org" },
-  {
-    id: 3,
-    kind: "gitlab",
-    display_name: "PostHog / Desktop",
-    config: { path_with_namespace: "posthog/desktop" },
-  },
+  { id: 1, kind: "github", display_name: "Example" },
+  { id: 2, kind: "github", display_name: "Unavailable" },
+  { id: 3, kind: "gitlab", config: { path_with_namespace: "example/desktop" } },
   { id: 4, kind: "slack" },
 ];
 
-function makeClient(): GitProviderClient {
-  return {
-    listGithubRepositories: vi.fn(async (integrationId: number) => {
-      if (integrationId === 2) throw new Error("GitHub is down");
-      return ["PostHog/posthog"];
+function service() {
+  return new GitProviderService(
+    new RepositoriesService({
+      refreshTeamRepository: vi.fn().mockResolvedValue(undefined),
+      refreshUserRepository: vi.fn().mockResolvedValue(undefined),
     }),
-  };
+  );
 }
 
 describe("GitProviderService", () => {
-  it("merges every enabled provider into one sorted list and reports the failed connection", async () => {
-    const client = makeClient();
-    const service = new GitProviderService(client);
+  it.each(["pending", "error"] as const)(
+    "keeps healthy repositories when a GitHub connection is %s",
+    (status) => {
+      const result = service().combineRepositories(
+        integrations,
+        ["github", "gitlab"],
+        [
+          {
+            data: { integrationId: 1, repos: ["Example/project"] },
+            isPending: false,
+            isError: false,
+            isRefetching: false,
+          },
+          {
+            data: undefined,
+            isPending: status === "pending",
+            isError: status === "error",
+            isRefetching: false,
+          },
+        ],
+      );
+      expect(
+        result.repositories.map((repository) => repository.fullName),
+      ).toEqual(["example/project", "example/desktop"]);
+      expect(
+        result.failedConnections.map((connection) => connection.integrationId),
+      ).toEqual(status === "error" ? [2] : []);
+      expect(
+        result.pendingConnections.map((connection) => connection.integrationId),
+      ).toEqual(status === "pending" ? [2] : []);
+    },
+  );
 
-    const result = await service.listRepositories(integrations, [
-      "github",
-      "gitlab",
-    ]);
-
-    expect(result.connections.map((c) => c.integrationId)).toEqual([1, 2, 3]);
-    expect(result.repositories).toEqual([
-      {
-        provider: "github",
-        integrationId: 1,
-        fullName: "posthog/posthog",
-        url: "https://github.com/posthog/posthog",
-      },
-      {
-        provider: "gitlab",
-        integrationId: 3,
-        fullName: "posthog/desktop",
-        url: "https://gitlab.com/posthog/desktop",
-      },
-    ]);
-    expect(result.failedConnections.map((c) => c.integrationId)).toEqual([2]);
-    expect(client.listGithubRepositories).toHaveBeenCalledTimes(2);
+  it("excludes GitLab repositories when the provider is disabled", () => {
+    const result = service().combineRepositories(integrations, ["github"], []);
+    expect(
+      result.connections.map((connection) => connection.integrationId),
+    ).toEqual([1, 2]);
+    expect(result.repositories).toEqual([]);
   });
 
-  it("never calls the network for gitlab and skips it when the provider is disabled", async () => {
-    const client = makeClient();
-    const service = new GitProviderService(client);
-
-    const result = await service.listRepositories(integrations, ["github"]);
-
-    expect(result.repositories.map((r) => r.provider)).toEqual(["github"]);
-    expect(result.connections.some((c) => c.provider === "gitlab")).toBe(false);
-    expect(client.listGithubRepositories).not.toHaveBeenCalledWith(3);
+  it("refreshes the GitHub server cache before returning the query keys", async () => {
+    const refreshTeamRepository = vi.fn().mockResolvedValue(undefined);
+    const provider = new GitProviderService(
+      new RepositoriesService({
+        refreshTeamRepository,
+        refreshUserRepository: vi.fn(),
+      }),
+    );
+    const keys = await provider.refreshRepositories(integrations);
+    expect(refreshTeamRepository.mock.calls).toEqual([[1], [2]]);
+    expect(keys).toContainEqual({
+      queryKey: ["integrations", "repositories", 1],
+      exact: false,
+    });
   });
 });

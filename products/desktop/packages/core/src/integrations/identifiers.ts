@@ -49,14 +49,6 @@ export const GITHUB_CONNECT_SERVICE = Symbol.for(
   "posthog.core.integrations.githubConnectService",
 );
 
-export interface GitProviderClient {
-  listGithubRepositories(integrationId: number): Promise<string[]>;
-}
-
-export const GIT_PROVIDER_CLIENT = Symbol.for(
-  "posthog.core.integrations.gitProviderClient",
-);
-
 export const GIT_PROVIDER_SERVICE = Symbol.for(
   "posthog.core.integrations.gitProviderService",
 );

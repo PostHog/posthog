@@ -8,72 +8,74 @@ import {
   gitProviderConnections,
   sortGitProviderRepositories,
 } from "./gitProviders";
-import { GIT_PROVIDER_CLIENT, type GitProviderClient } from "./identifiers";
+import { REPOSITORIES_SERVICE } from "./identifiers";
+import type {
+  RepositoryQueryResult,
+  TeamRepositoriesResult,
+} from "./repositories";
+import type { RepositoriesService } from "./repositoriesService";
 import type { Integration } from "./selectors";
 
 export interface GitProviderRepositoriesResult {
   connections: GitProviderConnection[];
   repositories: GitProviderRepository[];
   failedConnections: GitProviderConnection[];
+  pendingConnections: GitProviderConnection[];
 }
 
 @injectable()
 export class GitProviderService {
   constructor(
-    @inject(GIT_PROVIDER_CLIENT)
-    private readonly client: GitProviderClient,
+    @inject(REPOSITORIES_SERVICE)
+    private readonly repositories: RepositoriesService,
   ) {}
 
-  async listRepositories(
+  combineRepositories(
     integrations: ReadonlyArray<Integration>,
     providers: ReadonlyArray<GitProviderKind>,
-  ): Promise<GitProviderRepositoriesResult> {
+    githubResults: ReadonlyArray<RepositoryQueryResult<TeamRepositoriesResult>>,
+  ): GitProviderRepositoriesResult {
     const connections = gitProviderConnections(integrations, providers);
-    const byId = new Map(
-      integrations.map((integration) => [integration.id, integration]),
-    );
-
-    const settled = await Promise.allSettled(
-      connections.map((connection) => {
-        const integration = byId.get(connection.integrationId);
-        if (!integration) return Promise.resolve([]);
-        return this.repositoriesFor(connection, integration);
-      }),
-    );
-
     const repositories: GitProviderRepository[] = [];
     const failedConnections: GitProviderConnection[] = [];
-    settled.forEach((result, index) => {
-      const connection = connections[index];
-      if (!connection) return;
-      if (result.status === "fulfilled") {
-        repositories.push(...result.value);
-      } else {
-        failedConnections.push(connection);
+    const pendingConnections: GitProviderConnection[] = [];
+    let githubIndex = 0;
+
+    for (const connection of connections) {
+      if (connection.provider === "gitlab") {
+        const integration = integrations.find(
+          (item) => item.id === connection.integrationId,
+        );
+        const repository = integration && gitlabRepository(integration);
+        if (repository) repositories.push(repository);
+        continue;
       }
-    });
+      const result = githubResults[githubIndex++];
+      if (!result || result.isPending) pendingConnections.push(connection);
+      if (result?.isError) failedConnections.push(connection);
+      if (result?.data) {
+        repositories.push(
+          ...githubRepositories(
+            connection.integrationId,
+            result.data.repos ?? [],
+          ),
+        );
+      }
+    }
 
     return {
       connections,
       repositories: sortGitProviderRepositories(repositories),
       failedConnections,
+      pendingConnections,
     };
   }
 
-  private async repositoriesFor(
-    connection: GitProviderConnection,
-    integration: Integration,
-  ): Promise<GitProviderRepository[]> {
-    switch (connection.provider) {
-      case "github":
-        return githubRepositories(
-          connection.integrationId,
-          await this.client.listGithubRepositories(connection.integrationId),
-        );
-      case "gitlab": {
-        const repository = gitlabRepository(integration);
-        return repository ? [repository] : [];
-      }
-    }
+  refreshRepositories(integrations: ReadonlyArray<Integration>) {
+    return this.repositories.refreshTeamRepositoriesAndKeys(
+      gitProviderConnections(integrations, ["github"]).map(
+        (connection) => connection.integrationId,
+      ),
+    );
   }
 }

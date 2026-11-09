@@ -11,6 +11,51 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it.each(["timeout", "cancel"] as const)(
+    "aborts a stalled GitHub repository lookup on %s",
+    async (reason) => {
+      vi.useFakeTimers();
+      try {
+        let markStarted!: (signal: AbortSignal) => void;
+        const started = new Promise<AbortSignal>((resolve) => {
+          markStarted = resolve;
+        });
+        const fetch = vi.fn(
+          (_url: string | URL | Request, init?: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              const signal = init?.signal as AbortSignal;
+              signal.addEventListener("abort", () => reject(signal.reason), {
+                once: true,
+              });
+              markStarted(signal);
+            }),
+        );
+        const client = new PostHogAPIClient(
+          "https://example.com",
+          async () => "test-token",
+          async () => "test-token",
+          42,
+          { fetch },
+        );
+        const controller = new AbortController();
+        const result = expect(
+          client.getGithubRepositories(1, controller.signal),
+        ).rejects.toThrow("abort");
+        const signal = await started;
+        if (reason === "timeout") {
+          await vi.advanceTimersByTimeAsync(15_000);
+        } else {
+          controller.abort();
+        }
+        await result;
+        expect(signal.aborted).toBe(true);
+        expect(fetch).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it.each(["implementation", "discussion"] as const)(
     "creates a report %s without client repository credentials",
     async (relationship) => {

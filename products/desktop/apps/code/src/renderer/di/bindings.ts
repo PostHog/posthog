@@ -65,9 +65,7 @@ import {
 } from "@posthog/core/integrations/codexCloudAccountService";
 import type { GitProviderService } from "@posthog/core/integrations/gitProviderService";
 import {
-  GIT_PROVIDER_CLIENT,
   GIT_PROVIDER_SERVICE,
-  type GitProviderClient,
   GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
@@ -381,7 +379,6 @@ export interface RendererBindings {
   [INTEGRATIONS_GITHUB_CONNECT_CLIENT]: IntegrationsGithubConnectClient;
   [REPOSITORIES_CLIENT]: RepositoriesClient;
   [REPOSITORIES_SERVICE]: RepositoriesService;
-  [GIT_PROVIDER_CLIENT]: GitProviderClient;
   [GIT_PROVIDER_SERVICE]: GitProviderService;
   [HEDGEHOG_MODE_HOST]: HedgehogModeHost;
   [AGENT_PROMPT_SENDER]: AgentPromptSender;

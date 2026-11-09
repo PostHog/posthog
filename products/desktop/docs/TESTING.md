@@ -79,6 +79,13 @@ Refresh the picture, close Settings, then open Settings again. The refreshed pic
 Other avatars for the same email must use the refreshed URL, including avatars at different sizes. Refresh state lasts until the app reloads.
 The `Settings/AccountSettings` stories cover transparent pictures, missing pictures, and loading states.
 
+## Connected repositories
+
+With `posthog-desktop-gitlab-integration` enabled, open Settings > GitHub.
+Confirm that a connected GitLab project remains visible while a GitHub connection loads or fails.
+Refresh after changing GitHub repository access, and check the next page of a large repository list.
+Switch accounts or projects and fail the new integration request. Previous repository names must not appear.
+
 ## File Location
 
 - Unit tests colocate with source as `.test.ts` or `.test.tsx`.
