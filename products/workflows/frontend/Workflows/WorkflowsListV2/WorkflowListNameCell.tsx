@@ -14,12 +14,13 @@ import { workflowSuggestionsAvailabilityLogic } from '../suggestions/workflowSug
 import { WorkflowFolderPath } from './WorkflowFolderPath'
 import { WorkflowFolderRow } from './WorkflowFolderRow'
 import { WorkflowListRow } from './workflowListRows'
+import { workflowsListV2Logic } from './workflowsListV2Logic'
 
 export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Element {
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
-    const { itemsByRef } = useValues(projectTreeDataLogic)
+    const { filesByRef } = useValues(workflowsListV2Logic)
     const { syncTypeAndRef } = useActions(projectTreeDataLogic)
-    const candidate = itemsByRef[`hog_flow::${row.id}`]
+    const candidate = filesByRef[`hog_flow::${row.id}`]
     const entry = candidate?.shortcut ? undefined : candidate
     const enabled = useFeatureFlag('WORKFLOWS_PROJECT_FILES')
     const canMove = enabled && !['viewer', 'none'].includes(row.workflow.user_access_level ?? '')

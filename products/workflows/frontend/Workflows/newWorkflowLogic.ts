@@ -59,6 +59,7 @@ export interface newWorkflowLogicValues {
     sceneIntegrationEnabled: boolean // sceneAgentPanelLogic
     aiComposerAvailable: boolean
     aiFirstNewEnabled: boolean
+    composerFolder: string | null
     newWorkflowModalVisible: boolean
 }
 
@@ -88,6 +89,14 @@ export interface newWorkflowLogicActions {
 export interface newWorkflowLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         aiFirstNewEnabled: (featureFlags: FeatureFlagsSet, sceneIntegrationEnabled: boolean) => boolean
+        composerFolder: (
+            featureFlags: FeatureFlagsSet,
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            }
+        ) => string | null
         aiComposerAvailable: (
             featureFlags: FeatureFlagsSet,
             sceneIntegrationEnabled: boolean,
@@ -143,6 +152,14 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
             (s) => [s.featureFlags, s.sceneIntegrationEnabled],
             (featureFlags: FeatureFlagsSet, sceneIntegrationEnabled: boolean): boolean =>
                 sceneIntegrationEnabled && isAiFirstVariant(FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW, featureFlags),
+        ],
+        // The project folder the composer's draft is created in, while the project browser is on.
+        composerFolder: [
+            (s) => [s.featureFlags, s.location],
+            (featureFlags: FeatureFlagsSet, location: { search: string }): string | null =>
+                featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES] && featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
+                    ? newWorkflowFolder(location.search)
+                    : null,
         ],
         // Deep links with a starting point stay on the editor. Checked here so the scene never reads the flag early.
         aiComposerAvailable: [
