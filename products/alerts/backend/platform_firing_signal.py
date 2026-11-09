@@ -15,7 +15,12 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.temporal.alerts.alert_firing_signal import AlertFiringSignal, FiringStart, prepare_platform_firing_signal
+from posthog.temporal.alerts.alert_firing_signal import (
+    AlertFiringSignal,
+    FiringStart,
+    prepare_platform_firing_signal,
+    signals_every_firing,
+)
 from posthog.temporal.alerts.investigation import investigates
 
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -23,7 +28,6 @@ from products.alerts.backend.platform_firing_signal_detail import FIRING_SIGNAL_
 from products.alerts_platform.backend.facade import api as platform
 from products.alerts_platform.backend.facade.contracts import PlatformAlertCheckInput, SourceBatchEvaluation
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
-from products.signals.backend.facade.source_configs import AlertScope, get_analytics_alert_scope
 
 logger = structlog.get_logger(__name__)
 
@@ -58,7 +62,7 @@ def with_firing_signal(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
     if alert is None or investigates(alert, firing=True):
         return evaluation
     # Before the history read, because few teams turn every firing into a signal.
-    if get_analytics_alert_scope(team_id=check.team_id) != AlertScope.ALL_FIRING_ALERTS:
+    if not signals_every_firing(check.team_id):
         return evaluation
     if previous_state == PlatformAlertState.ERRORED.value and _resumes_interrupted_firing(
         check.team_id, check.legacy_configuration_id

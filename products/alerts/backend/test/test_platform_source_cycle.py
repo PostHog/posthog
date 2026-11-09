@@ -1172,7 +1172,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         )
 
         with (
-            patch(f"{_FIRING_SIGNAL_MODULE}.get_analytics_alert_scope", return_value=scope),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value=scope),
             patch(f"{_FIRING_SIGNAL_MODULE}.platform.notable_checks_by_public_id", return_value=history),
         ):
             outcome = self._fire(configuration)
@@ -1194,7 +1194,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             owner=PlatformAlertOwner.PLATFORM, detector_config={"type": "zscore", "threshold": 0.95, "window": 30}
         )
         configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
-        with patch(f"{_FIRING_SIGNAL_MODULE}.get_analytics_alert_scope", return_value="all_firing_alerts"):
+        with patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value="all_firing_alerts"):
             outcome = self._fire(configuration)
         AlertConfiguration.objects.filter(id=alert.id).update(**changed)
 

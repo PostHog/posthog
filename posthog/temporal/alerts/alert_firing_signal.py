@@ -94,6 +94,11 @@ def _source_id(alert_id: str, alert_check_id: str) -> str:
     return f"{alert_id}:{alert_check_id}"
 
 
+def signals_every_firing(team_id: int) -> bool:
+    """Whether the team's analytics source turns firings the agent never investigates into signals."""
+    return get_analytics_alert_scope(team_id=team_id) == _ALL_FIRING_ALERTS
+
+
 def alert_firing_skip_reason(
     alert: AlertConfiguration, *, previous_state: str, new_state: str
 ) -> AlertFiringSkipReason | None:
