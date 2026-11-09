@@ -1,9 +1,8 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, type ScrollView, Text, TextInput, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
-import Animated, { useAnimatedStyle } from 'react-native-reanimated'
-
+import Animated from 'react-native-reanimated'
 import { actionErrorMessage } from '@/lib/errors'
 import { VERDICT_NOTE_MAX_LENGTH } from '@/model/verdictReasons'
 import { BottomSheet } from '@/ui/BottomSheet'
@@ -11,6 +10,7 @@ import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import type { VerdictCopy } from './verdictCopy'
 
@@ -37,9 +37,11 @@ export function VerdictSheet<Reason extends string>({
 }: VerdictSheetProps<Reason>): ReactElement {
     const styles = useStyles()
     const { colors, scheme } = useTheme()
-    const { height } = useWindowDimensions()
+    const { height } = useSceneDimensions()
+    const compact = height < 480
     const keyboard = useReanimatedKeyboardAnimation()
     const scroll = useRef<ScrollView>(null)
+    const noteInput = useRef<TextInput>(null)
     const listGesture = useMemo(() => Gesture.Native(), [])
     const [reason, setReason] = useState<Reason | undefined>(undefined)
     const [note, setNote] = useState('')
@@ -53,10 +55,6 @@ export function VerdictSheet<Reason extends string>({
         }
     }, [visible])
 
-    // The sheet lifts with the keyboard, and the list gives up the keyboard's height so the button stays on screen.
-    const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, 0) }))
-    const listStyle = useAnimatedStyle(() => ({ maxHeight: Math.max(height * 0.5 + keyboard.height.value, 120) }))
-
     const canConfirm = reason !== undefined && !pending
     const confirm = (): void => {
         if (reason === undefined || pending) {
@@ -66,28 +64,45 @@ export function VerdictSheet<Reason extends string>({
         onConfirm(reason, note).catch((confirmError: unknown) => setError(actionErrorMessage(confirmError)))
     }
 
+    const heading = (
+        <>
+            <Text style={styles.title} accessibilityRole="header" numberOfLines={3}>
+                {copy.title}
+            </Text>
+            <Text style={styles.description}>{copy.description}</Text>
+            {error ? (
+                <Text style={styles.error} accessibilityRole="alert" testID={`${testID}-error`}>
+                    {error}
+                </Text>
+            ) : null}
+        </>
+    )
+
     return (
         <BottomSheet
             visible={visible}
             onClose={onClose}
             paddingHorizontal={20}
             scrollGesture={listGesture}
+            keyboardHeight={keyboard.height}
             accessibilityLabel={copy.title}
             testID={testID}
         >
-            <Animated.View style={keyboardStyle}>
-                <Text style={styles.title} accessibilityRole="header" numberOfLines={3}>
-                    {copy.title}
-                </Text>
-                <Text style={styles.description}>{copy.description}</Text>
-                {error ? (
-                    <Text style={styles.error} accessibilityRole="alert" testID={`${testID}-error`}>
-                        {error}
-                    </Text>
-                ) : null}
-                <Animated.View style={[styles.list, listStyle]}>
+            <View style={styles.content}>
+                {compact ? null : heading}
+                <View style={[styles.list, compact && { marginTop: 4 }]}>
                     <GestureDetector gesture={listGesture}>
-                        <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" style={styles.scroll}>
+                        <Animated.ScrollView
+                            ref={scroll}
+                            keyboardShouldPersistTaps="handled"
+                            onLayout={() => {
+                                if (noteInput.current?.isFocused()) {
+                                    scroll.current?.scrollToEnd({ animated: false })
+                                }
+                            }}
+                            style={[styles.scroll, { maxHeight: Math.max(height * 0.5, 120) }]}
+                        >
+                            {compact ? heading : null}
                             <Text style={styles.fieldLabel}>Reason</Text>
                             <View accessibilityRole="radiogroup">
                                 {options.map((option) => {
@@ -113,23 +128,25 @@ export function VerdictSheet<Reason extends string>({
                             <Text style={[styles.fieldLabel, styles.noteLabel]}>Note</Text>
                             <Text style={styles.noteInfo}>{copy.noteInfo}</Text>
                             <TextInput
+                                ref={noteInput}
                                 value={note}
                                 onChangeText={setNote}
                                 onFocus={() => scroll.current?.scrollToEnd({ animated: true })}
                                 editable={!pending}
                                 multiline
+                                disableFullscreenUI
                                 maxLength={VERDICT_NOTE_MAX_LENGTH}
                                 placeholder={copy.notePlaceholder}
                                 placeholderTextColor={colors.tertiary}
                                 keyboardAppearance={scheme}
                                 textAlignVertical="top"
-                                style={styles.note}
+                                style={[styles.note, compact && styles.noteCompact]}
                                 accessibilityLabel="Note"
                                 testID={`${testID}-note`}
                             />
-                        </ScrollView>
+                        </Animated.ScrollView>
                     </GestureDetector>
-                </Animated.View>
+                </View>
                 <Pressable44
                     onPress={confirm}
                     disabled={!canConfirm}
@@ -137,6 +154,7 @@ export function VerdictSheet<Reason extends string>({
                     pressedBackground={colors.inkHover}
                     style={[
                         styles.confirm,
+                        compact && { marginTop: 4, height: 44 },
                         { backgroundColor: canConfirm || pending ? colors.ink : colors.disabledFill },
                     ]}
                     testID={`${testID}-confirm`}
@@ -149,12 +167,16 @@ export function VerdictSheet<Reason extends string>({
                         </Text>
                     )}
                 </Pressable44>
-            </Animated.View>
+            </View>
         </BottomSheet>
     )
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    content: {
+        flexShrink: 1,
+        minHeight: 0,
+    },
     title: {
         ...type.sheetTitle,
         color: colors.ink,
@@ -175,9 +197,12 @@ const useStyles = createStyles(({ colors }) => ({
     },
     list: {
         marginTop: 12,
+        flexShrink: 1,
+        minHeight: 0,
     },
     scroll: {
         flexGrow: 0,
+        flexShrink: 1,
     },
     fieldLabel: {
         ...type.bodySmallStrong,
@@ -220,6 +245,13 @@ const useStyles = createStyles(({ colors }) => ({
         borderWidth: 1,
         borderColor: colors.hairline,
         backgroundColor: colors.background,
+    },
+    noteCompact: {
+        height: 44,
+        minHeight: 44,
+        maxHeight: 44,
+        paddingTop: 8,
+        paddingBottom: 8,
     },
     confirm: {
         marginTop: 16,

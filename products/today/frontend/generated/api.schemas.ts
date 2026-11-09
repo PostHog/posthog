@@ -192,6 +192,53 @@ export interface HighlightMetricApi {
 }
 
 /**
+ * * `pending` - Loading
+ * * `ready` - Ready
+ * * `empty` - No data
+ * * `error` - Could not load
+ */
+export type PulseSlotStatusEnumApi = (typeof PulseSlotStatusEnumApi)[keyof typeof PulseSlotStatusEnumApi]
+
+export const PulseSlotStatusEnumApi = {
+    Pending: 'pending',
+    Ready: 'ready',
+    Empty: 'empty',
+    Error: 'error',
+} as const
+
+export interface PulseSlotApi {
+    /** Why this number is selected, when known before its value arrives.
+     *
+     * * `routine` - You open this often
+     * * `dashboard` - On a dashboard you open often
+     * * `key_metric` - Project key metric
+     * * `popular` - Opened often in this project */
+    reason?: HighlightMetricReasonEnumApi | null
+    /** Stable key of the selected number. */
+    key: string
+    /** Title available before the number is computed. */
+    name: string
+    /** Loading state of this number.
+     *
+     * * `pending` - Loading
+     * * `ready` - Ready
+     * * `empty` - No data
+     * * `error` - Could not load */
+    status: PulseSlotStatusEnumApi
+    /**
+     * Path to the source, relative to the project.
+     * @nullable
+     */
+    url: string | null
+    /** Measurement interval, when known.
+     *
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    interval: CalendarUnitEnumApi | null
+}
+
+/**
  * * `risk` - Risk
  * * `opportunity` - Opportunity
  */
@@ -279,7 +326,7 @@ export interface HighlightPinApi {
 }
 
 export interface HighlightsApi {
-    /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content is the last ready highlights of the day, or empty, so poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
+    /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content includes available results and, when enabled, pending number details. Otherwise it is the last ready highlights of the day, or empty. Poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
      *
      * * `computing` - Computing
      * * `ready` - Ready
@@ -296,6 +343,11 @@ export interface HighlightsApi {
     refresh_at: string
     /** Key metrics of the project from its settings. */
     pulse: HighlightMetricApi[]
+    /**
+     * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.
+     * @nullable
+     */
+    pulse_slots?: PulseSlotApi[] | null
     /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
     items: HighlightItemApi[]
     /** The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`. */
@@ -599,6 +651,13 @@ export interface ReportPageApi {
      * @nullable
      */
     last_seen: string | null
+}
+
+export type TodayHighlightsRetrieveParams = {
+    /**
+     * Retry failed sources when progressive loading is enabled. An active computation is reused.
+     */
+    refresh?: boolean
 }
 
 export type TodayReportsKeyClausesRetrieveParams = {

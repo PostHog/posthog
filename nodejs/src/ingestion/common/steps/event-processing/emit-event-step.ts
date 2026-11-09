@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { TEAM_ID_HEADER } from '~/common/kafka/headers'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
@@ -84,7 +85,10 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                 .produce(output, {
                     key: serialized.uuid,
                     value: Buffer.from(JSON.stringify(serialized)),
-                    headers: { productTrack: productTrackHeader(event) },
+                    headers: {
+                        productTrack: productTrackHeader(event),
+                        [TEAM_ID_HEADER]: String(serialized.team_id),
+                    },
                     teamId: serialized.team_id,
                 })
                 .then(() => {

@@ -142,6 +142,97 @@ MATOMO_ENDPOINTS: dict[str, MatomoEndpointConfig] = {
         primary_keys=["_date", "label"],
         incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
     ),
+    # Entry and exit page reports nest pages under folder rows like `pages`, so they are flattened too.
+    "entry_pages": MatomoEndpointConfig(
+        name="entry_pages",
+        kind="report",
+        method="Actions.getEntryPageUrls",
+        params={"flat": 1},
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "exit_pages": MatomoEndpointConfig(
+        name="exit_pages",
+        kind="report",
+        method="Actions.getExitPageUrls",
+        params={"flat": 1},
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "referrer_types": MatomoEndpointConfig(
+        name="referrer_types",
+        kind="report",
+        method="Referrers.getReferrerType",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    # The search engine, website and social reports keep their per-URL and per-keyword
+    # subtables unflattened: one row per referrer name keeps (_date, label) unique.
+    "search_engines": MatomoEndpointConfig(
+        name="search_engines",
+        kind="report",
+        method="Referrers.getSearchEngines",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "referrer_websites": MatomoEndpointConfig(
+        name="referrer_websites",
+        kind="report",
+        method="Referrers.getWebsites",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "social_networks": MatomoEndpointConfig(
+        name="social_networks",
+        kind="report",
+        method="Referrers.getSocials",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "device_types": MatomoEndpointConfig(
+        name="device_types",
+        kind="report",
+        method="DevicesDetection.getType",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "browsers": MatomoEndpointConfig(
+        name="browsers",
+        kind="report",
+        method="DevicesDetection.getBrowsers",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "os_families": MatomoEndpointConfig(
+        name="os_families",
+        kind="report",
+        method="DevicesDetection.getOsFamilies",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    # MarketingCampaignsReporting is a plugin: bundled with Matomo Cloud, optional on self-hosted
+    # instances, which answer with an error envelope when it is not installed.
+    "campaign_names": MatomoEndpointConfig(
+        name="campaign_names",
+        kind="report",
+        method="MarketingCampaignsReporting.getName",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "campaign_sources": MatomoEndpointConfig(
+        name="campaign_sources",
+        kind="report",
+        method="MarketingCampaignsReporting.getSource",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "campaign_mediums": MatomoEndpointConfig(
+        name="campaign_mediums",
+        kind="report",
+        method="MarketingCampaignsReporting.getMedium",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
     # Goal definitions: a small undated lookup, fetched whole each sync.
     "goals": MatomoEndpointConfig(
         name="goals",

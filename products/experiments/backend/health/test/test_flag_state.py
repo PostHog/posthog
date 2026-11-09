@@ -2,7 +2,11 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
+from posthog.test.base import BaseTest
 from unittest import TestCase
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -14,15 +18,21 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
+    ExperimentOnFlag,
     HealthContext,
     PauseHistory,
+    load_health_context,
     parse_flag_state,
 )
 from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING, RUNNING_CONTEXT, Status
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 # The flag documents and cases of the `experimentWarning` test in
 # frontend/src/scenes/experiments/experimentLogic.test.ts, so that both sides answer alike. A running
-# experiment with a deleted flag is the exception: only the server reports it.
+# experiment with a deleted flag is one exception: only the server reports it. An ended experiment is another:
+# only the server reads the flag's calls and the other experiments on the flag. A draft whose flag a running
+# experiment uses is a third, for the same reason.
 MULTIVARIANT = {
     "groups": [{"properties": [], "rollout_percentage": 100}],
     "multivariate": {
@@ -76,6 +86,13 @@ PAUSED_AT = datetime(2026, 10, 12, 13, 4, tzinfo=UTC)
 ENDED_AT = datetime(2026, 10, 14, 8, 30, tzinfo=UTC)
 
 
+def _other(*, launched_at: datetime | None, ended_at: datetime | None = None) -> ExperimentOnFlag:
+    return ExperimentOnFlag(launched_at=launched_at, ended_at=ended_at, archived=False)
+
+
+DRAFT_ON_FLAG = _other(launched_at=None)
+
+
 def _context(
     status: Status,
     *,
@@ -86,6 +103,8 @@ def _context(
     traffic: ConditionSetTraffic | None = None,
     pause_history: PauseHistory | None = None,
     flag_called_after_end: bool | None = None,
+    flag_last_called_at: datetime | None = None,
+    other_experiments: tuple[ExperimentOnFlag, ...] = (),
 ) -> HealthContext:
     return replace(
         RUNNING_CONTEXT,
@@ -94,6 +113,8 @@ def _context(
         is_paused=status["is_running"] and not active,
         archived=archived,
         flag_called_after_end=flag_called_after_end,
+        flag_last_called_at=flag_last_called_at,
+        other_experiments_on_flag=other_experiments,
         flag=parse_flag_state(
             active=active,
             deleted=deleted,
@@ -147,7 +168,7 @@ class TestFlagState(TestCase):
             (
                 "ended_flag_distributing_variants",
                 _context(ENDED, active=True, filters=MULTIVARIANT),
-                (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_but_multiple_variants_rolled_out", None),
+                (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_flag_calls_unknown", None),
             ),
             (
                 "ended_flag_not_called_since_the_end",
@@ -159,12 +180,60 @@ class TestFlagState(TestCase):
                 _context(ENDED, active=True, filters=MULTIVARIANT, flag_called_after_end=True),
                 (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_but_multiple_variants_rolled_out", None),
             ),
+            (
+                "ended_flag_serves_a_running_experiment",
+                _context(
+                    ENDED,
+                    active=True,
+                    filters=MULTIVARIANT,
+                    flag_called_after_end=True,
+                    other_experiments=(_other(launched_at=ENDED_AT - timedelta(days=3)),),
+                ),
+                None,
+            ),
+            (
+                "ended_flag_served_a_later_experiment_that_ended",
+                _context(
+                    ENDED,
+                    active=True,
+                    filters=MULTIVARIANT,
+                    flag_called_after_end=True,
+                    other_experiments=(
+                        _other(launched_at=ENDED_AT + timedelta(days=1), ended_at=ENDED_AT + timedelta(days=5)),
+                    ),
+                ),
+                None,
+            ),
+            (
+                "ended_flag_served_an_earlier_experiment",
+                _context(
+                    ENDED,
+                    active=True,
+                    filters=MULTIVARIANT,
+                    flag_called_after_end=True,
+                    other_experiments=(
+                        _other(launched_at=ENDED_AT - timedelta(days=30), ended_at=ENDED_AT - timedelta(days=20)),
+                    ),
+                ),
+                (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_but_multiple_variants_rolled_out", None),
+            ),
+            (
+                "ended_flag_shared_with_a_draft",
+                _context(
+                    ENDED,
+                    active=True,
+                    filters=MULTIVARIANT,
+                    flag_called_after_end=True,
+                    other_experiments=(DRAFT_ON_FLAG,),
+                ),
+                (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_flag_shared_with_draft", None),
+            ),
             ("ended_zero_rollout", _context(ENDED, active=True, filters=ZERO_ROLLOUT), None),
             ("ended_flag_disabled", _context(ENDED, active=False, filters=MULTIVARIANT), None),
             ("ended_single_variant_shipped", _context(ENDED, active=True, filters=SHIPPED_VARIANT), None),
             (
                 "archived_ended_flag_distributing_variants",
-                _context(ENDED, active=True, filters=MULTIVARIANT, archived=True),
+                _context(ENDED, active=True, filters=MULTIVARIANT, archived=True, flag_called_after_end=True),
                 (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_but_multiple_variants_rolled_out", None),
             ),
             (
@@ -179,6 +248,16 @@ class TestFlagState(TestCase):
             (
                 "archived_draft_flag_distributing_variants",
                 _context(DRAFT, active=True, filters=MULTIVARIANT, archived=True),
+                None,
+            ),
+            (
+                "draft_flag_serves_a_running_experiment",
+                _context(
+                    DRAFT,
+                    active=True,
+                    filters=MULTIVARIANT,
+                    other_experiments=(_other(launched_at=ENDED_AT - timedelta(days=3)),),
+                ),
                 None,
             ),
             ("draft_zero_rollout", _context(DRAFT, active=True, filters=ZERO_ROLLOUT), None),
@@ -252,6 +331,21 @@ class TestFlagState(TestCase):
                 ),
             ),
             (
+                "disabled_while_another_running_experiment_uses_the_flag",
+                _context(
+                    RUNNING,
+                    active=False,
+                    filters=MULTIVARIANT,
+                    pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=None),
+                    other_experiments=(_other(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES),),
+                ),
+                (
+                    "running_but_flag_disabled",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The experiment is running, but its shared feature flag is disabled",
+                ),
+            ),
+            (
                 "launched_before_pauses_wrote_entries",
                 _context(
                     RUNNING,
@@ -297,9 +391,24 @@ class TestFlagState(TestCase):
                 "ended_flag_calls_after_the_end_unknown",
                 _context(ENDED, active=True, filters=MULTIVARIANT),
                 (
-                    "ended_but_multiple_variants_rolled_out",
-                    ExperimentHealthFindingSeverity.WARNING,
+                    "ended_flag_calls_unknown",
+                    ExperimentHealthFindingSeverity.INFO,
                     "The experiment has ended, but its feature flag is still active with multiple variants",
+                ),
+            ),
+            (
+                "ended_flag_shared_with_a_draft",
+                _context(
+                    ENDED,
+                    active=True,
+                    filters=MULTIVARIANT,
+                    flag_called_after_end=True,
+                    other_experiments=(DRAFT_ON_FLAG,),
+                ),
+                (
+                    "ended_flag_shared_with_draft",
+                    ExperimentHealthFindingSeverity.INFO,
+                    "The feature flag is still active, and a draft experiment uses it",
                 ),
             ),
             (
@@ -363,6 +472,37 @@ class TestFlagState(TestCase):
                 "payload or a list of all flags records no call, and neither does a call with send_event set to "
                 "false, so your code may still read the flag that way. If nothing reads the flag anymore, disable or "
                 "archive it to clean up.",
+                {"ended_at": "2026-10-14T08:30:00+00:00", "last_called_at": None},
+            ),
+            (
+                "flag_last_called_after_the_end",
+                _context(
+                    ENDED,
+                    active=True,
+                    filters=MULTIVARIANT,
+                    flag_called_after_end=False,
+                    flag_last_called_at=datetime(2026, 10, 17, 18, 0, tzinfo=UTC),
+                ),
+                "The experiment ended on October 14, 2026 at 10:30 AM CEST, and the linked feature flag is still "
+                "active with multiple variants. PostHog last recorded a call of the flag on October 17, 2026 at 8:00 "
+                "PM CEST, and none in the last 3 days. Reading only a payload or a list of all flags records no call, "
+                "and neither does a call with send_event set to false, so your code may still read the flag that way. "
+                "If nothing reads the flag anymore, disable or archive it to clean up.",
+                {"ended_at": "2026-10-14T08:30:00+00:00", "last_called_at": "2026-10-17T18:00:00+00:00"},
+            ),
+            (
+                "flag_shared_with_a_draft",
+                _context(
+                    ENDED,
+                    active=True,
+                    filters=MULTIVARIANT,
+                    flag_called_after_end=True,
+                    other_experiments=(DRAFT_ON_FLAG,),
+                ),
+                "The experiment ended on October 14, 2026 at 10:30 AM CEST, and the linked feature flag is still "
+                "active with multiple variants. A draft experiment uses the same flag, so users get its variants "
+                "whenever your code reads the flag, before that experiment launches. This is expected while you test "
+                "its variants. Otherwise, disable the flag until you launch it.",
                 {"ended_at": "2026-10-14T08:30:00+00:00"},
             ),
         ]
@@ -392,3 +532,44 @@ class TestFlagState(TestCase):
                 {"people_assigned_outside": 1234, "assigned_outside_since": "2026-10-12T14:04:00+00:00"},
             ),
         )
+
+
+class TestFlagStateOfAnEndedExperiment(BaseTest):
+    @parameterized.expand(
+        [
+            ("running_experiment_on_the_flag", False, None),
+            ("deleted_experiment_on_the_flag", True, "ended_but_multiple_variants_rolled_out"),
+        ]
+    )
+    def test_reads_the_other_experiments_on_the_flag(
+        self, _name: str, other_deleted: bool, expected_subcode: str | None
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="checkout-test",
+            created_by=self.user,
+            last_called_at=datetime(2026, 10, 19, tzinfo=UTC),
+            filters=MULTIVARIANT,
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="exp",
+            feature_flag=flag,
+            start_date=datetime(2026, 10, 1, tzinfo=UTC),
+            end_date=datetime(2026, 10, 10, tzinfo=UTC),
+        )
+        Experiment.objects.create(
+            team=self.team,
+            name="next",
+            feature_flag=flag,
+            start_date=datetime(2026, 10, 12, tzinfo=UTC),
+            deleted=other_deleted,
+        )
+
+        with (
+            override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE="events"),
+            time_machine.travel(datetime(2026, 10, 20, 12, 0, tzinfo=UTC), tick=False),
+        ):
+            finding = flag_state(load_health_context(experiment))
+
+        self.assertEqual(finding.subcode if isinstance(finding, ExperimentHealthFinding) else finding, expected_subcode)

@@ -167,7 +167,7 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     refund_ineligibility_reason?: string | null
     /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
-    /** Coarse sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
+    /** Sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
     inbox_merge_key?: number | null
 }
 
@@ -307,6 +307,7 @@ export const INBOX_REPORT_SECTION_KEYS = [
     'monitoring',
     'needs-decision',
     'resolved',
+    'closed',
     'dismissed',
     'held-back',
     'not-actionable',
@@ -323,6 +324,7 @@ export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> =
     monitoring: 'Review and merge',
     'needs-decision': 'Needs decision',
     resolved: 'Resolved',
+    closed: 'Closed',
     dismissed: 'Dismissed',
     'held-back': 'Held back',
     'not-actionable': 'Not actionable',
@@ -333,6 +335,7 @@ export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, str
     monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
     resolved: 'Reports fixed by a merged pull request, or marked resolved.',
+    closed: 'Reports marked closed, including reports whose verification checks failed.',
     dismissed:
         'Reports a person or agent dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
     'held-back':
@@ -442,6 +445,7 @@ export type SignalRunKind = 'scout' | 'signal'
  * standalone Tasks scene (`/tasks/{task_id}`).
  */
 export interface SignalRun {
+    total_spend?: number | null
     task_id: string
     kind: SignalRunKind
     /** Scout: the `signals-scout-*` skill code name (shown verbatim). Signal: the report title. */

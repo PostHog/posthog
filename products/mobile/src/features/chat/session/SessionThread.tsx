@@ -1,5 +1,5 @@
-import { memo, type ReactElement, type ReactNode, useMemo, useRef } from 'react'
-import { ScrollView, Text, View } from 'react-native'
+import { memo, type ReactElement, type ReactNode, useCallback, useMemo, useRef } from 'react'
+import { type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, Text, View } from 'react-native'
 
 import { PullRequestCard } from '@/features/handoff/PullRequestCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
@@ -20,6 +20,7 @@ import type { Session, SessionAssistantItem, SessionDisplayItem, SessionErrorIte
 interface SessionThreadProps {
     session: Session
     onRetryHistory: () => void
+    topInset?: number
 }
 
 const AssistantRow = memo(function AssistantRow({ item }: { item: SessionAssistantItem }): ReactElement {
@@ -51,27 +52,42 @@ function statusLine(session: Session): string | null {
     }
 }
 
-export function SessionThread({ session, onRetryHistory }: SessionThreadProps): ReactElement {
+export function SessionThread({ session, onRetryHistory, topInset = 0 }: SessionThreadProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const scroll = useRef<ScrollView>(null)
     const positioned = useRef(false)
+    const following = useRef(true)
     const displayItems = useMemo(() => groupSessionItems(session.items), [session.items])
+    const pauseFollowing = useCallback((): void => {
+        following.current = false
+    }, [])
+    const updateFollowing = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
+        const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+        following.current = contentSize.height - contentOffset.y - layoutMeasurement.height <= 24
+    }
 
     if (session.history.status === 'loading') {
         positioned.current = false
-        return <LoadingView label="Loading session" />
+        following.current = true
+        return (
+            <View style={[styles.scroll, { paddingTop: topInset }]}>
+                <LoadingView label="Loading session" />
+            </View>
+        )
     }
     if (session.history.status === 'error') {
         return (
-            <StateView
-                icon={<WarningIcon size={iconSizes.empty} color={colors.orange} />}
-                title="Couldn't load this session"
-                message={session.history.error?.message}
-                actionLabel="Try again"
-                onAction={onRetryHistory}
-                testID="session-history-error"
-            />
+            <View style={[styles.scroll, { paddingTop: topInset }]}>
+                <StateView
+                    icon={<WarningIcon size={iconSizes.empty} color={colors.orange} />}
+                    title="Couldn't load this session"
+                    message={session.history.error?.message}
+                    actionLabel="Try again"
+                    onAction={onRetryHistory}
+                    testID="session-history-error"
+                />
+            </View>
         )
     }
 
@@ -95,7 +111,7 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
             case 'error':
                 return <ErrorRow key={item.id} item={item} />
             case 'notice':
-                return <NoticeRow key={item.id} item={item} />
+                return <NoticeRow key={item.id} item={item} onToggle={pauseFollowing} />
             case 'progress':
                 return <ProgressRow key={item.id} item={item} />
         }
@@ -109,8 +125,15 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
         <ScrollView
             ref={scroll}
             style={styles.scroll}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, { paddingTop: topInset + 12 }]}
+            scrollIndicatorInsets={{ top: topInset }}
+            onScrollBeginDrag={pauseFollowing}
+            onScrollEndDrag={updateFollowing}
+            onMomentumScrollEnd={updateFollowing}
             onContentSizeChange={() => {
+                if (!following.current) {
+                    return
+                }
                 scroll.current?.scrollToEnd({ animated: positioned.current })
                 positioned.current = true
             }}

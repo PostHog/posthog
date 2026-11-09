@@ -25,6 +25,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportPullRequest,
 )
+from products.signals.backend.report_check_research import check_authoring_failed
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.typed_report_links import incoming_links, outgoing_links
@@ -141,6 +142,16 @@ def _close_parent(
     if target == SignalReport.Status.SUPPRESSED and parent_status == SignalReport.Status.RESOLVED:
         return False
     try:
+        if (
+            target == SignalReport.Status.RESOLVED
+            and check_authoring_failed(parent)
+            and (
+                get_monitoring_enabled()
+                if get_monitoring_enabled is not None
+                else team_report_monitoring_enabled(parent.team_id)
+            )
+        ):
+            return False
         updated_fields = parent.transition_to(target)
     except (InvalidStatusTransition, ValueError, TypeError):
         logger.info(

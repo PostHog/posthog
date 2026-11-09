@@ -5,6 +5,8 @@ from unittest.mock import Mock
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from parameterized import parameterized
+
 from posthog.api.search import ENTITY_MAP, SEARCHABLE_ENTITIES, class_queryset, search_entities
 from posthog.helpers.full_text_search import build_search_vector, process_query
 from posthog.models import OrganizationMembership, Team, User
@@ -223,14 +225,28 @@ class TestSearch(APIBaseTest):
         response = self.client.get("/api/projects/@current/search?q=%21%3A%28%29%5B%5D%26%7C%3C%3E%20str1%20str2")
         self.assertEqual(response.status_code, 200)
 
-    def test_event_definitions(self):
-        EventDefinition.objects.create(name="first event", team=self.team)
-        EventDefinition.objects.create(name="second event", team=self.team)
-        EventDefinition.objects.create(name="third event", team=self.team)
+    @parameterized.expand(
+        [
+            ("prefix", "sec", {"second event"}),
+            ("every word", "first event", {"first event"}),
+            ("some words, as the rank allows", "first event missing", {"first event"}),
+            ("shared word", "event", {"first event", "second event", "third event"}),
+            ("word inside a snake_case name", "view", {"page_view_v2"}),
+            ("dotted capital I folded like the rank", "istanbul", {"İstanbul office"}),
+            ("no match", "missing", set()),
+        ]
+    )
+    def test_event_definitions(self, _name: str, query: str, expected: set[str]) -> None:
+        for name in ("first event", "second event", "third event", "page_view_v2", "İstanbul office"):
+            EventDefinition.objects.create(name=name, team=self.team)
 
-        response = self.client.get("/api/projects/@current/search?q=sec&entities=event_definition")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/projects/@current/search?q={query}&entities=event_definition")
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual({result["extra_fields"]["name"] for result in response.json()["results"]}, expected)
+        definition_sql = next(q["sql"] for q in queries.captured_queries if "posthog_eventdefinition" in q["sql"])
+        self.assertIn("LIKE", definition_sql)
 
     def test_early_access_features(self):
         EarlyAccessFeature.objects.create(name="first feature", team=self.team, stage="beta")

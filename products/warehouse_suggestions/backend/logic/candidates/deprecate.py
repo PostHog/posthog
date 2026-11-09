@@ -37,9 +37,9 @@ class DeprecateCandidate(Candidate):
         unread = [
             saved_query
             for saved_query in context.inventory.saved_queries.values()
-            if saved_query.materializes
-            and context.is_suggestible_view(saved_query)
+            if context.is_suggestible_view(saved_query)
             and not context.is_read(_subject(saved_query))
+            and not _is_done(context, saved_query)
         ]
         unread_ids = [saved_query.id for saved_query in unread]
         dependents = dependent_saved_query_ids(context.team_id, unread_ids)
@@ -57,7 +57,7 @@ class DeprecateCandidate(Candidate):
             if reason is not None:
                 rejections.append(Rejection(subject=subject, reason=reason))
                 continue
-            refreshes = context.reads.refreshes.get(saved_query.id)
+            refreshes = context.reads.refreshes.get(saved_query.id) if saved_query.materializes else None
             seconds = refreshes.duration_ms / MILLISECONDS_PER_SECOND * context.month_scale if refreshes else 0.0
             read_bytes = refreshes.read_bytes * context.month_scale if refreshes else 0.0
             drafts.append(
@@ -68,6 +68,7 @@ class DeprecateCandidate(Candidate):
                         subject_name=saved_query.name,
                         refresh_seconds_per_month=seconds,
                         refresh_bytes_per_month=read_bytes,
+                        materialized=saved_query.materializes,
                     ),
                     score=max(seconds / rules.seconds_floor, read_bytes / rules.bytes_floor),
                     score_inputs={"refresh_seconds_per_month": seconds, "refresh_bytes_per_month": read_bytes},
@@ -78,11 +79,13 @@ class DeprecateCandidate(Candidate):
     def asset_outcome(
         self, context: CandidateContext, subject: Subject, accepted_at: datetime | None
     ) -> WarehouseSuggestionAssetOutcome:
+        if subject.id not in context.inventory.saved_queries:
+            return WarehouseSuggestionAssetOutcome.LIVE
         return certification_outcome(context, subject, CertificationStatus.DEPRECATED)
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)
-        return saved_query is None or not saved_query.materializes or context.is_read(subject)
+        return saved_query is None or context.is_read(subject) or _is_done(context, saved_query)
 
     def _rejection(
         self,
@@ -101,6 +104,11 @@ class DeprecateCandidate(Candidate):
         if context.reads_direct_source(saved_query.id):
             return DIRECT_SOURCE_REJECTION
         return None
+
+
+def _is_done(context: CandidateContext, saved_query: SavedQueryDefinition) -> bool:
+    is_deprecated = context.inventory.certifications.get(_subject(saved_query)) == CertificationStatus.DEPRECATED
+    return is_deprecated and not saved_query.materializes
 
 
 def _subject(saved_query: SavedQueryDefinition) -> Subject:

@@ -38,7 +38,9 @@ def _make_inputs(
         should_use_incremental_field=should_use_incremental_field,
         db_incremental_field_last_value=db_incremental_field_last_value,
         db_incremental_field_earliest_value=None,
-        incremental_field=HUBSPOT_ENDPOINTS[schema_name].cursor_filter_property_field,
+        incremental_field=(
+            HUBSPOT_ENDPOINTS[schema_name].cursor_filter_property_field if schema_name in HUBSPOT_ENDPOINTS else None
+        ),
         incremental_field_type=IncrementalFieldType.DateTime,
         job_id="job-1",
         logger=MagicMock(),

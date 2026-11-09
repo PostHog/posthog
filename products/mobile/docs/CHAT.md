@@ -1,15 +1,22 @@
 # Chat
 
-The chat sheet talks to PostHog AI on the task runtime, as the web app's side-panel chat does.
+The chat screen talks to PostHog AI on the task runtime, as the web app's side-panel chat does.
 Every chat is a task with interactive runs in a sandbox.
 A new chat creates the task on its first message; the Chats list reopens one by its task id.
+New and existing chats open as full-screen stack pages. Back returns to the previous screen or the
+configured default page for a direct link. The title-free header uses the shared blur and fading edge;
+New chat and the ellipsis share the Inbox's pill control. The composer clears the keyboard and safe area.
+
+The ellipsis menu offers **Copy link to chat** and **Archive chat**. Copy uses the current project's
+web URL. Archive returns to the previous page after success and keeps the chat open for retry on failure.
+The menu is disabled for an unsaved new chat. Model, Mode, and attachment options still open as overlays.
 The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteractionLogic.ts` and `runStreamLogic.ts` in `products/posthog_ai/frontend`.
 
 ## Files
 
 | File                                                 | Role                                                                                                                                                                                                                                    |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/features/chat/ChatSheet.tsx`                    | The sheet: header, thread or empty state, composer, the options reducer, draft restore                                                                                                                                                  |
+| `src/features/chat/ChatScreen.tsx`                   | The sheet: header, thread or empty state, composer, the options reducer, draft restore                                                                                                                                                  |
 | `src/features/chat/chatSheetEvents.ts`               | The sheet's `entry` from the route params, and the opened and closed events                                                                                                                                                             |
 | `src/features/chat/ChatAccessGate.tsx`               | The organization AI approval and the personal consent before the composer (see [AI consent](#ai-consent))                                                                                                                               |
 | `src/features/chat/session/useSession.ts`            | `useSession({ taskId?, runId? })`: create, follow, send, sync options, resume, stop, answer, reset, demo replies                                                                                                                        |
@@ -55,7 +62,11 @@ Text and attached report IDs are saved separately for each task, each report dis
 the new-chat composer. Native drafts use encrypted device storage, scoped to the account,
 host and project, with at most 50 drafts per project. Changes save after 400 ms of idle time
 and flush when the composer closes or the app backgrounds. Opening a saved chat restores its
-draft after storage loads.
+draft after storage loads. If a save fails, the composer keeps the text and shows an unsaved-draft
+notice with **Retry save**. The notice stays until saving succeeds. When saved messages reach the
+device limit, remove a queued message to free space, then retry before closing the chat.
+Close and background saves use the same storage checks; a failed save leaves previously saved
+messages intact.
 `mobile_chat_draft_restored` is captured with `text_length` and `report_count` when the restored draft has text.
 
 A successful send clears the submitted text. A failed send keeps it, and a delayed completion
@@ -197,22 +208,28 @@ On the next message to a live run, `useSession` first sends one command per chan
   An untouched model sends no triple, so the server keeps the previous run's selection; the mode maps onto the previous run's harness.
   No `branch`: a resumed run keeps its base branch.
 - **Queue.** A message sent while the agent works, while a send or an answer is in flight, while a decision waits, or behind earlier queued messages goes into a queue above the composer instead (`messageQueue.ts`, `QueuedMessages.tsx`), as on the web.
-  The banner shows "N queued" and one row per message, each with a remove control.
-  The queue lives in memory only.
+  The banner shows "N queued" and one row per message, each with a remove control. During delivery it shows "Sending queued messages" and hides the recovery warning until delivery settles.
+  Queued text is saved with the chat's draft in native secure storage before the composer clears.
+  Task adoption waits for pending queue writes and carries live files, cleared composer text, and Stop holds into the saved task.
+  A failed storage read aborts the save and leaves existing queues intact.
+  A per-project storage budget refuses additional text while preserving saved messages; removing messages still works if an older store exceeds the limit.
   While the agent works and the input has text, Send shows beside Stop, which turns into an outline button.
 - **Automatic drain.** When the turn ends and nothing else is in flight or waiting, the queued rows go out as one message, joined by blank lines.
   A run that has ended takes the queue too: the send resumes it, as for any follow-up.
 - **Send now.** Sends the queue into the live turn at once with `params.steer: true` on `user_message`, when the session reports `canSteer`; otherwise it goes as an ordinary follow-up.
   It is disabled with "Answer the agent first" while a decision waits, and with "Wait for the agent to start" while the turn runs but the stream has not shown the agent generating yet.
+  It also waits for saved messages and conversation history to load. If history fails, retry loading it before sending recovered messages.
   The reason shows under the banner, because a phone has no tooltip.
-- **Hold.** Stop holds the queue, so it does not go out when the stopped turn ends; the banner then says "N queued, not sent yet".
+- **Hold.** Stop holds the queue, so it does not go out when the stopped turn ends; the banner then says "N queued, review before sending".
   A new message lifts that hold.
-  A failed delivery puts its rows back in front of anything queued since and holds them; only Send now sends them again, because the failed send may have reached the agent.
-- Closing the sheet, an Android back, or New chat puts the queued messages back in front of the composer text, so the draft keeps them.
+  Acknowledged rows are removed even if Stop interrupts delivery; any remaining rows keep the Stop hold.
+  Delivery keeps its saved rows until acknowledgment. A failed delivery holds them; only Send now sends them again, because the failed send may have reached the agent.
+- Closing the sheet or using Android back preserves queued text separately from the composer. Reopening holds the recovered queue for review before Send now.
+  New chat waits while a taskless send or queue is pending, so those messages cannot drain into a different conversation.
 - **Files.** A queued message takes the composer's files with it, as on the web, and the row shows "1 file" or "N files".
   The drained message, or Send now, carries the files of every row in queue order. The 10-file cap applies per composer message, not to the join.
   A failed delivery puts the rows back with their files. Removing a row drops its files.
-  Closing the sheet or New chat drops the queued files, as closing drops unsent composer files. The queued text folds into the chat's own draft, so its files must not follow into another chat.
+  Closing the sheet or New chat drops the queued files, as closing drops unsent composer files. Recovered rows record that files are missing and cannot send until their text is copied, removed, and attached again. File paths and contents are not saved.
   Attach stays enabled while messages queue. Files of a direct send still in flight stay with that send and never join the queue.
 - `mobile_session_queued` is captured with `queue_length` when a message joins the queue, `mobile_session_queue_removed` with `queue_length` after a row is removed,
   and `mobile_session_queue_sent_now` with `queued_count` and `steer` (the session could steer at the tap).
@@ -374,6 +391,10 @@ New chat drops it.
   `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
 - The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
 - Thoughts and tool calls fold into activity rows. Every row starts closed, also while it runs. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
+- Background-task notices (including checkmarked completion summaries) align left and show at most two lines by default.
+  Notices that wrap beyond two lines offer Show more to read the full text and Show less to return to the preview.
+  Expanding or collapsing a notice pauses automatic scrolling so it stays in view.
+  Scrolling back also pauses automatic scrolling; scroll to the bottom to follow new messages again.
 - Known PRs remain available while execution is active, idle or terminal. Their state is separate
   from execution; a discovered URL starts unknown until the report supplies authoritative state.
 - Report task status opens that implementation task, including idle and completed runs that can
@@ -382,27 +403,31 @@ New chat drops it.
 
 ## New chat
 
-The compose button in the header shows once a chat has a task or a message.
+The compose button stays available in the header.
 It drops the open task (or the one the first send created), clears the text and attached reports, and resets the options to Default and Auto.
-The header shows the task title, else "New chat".
+The header has no chat title.
 The empty state with suggested prompts shows while there is no task and no message.
 `mobile_chat_suggestion_picked` is captured with `source` (`report` for the report's own prompts, else `default`), `index` and `report_count`; never the prompt.
 
 `@` or the @ button opens the report list. `mobile_chat_mention_opened` is captured with `trigger` (`typed` or `button`),
 `mobile_chat_report_attached` with `attached_count`, and `mobile_chat_report_removed` (a chip's ×) with `attached_count` and `initial` (the report the sheet opened with).
 
-## Sheet lifecycle
+## Page lifecycle
 
 The navigator keeps one chat screen. Opening another chat reuses that screen and loads fresh
 conversation state. A notification for the chat already on screen leaves its session, draft and
 scroll position intact, including a chat started from the composer. A notification for a different
-chat replaces the open chat, so one Close returns to the screen underneath. Starting New chat
+chat replaces the open chat, so one Back returns to the screen underneath. Starting New chat
 does not prevent a later notification from reopening the previous conversation.
 
 Changing the selected account, host or project closes an open chat and aborts its scoped work. Callbacks captured in the old scope cannot send to the newly selected project.
 A send waiting for encrypted draft storage is cancelled by New chat or closing the sheet, and its text remains recoverable in the original draft.
 
-The sheet opens from the bottom bar's compose button, a report's Chat button, a report's task status, an inbox row's menu and the Chats tab.
+Chat pauses streams while offline. Task and history reads resume when the connection returns. When the connection returns or the app enters the foreground, chat resumes the same run with its saved cursor and transcript. The Reconnect button also restarts streams after the retry limit. Authentication, permission and missing-run errors prevent automatic recovery. Recovery does not resend messages, answers or run creation requests.
+
+A connected device can still fail to reach PostHog. Stream retries and the idle timeout handle these failures. Repeated connected events do not reset the retry limit.
+
+The page opens from the bottom bar's compose button, a report's Chat button, a report's task status, an inbox row's menu and the Chats tab.
 The route takes an optional `entry` param; `chatSheetSource` falls back on `report` with a `reportId`, `task` with only a `taskId`, else `compose`.
 
 - `mobile_chat_sheet_opened` is captured once per open with `entry` (`chats_list`, `chats_search`, `chats_empty`, `compose`, `report`, `report_task`, `inbox_menu` or `task`),

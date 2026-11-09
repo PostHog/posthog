@@ -475,6 +475,26 @@ describe('todayLogic', () => {
             })
     })
 
+    it('stops the For you loader when a poll fails before any rows arrive', async () => {
+        const pending = makeHighlights({ status: 'computing', generated_at: null, items: [], pulse: [] })
+        highlightResponses = [[200, pending]]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.forYouReady).toBe(false)
+        expect(logic.values.forYouRows.rows).toEqual([])
+
+        highlightResponses = [[500, { detail: 'Request failed' }]]
+        await expectLogic(todayHighlightsLogic(), () => {
+            todayHighlightsLogic.actions.loadHighlights()
+        }).toDispatchActions(['loadHighlightsFailure'])
+
+        expect(todayHighlightsLogic.values.highlights).toEqual(pending)
+        expect(todayHighlightsLogic.values.highlightsPending).toBe(false)
+        expect(logic.values.forYouReady).toBe(true)
+        expect(logic.values.forYouFailedNote).toBe('Highlights didn’t load.')
+    })
+
     it('remembers the report to focus and the home scroll only while the person stays on Today', async () => {
         const logic = todayLogic()
         logic.mount()

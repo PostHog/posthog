@@ -9,6 +9,74 @@
  */
 import * as zod from 'zod'
 
+export const conversationsMacrosCreateBodyNameMax = 200
+
+export const conversationsMacrosCreateBodyShortcutMax = 50
+
+export const conversationsMacrosCreateBodyBodyMax = 10000
+
+export const ConversationsMacrosCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsMacrosCreateBodyNameMax)
+        .describe('Name shown in the macro list and the composer menu.'),
+    shortcut: zod
+        .string()
+        .max(conversationsMacrosCreateBodyShortcutMax)
+        .nullish()
+        .describe(
+            "Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut."
+        ),
+    body: zod
+        .string()
+        .max(conversationsMacrosCreateBodyBodyMax)
+        .describe(
+            'Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.'
+        ),
+    visibility: zod
+        .enum(['shared', 'personal'])
+        .describe('\* `shared` - Everyone in the project\n\* `personal` - Only the creator')
+        .optional()
+        .describe(
+            "Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.\n\n\* `shared` - Everyone in the project\n\* `personal` - Only the creator"
+        ),
+})
+
+export const conversationsMacrosPartialUpdateBodyNameMax = 200
+
+export const conversationsMacrosPartialUpdateBodyShortcutMax = 50
+
+export const conversationsMacrosPartialUpdateBodyBodyMax = 10000
+
+export const ConversationsMacrosPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsMacrosPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Name shown in the macro list and the composer menu.'),
+    shortcut: zod
+        .string()
+        .max(conversationsMacrosPartialUpdateBodyShortcutMax)
+        .nullish()
+        .describe(
+            "Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut."
+        ),
+    body: zod
+        .string()
+        .max(conversationsMacrosPartialUpdateBodyBodyMax)
+        .optional()
+        .describe(
+            'Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.'
+        ),
+    visibility: zod
+        .enum(['shared', 'personal'])
+        .describe('\* `shared` - Everyone in the project\n\* `personal` - Only the creator')
+        .optional()
+        .describe(
+            "Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.\n\n\* `shared` - Everyone in the project\n\* `personal` - Only the creator"
+        ),
+})
+
 /**
  * Handle ticket updates including assignee changes.
  */

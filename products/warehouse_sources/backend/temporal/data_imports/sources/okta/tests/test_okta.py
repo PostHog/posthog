@@ -16,7 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.okta.okta 
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import OKTA_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import OKTA_ENDPOINTS, POLICY_TYPES
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta.source import OktaSource
 
 
@@ -240,6 +240,9 @@ class TestOktaFanout:
             ("application_users", "/api/v1/apps", "/api/v1/apps/{}/users", "app_id", "500"),
             ("application_groups", "/api/v1/apps", "/api/v1/apps/{}/groups", "app_id", "200"),
             ("user_factors", "/api/v1/users", "/api/v1/users/{}/factors", "user_id", None),
+            ("user_role_assignments", "/api/v1/users", "/api/v1/users/{}/roles", "user_id", None),
+            ("group_role_assignments", "/api/v1/groups", "/api/v1/groups/{}/roles", "group_id", None),
+            ("identity_provider_users", "/api/v1/idps", "/api/v1/idps/{}/users", "idp_id", "200"),
         ],
     )
     def test_fans_out_over_parents_and_skips_deleted_parent(
@@ -261,29 +264,75 @@ class TestOktaFanout:
         assert result.requests[0].param("limit") == "200"
         assert result.requests[1].param("limit") == child_limit
 
-    def test_user_factors_drop_activation_secrets(self):
+    @pytest.mark.parametrize(
+        "schema, script, expected_rows",
+        [
+            (
+                "user_factors",
+                [
+                    ScriptedResponse(json=[{"id": "u1"}]),
+                    ScriptedResponse(
+                        json=[
+                            {
+                                "id": "f1",
+                                "factorType": "token:software:totp",
+                                "status": "PENDING_ACTIVATION",
+                                "_embedded": {"activation": {"sharedSecret": "FAKESECRET"}},
+                                "_links": {"qrcode": {"href": "https://example.okta.com/qr/fake"}},
+                            }
+                        ]
+                    ),
+                ],
+                [{"id": "f1", "factorType": "token:software:totp", "status": "PENDING_ACTIVATION", "user_id": "u1"}],
+            ),
+            (
+                "identity_providers",
+                [
+                    ScriptedResponse(
+                        json=[
+                            {
+                                "id": "idp1",
+                                "type": "OIDC",
+                                "protocol": {
+                                    "type": "OIDC",
+                                    "scopes": ["openid"],
+                                    "credentials": {"client": {"client_id": "fake-id", "client_secret": "FAKESECRET"}},
+                                },
+                            },
+                            {"id": "idp2", "type": "SAML2", "protocol": None},
+                        ]
+                    )
+                ],
+                [
+                    {"id": "idp1", "type": "OIDC", "protocol": {"type": "OIDC", "scopes": ["openid"]}},
+                    {"id": "idp2", "type": "SAML2", "protocol": None},
+                ],
+            ),
+        ],
+    )
+    def test_drops_secret_fields(self, schema, script, expected_rows):
+        result = self._driver().run(schema, script)
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+
+    @pytest.mark.parametrize(
+        "device_user, expected_user_id",
+        [
+            ({"created": "2026-01-01T00:00:00.000Z", "user": {"id": "u1", "status": "ACTIVE"}}, "u1"),
+            ({"created": "2026-01-01T00:00:00.000Z", "user": None}, None),
+        ],
+    )
+    def test_device_users_lift_the_nested_user_id(self, device_user, expected_user_id):
         result = self._driver().run(
-            "user_factors",
-            [
-                ScriptedResponse(json=[{"id": "u1"}]),
-                ScriptedResponse(
-                    json=[
-                        {
-                            "id": "f1",
-                            "factorType": "token:software:totp",
-                            "status": "PENDING_ACTIVATION",
-                            "_embedded": {"activation": {"sharedSecret": "FAKESECRET"}},
-                            "_links": {"qrcode": {"href": "https://example.okta.com/qr/fake"}},
-                        }
-                    ]
-                ),
-            ],
+            "device_users",
+            [ScriptedResponse(json=[{"id": "d1"}]), ScriptedResponse(json=[device_user])],
         )
 
         assert result.raised is None
-        assert result.rows == [
-            {"id": "f1", "factorType": "token:software:totp", "status": "PENDING_ACTIVATION", "user_id": "u1"}
-        ]
+        assert [(row["device_id"], row["user_id"]) for row in result.rows] == [("d1", expected_user_id)]
+        assert result.paths == ["/api/v1/devices", "/api/v1/devices/d1/users"]
+        assert result.params("limit") == ["200", None]
 
     def test_follows_child_link_header_across_pages(self):
         result = self._driver().run(
@@ -334,3 +383,95 @@ class TestOktaFanout:
 
         assert isinstance(result.raised, ValueError)
         assert result.paths == ["/api/v1/groups"]
+
+
+class TestOktaCustomRoles:
+    @pytest.mark.parametrize(
+        "next_href, expected_ids, expected_requests",
+        [
+            ("https://example.okta.com/api/v1/iam/roles?after=cr1", ["cr1", "cr2"], 2),
+            ("http://169.254.169.254/latest/meta-data/", ["cr1"], 1),
+        ],
+    )
+    def test_follows_body_link_on_org_host_only(self, next_href, expected_ids, expected_requests):
+        script = [
+            ScriptedResponse(json={"roles": [{"id": "cr1"}], "_links": {"next": {"href": next_href}}}),
+            ScriptedResponse(json={"roles": [{"id": "cr2"}], "_links": {}}),
+        ]
+        result = SourceDriver(OktaSource(), OktaSourceConfig(okta_domain="example.okta.com", api_key="tok")).run(
+            "custom_roles", script[:expected_requests]
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert result.paths == ["/api/v1/iam/roles"] * expected_requests
+        assert result.requests[0].param("limit") is None
+
+
+class TestOktaPolicies:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(
+            OktaSource(),
+            OktaSourceConfig(okta_domain="example.okta.com", api_key="tok"),
+        )
+
+    @staticmethod
+    def _policies_script(request):
+        policy_type = request.param("type")
+        if policy_type == "ACCESS_POLICY":
+            return ScriptedResponse(status=400, json={"errorCode": "E0000001", "errorSummary": "Api validation failed"})
+        if policy_type == "ENTITY_RISK":
+            return ScriptedResponse(status=401, json={"errorCode": "E0000015", "errorSummary": "Feature not enabled"})
+        if request.path == "/api/v1/policies":
+            return ScriptedResponse(json=[{"id": f"pol-{policy_type}", "type": policy_type}])
+        return ScriptedResponse(json=[{"id": "rule1"}])
+
+    def test_reads_every_policy_type_and_skips_rejected_types(self):
+        result = self._driver().run("policies", self._policies_script)
+
+        assert result.raised is None
+        assert result.params("type") == list(POLICY_TYPES)
+        assert result.params("limit") == [None] * len(POLICY_TYPES)
+        assert [row["type"] for row in result.rows] == [
+            t for t in POLICY_TYPES if t not in ("ACCESS_POLICY", "ENTITY_RISK")
+        ]
+        assert result.committed_states[-1] == OktaResumeConfig(policy_type=POLICY_TYPES[-1])
+
+    def test_policy_rules_fan_out_per_policy_type(self):
+        result = self._driver().run("policy_rules", self._policies_script)
+
+        assert result.raised is None
+        assert result.paths[:3] == [
+            "/api/v1/policies",
+            "/api/v1/policies/pol-OKTA_SIGN_ON/rules",
+            "/api/v1/policies",
+        ]
+        assert [request.param("type") for request in result.requests if request.path == "/api/v1/policies"] == list(
+            POLICY_TYPES
+        )
+        assert ("pol-PASSWORD", "rule1") in [(row["policy_id"], row["id"]) for row in result.rows]
+        assert not any(row["policy_id"] in ("pol-ACCESS_POLICY", "pol-ENTITY_RISK") for row in result.rows)
+
+    @pytest.mark.parametrize("schema", ["policies", "policy_rules"])
+    def test_resumes_at_saved_policy_type(self, schema):
+        result = self._driver().run(
+            schema,
+            self._policies_script,
+            resume_state=OktaResumeConfig(policy_type="CLIENT_UPDATE"),
+        )
+
+        assert result.raised is None
+        assert [r.param("type") for r in result.requests if r.path == "/api/v1/policies"] == [
+            "CLIENT_UPDATE",
+            "IDENTITY_CLAIM_SOURCING",
+        ]
+
+    def test_other_errors_still_fail_the_sync(self):
+        result = self._driver().run(
+            "policies",
+            [ScriptedResponse(status=401, json={"errorCode": "E0000011", "errorSummary": "Invalid token provided"})],
+        )
+
+        assert result.raised is not None
+        assert result.params("type") == ["OKTA_SIGN_ON"]

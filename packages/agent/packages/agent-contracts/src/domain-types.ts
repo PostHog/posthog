@@ -371,6 +371,7 @@ const taskRunStateFields = {
   codex_max_subagents: optionalField(z.number().int().positive()),
   codex_shared_prompt_cache: optionalField(z.boolean()),
   disable_repo_hooks: optionalField(z.boolean()),
+  disable_skills: optionalField(z.boolean()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
   pending_followup_messages: optionalField(

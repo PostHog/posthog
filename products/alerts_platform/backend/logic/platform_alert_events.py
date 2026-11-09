@@ -244,6 +244,7 @@ def announcement(
             occurred_at=occurred_at,
             evaluation_key=evaluation_key,
             source_detail=_snapshot(source_detail),
+            configuration_id=configuration_id,
         )
         for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, source_detail, _, _ in rows
     )

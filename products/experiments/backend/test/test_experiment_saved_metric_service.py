@@ -22,8 +22,10 @@ _WAREHOUSE_NATIVE_MEAN: dict[str, object] = {
     "source": {
         "kind": "ExperimentWarehouseNativeNode",
         "connection_id": "00000000-0000-0000-0000-000000000000",
-        "query": "SELECT user_id AS entity_id, paid_at AS timestamp, amount AS value FROM payments",
+        "query": "SELECT user_id AS entity_id, paid_at AS timestamp, amount FROM payments",
+        "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
         "math": "sum",
+        "math_property": "amount",
     },
 }
 

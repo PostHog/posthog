@@ -1,5 +1,5 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { Linking, ScrollView, Text, useWindowDimensions, View } from 'react-native'
+import { Linking, ScrollView, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useNow } from '@/lib/useNow'
@@ -9,6 +9,7 @@ import { RefreshIcon } from '@/ui/icons/RefreshIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors, useTheme } from '@/ui/theme'
 import { fonts, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import { trackViewOpenedInWeb } from '../analytics'
 import { forceAllowedAt, HINT_MS, refreshHintText } from '../freshness'
@@ -62,7 +63,7 @@ function AboutBody({
     const styles = useStyles()
     const snapshot = useLiveSnapshot(source)
     const now = useNow(30_000)
-    const { height } = useWindowDimensions()
+    const { height } = useSceneDimensions()
     const { scope } = useViewsContext()
     const updating = useItemUpdating(source.itemKey)
     const [hint, setHint] = useState<string | null>(null)

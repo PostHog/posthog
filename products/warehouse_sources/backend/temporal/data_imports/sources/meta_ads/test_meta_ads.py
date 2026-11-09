@@ -438,7 +438,7 @@ class TestSimplePaginationRefusedFields:
         response.text = ""
         return response
 
-    @pytest.mark.parametrize("subcode", [2446211, 1443048])
+    @pytest.mark.parametrize("subcode", [2446211, 1443048, 1885649])
     def test_refused_row_syncs_without_refusable_fields(self, subcode: int) -> None:
         manager = _build_manager()
         refused_body = {"error": {**self.REFUSED_BODY["error"], "error_subcode": subcode}}
@@ -484,6 +484,53 @@ class TestSimplePaginationRefusedFields:
         assert "fields=id%2Cname%2Ccreative" in get_calls[2].args[0]
         saved = manager.save_state.call_args.args[0]
         assert saved.next_url is not None and "fields=id%2Cname%2Ccreative" in saved.next_url
+
+    def test_refused_node_recovers_other_fields_individually(self) -> None:
+        manager = _build_manager()
+        refused_body = {"error": {**self.REFUSED_BODY["error"], "error_subcode": 1885649}}
+        params = {**self.PARAMS, "fields": "id,name,targeting,promoted_object,daily_budget"}
+        get_responses = [
+            _mock_response(400, refused_body),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        # The combined lookup is refused for id 1 because one of its three fields (daily_budget) is
+        # missing. Retrying each field on its own recovers targeting and promoted_object; only
+        # daily_budget, the field Meta actually refuses, stays blank.
+        batch_responses = [
+            self._batch_response([(400, refused_body)]),
+            self._batch_response([(200, {"id": "1", "targeting": {"age_min": 18}})]),
+            self._batch_response([(200, {"id": "1", "promoted_object": {"pixel_id": "px1"}})]),
+            self._batch_response([(400, refused_body)]),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = batch_responses
+            batches = list(
+                _iter_simple_pagination(
+                    self.INITIAL_URL,
+                    params,
+                    None,
+                    manager,
+                    ("targeting", "promoted_object", "daily_budget"),
+                    self.NODE_LOOKUP_URL,
+                )
+            )
+
+        assert batches == [
+            [
+                {
+                    "id": "1",
+                    "name": "a",
+                    "targeting": {"age_min": 18},
+                    "promoted_object": {"pixel_id": "px1"},
+                    "daily_budget": None,
+                }
+            ]
+        ]
+        assert mock_get.return_value.post.call_count == 4
 
     def test_batch_lookup_error_other_than_refusal_raises(self) -> None:
         manager = _build_manager()

@@ -25,6 +25,7 @@ from ..facade.enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
     WarehouseSuggestionStatus,
@@ -75,6 +76,10 @@ class DeprecatePayloadSerializer(DataclassSerializer):
             "subject_name": {"help_text": "Name of the unread view to deprecate."},
             "refresh_seconds_per_month": {"help_text": "Time its refreshes take in a month, in seconds."},
             "refresh_bytes_per_month": {"help_text": "Bytes its refreshes read in a month."},
+            "materialized": {
+                "help_text": "Whether the view is materialized. A plain view has no refreshes, so both refresh "
+                "costs are 0."
+            },
         }
 
 
@@ -100,6 +105,13 @@ class MaterializePayloadSerializer(DataclassSerializer):
         "consumer_refresh: the materialized views that read it refresh no more often. "
         "savings: a shorter interval would cost more than it saves. Null on suggestions made before this was "
         "recorded.",
+    )
+    main_saving = serializers.ChoiceField(
+        choices=WarehouseSuggestionMainSaving.choices,
+        allow_null=True,
+        help_text="The saving that earned the suggestion. waiting: people, agents and API callers wait less on "
+        "reads. background: refreshes do less work. scanned: reads scan fewer bytes. Null on suggestions made before "
+        "this was recorded.",
     )
 
     class Meta:
@@ -129,6 +141,19 @@ class MaterializePayloadSerializer(DataclassSerializer):
             "recomputed_by_views": {
                 "help_text": "How many materialized views compute this view again on every refresh, because it "
                 "is not stored. 0 when the saving comes only from people's reads."
+            },
+            "waiting_seconds_saved_per_month": {
+                "help_text": "Part of saves_seconds_per_month that people, agents and API callers spend waiting on "
+                "reads of this view, in seconds. Null on suggestions made before this was recorded."
+            },
+            "background_seconds_saved_per_month": {
+                "help_text": "Part of saves_seconds_per_month that background refreshes spend, in seconds. Negative "
+                "when refreshing the stored copy costs more background time than it saves. Null on suggestions made "
+                "before this was recorded."
+            },
+            "read_seconds": {
+                "help_text": "How long one read of the view takes today, in seconds. Null when no read was "
+                "measured on its own."
             },
         }
 
@@ -377,5 +402,12 @@ class AcceptWarehouseSuggestionSerializer(DataclassSerializer):
                 "help_text": "Deprecate only: true to keep a materialized view refreshing after it is deprecated. "
                 "By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its "
                 "stored table, unless other views or syncs depend on it.",
+            },
+            "delete_view": {
+                "allow_null": False,
+                "help_text": "Deprecate only: true to delete the view instead of marking it deprecated. Deleting also "
+                "drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when "
+                "it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any "
+                "day in the read window has no read data, because a view read only on those days would look unread.",
             },
         }

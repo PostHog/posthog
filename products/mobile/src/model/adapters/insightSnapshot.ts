@@ -494,6 +494,7 @@ export function insightSnapshot(
             inProgressFrom: null,
             capabilities: capabilitiesOf(query),
             computed: false,
+            dataReadAt: 0,
         }
     }
     const resolvedRange = resolvedRangeOf(response)
@@ -523,6 +524,7 @@ export function insightSnapshot(
         nextAllowedRefreshAt: response.next_allowed_client_refresh,
         readAt: context.readAt,
         refreshFailed: false,
+        dataReadAt: context.readAt,
         resolvedRange,
         timezone: response.timezone ?? null,
         interval,

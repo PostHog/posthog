@@ -15,7 +15,10 @@ interface SessionDecisionPanelProps {
     notice: string | undefined
     pending: boolean
     onAnswer: (input: DecisionAnswerInput) => void
+    onRetryNotice?: () => void
+    noticePending?: boolean
     onDismissNotice: () => void
+    onReconnect?: () => void
 }
 
 export function SessionDecisionPanel({
@@ -24,6 +27,9 @@ export function SessionDecisionPanel({
     pending,
     onAnswer,
     onDismissNotice,
+    onReconnect,
+    onRetryNotice,
+    noticePending,
 }: SessionDecisionPanelProps): ReactElement | null {
     const colors = useColors()
     const styles = useStyles()
@@ -35,14 +41,36 @@ export function SessionDecisionPanel({
             {notice ? (
                 <View style={styles.notice} testID="session-decision-notice">
                     <Text style={styles.noticeText}>{notice}</Text>
-                    <Pressable44
-                        onPress={onDismissNotice}
-                        accessibilityLabel="Dismiss"
-                        style={styles.close}
-                        hitSlop={10}
-                    >
-                        <CloseIcon size={iconSizes.inline} color={colors.orange} />
-                    </Pressable44>
+                    {onReconnect ? (
+                        <Pressable44
+                            onPress={onReconnect}
+                            accessibilityLabel="Reconnect to the agent"
+                            testID="session-reconnect"
+                        >
+                            <Text style={styles.reconnectText}>Reconnect</Text>
+                        </Pressable44>
+                    ) : null}
+                    {onRetryNotice ? (
+                        <Pressable44
+                            onPress={onRetryNotice}
+                            disabled={noticePending}
+                            accessibilityLabel="Retry saving draft"
+                            accessibilityState={{ disabled: noticePending, busy: noticePending }}
+                            style={styles.retry}
+                            testID="chat-draft-retry"
+                        >
+                            <Text style={styles.retryText}>{noticePending ? 'Saving…' : 'Retry save'}</Text>
+                        </Pressable44>
+                    ) : (
+                        <Pressable44
+                            onPress={onDismissNotice}
+                            accessibilityLabel="Dismiss"
+                            style={styles.close}
+                            hitSlop={10}
+                        >
+                            <CloseIcon size={iconSizes.inline} color={colors.orange} />
+                        </Pressable44>
+                    )}
                 </View>
             ) : null}
             {decision ? (
@@ -75,6 +103,12 @@ const useStyles = createStyles(({ colors }) => ({
         color: colors.orange,
         flex: 1,
     },
+    reconnectText: {
+        ...type.meta,
+        color: colors.orange,
+    },
+    retry: { paddingHorizontal: 8 },
+    retryText: { ...type.meta, color: colors.orange },
     close: {
         width: 24,
         height: 24,

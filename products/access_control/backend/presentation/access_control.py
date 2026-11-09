@@ -731,6 +731,10 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             # "project" access is object-level (checked against the Team instance), not resource-level.
             # For models with a team FK (e.g. Team extensions), use the team for the project check.
             if resource == "project":
+                # Without the entitlement a project rule is never consulted, and the admin-only team
+                # fields are gated on the membership level by validate_team_attrs instead.
+                if not user_access_control.access_controls_supported:
+                    continue
                 obj_for_check = getattr(self.instance, "team", self.instance)
                 has_access = user_access_control.check_access_level_for_object(obj_for_check, required_level)
             else:

@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.utils import timezone
 
 import dateutil.parser
@@ -709,6 +710,24 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["owner"] is None
         event.refresh_from_db()
         assert event.owner is None
+
+    def test_list_filters_stay_unambiguous_when_both_tables_have_the_columns(self):
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="checkout_completed", verified=True)
+        with connection.cursor() as cursor:
+            # Run the deferred FK checks of the inserts above, or Postgres refuses the ALTER TABLE.
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            cursor.execute(
+                "ALTER TABLE posthog_eventdefinition ADD COLUMN IF NOT EXISTS description text,"
+                " ADD COLUMN IF NOT EXISTS verified boolean, ADD COLUMN IF NOT EXISTS hidden boolean"
+            )
+
+        response = self.client.get(
+            "/api/projects/@current/event_definitions/?verified=true&exclude_hidden=true&search=checkout_completed"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == ["checkout_completed"]
 
     def test_cannot_assign_owner_from_another_organization(self):
         """Owner must belong to the current organization (PATCH)."""

@@ -12,6 +12,7 @@ nowhere to land; `summary.py` treats `repository=None` as
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from posthog.egress.limiter.policies import Priority
@@ -78,6 +79,7 @@ async def select_repository_for_team(
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    on_research_session: Callable[[str, str], None] | None = None,
     source_repository: str | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request against the team's repos.
@@ -113,6 +115,7 @@ async def select_repository_for_team(
             sandbox_environment_id=sandbox_environment_id,
             verbose=verbose,
             output_fn=output_fn,
+            on_research_session=on_research_session,
             model=agent_runtime.model,
             runtime_adapter=agent_runtime.runtime_adapter,
             reasoning_effort=agent_runtime.reasoning_effort,
@@ -150,6 +153,7 @@ async def select_repository_for_report(
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    on_research_session: Callable[[str, str], None] | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a set of signals.
 
@@ -170,5 +174,6 @@ async def select_repository_for_report(
         sandbox_environment_id=sandbox_environment_id,
         verbose=verbose,
         output_fn=output_fn,
+        on_research_session=on_research_session,
         source_repository=source_repository_from_signals(signals),
     )

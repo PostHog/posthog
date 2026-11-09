@@ -1115,9 +1115,16 @@ class TestCallMemberServerTool(BaseTest):
     @parameterized.expand(
         [("disabled", "do_not_use", None, "blocked"), ("removed", "needs_approval", "removed", "tool_missing")]
     )
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=[])
     @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
     def test_approval_does_not_override_blocks(
-        self, _name: str, approval_state: str, removed: str | None, expected: str, mock_call: MagicMock
+        self,
+        _name: str,
+        approval_state: str,
+        removed: str | None,
+        expected: str,
+        mock_call: MagicMock,
+        _mock_fetch: MagicMock,
     ) -> None:
         installation = self._installation()
         self._tool(installation)

@@ -21,7 +21,6 @@ import json
 import time
 from collections.abc import Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -31,16 +30,19 @@ import grpc
 from personhog.lifecycle.v1 import lifecycle_pb2
 from personhog.types.v1 import cohort_pb2, feature_flag_pb2, group_pb2, person_pb2
 
+from posthog.dataclasses import frozen
 from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.personhog_client.interceptor import SEMANTIC_REFUSAL_METADATA_KEY
 from posthog.utils import is_anonymous_id
 
 
-@dataclass
+@frozen(kw_only=False)
 class _Call:
     method: str
     request: Any
     response: Any = None
+    # The per-call deadline the caller passed, for the lifecycle sagas; None means the channel default.
+    timeout: float | None = None
 
 
 class _FakeRpcError(grpc.RpcError):
@@ -101,7 +103,7 @@ class _FakeLifecycleClient:
     def delete_persons(
         self, request: lifecycle_pb2.DeletePersonsRequest, timeout: float | None = None
     ) -> lifecycle_pb2.DeletePersonsResponse:
-        return self._fake._lifecycle_delete_persons(request)
+        return self._fake._lifecycle_delete_persons(request, timeout)
 
 
 class FakePersonHogClient:
@@ -135,6 +137,7 @@ class FakePersonHogClient:
         self._lifecycle_ops: dict[str, tuple[int, tuple[int, ...], lifecycle_pb2.DeletePersonsResponse]] = {}
         # (team_id, person_id) held by another live lifecycle op
         self._lifecycle_marks: set[tuple[int, int]] = set()
+        self._lifecycle_versionless: set[tuple[int, int]] = set()
 
         # keyed by project_id -> list of GroupTypeMapping
         self._group_type_mappings_by_project: dict[int, list[group_pb2.GroupTypeMapping]] = {}
@@ -258,6 +261,13 @@ class FakePersonHogClient:
     def hold_lifecycle_mark(self, *, team_id: int, person_id: int) -> None:
         """Make a person look held by another live lifecycle op, so a delete reports SKIPPED_CONFLICT."""
         self._lifecycle_marks.add((team_id, person_id))
+
+    def release_lifecycle_mark(self, *, team_id: int, person_id: int) -> None:
+        self._lifecycle_marks.discard((team_id, person_id))
+
+    def omit_lifecycle_person_version(self, *, team_id: int, person_id: int) -> None:
+        """Answer a delete of this person like an op recorded by a build that stored no tombstone version."""
+        self._lifecycle_versionless.add((team_id, person_id))
 
     def add_cohort_membership(self, *, person_id: int, cohort_id: int, is_member: bool = True) -> None:
         self._cohort_memberships.setdefault(person_id, []).append(
@@ -757,9 +767,9 @@ class FakePersonHogClient:
     # ── Lifecycle sagas ───────────────────────────────────────────────
 
     def _lifecycle_delete_persons(
-        self, request: lifecycle_pb2.DeletePersonsRequest
+        self, request: lifecycle_pb2.DeletePersonsRequest, timeout: float | None = None
     ) -> lifecycle_pb2.DeletePersonsResponse:
-        self.calls.append(_Call("lifecycle.delete_persons", request))
+        self.calls.append(_Call("lifecycle.delete_persons", request, timeout=timeout))
         self._validate_lifecycle_delete(request)
 
         frozen = (request.team_id, tuple(request.person_ids))
@@ -778,6 +788,7 @@ class FakePersonHogClient:
 
         # One decision per distinct person, so a duplicated id reports the same outcome twice.
         outcomes: dict[int, lifecycle_pb2.DeletePersonOutcome] = {}
+        versions: dict[int, int] = {}
         for person_id in request.person_ids:
             if person_id in outcomes:
                 continue
@@ -788,7 +799,7 @@ class FakePersonHogClient:
                 outcomes[person_id] = lifecycle_pb2.DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT
             else:
                 # No publish-queue row: the death document and the outbox carry the ClickHouse tombstones.
-                self._tombstone_person(request.team_id, person, person_pb2.TombstonedPerson())
+                versions[person_id] = self._tombstone_person(request.team_id, person, person_pb2.TombstonedPerson())
                 self._cohort_memberships.pop(person.id, None)
                 for key in [key for key in self._cohort_members if key[1] == person.id]:
                     del self._cohort_members[key]
@@ -796,7 +807,9 @@ class FakePersonHogClient:
 
         response = lifecycle_pb2.DeletePersonsResponse(op_id=request.op_id)
         for person_id in request.person_ids:
-            response.results.add(person_id=person_id, outcome=outcomes[person_id])
+            result = response.results.add(person_id=person_id, outcome=outcomes[person_id])
+            if person_id in versions and (request.team_id, person_id) not in self._lifecycle_versionless:
+                result.person_version = versions[person_id]
         self._lifecycle_ops[request.op_id] = (frozen[0], frozen[1], response)
         copy = lifecycle_pb2.DeletePersonsResponse()
         copy.CopyFrom(response)
@@ -1201,6 +1214,25 @@ class FakePersonHogClient:
             response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=version)
         return response
 
+    def raise_person_version(
+        self, request: person_pb2.RaisePersonVersionRequest, timeout: float | None = None
+    ) -> person_pb2.RaisePersonVersionResponse:
+        self.calls.append(_Call("raise_person_version", request))
+        person = self._live(self._persons_by_id.get((request.team_id, request.person_id)))
+        if person is None:
+            import grpc
+
+            error = grpc.RpcError()
+            error.code = lambda: grpc.StatusCode.NOT_FOUND
+            raise error
+        # The stored row stays as it is, because Postgres trails the leader until its writer applies the raise.
+        written = person_pb2.Person()
+        written.CopyFrom(person)
+        raised = person.version < request.min_version
+        if raised:
+            written.version = request.min_version
+        return person_pb2.RaisePersonVersionResponse(person=written, raised=raised)
+
     def restore_persons(
         self, request: person_pb2.RestorePersonsRequest, timeout: float | None = None
     ) -> person_pb2.RestorePersonsResponse:
@@ -1293,6 +1325,7 @@ class FakePersonHogClient:
             if write.action not in (
                 person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT,
                 person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE,
+                person_pb2.DISTINCT_ID_WRITE_ACTION_TOMBSTONE,
             ):
                 raise ValueError(f"Unknown action {write.action} for {write.distinct_id}")
         response = person_pb2.WriteDistinctIdsResponse()
@@ -1309,7 +1342,11 @@ class FakePersonHogClient:
         self, team_id: int, write: person_pb2.DistinctIdWrite
     ) -> person_pb2.DistinctIdWriteOutcome:
         person = self._persons_by_uuid.get((team_id, write.person_uuid))
-        if person is None or person.is_deleted:
+        if person is None:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
+        if write.action == person_pb2.DISTINCT_ID_WRITE_ACTION_TOMBSTONE:
+            return self._apply_distinct_id_tombstone(team_id, write, person)
+        if person.is_deleted:
             return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
         row = self._mapping_row(team_id, write.distinct_id)
         exists = row is not None or (team_id, write.distinct_id) in self._tombstoned_distinct_ids
@@ -1330,6 +1367,23 @@ class FakePersonHogClient:
         if (mapping.version or 0) >= write.min_version:
             return person_pb2.DISTINCT_ID_WRITE_OUTCOME_UNCHANGED
         mapping.version = write.min_version
+        return person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
+
+    def _apply_distinct_id_tombstone(
+        self, team_id: int, write: person_pb2.DistinctIdWrite, person: person_pb2.Person
+    ) -> person_pb2.DistinctIdWriteOutcome:
+        row = self._mapping_row(team_id, write.distinct_id)
+        if row is None or not person.is_deleted or row.person_id != person.id:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+        if row.is_deleted:
+            if row.version >= write.min_version:
+                return person_pb2.DISTINCT_ID_WRITE_OUTCOME_UNCHANGED
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+        if write.HasField("expected_version") and row.version != write.expected_version:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+        mapping = next(m for m in self._distinct_ids[(team_id, person.id)] if m.distinct_id == write.distinct_id)
+        mapping.version = max((mapping.version or 0) + 1, write.min_version)
+        self._tombstoned_distinct_ids.add((team_id, write.distinct_id))
         return person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
 
     # ── Assertion helpers ────────────────────────────────────────────

@@ -10,6 +10,9 @@ import { EvaluationExplanation } from '../../components/EvaluationExplanation'
 import { EvaluationResultTag, compareEvaluationResults } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
 import { EvaluationRunTimestampCell } from '../../components/EvaluationRunTimestampCell'
+import { TraceDrawerHost } from '../../redesign/trace/TraceDrawerHost'
+import { useTraceDrawerTable } from '../../redesign/trace/TraceDrawerRowsHost'
+import { TraceListRow } from '../../redesign/trace/traceListRows'
 import { evaluationIsDetector } from '../constants'
 import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
@@ -22,6 +25,15 @@ const SENTIMENT_FILTER_OPTIONS: { value: SentimentEvaluationRunsFilter; label: s
     { value: 'neutral', label: 'Neutral' },
     { value: 'all', label: 'All' },
 ]
+
+const TRACE_DRAWER_LIST_ID = 'evaluation-runs'
+const TRACE_LINK = '[data-attr="llma-eval-run-target-link"]'
+
+// A run's timestamp can be long after its trace, so it makes a poor lookup hint.
+// A trace-level run shows on the root only, and with no step the view can open on a generation instead.
+function toTraceDrawerRow(run: EvaluationRun): TraceListRow | null {
+    return run.trace_id ? { traceId: run.trace_id, timestamp: null, stepId: run.generation_id || run.trace_id } : null
+}
 
 function SentimentEvaluationRunsFilters(): JSX.Element {
     const { evaluationRunsFilter } = useValues(llmEvaluationLogic)
@@ -54,6 +66,7 @@ export function EvaluationRunsTable(): JSX.Element {
         runsSummary,
     } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns, setRunsDates, loadOlderEvaluationRuns } = useActions(llmEvaluationLogic)
+    const drawerTableProps = useTraceDrawerTable(TRACE_DRAWER_LIST_ID, TRACE_LINK, toTraceDrawerRow)
     const showOutcomeFilters =
         evaluation?.output_type === 'numeric' ||
         evaluation?.output_type === 'categorical' ||
@@ -151,84 +164,88 @@ export function EvaluationRunsTable(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-4">
-            <div className="flex flex-wrap gap-2 justify-between items-center">
-                <div className="flex flex-wrap items-center gap-2">
-                    {!runsBackfillId && (
-                        <DateFilter
-                            dateFrom={runsDateRange.date_from}
-                            dateTo={runsDateRange.date_to}
-                            onChange={setRunsDates}
+        <>
+            <div className="space-y-4">
+                <div className="flex flex-wrap gap-2 justify-between items-center">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {!runsBackfillId && (
+                            <DateFilter
+                                dateFrom={runsDateRange.date_from}
+                                dateTo={runsDateRange.date_to}
+                                onChange={setRunsDates}
+                                size="small"
+                            />
+                        )}
+                        {showOutcomeFilters ? (
+                            <EvaluationRunsFilters />
+                        ) : showSentimentFilters ? (
+                            <SentimentEvaluationRunsFilters />
+                        ) : null}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {evaluationRuns.length > 0 && !evaluationRunsError && (
+                            <>
+                                <span className="text-muted text-sm">
+                                    {!evaluationRunsHasMore
+                                        ? evaluationRuns.length === 1
+                                            ? 'Showing 1 run.'
+                                            : `Showing all ${evaluationRuns.length.toLocaleString()} runs.`
+                                        : matchingRunsTotal && matchingRunsTotal > evaluationRuns.length
+                                          ? `Showing the latest ${evaluationRuns.length.toLocaleString()} of ${matchingRunsTotal.toLocaleString()} runs.`
+                                          : `Showing the latest ${evaluationRuns.length.toLocaleString()} runs.`}
+                                </span>
+                                {evaluationRunsHasMore && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => loadOlderEvaluationRuns()}
+                                        loading={evaluationRunsLoading}
+                                        data-attr="llma-evaluation-runs-load-older"
+                                    >
+                                        Load older runs
+                                    </LemonButton>
+                                )}
+                            </>
+                        )}
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={refreshEvaluationRuns}
+                            loading={evaluationRunsLoading}
                             size="small"
-                        />
-                    )}
-                    {showOutcomeFilters ? (
-                        <EvaluationRunsFilters />
-                    ) : showSentimentFilters ? (
-                        <SentimentEvaluationRunsFilters />
-                    ) : null}
+                            data-attr="llma-evaluation-refresh-runs"
+                        >
+                            Refresh
+                        </LemonButton>
+                    </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    {evaluationRuns.length > 0 && !evaluationRunsError && (
-                        <>
-                            <span className="text-muted text-sm">
-                                {!evaluationRunsHasMore
-                                    ? evaluationRuns.length === 1
-                                        ? 'Showing 1 run.'
-                                        : `Showing all ${evaluationRuns.length.toLocaleString()} runs.`
-                                    : matchingRunsTotal && matchingRunsTotal > evaluationRuns.length
-                                      ? `Showing the latest ${evaluationRuns.length.toLocaleString()} of ${matchingRunsTotal.toLocaleString()} runs.`
-                                      : `Showing the latest ${evaluationRuns.length.toLocaleString()} runs.`}
-                            </span>
-                            {evaluationRunsHasMore && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => loadOlderEvaluationRuns()}
-                                    loading={evaluationRunsLoading}
-                                    data-attr="llma-evaluation-runs-load-older"
-                                >
-                                    Load older runs
-                                </LemonButton>
-                            )}
-                        </>
-                    )}
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconRefresh />}
-                        onClick={refreshEvaluationRuns}
-                        loading={evaluationRunsLoading}
-                        size="small"
-                        data-attr="llma-evaluation-refresh-runs"
+
+                {showStaleRunsBanner && (
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Try again',
+                            onClick: refreshEvaluationRuns,
+                            'data-attr': 'llma-evaluation-runs-stale-retry',
+                        }}
                     >
-                        Refresh
-                    </LemonButton>
-                </div>
-            </div>
+                        We couldn't refresh the evaluation runs. The runs below may be out of date.
+                    </LemonBanner>
+                )}
 
-            {showStaleRunsBanner && (
-                <LemonBanner
-                    type="error"
-                    action={{
-                        children: 'Try again',
-                        onClick: refreshEvaluationRuns,
-                        'data-attr': 'llma-evaluation-runs-stale-retry',
+                <LemonTable
+                    columns={columns}
+                    dataSource={filteredEvaluationRuns}
+                    loading={evaluationRunsLoading}
+                    rowKey="id"
+                    pagination={{
+                        pageSize: 50,
                     }}
-                >
-                    We couldn't refresh the evaluation runs. The runs below may be out of date.
-                </LemonBanner>
-            )}
-
-            <LemonTable
-                columns={columns}
-                dataSource={filteredEvaluationRuns}
-                loading={evaluationRunsLoading}
-                rowKey="id"
-                pagination={{
-                    pageSize: 50,
-                }}
-                emptyState={emptyState}
-            />
-        </div>
+                    emptyState={emptyState}
+                    {...drawerTableProps}
+                />
+            </div>
+            <TraceDrawerHost listId={TRACE_DRAWER_LIST_ID} />
+        </>
     )
 }

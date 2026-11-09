@@ -123,6 +123,13 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
         self.assertIn(str(config1.id), config_ids)
         self.assertIn(str(config2.id), config_ids)
 
+        # one-row pages walk both configs without skipping or repeating one
+        paged_ids = {
+            self.client.get(self.endpoint_base, {"limit": 1, "offset": offset}).json()["results"][0]["id"]
+            for offset in range(2)
+        }
+        self.assertEqual(paged_ids, {str(config1.id), str(config2.id)})
+
     def test_retrieve_customer_profile_config(self):
         config = CustomerProfileConfig.objects.create(
             team=self.team, scope="person", content=self.valid_data["content"], sidebar=self.valid_data["sidebar"]
@@ -1115,7 +1122,7 @@ class TestAccountViewSet(APIBaseTest):
             account.tagged_items.create(tag=billing_tag)
             account.tagged_items.create(tag=urgent_tag)
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             # Query budget for a tag-filtered account list. Constant regardless of result count
             # because tagged_items and notebooks are prefetched once. If a query is added, please
             # confirm it does not scale with the number of accounts before raising the limit:

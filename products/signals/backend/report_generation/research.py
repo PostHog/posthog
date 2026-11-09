@@ -9,15 +9,7 @@ from html import escape
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
-from pydantic import (
-    BaseModel,
-    Field,
-    ValidationError,
-    ValidationInfo,
-    ValidatorFunctionWrapHandler,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, Field, ValidationError, ValidationInfo, field_validator, model_validator
 
 from posthog.dataclasses import frozen
 
@@ -450,6 +442,13 @@ _MONITORING_METRIC_CHECK_GUIDANCE = """- Make every effort to complete `config.m
   without a formula: the target scales by elapsed minutes / reference_period_minutes. Choose `fixed`
   explicitly for rates, averages, distinct counts, or other targets that keep the same bound. Never infer
   scaling from the number's display format. Supply the baseline period whenever baseline_value is present.
+  Distinguish implementation targets from minimum sample requirements. A traffic count used only to
+  decide whether there is enough evidence must set `config.monitoring.purpose` to `minimum_evidence`,
+  use `threshold_scaling: fixed`, and supply a positive whole-number `gte` sample threshold on one
+  unsampled raw event or action count, without a formula. Missing that threshold is inconclusive and
+  requests scout assessment after the fixed soak; it never proves the implementation failed. Keep the
+  implementation's success criterion as a separate check. Ordinary success targets use `expectation`
+  (the default). A rationale saying "inconclusive" does not change the executable definition.
   If required facts remain unknown, explain what is missing in the rationale and omit monitoring rather
   than invent them. Preserve the bounded relative query
   and whole-window comparison for existing Resolved behavior. This only defines the measurement; it does
@@ -525,11 +524,9 @@ class FixVerificationOutput(BaseModel):
                 raise ValueError("Only the Expected impact section may change during verification")
         return summary
 
-    @field_validator("checks", mode="wrap")
+    @field_validator("checks", mode="before")
     @classmethod
-    def preserve_checks_on_invalid_proposals(
-        cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo
-    ) -> list[CheckSpec] | None:
+    def inherit_existing_check_waits(cls, value: object, info: ValidationInfo) -> object:
         previous = {
             str(check["id"]): check["soak_hours"]
             for check in (info.context or {}).get("previous_checks", [])
@@ -544,19 +541,7 @@ class FixVerificationOutput(BaseModel):
                 else check
                 for check in value
             ]
-        try:
-            checks: list[CheckSpec] | None = handler(value)
-            return checks
-        except ValidationError as error:
-            logger.warning(
-                "fix verification check specs did not validate",
-                extra={
-                    "report_id": (info.context or {}).get("report_id"),
-                    "team_id": (info.context or {}).get("team_id"),
-                    "validation_rules": sorted({item["type"] for item in error.errors(include_input=False)}),
-                },
-            )
-            return None
+        return value
 
     def to_note(self) -> NoteArtefact:
         # The note is written before persistence can confirm which checks were scheduled.
@@ -587,6 +572,7 @@ class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
     summary: str = Field(description="Generated factual report summary.")
     checks_summary: str | None = Field(default=None, description="Summary to apply only with reconciled checks.")
+    checks_error: str | None = None
     tags: list[str] | None = Field(
         default=None,
         description="The report's whole tag set, replaced with title and summary. `None` keeps the stored set.",
@@ -1974,6 +1960,7 @@ async def run_multi_turn_research(
         verification_note: NoteArtefact | None = None
         checks: list[CheckSpec] | None = None
         checks_summary: str | None = None
+        checks_error: str | None = None
         if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
             if output_fn:
                 output_fn("Generating fix verification steps...")
@@ -1990,7 +1977,12 @@ async def run_multi_turn_research(
                     verification_prompt,
                     FixVerificationOutput,
                     label="fix_verification",
-                    json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
+                    max_json_retries=4,
+                    json_retry_prompt=(
+                        "Correct only the verification plan from your previous reply using the validation errors below. "
+                        "Preserve the completed research. Do not do more research or change other report sections. "
+                        "Reply with only the corrected verification JSON object matching the schema above."
+                    ),
                     validation_context={
                         "report_id": signal_report_id,
                         "team_id": context.team_id,
@@ -2006,7 +1998,8 @@ async def run_multi_turn_research(
                 ):
                     checks = list(verification_result.checks)
                     checks_summary = verification_result.summary
-            except Exception:
+            except Exception as error:
+                checks_error = _rejection_reason(error)
                 logger.exception(
                     "multi_turn_research: failed to generate fix verification note",
                     extra={
@@ -2086,6 +2079,7 @@ async def run_multi_turn_research(
         verification_note=verification_note,
         checks=checks,
         checks_summary=checks_summary,
+        checks_error=checks_error,
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,
     )

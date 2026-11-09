@@ -527,18 +527,26 @@ class TestSandboxGithubIdentityGate:
         mock_apply.assert_called_once()
         assert mock_apply.call_args.args[2] == "ghu_reconnected"
 
-    def test_bot_authorship_skips(
-        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
+    @pytest.mark.parametrize(
+        "authorship,state",
+        [
+            (PrAuthorshipMode.BOT, None),
+            (PrAuthorshipMode.USER, {"github_read_access": True}),
+            (PrAuthorshipMode.BOT, {"github_read_access": True}),
+        ],
+    )
+    def test_shared_installation_credentials_skip_actor_rebinding(
+        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade, authorship, state
     ):
-        # BOT runs share a single installation token, so every actor is already
-        # the same GitHub identity — nothing to rebind.
-        mock_authorship.return_value = PrAuthorshipMode.BOT
+        mock_authorship.return_value = authorship
         mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), state) is None
         mock_get_token.assert_not_called()
         mock_apply.assert_not_called()
         mock_clear.assert_not_called()
+        if state:
+            mock_upgrade.assert_not_called()
 
     def test_transition_with_access_rebinds(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade

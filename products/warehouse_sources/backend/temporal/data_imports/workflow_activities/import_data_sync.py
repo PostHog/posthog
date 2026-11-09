@@ -116,6 +116,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.his
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import known_source_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
@@ -132,7 +133,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
     PostHogInternalDatabaseError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
-from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType
 
 LOGGER = get_logger(__name__)
 
@@ -607,7 +608,8 @@ async def _import_data_with_reporting(
 
         await logger.adebug("Running import_data_activity")
 
-        source_type = ExternalDataSourceType(model.pipeline.source_type)
+        # A plugin key imports its vendor module on first use, which must not block the activity loop.
+        source_type = await database_sync_to_async_pool(known_source_key)(model.pipeline.source_type)
         _attempt_source_type.set(str(source_type))
 
         bind_job_context(

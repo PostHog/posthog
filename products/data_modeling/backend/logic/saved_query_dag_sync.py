@@ -188,13 +188,6 @@ def delete_orphaned_table_nodes(team_id: int, node_ids: Iterable[UUID]) -> None:
         orphans.delete()
 
 
-def _delete_incoming_edges(team_id: int, target: Node) -> list[UUID]:
-    edges = Edge.objects.filter(team_id=team_id, target=target)
-    source_ids = list(edges.values_list("source_id", flat=True))
-    edges.delete()
-    return source_ids
-
-
 def delete_nodes(team_id: int, nodes: QuerySet[Node]) -> None:
     source_ids = list(Edge.objects.filter(team_id=team_id, target__in=nodes).values_list("source_id", flat=True))
     nodes.delete()
@@ -240,9 +233,9 @@ def replace_incoming_edges(
     on_unresolved: Literal["raise", "skip"],
     extra_properties: dict | None = None,
 ) -> list[str]:
-    """Rebuild every incoming edge of `target` from `dependency_names`, and report what did not resolve.
+    """Sync the incoming edges of `target` with `dependency_names`, and report what did not resolve.
 
-    The whole replacement runs in one transaction behind the advisory lock `Edge.save` already takes,
+    The whole sync runs in one transaction behind the advisory lock `Edge.save` already takes,
     so two concurrent syncs of the same node run one after the other instead of leaving the union of
     both edge sets, and a failure part-way through leaves the previous edges in place rather than an
     edge-less node.
@@ -254,7 +247,7 @@ def replace_incoming_edges(
     with transaction.atomic():
         lock_dag(team.pk, dag.id)
         Node.objects.select_for_update().filter(pk=target.pk).first()
-        previous_source_ids = _delete_incoming_edges(team.pk, target)
+        resolved_sources: dict[UUID, Node] = {}
         for dependency_name in dependency_names:
             try:
                 source = resolve_dependency_to_node(dependency_name, team, database, dag)
@@ -269,6 +262,18 @@ def replace_incoming_edges(
                 )
                 unresolved.append(dependency_name)
                 continue
+            resolved_sources[source.pk] = source
+
+        current_source_ids = set(
+            Edge.objects.filter(team_id=team.pk, target=target).values_list("source_id", flat=True)
+        )
+        resolved_source_ids = set(resolved_sources)
+        removed_source_ids = current_source_ids - resolved_source_ids
+        Edge.objects.filter(team_id=team.pk, target=target, source_id__in=removed_source_ids).delete()
+
+        for source_id, source in resolved_sources.items():
+            if source_id in current_source_ids:
+                continue
             Edge.objects.create(
                 team=team,
                 dag=dag,
@@ -276,7 +281,7 @@ def replace_incoming_edges(
                 target=target,
                 properties=extra_properties or {},
             )
-        delete_orphaned_table_nodes(team.pk, previous_source_ids)
+        delete_orphaned_table_nodes(team.pk, removed_source_ids)
     return unresolved
 
 
@@ -303,8 +308,8 @@ def sync_saved_query_to_dag(
     1. Validate and parse the query to extract dependencies
     2. Get or create the Node for this SavedQuery
     3. Resolve each dependency to a Node (creating TABLE nodes for sources)
-    4. Delete existing incoming edges (dependencies may have changed)
-    5. Create new edges for each dependency
+    4. Delete incoming edges for removed dependencies
+    5. Create incoming edges for new dependencies
 
     Args:
         saved_query: The SavedQuery to sync to the DAG

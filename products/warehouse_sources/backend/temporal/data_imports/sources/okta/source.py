@@ -23,7 +23,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.okta.okta 
     okta_source,
     validate_credentials as validate_okta_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    OKTA_ENDPOINTS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -156,6 +160,10 @@ The token's user should have read access to the resources you want to sync, for 
 - `okta.groups.read`
 - `okta.apps.read`
 - `okta.logs.read`
+- `okta.policies.read`
+- `okta.devices.read`
+- `okta.roles.read`
+- `okta.idps.read`
 """,
             iconPath="/static/services/okta.png",
             docsUrl="https://posthog.com/docs/cdp/sources/okta",
@@ -211,7 +219,7 @@ The token's user should have read access to the resources you want to sync, for 
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description="Only syncs the last 90 days on initial sync" if endpoint == "logs" else None,
+                description=OKTA_ENDPOINTS[endpoint].description,
             )
             for endpoint in ENDPOINTS
         ]

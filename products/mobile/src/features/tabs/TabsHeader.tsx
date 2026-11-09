@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
 
+import { INBOX_PANE_WIDTH } from '@/ui/adaptiveLayout'
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
@@ -11,6 +12,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { RefreshHint } from '@/ui/RefreshHint'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, radii, type } from '@/ui/tokens'
+import { useAppLayout } from '@/ui/useAppLayout'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import type { TabHeaderSlot, TabKey } from './tabHeaderStore'
@@ -58,6 +60,7 @@ export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
+    const { paired } = useAppLayout()
     const editing = slot?.editing ?? null
     const status = slot?.status ?? null
     const hint = editing ? null : (slot?.hint ?? null)
@@ -71,6 +74,7 @@ export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement
                 {
                     paddingTop: topOffset(insets, HEADER_TOP),
                     paddingBottom: withStatus ? STATUS_PADDING : HEADER_FADE,
+                    maxWidth: tab === 'inbox' && paired ? INBOX_PANE_WIDTH : undefined,
                 },
             ]}
         >

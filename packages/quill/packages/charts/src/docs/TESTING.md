@@ -50,6 +50,7 @@ chart.yAxisLabelElement() // optional y-axis label SVG element
 chart.hasRightAxis // boolean
 chart.referenceLines() // [{ label, position, color, orientation }, …]
 chart.valueLabels() // [{ text, color }, …]
+chart.valueBands() // [{ top, left, width, height, color }, …]
 chart.anomalyPoints() // [{ element, color }, …] (TimeSeriesLineChart)
 chart.legend() // legend container in the render scope, null when hidden
 chart.legendItems() // [{ label, secondaryLabel }, …] legend rows in the render scope, empty when hidden

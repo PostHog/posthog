@@ -7,7 +7,7 @@ export type UsageStats = {
     recordsDropped: number
 }
 
-export const DEFAULT_USAGE_STATS: UsageStats = {
+const DEFAULT_USAGE_STATS: UsageStats = {
     bytesReceived: 0,
     recordsReceived: 0,
     bytesAllowed: 0,
@@ -16,7 +16,7 @@ export const DEFAULT_USAGE_STATS: UsageStats = {
     recordsDropped: 0,
 }
 
-export type UsageStatsByTeam = Map<number, UsageStats>
+type UsageStatsByTeam = Map<number, UsageStats>
 
 export class MetricsUsageAccumulator {
     private readonly stats: UsageStatsByTeam = new Map()

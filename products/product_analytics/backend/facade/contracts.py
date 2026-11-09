@@ -73,6 +73,12 @@ class SavedInsightDefinition:
     query: dict[str, Any]
 
 
+class InsightSeriesNotReady(Exception):
+    def __init__(self, query_id: str | None = None) -> None:
+        super().__init__(query_id)
+        self.query_id = query_id
+
+
 @dataclass(frozen=True)
 class InsightDataCheckFilter:
     """A rule in the shape the project's internal and test users filter stores it."""

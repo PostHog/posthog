@@ -11,6 +11,7 @@ from posthog.models.activity_logging.activity_log import Trigger
 from products.data_catalog.backend.facade.api import certifications_for_team, certify, deprecate, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.api import (
+    HasDependentsError,
     IncrementalConfig,
     IncrementalConfigRefusedError,
     MaterializationFailedError,
@@ -18,6 +19,7 @@ from products.data_modeling.backend.facade.api import (
     MaterializationRefusedError,
     SavedQueryNotFoundError,
     definition_database,
+    delete_saved_query_by_id,
     dependent_saved_query_ids,
     disable_saved_query_materialization,
     enable_saved_query_materialization,
@@ -41,6 +43,7 @@ from ..facade.contracts import (
     AcceptOptions,
     CertificationAsset,
     CreatedAsset,
+    DeletionAsset,
     DeprecatePayload,
     MaterializationAsset,
     MaterializePayload,
@@ -64,6 +67,7 @@ from .analytics import SuggestionOutcome, report_outcomes
 from .candidates.base import inlining_could_deny_a_reader, reads_direct_source
 from .candidates.unmaterialize import effective_definition
 from .payloads import payload_from_json
+from .rules import RULES
 from .suggestions import HUMAN_TRANSITIONS, Transitions, transition_to
 
 if TYPE_CHECKING:
@@ -93,6 +97,14 @@ class Acceptor(ABC):
 
 
 KEEP_MATERIALIZED_FIELD = "keep_materialized"
+DELETE_VIEW_FIELD = "delete_view"
+DELETE_NEEDS_EVERY_DAY_OF_READS = (
+    "Some days in the read window have no read data, so a view read only on those days would look unread. "
+    "Mark it deprecated instead."
+)
+ALREADY_MARKED_DEPRECATED = (
+    "This suggestion was already accepted by marking the view deprecated. Delete the view from its page instead."
+)
 WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE = "warehouse_suggestion"
 OTHER_VIEWS_READ_IT = "Other views now read from this view."
 SYNCS_READ_IT = "This view now feeds person properties, account properties, a destination or a workflow."
@@ -143,6 +155,47 @@ class CertificationAcceptor(Acceptor):
         if not self.reuses_existing:
             raise SubjectAlreadyCertifiedError(subject_kind)
         return existing
+
+
+class DeprecateAcceptor(CertificationAcceptor):
+    @property
+    def option_fields(self) -> frozenset[str]:
+        return super().option_fields | {DELETE_VIEW_FIELD}
+
+    def accept(
+        self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
+    ) -> CreatedAsset:
+        if not request.options.delete_view:
+            return super().accept(suggestion, payload, request)
+        if suggestion.evidence.get("days_with_data", 0) < RULES.deprecate.min_days_with_data_to_delete:
+            raise AcceptOptionRefusedError(DELETE_VIEW_FIELD, DELETE_NEEDS_EVERY_DAY_OF_READS)
+        blocker = _delete_blocker(suggestion.team_id, suggestion.subject_id)
+        if blocker is not None:
+            raise SuggestionOutdatedError(blocker)
+        stopped_materialization = saved_query_still_materializes(suggestion.team_id, suggestion.subject_id)
+        try:
+            delete_saved_query_by_id(
+                suggestion.team_id,
+                suggestion.subject_id,
+                user=request.user,
+                was_impersonated=request.was_impersonated,
+                trigger=suggestion_trigger(suggestion),
+            )
+        except SavedQueryNotFoundError:
+            raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
+        except HasDependentsError:
+            raise SuggestionOutdatedError(OTHER_VIEWS_READ_IT)
+        return DeletionAsset(saved_query_id=str(suggestion.subject_id), stopped_materialization=stopped_materialization)
+
+
+def _delete_blocker(team_id: int, saved_query_id: UUID) -> str | None:
+    if dependent_saved_query_ids(team_id, [saved_query_id]).get(saved_query_id):
+        return OTHER_VIEWS_READ_IT
+    if saved_query_id in saved_queries_feeding_consumers(team_id, [saved_query_id]):
+        return SYNCS_READ_IT
+    if reads_direct_source(team_id, saved_query_id, direct_access_table_ids(team_id)):
+        return READS_DIRECT_SOURCE
+    return None
 
 
 def _may_stop_materializing(suggestion: WarehouseSuggestion, options: AcceptOptions) -> bool:
@@ -257,7 +310,7 @@ UNIQUE_KEY_FIELD = "unique_key"
 class MaterializeAcceptor(Acceptor):
     @property
     def option_fields(self) -> frozenset[str]:
-        return frozenset(field.name for field in fields(AcceptOptions)) - {KEEP_MATERIALIZED_FIELD}
+        return frozenset(field.name for field in fields(AcceptOptions)) - {KEEP_MATERIALIZED_FIELD, DELETE_VIEW_FIELD}
 
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
@@ -366,7 +419,7 @@ ACCEPTORS: Mapping[WarehouseSuggestionKind, Acceptor] = {
     WarehouseSuggestionKind.CERTIFY: CertificationAcceptor(
         status=CertificationStatus.CERTIFIED, apply=certify, reuses_existing=False
     ),
-    WarehouseSuggestionKind.DEPRECATE: CertificationAcceptor(
+    WarehouseSuggestionKind.DEPRECATE: DeprecateAcceptor(
         status=CertificationStatus.DEPRECATED, apply=deprecate, reuses_existing=True, stops_materialization=True
     ),
     WarehouseSuggestionKind.MATERIALIZE: MaterializeAcceptor(),
@@ -421,6 +474,8 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
     _refuse_options_the_kind_ignores(acceptor, kind, request.options)
     status = WarehouseSuggestionStatus(suggestion.status)
     if status == WarehouseSuggestionStatus.ACCEPTED:
+        if request.options.delete_view and _kept_the_view(suggestion):
+            raise SuggestionOutdatedError(ALREADY_MARKED_DEPRECATED)
         return AcceptOutcome(suggestion=suggestion, newly_accepted=False)
     if status != WarehouseSuggestionStatus.PROPOSED:
         raise SuggestionAlreadyDecidedError(status, WarehouseSuggestionStatus.ACCEPTED)
@@ -470,13 +525,17 @@ def refresh_savings(created_asset: CreatedAsset, payload: SuggestionPayload) -> 
 def _stopped_materialization(created_asset: CreatedAsset) -> bool:
     if isinstance(created_asset, UnmaterializationAsset):
         return True
-    return isinstance(created_asset, CertificationAsset) and created_asset.stopped_materialization
+    return isinstance(created_asset, CertificationAsset | DeletionAsset) and created_asset.stopped_materialization
 
 
 def _refuse_options_the_kind_ignores(acceptor: Acceptor, kind: WarehouseSuggestionKind, options: AcceptOptions) -> None:
     ignored = [name for name in chosen_fields(options) if name not in acceptor.option_fields]
     if ignored:
         raise AcceptOptionRefusedError(ignored[0], OPTION_NOT_APPLICABLE.format(kind=kind))
+
+
+def _kept_the_view(suggestion: WarehouseSuggestion) -> bool:
+    return "certification_id" in (suggestion.created_asset or {})
 
 
 def _subject_exists(suggestion: WarehouseSuggestion) -> bool:

@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.19.2 — 2026-11-03
+
+### Patch changes
+
+- [5d6bc49b864](https://github.com/PostHog/posthog/commit/5d6bc49b864253a8dbf7bab15cc1311ad08495cf) Return a credentials error that names `POSTHOG_HOME` and the env credential variables, instead of panicking, when no home directory can be found — Thanks @posthog[bot]!
+
+## 0.19.1 — 2026-11-02
+
+### Patch changes
+
+- [e5ddfc79ecf](https://github.com/PostHog/posthog/commit/e5ddfc79ecff97716aa997879a6d49735aabc647) Keep the release that `hermes inject` stamped when `hermes clone` runs in symbol-set mode without release flags — Thanks @rafaeelaudibert!
+
 ## 0.19.0 — 2026-10-28
 
 ### Minor changes

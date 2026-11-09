@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react-native'
+import { ScrollView } from 'react-native'
 
 import { SessionThread } from './SessionThread'
 import type { Session, SessionThreadItem, SessionToolInvocation } from './types'
@@ -69,6 +70,56 @@ const TWO_GROUPS: SessionThreadItem[] = [
 ]
 
 describe('SessionThread', () => {
+    afterEach(() => jest.restoreAllMocks())
+
+    test.each([
+        ['above newer messages', 200],
+        ['at the bottom', 1300],
+    ])('preserves the viewport when toggling a notice %s', (_name, offset) => {
+        const scrollToEnd = jest.spyOn(ScrollView.prototype, 'scrollToEnd')
+        const items: SessionThreadItem[] = [
+            { kind: 'notice', id: 'n1', text: 'The background review finished.', tone: 'completed' },
+            ...TWO_GROUPS,
+        ]
+        render(<SessionThread session={session({ items })} onRetryHistory={jest.fn()} />)
+        const thread = screen.getByTestId('session-thread')
+        fireEvent(screen.getByTestId('session-notice-measure-n1', { includeHiddenElements: true }), 'textLayout', {
+            nativeEvent: { lines: [{ text: 'First line' }, { text: 'Second line' }, { text: 'Third line' }] },
+        })
+        fireEvent(thread, 'contentSizeChange', 400, 1800)
+        expect(scrollToEnd).toHaveBeenLastCalledWith({ animated: false })
+        fireEvent(thread, 'contentSizeChange', 400, 1850)
+        expect(scrollToEnd).toHaveBeenLastCalledWith({ animated: true })
+        scrollToEnd.mockClear()
+
+        fireEvent(thread, 'scrollBeginDrag')
+        fireEvent(thread, 'scrollEndDrag', {
+            nativeEvent: {
+                contentOffset: { y: offset },
+                contentSize: { height: 1800 },
+                layoutMeasurement: { height: 500 },
+            },
+        })
+        fireEvent.press(screen.getByText('Show more'))
+        fireEvent(thread, 'contentSizeChange', 400, 2000)
+        fireEvent.press(screen.getByText('Show less'))
+        fireEvent(thread, 'contentSizeChange', 400, 1800)
+        fireEvent(thread, 'contentSizeChange', 400, 1850)
+        expect(scrollToEnd).not.toHaveBeenCalled()
+
+        fireEvent(thread, 'scrollBeginDrag')
+        fireEvent(thread, 'momentumScrollEnd', {
+            nativeEvent: {
+                contentOffset: { y: 1350 },
+                contentSize: { height: 1850 },
+                layoutMeasurement: { height: 500 },
+            },
+        })
+        fireEvent(thread, 'contentSizeChange', 400, 1900)
+        expect(scrollToEnd).toHaveBeenCalledTimes(1)
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: true })
+    })
+
     test('shows a retry state when the history fails to load', () => {
         const onRetryHistory = jest.fn()
         render(

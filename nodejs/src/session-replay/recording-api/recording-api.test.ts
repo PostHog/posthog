@@ -103,6 +103,7 @@ describe('RecordingApi', () => {
             formatS3KeyError: jest.fn().mockReturnValue('Invalid key format'),
             getBlock: jest.fn(),
             listBlocks: jest.fn(),
+            getDeletion: jest.fn().mockResolvedValue(null),
             deleteRecordings: jest.fn(),
             encryptBlocks: jest.fn(),
         } as unknown as jest.Mocked<RecordingService>
@@ -426,6 +427,79 @@ describe('RecordingApi', () => {
                 ],
             })
             expect(mockService.listBlocks).toHaveBeenCalledWith('session-123', 1)
+        })
+
+        it('returns 410 for a listed session once its key is shredded', async () => {
+            mockService.listBlocks.mockResolvedValue([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01T00:00:00Z',
+                    end_timestamp: '2024-01-01T00:01:00Z',
+                },
+            ])
+            mockService.getDeletion.mockResolvedValue({
+                ok: false,
+                error: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(410)
+            expect(res.body).toEqual({
+                error: 'recording_deleted',
+                deleted_at: 1700000000,
+                deleted_by: 'user@example.com',
+            })
+            expect(mockService.getDeletion).toHaveBeenCalledWith('session-123', 1)
+        })
+
+        it('still lists blocks when the key store does not answer', async () => {
+            mockService.listBlocks.mockResolvedValue([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01T00:00:00Z',
+                    end_timestamp: '2024-01-01T00:01:00Z',
+                },
+            ])
+            mockService.getDeletion.mockReturnValue(new Promise(() => {}))
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(res.body.blocks).toHaveLength(1)
+        })
+
+        it('does not look up the key of a session with no blocks', async () => {
+            mockService.listBlocks.mockResolvedValue([])
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(mockService.getDeletion).not.toHaveBeenCalled()
+        })
+
+        it('still lists blocks when the key store fails', async () => {
+            mockService.listBlocks.mockResolvedValue([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01T00:00:00Z',
+                    end_timestamp: '2024-01-01T00:01:00Z',
+                },
+            ])
+            mockService.getDeletion.mockRejectedValue(new Error('DynamoDB unavailable'))
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(res.body.blocks).toHaveLength(1)
         })
 
         it('should return empty blocks when session not found', async () => {

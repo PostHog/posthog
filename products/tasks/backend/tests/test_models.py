@@ -28,6 +28,7 @@ from products.tasks.backend.facade.profiles import (
     PrAuthorship,
     Repository,
     SourceKind,
+    TaskProfile,
     TaskProfileError,
     TaskRunOptions,
     TaskRunOptionsError,
@@ -40,6 +41,7 @@ from products.tasks.backend.models import (
     MAX_PENDING_FOLLOWUP_MESSAGES,
     MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    TASK_RUN_FINISH_REPORT_STATE_KEY,
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
@@ -54,6 +56,8 @@ BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 SOURCE_ID = uuid.UUID("5ab01f4d-5b1e-4990-9802-4f8792a76759")
 FLOW_SOURCE = TaskSource(kind=SourceKind.HOG_FLOW, id=str(SOURCE_ID))
 REPORT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.report", source_kind=SourceKind.SIGNAL_REPORT)
+POSTHOG_AI_BOT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.posthog_ai_bot", origin_product="posthog_ai")
+PI_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.pi", runtimes=("pi",))
 
 # Far enough back that any bump is unambiguously forward, and stable so a test can assert the
 # clock did *not* move.
@@ -325,16 +329,28 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("runtime", TaskRunOptions(runtime="pi"), ("pi", [])),
+            ("runtime", TaskRunOptions(runtime="pi"), None, ("pi", [])),
             (
                 "repositories",
                 TaskRunOptions(repositories=(Repository(name="posthog/posthog"),)),
+                None,
                 ("acp", ["posthog/posthog"]),
+            ),
+            ("profile_runtime", None, PI_PROFILE, ("pi", [])),
+            (
+                "profile_runtime_with_options",
+                TaskRunOptions(repositories=(Repository(name="posthog/posthog"),)),
+                PI_PROFILE,
+                ("pi", ["posthog/posthog"]),
             ),
         ]
     )
     def test_create_without_run_applies_task_settings(
-        self, name: str, options: TaskRunOptions, expected: tuple[str, list[str]]
+        self,
+        name: str,
+        options: TaskRunOptions | None,
+        profile: TaskProfile | None,
+        expected: tuple[str, list[str]],
     ) -> None:
         user = User.objects.create(email=f"{name}@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
@@ -344,7 +360,7 @@ class TestTask(TestCase):
             title="t",
             description="d",
             user_id=user.id,
-            origin_product=Task.OriginProduct.USER_CREATED,
+            **({"profile": profile} if profile else {"origin_product": Task.OriginProduct.USER_CREATED}),
             options=options,
         )
 
@@ -678,6 +694,45 @@ class TestTask(TestCase):
         self.assertIsNone(task.github_integration)
         self.assertIsNone(task.github_user_integration)
 
+    @parameterized.expand(
+        [
+            ("runtime", PI_PROFILE, None, ("pi", "default_base")),
+            ("runtime_also_in_options", PI_PROFILE, TaskRunOptions(runtime="pi"), ("pi", "default_base")),
+            (
+                "template",
+                replace(BUSINESS_KNOWLEDGE, key="test.autoresearch", sandbox_templates=("autoresearch_base",)),
+                None,
+                ("acp", "autoresearch_base"),
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_takes_the_default_runtime_and_template_from_the_profile(
+        self,
+        _name: str,
+        profile: TaskProfile,
+        options: TaskRunOptions | None,
+        expected: tuple[str, str],
+        mock_execute_workflow,
+    ):
+        user = User.objects.create(email="defaults@test.com")
+
+        with (
+            patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Profile defaults",
+                description="Picks no runtime or template",
+                profile=profile,
+                user_id=user.id,
+                options=options,
+            )
+
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertEqual((task.runtime, state.get("sandbox_template")), expected)
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_keeps_the_previous_template_and_refuses_a_forbidden_one(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
@@ -778,6 +833,20 @@ class TestTask(TestCase):
 
         self.assertNotIn("ai_stage", run.state)
 
+    def test_create_run_turns_live_context_off_on_every_knowledge_writer_run(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Docs for a merged PR",
+            description="Writer",
+            origin_product=Task.OriginProduct.KNOWLEDGE_WRITER,
+        )
+
+        first_run = task.create_run(extra_state={"include_live_context": True})
+        later_run = task.create_run(mode="background")
+
+        self.assertIs(first_run.state["include_live_context"], False)
+        self.assertIs(later_run.state["include_live_context"], False)
+
     def test_create_run_keeps_the_pipeline_stage_over_the_interactive_stamp(self):
         from products.signals.backend.models import SignalReport
 
@@ -813,17 +882,30 @@ class TestTask(TestCase):
 
         self.assertNotIn("ai_stage", run.state)
 
-    def test_create_run_stamps_chat_on_a_signals_chat_task(self):
+    @parameterized.expand(
+        [
+            ("signals_chat", Task.OriginProduct.SIGNALS_CHAT, False, "interactive", "chat"),
+            (
+                "internal_scout_suggestions",
+                Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+                True,
+                "background",
+                "scout_suggestions",
+            ),
+        ]
+    )
+    def test_create_run_stamps_the_signals_stage_for_its_origin(self, _name, origin_product, internal, mode, stage):
         task = Task.objects.create(
             team=self.team,
-            title="Suggest a scout",
-            description="Chat",
-            origin_product=Task.OriginProduct.SIGNALS_CHAT,
+            title="Signals task",
+            description="Stageless run",
+            origin_product=origin_product,
+            internal=internal,
         )
 
-        run = task.create_run(mode="interactive")
+        run = task.create_run(mode=mode)
 
-        self.assertEqual(run.state["ai_stage"], "chat")
+        self.assertEqual(run.state["ai_stage"], stage)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_omits_permission_mode_when_not_provided(self, mock_execute_workflow):
@@ -989,13 +1071,14 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("connected_creator", True, "user"),
-            ("creator_without_personal_github", False, "bot"),
+            ("connected_creator", True, None, "user"),
+            ("creator_without_personal_github", False, None, "bot"),
+            ("profile_without_user_authorable_prs", True, POSTHOG_AI_BOT_PROFILE, None),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_posthog_ai_authorship_follows_the_creators_personal_github(
-        self, _name, connected, expected_mode, mock_execute_workflow
+        self, _name, connected, profile, expected_mode, mock_execute_workflow
     ):
         user = User.objects.create(email="phai@test.com")
         OrganizationMembership.objects.create(user=user, organization=self.organization)
@@ -1011,19 +1094,23 @@ class TestTask(TestCase):
             else None
         )
 
-        with self.captureOnCommitCallbacks(execute=True):
+        registered = {profile.key: profile} if profile else {}
+        with (
+            patch.dict("products.tasks.backend.facade.profiles._profiles", registered),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             task = Task.create_and_run(
                 team=self.team,
                 title="PostHog AI",
                 description="Repo-less",
-                origin_product=Task.OriginProduct.POSTHOG_AI,
+                **({"profile": profile} if profile else {"origin_product": Task.OriginProduct.POSTHOG_AI}),
                 user_id=user.id,
             )
 
         self.assertIsNone(task.github_integration)
         self.assertEqual(task.github_user_integration, user_integration)
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
-        self.assertEqual(state["pr_authorship_mode"], expected_mode)
+        self.assertEqual(state.get("pr_authorship_mode"), expected_mode)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_signal_report_raises_when_no_integration_anywhere(self, mock_execute_workflow):
@@ -1661,7 +1748,9 @@ class TestTaskRun(TestCase):
                 "failure_error_type": "poll_timeout",
                 "cancel_requested_at": requested_at.isoformat(),
                 "startup_requested_at": requested_at.isoformat(),
+                TASK_RUN_FINISH_REPORT_STATE_KEY: True,
             },
+            output={"final_message": "Previous report"},
         )
 
         run.prepare_for_cloud_resume()
@@ -1682,6 +1771,7 @@ class TestTaskRun(TestCase):
         self.assertNotIn("sandbox_backend", run.state)
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
+        self.assertIsNone(run.finish_report)
         self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")
         self.assertTrue(run.state["same_run_resume"])
 

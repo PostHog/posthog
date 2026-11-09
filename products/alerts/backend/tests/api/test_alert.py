@@ -27,7 +27,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.alerts.backend.facade.api import LLMDetectorUnavailableError
-from products.alerts.backend.facade.contracts import INSIGHT_ALERT_EVENT_IDS
+from products.alerts.backend.facade.contracts import INSIGHT_ALERT_EVENT_IDS, INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
@@ -1772,7 +1772,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "label": "pageview",
-                    "action": {"name": "pageview"},
                     "actions": [],
                     "count": 35,
                     "breakdown_value": "",
@@ -1781,7 +1780,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "compare": False,
                     "persons_urls": [],
                     "persons": {},
-                    "filter": {},
                 }
             ]
         )
@@ -1941,7 +1939,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "label": "pageview",
-                    "action": {"name": "pageview"},
                     "actions": [],
                     "count": 35,
                     "breakdown_value": "",
@@ -1950,7 +1947,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "compare": False,
                     "persons_urls": [],
                     "persons": {},
-                    "filter": {},
                 }
             ]
         )
@@ -2923,6 +2919,34 @@ class TestAlertDestinations(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
         assert self._active_destination_count() == 0
 
+    def test_an_incident_destination_is_removed_through_the_insight_api(self) -> None:
+        hog_function_ids = [
+            str(
+                HogFunction.objects.create(
+                    team=self.team,
+                    type="internal_destination",
+                    name="PagerDuty",
+                    template_id="template-pagerduty",
+                    hog="return event",
+                    enabled=True,
+                    inputs={"routing_key": {"value": "a" * 32}},
+                    filters={
+                        "source": "internal-events",
+                        "events": [{"id": event_id, "type": "events"}],
+                        "properties": [
+                            {"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}
+                        ],
+                    },
+                ).id
+            )
+            for event_id in INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()
+        ]
+
+        response = self.client.post(f"{self.url}delete/", {"hog_function_ids": hog_function_ids}, format="json")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).exists()
+
     def test_an_alert_stops_taking_destinations_at_the_cap(self) -> None:
         for index in range(MAX_DESTINATIONS_PER_ALERT):
             response = self.client.post(self.url, self._slack_payload(slack_channel_id=f"C{index}"), format="json")
@@ -3329,7 +3353,6 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
                     "days": dates,
                     "labels": dates,
                     "label": "pageview",
-                    "action": {"name": "pageview"},
                     "actions": [],
                     "count": 7,
                 }

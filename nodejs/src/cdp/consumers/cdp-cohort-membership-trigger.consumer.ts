@@ -102,6 +102,7 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
             hogWatcherMirror: this.hogWatcherMirror,
             hogMasker: this.hogMasker,
             hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            workflowsActivationReporter: this.workflowsActivationReporter,
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
             valkeyShadow: this.valkeyShadow,

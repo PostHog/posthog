@@ -130,7 +130,7 @@ describe('EmptyDashboardComponent', () => {
         expect(screen.getByText('Button')).toBeInTheDocument()
         expect(screen.getByText('Widget')).toBeInTheDocument()
         expect(screen.queryByText('BETA')).not.toBeInTheDocument()
-        expect(screen.getAllByText('NEW')).toHaveLength(2)
+        expect(screen.queryByText('NEW')).not.toBeInTheDocument()
 
         logic.unmount()
     })

@@ -39,6 +39,8 @@ export interface SearchItem {
     itemType?: string | null
     searchKeywords?: string[]
     hiddenSearchText?: string
+    identityFields?: string[]
+    isCurated?: boolean
     matchedSearchKeyword?: string | null
     parentName?: string
     record?: Record<string, unknown>
@@ -217,6 +219,19 @@ export const accountToSearchItem = (account: AccountApi): SearchItem => {
         href: urls.customerAnalyticsAccount(account.id),
         icon: <IconBuilding />,
         itemType: 'account',
+        identityFields: [
+            account.external_id,
+            account.properties?.website_domain,
+            ...(account.properties?.email_domains ?? []),
+            ...(account.properties?.known_emails ?? []),
+        ].filter((value): value is string => !!value),
+        isCurated: !!(
+            account.properties?.sfdc_id ||
+            account.properties?.hubspot_deal_id ||
+            account.properties?.billing_id ||
+            account.tags?.length ||
+            account.notebooks.length
+        ),
         record: { type: 'account', id: account.id },
         badges: getAccountStatusTags(account).map(({ label, type, dateLabel }) => ({
             label,
@@ -274,6 +289,7 @@ export const personToSearchItem = (person: SearchablePerson): SearchItem => {
         category: 'persons',
         href: urls.personByUUID(person.uuid),
         itemType: 'person',
+        identityFields: [...(person.distinct_ids ?? [])],
         record: { type: 'person', ref: person.uuid, uuid: person.uuid, distinctIds: person.distinct_ids },
     }
 }

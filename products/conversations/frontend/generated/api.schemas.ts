@@ -40,6 +40,168 @@ export interface AIReplyPlaybookApi {
     readonly max_chars: number
 }
 
+/**
+ * * `shared` - Everyone in the project
+ * * `personal` - Only the creator
+ */
+export type TicketMacroVisibilityEnumApi =
+    (typeof TicketMacroVisibilityEnumApi)[keyof typeof TicketMacroVisibilityEnumApi]
+
+export const TicketMacroVisibilityEnumApi = {
+    Shared: 'shared',
+    Personal: 'personal',
+} as const
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface TicketMacroApi {
+    /** UUID of the macro. */
+    readonly id: string
+    /**
+     * Name shown in the macro list and the composer menu.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
+     * @maxLength 50
+     * @nullable
+     */
+    shortcut?: string | null
+    /**
+     * Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.
+     * @maxLength 10000
+     */
+    body: string
+    /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+     *
+     * * `shared` - Everyone in the project
+     * * `personal` - Only the creator */
+    visibility?: TicketMacroVisibilityEnumApi
+    /** How many times agents have inserted this macro. */
+    readonly usage_count: number
+    /**
+     * When an agent last inserted this macro. Null if it has never been used.
+     * @nullable
+     */
+    readonly last_used_at: string | null
+    /** When the macro was created. */
+    readonly created_at: string
+    /**
+     * When the macro was last edited. Null until the first edit.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /** The user who created this macro. Null when that user was deleted. */
+    readonly created_by: UserBasicApi | null
+}
+
+export interface PaginatedTicketMacroListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TicketMacroApi[]
+}
+
+export interface PatchedTicketMacroApi {
+    /** UUID of the macro. */
+    readonly id?: string
+    /**
+     * Name shown in the macro list and the composer menu.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
+     * @maxLength 50
+     * @nullable
+     */
+    shortcut?: string | null
+    /**
+     * Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.
+     * @maxLength 10000
+     */
+    body?: string
+    /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+     *
+     * * `shared` - Everyone in the project
+     * * `personal` - Only the creator */
+    visibility?: TicketMacroVisibilityEnumApi
+    /** How many times agents have inserted this macro. */
+    readonly usage_count?: number
+    /**
+     * When an agent last inserted this macro. Null if it has never been used.
+     * @nullable
+     */
+    readonly last_used_at?: string | null
+    /** When the macro was created. */
+    readonly created_at?: string
+    /**
+     * When the macro was last edited. Null until the first edit.
+     * @nullable
+     */
+    readonly updated_at?: string | null
+    /** The user who created this macro. Null when that user was deleted. */
+    readonly created_by?: UserBasicApi | null
+}
+
 export interface SigningSecretApi {
     /**
      * Raw secret used to compute widget identity verification hashes (HMAC). Null until one exists.
@@ -128,12 +290,6 @@ export const TicketPriorityEnumApi = {
     Medium: 'medium',
     High: 'high',
     Critical: 'critical',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
 } as const
 
 /**
@@ -875,57 +1031,6 @@ export interface TicketViewFiltersApi {
     search?: string
 }
 
-/**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `student` - Student
- * * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Student: 'student',
-    Other: 'other',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
 export interface TicketViewApi {
     /** Internal UUID of the view. */
     readonly id: string
@@ -1064,6 +1169,17 @@ export interface ZendeskImportErrorApi {
     detail: string
 }
 
+export type ConversationsMacrosListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ConversationsTicketsListParams = {
     /**
      * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `skipped_team_replied`, `skipped_channel_excluded`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
@@ -1099,6 +1215,7 @@ export type ConversationsTicketsListParams = {
     emails?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1183,6 +1300,7 @@ export const ConversationsTicketsListSla = {
 export type ConversationsTicketsMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**

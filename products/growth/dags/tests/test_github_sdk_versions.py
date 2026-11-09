@@ -551,6 +551,16 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
                 {"3.28.0", "3.6.1", "3.3.3"},
             ),
             (
+                "posthog-roblox",
+                "PostHog/posthog-roblox",
+                [
+                    _release("v0.2.0", "2026-10-15T00:00:00Z"),
+                    _release("v0.1.7", "2026-06-07T00:00:00Z"),
+                ],
+                "0.2.0",
+                {"0.2.0", "0.1.7"},
+            ),
+            (
                 "js",
                 "PostHog/posthog-js",
                 [

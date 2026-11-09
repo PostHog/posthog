@@ -21,7 +21,7 @@ import { UnmaterializeSuggestionRow } from './UnmaterializeSuggestionRow'
 const SECTION_COPY: Record<string, { title: string; description: string }> = {
     materialize: {
         title: 'Materialize',
-        description: 'These views run their full query every time someone reads them.',
+        description: 'Store these views so reads and other refreshes can reuse their results.',
     },
     unmaterialize: {
         title: 'Stop materializing',

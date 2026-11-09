@@ -2,14 +2,16 @@ import {
     type InfiniteData,
     type QueryClient,
     type QueryKey,
+    skipToken,
     type UseQueryResult,
     useInfiniteQuery,
     useQueries,
+    useQuery,
     useQueryClient,
 } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-
 import { NotSignedInError } from '@/api/client'
+import { inboxCacheKey, type SavedInbox } from '@/api/readCacheKeys'
 import {
     fetchInboxPage,
     INBOX_PAGE_SIZE,
@@ -26,11 +28,12 @@ import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode, useDemoMode } from '@/demo/demoMode'
 import { useDemoInboxQuery } from '@/demo/hooks'
 import { track } from '@/lib/analytics'
+import { useConnectivity } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import { useNow } from '@/lib/useNow'
 import { inboxFromReports, reportsFromPages, signalCountsFromReports } from '@/model/adapters/inbox'
-import { errorQuery, loadingQuery } from '@/model/queryStates'
+import { connectionLoadingQuery, errorQuery, loadingQuery } from '@/model/queryStates'
 import type { InboxItem, QueryState } from '@/model/types'
 
 import { useAppActive } from '../handoff/useTaskRun'
@@ -54,7 +57,8 @@ export interface InboxQueryState extends QueryState<InboxItem[]> {
     unfiltered: readonly InboxItem[] | undefined
 }
 
-type InboxPages = InfiniteData<InboxPageApi, number>
+type CapturedInboxPage = InboxPageApi & { capturedAt?: number }
+type InboxPages = InfiniteData<CapturedInboxPage, number>
 
 const noop = (): void => undefined
 const noMorePages = { hasMore: false, isLoadingMore: false, loadMoreFailed: false, loadMore: noop, retryLoadMore: noop }
@@ -111,8 +115,12 @@ function nextOffset(lastPage: InboxPageApi, _pages: InboxPageApi[], lastOffset: 
 
 // Refetching every loaded page ranks the whole list once per page, so a refresh starts again from the first page.
 function keepFirstPage(queryClient: QueryClient, scope: ProjectScope): void {
-    queryClient.setQueryData<InboxPages>(reportKeys.inbox(scope), (data) =>
-        data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data
+    const key = reportKeys.inbox(scope)
+    const updatedAt = queryClient.getQueryState(key)?.dataUpdatedAt
+    queryClient.setQueryData<InboxPages>(
+        key,
+        (data) => (data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data),
+        { updatedAt }
     )
 }
 
@@ -123,6 +131,7 @@ function useLiveInboxItems(
     now: Date
 ): InboxQueryState {
     const scope = useProjectScope()
+    const offline = useConnectivity((state) => state.status === 'offline')
     const appActive = useAppActive()
     const active = enabled && scope !== null
     const snoozes = useSnoozeEntries()
@@ -131,14 +140,21 @@ function useLiveInboxItems(
 
     const list = useInfiniteQuery({
         queryKey: reportKeys.inbox(scope),
-        queryFn: ({ pageParam, signal }) => fetchInboxPage(pageParam, signal),
+        queryFn: async ({ pageParam, signal }): Promise<CapturedInboxPage> => {
+            const page = await fetchInboxPage(pageParam, signal)
+            return { ...page, capturedAt: Date.now() }
+        },
         initialPageParam: 0,
         getNextPageParam: nextOffset,
         enabled: active,
     })
+    const saved = useQuery<SavedInbox>({ queryKey: inboxCacheKey(scope), queryFn: skipToken })
     const reports = useMemo(() => (list.data ? reportsFromPages(list.data.pages) : undefined), [list.data])
-    const baseItems = useMemo(() => (reports ? inboxFromReports(reports) : undefined), [reports])
-    const signalCounts = useMemo(() => (reports ? signalCountsFromReports(reports) : {}), [reports])
+    const baseItems = useMemo(() => (reports ? inboxFromReports(reports) : saved.data?.items), [reports, saved.data])
+    const signalCounts = useMemo(
+        () => (reports ? signalCountsFromReports(reports) : (saved.data?.signalCounts ?? {})),
+        [reports, saved.data]
+    )
 
     // One read-state request per page, so loading a page does not ask again for the pages before it.
     const pageIds = useMemo(
@@ -168,6 +184,31 @@ function useLiveInboxItems(
         combine: mergeReadStates,
     })
 
+    const firstPage = list.data?.pages[0]
+    const capturedAt = firstPage?.capturedAt
+    const savedCounts = useMemo(() => (firstPage ? signalCountsFromReports(firstPage.results) : {}), [firstPage])
+    const savedItems = useMemo(
+        () =>
+            firstPage
+                ? inboxFromReports(firstPage.results).map((item) => ({
+                      ...item,
+                      read: readStates[item.reportId] !== false,
+                  }))
+                : undefined,
+        [firstPage, readStates]
+    )
+    useEffect(() => {
+        if (!active || !scope || !list.isSuccess || !savedItems || !capturedAt) return
+        const key = inboxCacheKey(scope)
+        const previous = queryClient.getQueryData<SavedInbox>(key)
+        if (previous?.items === savedItems && previous.sourceUpdatedAt === capturedAt) return
+        queryClient.setQueryData<SavedInbox>(
+            key,
+            { items: savedItems, signalCounts: savedCounts, sourceUpdatedAt: capturedAt },
+            { updatedAt: capturedAt }
+        )
+    }, [active, scope, list.isSuccess, capturedAt, savedItems, savedCounts, queryClient])
+
     const polling = active && appActive && refreshWhileVisible
     const wasPolling = useRef(polling)
     useEffect(() => {
@@ -181,9 +222,11 @@ function useLiveInboxItems(
         if (!baseItems || !scope) {
             return undefined
         }
-        const withRead = baseItems.map((item) => ({ ...item, read: readStates[item.reportId] !== false }))
+        const withRead = reports
+            ? baseItems.map((item) => ({ ...item, read: readStates[item.reportId] !== false }))
+            : baseItems
         return applySnoozes(applyInboxFilters(withRead, filters, now.getTime()), snoozes, scope, now, signalCounts)
-    }, [baseItems, readStates, filters, snoozes, scope, now, signalCounts])
+    }, [baseItems, reports, readStates, filters, snoozes, scope, now, signalCounts])
 
     const {
         refetch: refetchList,
@@ -264,7 +307,7 @@ function useLiveInboxItems(
     if (list.isError) {
         return { ...errorQuery(toError(list.error), refetch), ...noMorePages, ...noItems }
     }
-    return { ...loadingQuery<InboxItem[]>(), refetch, ...noMorePages, ...noItems }
+    return { ...connectionLoadingQuery<InboxItem[]>(offline, refetch), ...noMorePages, ...noItems }
 }
 
 /** `for_you/` has no sort or filter parameters, so `filters` apply on the device to the ranked reports. */

@@ -19,7 +19,7 @@ export function SuggestedModelsSection({ title, description, children }: Suggest
                     <span className="text-xs text-secondary">{description}</span>
                 </div>
                 <span className="hidden text-right text-xs text-secondary @min-[36rem]/suggestions:block">
-                    Saves a month
+                    Main saving a month
                 </span>
             </div>
             <div className="divide-y divide-primary">{children}</div>

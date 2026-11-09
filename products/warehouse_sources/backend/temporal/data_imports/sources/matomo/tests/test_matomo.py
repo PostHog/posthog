@@ -163,7 +163,11 @@ class TestDrivenEndpoints:
         [
             # Without flat=1 page URLs come back as folder rows whose pages hide in subtables.
             ("pages", "Actions.getPageUrls", ["1"]),
+            ("entry_pages", "Actions.getEntryPageUrls", ["1"]),
+            ("exit_pages", "Actions.getExitPageUrls", ["1"]),
             ("event_names", "Events.getName", None),
+            # Flattening would emit one row per referring URL, not per website.
+            ("referrer_websites", "Referrers.getWebsites", None),
         ],
     )
     def test_report_request_params(self, endpoint: str, method: str, expected_flat: list[str] | None) -> None:

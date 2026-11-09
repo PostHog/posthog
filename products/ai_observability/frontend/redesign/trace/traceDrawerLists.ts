@@ -1,0 +1,77 @@
+import type { NodeDetailTab, TraceOpeningMode } from './types'
+
+// List ids are the `list` property of `llma trace drawer opened`, so renaming one breaks the event history.
+export type TraceDrawerListId =
+    | 'traces'
+    | 'generations'
+    | 'prompt-traces'
+    | 'reviews'
+    | 'evaluation-runs'
+    | 'dataset-items'
+    | 'cluster-traces'
+
+export interface TraceDrawerListConfig {
+    // Tested against the path without its project prefix. Other products use `trace` for their own ids, and on browser
+    // back the outgoing list is still mounted on the next list's URL, so a list reads `trace` on its own path only.
+    pathMatcher: RegExp
+    backTo: string
+    backLabel: string
+    openingMode?: TraceOpeningMode
+    detailTab?: NodeDetailTab
+    rowClick: boolean
+}
+
+export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig> = {
+    traces: {
+        pathMatcher: /^\/ai-observability\/traces$/,
+        backTo: 'traces',
+        backLabel: 'Back to traces',
+        rowClick: true,
+    },
+    generations: {
+        pathMatcher: /^\/ai-observability\/generations$/,
+        backTo: 'generations',
+        backLabel: 'Back to generations',
+        rowClick: true,
+    },
+    'prompt-traces': {
+        pathMatcher: /^\/prompt-management\/prompts\/[^/]+$/,
+        backTo: 'prompt',
+        backLabel: 'Back to prompt',
+        rowClick: true,
+    },
+    reviews: {
+        pathMatcher: /^\/ai-observability\/reviews$/,
+        backTo: 'reviews',
+        backLabel: 'Back to reviews',
+        rowClick: true,
+    },
+    'evaluation-runs': {
+        pathMatcher: /^\/ai-evals\/evaluations\/(?!(?:templates|offline|scorers)$)[^/]+$/,
+        backTo: 'evaluation',
+        backLabel: 'Back to evaluation',
+        detailTab: 'evals',
+        rowClick: true,
+    },
+    'dataset-items': {
+        pathMatcher: /^\/ai-evals\/evaluations\/offline\/datasets\/[^/]+$/,
+        backTo: 'dataset',
+        backLabel: 'Back to dataset',
+        rowClick: false,
+    },
+    'cluster-traces': {
+        pathMatcher: /^\/ai-observability\/clusters\/[^/]+\/[^/]+$/,
+        backTo: 'cluster',
+        backLabel: 'Back to cluster',
+        openingMode: 'summary',
+        rowClick: false,
+    },
+}
+
+const BACK_LABELS: ReadonlyMap<unknown, string> = new Map(
+    Object.values(TRACE_DRAWER_LISTS).map(({ backTo, backLabel }) => [backTo, backLabel])
+)
+
+export function traceDrawerBackLabel(backTo: unknown): string {
+    return BACK_LABELS.get(backTo) ?? 'Back'
+}

@@ -420,7 +420,7 @@ function mergeVisibleEdges(workflow: FlowGraph, collapsed: Collapsed): VisibleEd
     return [...edgesById.values()]
 }
 
-/** Each arrow leaves its step from its own port, in path order, so the arrows of a split never cross. */
+/** Numbers the arrows of a step in path order. The layout places them by where they go, and uses this order for ties. */
 function assignSourcePorts(workflow: FlowGraph, edges: VisibleEdge[]): VisibleEdge[] {
     const bySource = new Map<string, VisibleEdge[]>()
     edges.forEach((edge) => bySource.set(edge.source, [...(bySource.get(edge.source) ?? []), edge]))
@@ -781,6 +781,10 @@ export interface PaletteCommand {
     label: string
     hint?: string
 }
+
+// Firefox starts a drag only when it carries data. A text field accepts a drop of text/plain and types it in,
+// so step drags carry a type that no text field accepts.
+export const STEP_DRAG_DATA_TYPE = 'application/x-posthog-workflow-step'
 
 export type PaletteItem<Command extends PaletteCommand = PaletteCommand> =
     | { kind: 'step'; key: string; section: string; label: string; description?: string; step: CreateActionType }

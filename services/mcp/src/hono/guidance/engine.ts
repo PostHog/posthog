@@ -44,6 +44,10 @@ function readArgPath(args: Record<string, unknown> | undefined, path: string): u
     }, args)
 }
 
+function isSet(value: unknown): boolean {
+    return value !== undefined && value !== null && value !== ''
+}
+
 export function triggerMatches(rule: GuidanceRule, call: GuidanceCall): boolean {
     const { trigger } = rule
     if (trigger.tool !== undefined && !matchesToolPattern(trigger.tool, call.toolName)) {
@@ -58,9 +62,15 @@ export function triggerMatches(rule: GuidanceRule, call: GuidanceCall): boolean 
     if (trigger.outcome === 'error' && !call.isError) {
         return false
     }
+    if (trigger.excludeArgs?.some((path) => isSet(readArgPath(call.args, path)))) {
+        return false
+    }
     if (trigger.argPattern !== undefined) {
         const value = trigger.argPath === undefined ? call.args : readArgPath(call.args, trigger.argPath)
         const text = typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value)
+        if (trigger.argMaxLength !== undefined && text.length > trigger.argMaxLength) {
+            return false
+        }
         return trigger.argPattern.test(text)
     }
     return true
@@ -76,9 +86,11 @@ function isGuidanceAudience(state: ResolvedState): boolean {
 // flag off, or without AI consent, is counted the same way, so the stamped outcome gives a
 // control group and a measure of how often consent blocks the notice.
 function ruleApplies(rule: GuidanceRule, state: ResolvedState, preset: string): boolean {
+    // The roster drops consent-gated tools without org consent, so it cannot decide these callers.
+    const withheldForConsent = rule.requiresAiConsent === true && state.aiConsentGiven !== true
     return (
         rule.trigger.presets.includes(preset as GuidanceRule['trigger']['presets'][number]) &&
-        rule.requiresTool.every((name) => state.allTools.some((tool) => tool.name === name))
+        (withheldForConsent || rule.requiresTool.every((name) => state.allTools.some((tool) => tool.name === name)))
     )
 }
 

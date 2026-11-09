@@ -2866,6 +2866,20 @@ class TestOrganizationMemberProjectAccess(BaseAccessControlTest):
         res = self.client.get(f"/api/organizations/@current/members/project_access?member_id={other_membership.id}")
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
+    def test_membership_level_decides_without_the_entitlement(self):
+        self._set_access_control_available(False)
+        # A stale rule from before the downgrade must not be consulted
+        self._project_rule(self.team, "admin", organization_member=self.user2_membership)
+
+        projects = self._projects(self._get(), self.user2_membership.id)
+        assert {(p["access_level"], p["resolved"]["source"]) for p in projects.values()} == {
+            ("member", "org_membership")
+        }
+        admin_projects = self._projects(self._get(), self.organization_membership.id)
+        assert {(p["access_level"], p["resolved"]["source"]) for p in admin_projects.values()} == {
+            ("admin", "org_admin")
+        }
+
     def test_query_count_does_not_grow_with_members_or_projects(self):
         def query_count() -> int:
             with CaptureQueriesContext(connection) as ctx:

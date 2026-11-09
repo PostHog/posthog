@@ -1545,18 +1545,22 @@ class TrinoPrinter(PostgresPrinter):
         ):
             division_type = node.type.resolve_constant_type(self.context) if node.type is not None else None
             return ast.FloatType(nullable=division_type.nullable if division_type is not None else True)
-        if (
-            isinstance(node, ast.ArithmeticOperation)
-            and node.op
-            in (ast.ArithmeticOperationOp.Add, ast.ArithmeticOperationOp.Sub, ast.ArithmeticOperationOp.Mult)
-            and any(isinstance(self._resolve_type(side), ast.FloatType) for side in (node.left, node.right))
-            # Date arithmetic prints as date_add, which keeps the date type.
-            and not any(
-                isinstance(self._resolve_type(side), (ast.DateType, ast.DateTimeType))
-                for side in (node.left, node.right)
-            )
+        sides: tuple[ast.Expr, ast.Expr] | None = None
+        if isinstance(node, ast.ArithmeticOperation) and node.op in (
+            ast.ArithmeticOperationOp.Add,
+            ast.ArithmeticOperationOp.Sub,
+            ast.ArithmeticOperationOp.Mult,
         ):
-            side_types = [self._resolve_type(side) for side in (node.left, node.right)]
+            sides = (node.left, node.right)
+        elif isinstance(node, ast.Call) and node.name.lower() in {"plus", "minus", "multiply"} and len(node.args) == 2:
+            sides = (node.args[0], node.args[1])
+        if (
+            sides is not None
+            and any(isinstance(self._resolve_type(side), ast.FloatType) for side in sides)
+            # Date arithmetic prints as date_add, which keeps the date type.
+            and not any(isinstance(self._resolve_type(side), (ast.DateType, ast.DateTimeType)) for side in sides)
+        ):
+            side_types = [self._resolve_type(side) for side in sides]
             return ast.FloatType(nullable=any(side_type is None or side_type.nullable for side_type in side_types))
         # ClickHouse rounding functions return their argument's type, but the function registry declares no signature.
         if isinstance(node, ast.Call) and node.name.lower() in {"floor", "ceil", "trunc", "round"} and node.args:

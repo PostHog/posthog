@@ -773,6 +773,8 @@ class AnnouncedTransition:
     # The evaluation this transition came from, so a source can read back what it put in the key.
     evaluation_key: str = ""
     source_detail: dict[str, Any] = field(default_factory=dict)
+    # With `evaluation_key`, names the evaluation, so a source can find what it recorded about it later.
+    configuration_id: str = ""
 
 
 @frozen
@@ -1407,10 +1409,20 @@ class SourceDescriber(Protocol):
     """How a source describes its transitions. A source registers one for native delivery.
 
     It runs once per destination on the send path, inside a delivery that a held thread or a
-    failure repeats. So it builds its answer from the transition alone and does no I/O.
+    failure repeats. So it builds its answer from the transition, plus at most a point read of
+    what the source recorded about this evaluation since, such as an investigation's verdict.
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class SourceRecipients(Protocol):
+    """Who a source's own settings say to email about an alert, beside the destinations a person added.
+
+    It runs once per delivery of an alert whose destinations the platform owns.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: UUID) -> list[str]: ...
 
 
 @frozen

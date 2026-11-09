@@ -128,24 +128,31 @@ class TestFetchBlock:
             )
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("deleted_at", [1700000000, None])
-    async def test_410_raises_recording_deleted_error(self, client, mock_session, deleted_at):
+    @pytest.mark.parametrize("call", ["fetch_block", "list_blocks"])
+    @pytest.mark.parametrize(
+        "body,deleted_at",
+        [
+            ({"error": "recording_deleted", "deleted_at": 1700000000}, 1700000000),
+            ({"error": "recording_deleted", "deleted_at": None}, None),
+            (ValueError("not JSON"), None),
+        ],
+    )
+    async def test_410_raises_recording_deleted_error(self, client, mock_session, call, body, deleted_at):
         mock_response = AsyncMock()
         mock_response.status = 410
-        mock_response.json = AsyncMock(return_value={"error": "Recording has been deleted", "deleted_at": deleted_at})
+        mock_response.json = (
+            AsyncMock(side_effect=body) if isinstance(body, Exception) else AsyncMock(return_value=body)
+        )
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
         mock_session.get = MagicMock(return_value=mock_response)
 
         with pytest.raises(RecordingDeletedError, match="Recording has been deleted") as exc_info:
-            await client.fetch_block(
-                "key",
-                0,
-                100,
-                "session-123",
-                1,
-            )
+            if call == "fetch_block":
+                await client.fetch_block("key", 0, 100, "session-123", 1)
+            else:
+                await client.list_blocks("session-123", 1)
         assert exc_info.value.deleted_at == deleted_at
 
     @pytest.mark.asyncio

@@ -13,6 +13,7 @@ import type {
 export type TraceNodeKind = TraceNodeApi['kind']
 
 export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
+export type TraceOpeningMode = 'summary' | null
 
 export type TraceViewChoice = 'new' | 'legacy'
 
@@ -125,6 +126,12 @@ export type EvalsState =
 
 export interface LabeledLink {
     label: string
+    href: string
+}
+
+export interface GitPullRequestLink {
+    number: number
+    title: string | null
     href: string
 }
 

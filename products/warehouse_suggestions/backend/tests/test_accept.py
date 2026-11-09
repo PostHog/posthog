@@ -39,6 +39,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
 )
 from products.warehouse_suggestions.backend.logic.accept import CertificationAcceptor
 from products.warehouse_suggestions.backend.logic.candidates.unmaterialize import definition_fingerprint
+from products.warehouse_suggestions.backend.logic.rules import RULES
 from products.warehouse_suggestions.backend.logic.suggestions import HUMAN_TRANSITIONS, transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 
@@ -48,6 +49,7 @@ from .test_suggestions import make_draft
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 DAY_SECONDS = 24 * 60 * 60
 REPORT = "products.warehouse_suggestions.backend.logic.analytics.report_user_or_team_action"
+DELETION_DEPENDENTS_CHECK = "products.data_modeling.backend.logic.saved_query_deletion.check_saved_query_deletable"
 DAY_KEYS = {"refresh_mode": "incremental", "incremental_key": "day", "unique_key": ["day"]}
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 DAILY_COUNT_COLUMNS = {
@@ -168,6 +170,11 @@ def make_the_postgres_source_direct(view: DataWarehouseSavedQuery) -> None:
     )
 
 
+def read_a_direct_source(view: DataWarehouseSavedQuery) -> None:
+    add_an_upstream_view_over_postgres(view)
+    make_the_postgres_source_direct(view)
+
+
 def change_the_upstream_query(view: DataWarehouseSavedQuery) -> None:
     DataWarehouseSavedQuery.objects.filter(team=view.team, name="orders_source").update(
         query={"kind": "HogQLQuery", "query": "SELECT * FROM postgres_orders WHERE 1 = 1"}
@@ -235,6 +242,18 @@ class TestAcceptSuggestion(APIBaseTest):
 
     def _suggest(self, kind: WarehouseSuggestionKind) -> WarehouseSuggestion:
         return suggest(self.team.id, self.view.id, kind)
+
+    def _suggest_deprecate(self, days_with_data: int = RULES.window_days) -> WarehouseSuggestion:
+        draft = make_draft(fingerprint="deprecate:orders", subject_id=self.view.id)
+        return ingest_surfaced(
+            self.team.id,
+            replace(
+                draft,
+                kind=WarehouseSuggestionKind.DEPRECATE,
+                payload=PAYLOADS[WarehouseSuggestionKind.DEPRECATE],
+                evidence={"days_with_data": days_with_data},
+            ),
+        )
 
     def _suggest_materialize(self, payload: MaterializePayload) -> WarehouseSuggestion:
         draft = make_draft(fingerprint="materialize:orders", subject_id=self.view.id)
@@ -385,6 +404,86 @@ class TestAcceptSuggestion(APIBaseTest):
             properties["refresh_seconds_per_month"],
             properties["refresh_bytes_per_month"],
         ) == ((True, 900, 10**9) if expect_stopped else (False, 0, 0))
+
+    @parameterized.expand(
+        [
+            ("deletes_a_materialized_view", True, None, RULES.window_days, status.HTTP_200_OK),
+            ("deletes_a_plain_view", False, None, RULES.window_days, status.HTTP_200_OK),
+            ("refuses_when_read_data_has_gaps", True, None, RULES.window_days - 1, status.HTTP_400_BAD_REQUEST),
+            (
+                "refuses_when_a_view_was_built_on_it",
+                True,
+                add_dependent_view,
+                RULES.window_days,
+                status.HTTP_409_CONFLICT,
+            ),
+            ("refuses_when_it_feeds_a_destination", True, add_destination, RULES.window_days, status.HTTP_409_CONFLICT),
+            (
+                "refuses_when_it_reads_a_direct_source",
+                True,
+                read_a_direct_source,
+                RULES.window_days,
+                status.HTTP_409_CONFLICT,
+            ),
+        ]
+    )
+    def test_accepting_a_deprecate_suggestion_can_delete_the_view(
+        self,
+        _name: str,
+        materialized: bool,
+        add_reader: Callable[[DataWarehouseSavedQuery], None] | None,
+        days_with_data: int,
+        expected_http_status: int,
+    ) -> None:
+        if materialized:
+            materialize_in_place(self.view)
+        suggestion = self._suggest_deprecate(days_with_data)
+        if add_reader is not None:
+            add_reader(self.view)
+
+        accepted = self._accept(suggestion.id, {"delete_view": True})
+
+        deleted = expected_http_status == status.HTTP_200_OK
+        self.view.refresh_from_db()
+        suggestion.refresh_from_db()
+        deleted_trigger = (
+            ActivityLog.objects.filter(team_id=self.team.id, item_id=str(self.view.id), activity="deleted")
+            .values_list("detail__trigger", flat=True)
+            .first()
+        )
+        assert accepted["http_status"] == expected_http_status, accepted
+        assert (bool(self.view.deleted), suggestion.status, self._certification_status()) == (
+            deleted,
+            WarehouseSuggestionStatus.ACCEPTED if deleted else WarehouseSuggestionStatus.PROPOSED,
+            None,
+        )
+        assert suggestion.created_asset == (
+            {"saved_query_id": str(self.view.id), "stopped_materialization": materialized} if deleted else None
+        )
+        assert deleted_trigger == (
+            {"job_type": "warehouse_suggestion", "job_id": str(suggestion.id), "payload": {"kind": "deprecate"}}
+            if deleted
+            else None
+        )
+
+    def test_a_second_accept_cannot_turn_a_deprecation_into_a_delete(self) -> None:
+        suggestion = self._suggest_deprecate()
+        self._accept(suggestion.id)
+
+        second = self._accept(suggestion.id, {"delete_view": True})
+
+        self.view.refresh_from_db()
+        assert (second["http_status"], bool(self.view.deleted)) == (status.HTTP_409_CONFLICT, False), second
+
+    def test_delete_refuses_a_view_with_dependents_when_the_check_inside_the_delete_fails(self) -> None:
+        suggestion = self._suggest_deprecate()
+        add_dependent_view(self.view)
+
+        with patch(DELETION_DEPENDENTS_CHECK, side_effect=RuntimeError("lock timeout")):
+            accepted = self._accept(suggestion.id, {"delete_view": True})
+
+        self.view.refresh_from_db()
+        assert (accepted["http_status"], bool(self.view.deleted)) == (status.HTTP_409_CONFLICT, False), accepted
 
     @parameterized.expand(
         [

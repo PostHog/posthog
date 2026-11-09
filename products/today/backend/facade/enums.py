@@ -65,6 +65,13 @@ class HighlightPinStatus(LabeledStrEnum):
     UNAVAILABLE = "unavailable", "Unavailable"
 
 
+class PulseSlotStatus(LabeledStrEnum):
+    PENDING = "pending", "Loading"
+    READY = "ready", "Ready"
+    EMPTY = "empty", "No data"
+    ERROR = "error", "Could not load"
+
+
 class HighlightInterval(LabeledStrEnum):
     DAY = "day", "Day"
     WEEK = "week", "Week"

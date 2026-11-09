@@ -256,7 +256,7 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
             applyEnabled(enabled)
             // `toggleSubscriptionEnabled` never rejects — it toasts the failure itself and reports
             // false — so the revert hangs off the return value rather than a catch.
-            if (!(await toggleSubscriptionEnabled(reportId, enabled))) {
+            if (!(await toggleSubscriptionEnabled(reportId, enabled, target.created_by ?? null))) {
                 applyEnabled(!enabled)
             }
             actions.toggleReportEnabledSettled(reportId)

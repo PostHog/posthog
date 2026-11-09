@@ -12,7 +12,6 @@ import {
     getDefaultMetricsIngestionConsumerConfig,
     getDefaultMetricsIngestionOutputsConfig,
 } from '~/ingestion/pipelines/metrics/config'
-import { MetricsIngestionConsumer } from '~/ingestion/pipelines/metrics/metrics-ingestion-consumer'
 import { MetricsPipelineConsumer } from '~/ingestion/pipelines/metrics/metrics-pipeline-consumer'
 import { createProducerRegistry } from '~/ingestion/pipelines/metrics/outputs/producer-registry'
 import {
@@ -110,10 +109,7 @@ export class IngestionMetricsServer implements NodeServer {
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
         serviceLoaders.push(async () => {
-            const deps = { teamManager, quotaLimiting, outputs }
-            const consumer = this.config.METRICS_INGESTION_USE_PIPELINE_FRAMEWORK
-                ? new MetricsPipelineConsumer(this.config, deps)
-                : new MetricsIngestionConsumer(this.config, deps)
+            const consumer = new MetricsPipelineConsumer(this.config, { teamManager, quotaLimiting, outputs })
             await consumer.start()
             return consumer.service
         })

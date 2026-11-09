@@ -72,7 +72,8 @@ export function ChatEmptyState({ reportCount, suggestedPrompts, onPrompt }: Chat
 
 const useStyles = createStyles(({ colors }) => ({
     container: {
-        flex: 1,
+        flexGrow: 1,
+        flexShrink: 0,
         alignItems: 'center',
         justifyContent: 'center',
         gap: 10,

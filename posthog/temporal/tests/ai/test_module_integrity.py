@@ -92,6 +92,7 @@ class TestSignalsProductModuleIntegrity:
         """Ensure all expected signals product workflows are present."""
         expected_workflows = [
             "UpdateSignalSpendWorkflow",
+            "MonitoringAssessmentWorkflow",
             "GenerateScoutRubricsWorkflow",
             "BackfillErrorTrackingWorkflow",
             "TeamSignalGroupingWorkflow",
@@ -127,6 +128,8 @@ class TestSignalsProductModuleIntegrity:
         """Ensure all expected signals product activities are present."""
         expected_activities = [
             "update_signal_spend_activity",
+            "poll_monitoring_assessment_activity",
+            "exhaust_monitoring_assessment_activity",
             "confirm_signal_spend_activity",
             "publish_report_spend_activity",
             "report_spend_owner_activity",

@@ -110,6 +110,7 @@ import {
     reloadIfStaleRowVersion,
     rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { forgetFlagLookup } from 'products/feature_flags/frontend/featureFlagSummaryLogic'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
@@ -3451,6 +3452,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             const shouldDisplayConfirmation = featureFlagConfirmationEnabled || dependentFlags.length > 0
+            // Releasing an existing flag to everyone is always confirmed, whatever the team setting says.
+            const releasesToEveryone = flagWentLive(originalFlag, updatedFlag as FeatureFlagType)
 
             const confirmationShown = checkFeatureFlagConfirmation(
                 originalFlag,
@@ -3462,7 +3465,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 dependentFlags,
                 isBeingDisabled,
                 requireStatusConfirmation,
-                onDisableAndArchive
+                onDisableAndArchive,
+                releasesToEveryone
             )
 
             // If no confirmation was shown, proceed immediately
@@ -4511,6 +4515,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             delete cache.rollbackReasonAnswer
+            forgetFlagLookup(featureFlag.key)
             lemonToast.success(
                 'Feature flag saved',
                 liveFlagToastOptions(

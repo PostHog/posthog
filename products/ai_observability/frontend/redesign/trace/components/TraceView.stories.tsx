@@ -186,6 +186,17 @@ export const SampleAnthropicThinkingToolUse: Story = {
     args: { fixture: anthropicMessagesThinkingToolUse, initialMode: 'spans' },
 }
 export const SampleClaudeCodeSession: Story = { args: { fixture: claudeCodePluginSession, initialMode: 'spans' } }
+export const FillsShortHost: Story = {
+    args: { fixture: claudeCodePluginSession, initialMode: 'spans' },
+    decorators: [
+        (Story) => (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div className="flex flex-col border border-dashed border-primary" style={{ width: 1100, height: 480 }}>
+                <Story />
+            </div>
+        ),
+    ],
+}
 export const SampleLangChainImageError: Story = {
     args: { fixture: langchainCerebrasImageError, initialMode: 'spans' },
 }

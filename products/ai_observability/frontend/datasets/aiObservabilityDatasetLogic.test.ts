@@ -1182,6 +1182,19 @@ describe('aiObservabilityDatasetLogic', () => {
                 })
             })
 
+            it('keeps the dataset id in the URL when mounting on filters before the dataset loads', () => {
+                logic.unmount()
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
+                router.actions.push(datasetUrl, { page: '2' })
+
+                logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+                logic.mount()
+
+                expect(logic.values.dataset).toBeNull()
+                expect(logic.values.filters.page).toBe(2)
+                expect(router.values.location.pathname).toContain(datasetUrl)
+            })
+
             it('loads an exact revision and archived items from URL state', async () => {
                 const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
 
@@ -1222,6 +1235,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(router.values.hashParams).toEqual({ section: 'items' })
                 expect(logic.values.activeTab).toBe('items')
 
+                router.actions.replace(datasetUrl, { search: 'quality', trace: 'a', ts: '2026', step: 'x' })
                 await expectLogic(logic, () => {
                     logic.actions.setActiveTab(DatasetTab.Metadata)
                 }).toFinishAllListeners()
@@ -1229,10 +1243,11 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(router.values.searchParams).toEqual({ search: 'quality', tab: 'metadata' })
 
                 await expectLogic(logic, () => {
-                    router.actions.push(datasetUrl, { search: 'quality' })
+                    router.actions.push(datasetUrl, { search: 'quality', trace: 'a' })
                 }).toFinishAllListeners()
 
                 expect(logic.values.activeTab).toBe('items')
+                expect(router.values.searchParams).toEqual({ search: 'quality', trace: 'a' })
                 expect(mockDatasetsApi.listItems).not.toHaveBeenCalled()
             })
 

@@ -6,7 +6,7 @@ import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mc
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { isEmptyToolResult } from '@/lib/discovery-hints'
+import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import {
     ExecCommandError,
     type ExecCommandErrorReason,
@@ -287,7 +287,6 @@ export interface ExecToolOptions {
      * set is refused as `tool_not_granted`, so the agent does not search for another way to reach it.
      */
     heldTools?: ReadonlySet<string>
-    beforeValidatedCall?: (toolName: string, input: Record<string, unknown>) => Promise<void>
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
@@ -1967,7 +1966,10 @@ export function createExecTool(
                             ? undefined
                             : `No tool is named "${fallbackFrom}". These are the closest matches by its words.`
                     if (truncatedFrom > 0) {
-                        const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, searchTerm))
+                        const catalogHint = catalogDiscoveryHint(
+                            allTools,
+                            namesMatchingSearch(matchedNames, searchTerm)
+                        )
                         return JSON.stringify({
                             matches,
                             truncated: true,
@@ -2199,7 +2201,6 @@ export function createExecTool(
                     }
                     const ignoredKeys = findIgnoredInputKeys(input, validation.data, toolSchema)
                     input = validation.data as Record<string, unknown>
-                    await options.beforeValidatedCall?.(tool.name, input)
 
                     const startedAt = Date.now()
                     let result: unknown

@@ -12,11 +12,15 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vitally import (
@@ -29,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.se
     UPDATED_AT_INCREMENTAL_FIELD,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally import (
+    VitallyResumeConfig,
     list_custom_object_definitions,
     validate_credentials as validate_vitally_credentials,
     vitally_source,
@@ -37,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class VitallySource(SimpleSource[VitallySourceConfig]):
+class VitallySource(ResumableSource[VitallySourceConfig, VitallyResumeConfig]):
     codebase_detection = detect(env=("^VITALLY_",), script_hosts=("cdn.vitally.io",))
 
     api_docs_url = "https://docs.vitally.io"
@@ -91,9 +96,14 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
             except Exception as e:
                 # A 401/403 here is a customer credential problem (invalid/revoked token), not a bug
                 # we can fix — the per-schema sync path already surfaces it and disables the source.
-                # Skip capturing those to avoid spamming error tracking on every discovery run, but
-                # still capture genuinely unexpected discovery failures.
-                if not any(pattern in str(e) for pattern in self.get_non_retryable_errors()):
+                # A transient egress-proxy blip is our own infrastructure being briefly unreachable,
+                # not a sign of a bug either. Skip capturing both to avoid spamming error tracking on
+                # every discovery run, but still capture genuinely unexpected discovery failures.
+                message = str(e)
+                is_known_benign = is_transient_egress_proxy_error(message) or any(
+                    pattern in message for pattern in self.get_non_retryable_errors()
+                )
+                if not is_known_benign:
                     capture_exception(e)
                 definitions = []
 
@@ -143,24 +153,32 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
             "403 Client Error: Forbidden for url": "Your Vitally secret token does not have permission to access this data. Please check the token's permissions and reconnect.",
         }
 
-    def source_for_pipeline(self, config: VitallySourceConfig, inputs: SourceInputs) -> SourceResponse:
-        items = vitally_source(
-            secret_token=config.secret_token,
-            region=config.region.selection,
-            subdomain=config.region.subdomain,
-            endpoint=inputs.schema_name,
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value
-            if inputs.should_use_incremental_field
-            else None,
-            logger=inputs.logger,
-        )
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[VitallyResumeConfig]:
+        return ResumableSourceManager[VitallyResumeConfig](inputs, VitallyResumeConfig)
 
+    def source_for_pipeline(
+        self,
+        config: VitallySourceConfig,
+        resumable_source_manager: ResumableSourceManager[VitallyResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return SourceResponse(
             name=inputs.schema_name,
-            items=lambda: items,
+            on_complete=resumable_source_manager.clear_state,
+            items=lambda: vitally_source(
+                secret_token=config.secret_token,
+                region=config.region.selection,
+                subdomain=config.region.subdomain,
+                endpoint=inputs.schema_name,
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                should_use_incremental_field=inputs.should_use_incremental_field,
+                db_incremental_field_last_value=inputs.db_incremental_field_last_value
+                if inputs.should_use_incremental_field
+                else None,
+                logger=inputs.logger,
+                resumable_source_manager=resumable_source_manager,
+            ),
             primary_keys=["id"],
             partition_count=1,  # this enables partitioning
             partition_size=1,  # this enables partitioning

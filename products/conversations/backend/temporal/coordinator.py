@@ -190,13 +190,15 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         return []
 
     # One comment query per team instead of round-trips per ticket. Two things come out of it:
-    #   1. Dedupe: a ticket is "already engaged" iff it has any non-customer comment — our own AI
-    #      note ("AI") or a human/team reply ("support"/"team"/"human"). Those are excluded below
-    #      for first-draft tickets. Awaiting tickets already have an AI question, so they skip
-    #      that gate and re-engage only on a newer settled customer reply with no human after it.
+    #   1. Dedupe: a ticket is "already engaged" iff it has our own AI note ("AI", private or not)
+    #      or a public human/team/workflow reply. A private note from a human or workflow is not a
+    #      reply to the customer, so it is ignored here. This lets automations that log new tickets
+    #      as private notes keep the AI draft. Engaged tickets are excluded below for first-draft
+    #      tickets. Awaiting tickets already have an AI question, so they skip that gate and
+    #      re-engage only on a newer settled customer reply with no human after it.
     #      A team-opened ticket (compose, or a team member starting the thread) has a team comment
     #      before the first customer comment. That opener is not engagement, so such a ticket is
-    #      engaged only by a non-customer comment newer than the first customer comment.
+    #      engaged only by an engaging comment newer than the first customer comment.
     #   2. Settle/debounce: the latest customer comment timestamp per ticket.
     by_team: dict[int, list[str]] = {}
     for team_id, ticket_id_str, _created_at, _awaiting, _round in candidates:
@@ -209,12 +211,12 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     latest_ai_msg: dict[str, datetime] = {}
     latest_human_msg: dict[str, datetime] = {}
     for team_id, ticket_ids in by_team.items():
-        for item_id, author_type, comment_created_at in Comment.objects.filter(
+        for item_id, author_type, is_private, comment_created_at in Comment.objects.filter(
             team_id=team_id,
             scope="conversations_ticket",
             item_id__in=ticket_ids,
             item_context__automated_update_key__isnull=True,
-        ).values_list("item_id", "item_context__author_type", "created_at"):
+        ).values_list("item_id", "item_context__author_type", "item_context__is_private", "created_at"):
             if author_type == "customer":
                 prev = latest_customer_msg.get(item_id)
                 if prev is None or comment_created_at > prev:
@@ -222,6 +224,8 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
                 first = first_customer_msg.get(item_id)
                 if first is None or comment_created_at < first:
                     first_customer_msg[item_id] = comment_created_at
+                continue
+            if author_type != "AI" and is_private is True:
                 continue
             engaged.add(item_id)
             earliest = earliest_non_customer_msg.get(item_id)

@@ -227,7 +227,7 @@ Available read scopes: `action:read`, `cohort:read`, `dashboard:read`, `error_tr
 Available write scopes: `action:write`, `cohort:write`, `dashboard:write`,
 `experiment:write`, `feature_flag:write`, `insight:write`, `survey:write`, and others.
 
-Internal scopes (`task:write`, `llm_gateway:read`) are always added automatically.
+Internal scopes (`task:write`, `inbox:write`, `llm_gateway:read`) are always added automatically.
 
 An empty list (`posthog_mcp_scopes=[]`) omits the built-in PostHog MCP connection.
 Internal credentials for task lifecycle and model calls remain available, including the local `task_summary_update` tool.

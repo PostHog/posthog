@@ -1,12 +1,12 @@
 import { type ReactElement, useRef, useState } from 'react'
-import { Modal, Text, useWindowDimensions, View } from 'react-native'
-
+import { Modal, Text, View } from 'react-native'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { useScreenInsets } from '@/ui/useScreenInsets'
 
 import { CLOUD_REGIONS, type CloudRegion } from './regions'
@@ -29,7 +29,7 @@ export function RegionSelect({ value, onChange, disabled }: RegionSelectProps): 
     const styles = useStyles()
     const trigger = useRef<View>(null)
     const [anchor, setAnchor] = useState<Anchor | null>(null)
-    const { height: windowHeight } = useWindowDimensions()
+    const { height: windowHeight } = useSceneDimensions()
     const insets = useScreenInsets()
     const selected = CLOUD_REGIONS.find((region) => region.id === value) ?? CLOUD_REGIONS[0]
     const close = (): void => setAnchor(null)

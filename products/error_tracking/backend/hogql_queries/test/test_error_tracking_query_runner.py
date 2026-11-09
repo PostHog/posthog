@@ -844,6 +844,27 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         results = self._calculate(status="all")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
 
+    @time_machine.travel("2020-01-10T12:12:00", tick=False)
+    def test_list_active_issue_impact_lists_newest_active_issues(self):
+        from products.error_tracking.backend.facade import api
+
+        self.team.test_account_filters = []
+        self.team.save(update_fields=["test_account_filters"])
+        resolved_issue = ErrorTrackingIssue.objects.get(id=self.issue_id_three)
+        resolved_issue.status = ErrorTrackingIssue.Status.RESOLVED
+        resolved_issue.save(update_fields=["status"])
+        sync_issues_to_clickhouse(issue_ids=[self.issue_id_three], team_id=self.team.pk)
+
+        impacts = api.list_active_issue_impact(team_id=self.team.pk, days=30, limit=10)
+
+        self.assertEqual(
+            [(str(impact.id), impact.users, impact.occurrences) for impact in impacts],
+            [(self.issue_id_two, 1, 1), (self.issue_id_one, 2, 2)],
+        )
+        self.assertEqual(len(impacts[1].daily_occurrences), 30)
+        self.assertEqual(sum(impacts[1].daily_occurrences), 2)
+        self.assertEqual(impacts[1].last_seen, datetime(2020, 1, 10, 9, 11, tzinfo=UTC))
+
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_expired_postgres_state_uses_clickhouse_state(self):
         ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(

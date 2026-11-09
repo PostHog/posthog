@@ -29,6 +29,7 @@ export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     'posthog-unreal': 'Unreal Engine',
     'posthog-go-mcp': 'Go MCP',
     'posthog-ruby-mcp': 'Ruby MCP',
+    'posthog-roblox': 'Roblox',
     js: 'JavaScript Lite',
 }
 
@@ -144,6 +145,10 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     'posthog-ruby-mcp': {
         releases: 'https://github.com/PostHog/posthog-ruby/releases',
         docs: 'https://posthog.com/docs/mcp-analytics',
+    },
+    'posthog-roblox': {
+        releases: 'https://github.com/PostHog/posthog-roblox/releases',
+        docs: 'https://posthog.com/docs/libraries/roblox',
     },
     js: {
         releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/web/CHANGELOG.md',

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-29 10:04:42 UTC
+// Generated at: 2026-11-02 20:03:45 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -66,9 +66,7 @@ export type CanonicalProvider =
     | 'darkbloom-fp8'
     | 'darkbloom-int4'
     | 'darkbloom-nvfp4'
-    | 'decart-fast'
     | 'decart-fp4'
-    | 'decart-mxfp4'
     | 'deepinfra'
     | 'deepinfra-bf16'
     | 'deepinfra-bf16-flex'
@@ -159,6 +157,7 @@ export type CanonicalProvider =
     | 'moonshotai-highspeed'
     | 'moonshotai-mxfp4'
     | 'morph-fp8'
+    | 'near-ai'
     | 'near-ai-fp4'
     | 'near-ai-fp8'
     | 'nebius'
@@ -200,19 +199,18 @@ export type CanonicalProvider =
     | 'perplexity-int8'
     | 'phala'
     | 'phala-nvfp4'
-    | 'poolside-fp4'
-    | 'poolside-fp8'
     | 'primeintellect'
     | 'primeintellect-bf16'
+    | 'primeintellect-fp4'
     | 'primeintellect-fp8'
+    | 'primeintellect-nvfp4'
     | 'recursive-bf16'
     | 'reka'
     | 'reka-fp8'
-    | 'relace'
     | 'relace-bf16'
+    | 'relace-fast'
     | 'relace-fp4'
     | 'relace-fp8'
-    | 'relace-mxfp4'
     | 'respan'
     | 'sail-research-fp4'
     | 'sail-research-fp4-us'

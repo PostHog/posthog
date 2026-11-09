@@ -236,6 +236,7 @@ export interface flagSelectionLogicValues {
         active?: string | undefined
         archived?: string | undefined
         created_by_id?: number[] | undefined
+        deleted?: string | undefined
         evaluation_runtime?: string | undefined
         excluded_tags?: string[] | undefined
         limit: number

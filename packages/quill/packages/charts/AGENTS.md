@@ -85,7 +85,7 @@ Charts fill their container and need a parent with real dimensions — a zero-he
 </TimeSeriesLineChart>
 ```
 
-- Overlays (`ReferenceLine`/`ReferenceLines`, `ValueLabels`, `AxisTitles`, `TrendLineOverlay`, `HighlightedRange`, `AnomalyPointsLayer`) compose as children. Custom overlays read `useChartLayout()` / `useChartHover()`. [docs/overlays.md](./src/docs/overlays.md)
+- Overlays (`ReferenceLine`/`ReferenceLines`, `ValueLabels`, `AxisTitles`, `TrendLineOverlay`, `HighlightedRange`, `ValueBand`, `AnomalyPointsLayer`) compose as children. Custom overlays read `useChartLayout()` / `useChartHover()`. [docs/overlays.md](./src/docs/overlays.md)
 - The built-in `DefaultTooltip` is configured through `config.tooltip`; a `tooltip` render prop replaces its content. [docs/tooltips.md](./src/docs/tooltips.md)
 - `config.legend` renders the built-in legend: plain click isolates, modifier click toggles. [docs/legend.md](./src/docs/legend.md)
 - Axis format, baseline, min/max, multi-axis, grid and axis-line chrome, margins. [docs/axes.md](./src/docs/axes.md)

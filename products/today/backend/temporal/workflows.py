@@ -61,6 +61,7 @@ async def _run_source(inputs: ComputeHighlightsInputs, source_name: str) -> High
                 scopes=inputs.scopes,
                 source_name=source_name,
                 pinned=[pin.key for pin in inputs.pins],
+                highlights_id=inputs.highlights_id if inputs.progressive else None,
             ),
             start_to_close_timeout=HIGHLIGHT_SOURCE_TIMEOUT,
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
