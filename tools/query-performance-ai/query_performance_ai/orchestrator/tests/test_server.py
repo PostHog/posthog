@@ -130,8 +130,8 @@ def test_run_returns_502_on_backend_error(server_fixture) -> None:
 
 
 class _ObservedLock:
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
+    def __init__(self, lock: threading.Lock) -> None:
+        self._lock = lock
         self.contended = threading.Event()
 
     def __enter__(self) -> None:
@@ -148,7 +148,7 @@ def test_query_lock_serializes_concurrent_runs(server_fixture) -> None:
     backend.run() concurrently — the lock is the whole reason this server
     isn't just a thin wrapper."""
     server, backend, token, port = server_fixture
-    query_lock = _ObservedLock()
+    query_lock = _ObservedLock(server._query_lock)
     server._query_lock = query_lock
     enter = threading.Event()
     overlapped = threading.Event()

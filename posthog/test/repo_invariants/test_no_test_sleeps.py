@@ -1,46 +1,95 @@
 import ast
 import subprocess
 from collections import Counter
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BASELINE = Path(__file__).with_name("test_sleep_baseline.txt")
+_SCOPES = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _resolve_name(node: ast.AST | None, aliases: dict[str, str]) -> str:
+    if isinstance(node, ast.Name):
+        return aliases.get(node.id, "")
+    if isinstance(node, ast.Attribute):
+        return f"{_resolve_name(node.value, aliases)}.{node.attr}"
+    return ""
+
+
+def _own_scope_nodes(node: ast.AST) -> Iterator[ast.AST]:
+    for child in ast.iter_child_nodes(node):
+        yield child
+        if not isinstance(child, _SCOPES):
+            yield from _own_scope_nodes(child)
+
+
+def _scope_aliases(node: ast.AST, enclosing_aliases: dict[str, str]) -> dict[str, str]:
+    aliases = enclosing_aliases.copy()
+    nodes = list(_own_scope_nodes(node))
+    for child in nodes:
+        if isinstance(child, ast.Import):
+            aliases.update({alias.asname or alias.name: alias.name for alias in child.names})
+        elif isinstance(child, ast.ImportFrom):
+            module = "." * child.level + (child.module or "")
+            aliases.update({alias.asname or alias.name: f"{module}.{alias.name}" for alias in child.names})
+    for child in nodes:
+        if isinstance(child, ast.Assign) and _resolve_name(child.value, aliases) == "time.sleep":
+            aliases.update({target.id: "time.sleep" for target in child.targets if isinstance(target, ast.Name)})
+        elif (
+            isinstance(child, ast.AnnAssign)
+            and isinstance(child.target, ast.Name)
+            and _resolve_name(child.value, aliases) == "time.sleep"
+        ):
+            aliases[child.target.id] = "time.sleep"
+    return aliases
+
+
+def _definition_expressions(node: ast.AST) -> Iterator[ast.AST]:
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+        yield node.args
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        yield from node.decorator_list
+        if node.returns is not None:
+            yield node.returns
+    elif isinstance(node, ast.ClassDef):
+        yield from node.decorator_list
+        yield from node.bases
+        yield from node.keywords
 
 
 def sleep_calls(source: str, *, filename: str = "<unknown>") -> Counter[str]:
     tree = ast.parse(source, filename=filename)
-    aliases: dict[str, str] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            aliases.update({alias.asname or alias.name: alias.name for alias in node.names})
-        elif isinstance(node, ast.ImportFrom) and node.module == "time" and node.level == 0:
-            aliases.update({alias.asname or alias.name: f"time.{alias.name}" for alias in node.names})
-
-    def resolve(node: ast.AST) -> str:
-        if isinstance(node, ast.Name):
-            return aliases.get(node.id, "")
-        if isinstance(node, ast.Attribute):
-            return f"{resolve(node.value)}.{node.attr}"
-        return ""
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and resolve(node.value) == "time.sleep":
-            aliases.update({target.id: "time.sleep" for target in node.targets if isinstance(target, ast.Name)})
-
     calls: Counter[str] = Counter()
 
-    def visit(node: ast.AST, scope: tuple[str, ...]) -> None:
+    def visit(
+        node: ast.AST, scope: tuple[str, ...], aliases: dict[str, str], enclosing_aliases: dict[str, str]
+    ) -> None:
         if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             scope = (*scope, node.name)
-        if isinstance(node, ast.Call) and resolve(node.func) == "time.sleep":
+        for expression in _definition_expressions(node):
+            visit(expression, scope, aliases, enclosing_aliases)
+        if isinstance(node, _SCOPES):
+            aliases = _scope_aliases(node, enclosing_aliases)
+            # Class bodies do not provide the enclosing bindings for their methods.
+            if not isinstance(node, ast.ClassDef):
+                enclosing_aliases = aliases
+        if isinstance(node, ast.Call) and _resolve_name(node.func, aliases) == "time.sleep":
             call = ast.Call(func=ast.Name(id="sleep", ctx=ast.Load()), args=node.args, keywords=node.keywords)
             calls[f"{'.'.join(scope) or '<module>'}::{ast.unparse(call)}"] += 1
-        for child in ast.iter_child_nodes(node):
-            visit(child, scope)
+        children: Iterable[ast.AST]
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            children = node.body
+        elif isinstance(node, ast.Lambda):
+            children = [node.body]
+        else:
+            children = ast.iter_child_nodes(node)
+        for child in children:
+            visit(child, scope, aliases, enclosing_aliases)
 
-    visit(tree, ())
+    visit(tree, (), {}, {})
     return calls
 
 
@@ -102,6 +151,37 @@ def test_no_new_test_sleeps() -> None:
         ("import time\nreal_sleep = time.sleep\n", {}),
         ("from elsewhere import sleep\ndef test_wait():\n    sleep(1)\n", {}),
         ("from .time import sleep\ndef test_wait():\n    sleep(1)\n", {}),
+        (
+            "import time\ndef test_wait():\n    time.sleep(1)\n"
+            "def test_timestamp():\n    from time import time\n    return time()\n",
+            {"test_wait::sleep(1)": 1},
+        ),
+        (
+            "from time import sleep\nasync def test_wait():\n    from asyncio import sleep\n    await sleep(0)\n",
+            {},
+        ),
+        (
+            "import time\nfrom collections.abc import Callable\npause: Callable[[float], None] = time.sleep\n"
+            "def test_wait():\n    pause(1)\n",
+            {"test_wait::sleep(1)": 1},
+        ),
+        (
+            "import time\nclass TestWait:\n    from datetime import time\n"
+            "    def test_wait(self):\n        time.sleep(1)\n",
+            {"TestWait.test_wait::sleep(1)": 1},
+        ),
+        (
+            "class TestWait:\n    import time\n    def test_wait(self):\n        time.sleep(1)\n",
+            {},
+        ),
+        (
+            "import time\ndef test_wait(value=time.sleep(1)):\n    from datetime import time\n",
+            {"test_wait::sleep(1)": 1},
+        ),
+        (
+            "class TestWait:\n    from time import sleep\n    def test_wait(self, value=sleep(1)):\n        pass\n",
+            {"TestWait.test_wait::sleep(1)": 1},
+        ),
     ],
 )
 def test_sleep_detection(source: str, expected: dict[str, int]) -> None:

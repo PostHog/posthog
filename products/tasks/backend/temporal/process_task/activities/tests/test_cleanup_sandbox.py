@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from datetime import timedelta
 
@@ -418,15 +419,28 @@ class TestCleanupSandboxActivity:
             metadata={"test_tag": test_tag},
         )
 
-        with Sandbox.create(config) as sandbox:
-            sandbox_id = sandbox.id
-            command = sandbox.execute_stream("echo started; exec sleep 30", timeout_seconds=60)
-            output = iter(command.iter_stdout())
-            assert next(output).strip() == "started"
+        command = None
+        output = None
+        try:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                try:
+                    with Sandbox.create(config) as sandbox:
+                        sandbox_id = sandbox.id
+                        command = sandbox.execute_stream("echo started; exec sleep 30", timeout_seconds=60)
+                        output = iter(command.iter_stdout())
+                        assert executor.submit(next, output).result(timeout=10).strip() == "started"
 
-            assert Sandbox.get_by_id(sandbox_id).is_running()
+                        assert Sandbox.get_by_id(sandbox_id).is_running()
 
-            input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
-            async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
+                        input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
+                        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-            assert_sandbox_shutdown(sandbox_id)
+                        assert_sandbox_shutdown(sandbox_id)
+                finally:
+                    # Reap before joining the reader, even if sandbox destruction fails.
+                    if command is not None:
+                        command.wait()
+        finally:
+            if output is not None:
+                for _ in output:
+                    pass
