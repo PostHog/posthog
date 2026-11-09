@@ -166,6 +166,22 @@ class TestRowsFromResponse:
         rows = _rows_from_response(AWIN_ENDPOINTS["advertiser_publishers"], data, AwinFanoutTarget(advertiser_id=90))
         assert rows == [{"id": 7, "name": "Some publisher", "advertiserId": 90}]
 
+    @parameterized.expand(
+        [
+            (
+                "transaction_queries_null_page_items",
+                "transaction_queries",
+                {"pageItems": None, "totalPagesAvailable": 0},
+            ),
+            ("transaction_queries_missing_page_items", "transaction_queries", {"totalPagesAvailable": 0}),
+            ("offers_null_data", "offers", {"data": None, "pagination": {"page": 1, "pageSize": 200, "total": 0}}),
+            ("commission_groups_null_groups", "commission_groups", {"advertiser": 9, "commissionGroups": None}),
+        ]
+    )
+    def test_null_or_missing_list_key_yields_no_rows(self, _name: str, endpoint: str, data: dict[str, Any]) -> None:
+        rows = _rows_from_response(AWIN_ENDPOINTS[endpoint], data, AwinFanoutTarget(publisher_id=42, advertiser_id=9))
+        assert rows == []
+
 
 class TestDiscoverAccountIds:
     @parameterized.expand([("publisher", [1, 3]), ("advertiser", [2])])

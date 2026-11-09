@@ -52,7 +52,6 @@ import {
     hasPendingProposal,
     nextTablesSort,
     proposalAcceptsAsDeprecation,
-    rowIsExpandable,
     rowMatchesFilters,
     rowMatchesSearch,
     rowNeedsAttention,
@@ -85,6 +84,7 @@ const PROPOSAL_REVIEW_EVENTS: Record<ProposalDecision, string> = {
 
 const TRUST_URL_FILTERS: TrustFilter[] = ['proposed', 'certified', 'deprecated']
 const ATTENTION_URL_FILTER = 'attention'
+const TABLES_TAB = 'tables'
 
 function singleReviewMessage(row: CatalogTableRow, decision: ProposalDecision): string {
     if (decision === 'reject') {
@@ -120,10 +120,10 @@ export interface catalogTablesLogicValues {
     nodes: DataModelingNode[] // lineageDataLogic
     materializationProblems: MaterializationProblem[] // modelsOverviewLogic
     modelsFirstLoading: boolean // modelsOverviewLogic
+    refreshRequests: Record<string, number> // modelsOverviewLogic
     enrichedViews: DataWarehouseSavedQuerySummary[] // viewsTabLogic
     bulkActionInFlight: TablesBulkAction | null
     currentPage: number
-    expandedRowKeys: string[]
     filteredRows: CatalogTableRow[]
     filters: TablesFilters
     filtersActive: boolean
@@ -156,19 +156,6 @@ export interface catalogTablesLogicActions {
         certifications: DataCatalogCertificationApi[]
         payload?: any
     } // certificationsLogic
-    openNewCertificationModal: () => {
-        value: true
-    } // certificationsLogic
-    setNewCertificationForm: (form: Partial<import('./certificationsLogic').NewCertificationForm>) => {
-        form: Partial<import('./certificationsLogic').NewCertificationForm>
-    } // certificationsLogic
-    runChecks: (
-        target: import('products/data_quality/frontend/overview/dataQualityOverviewLogic').OverviewRunTarget,
-        checkIds?: string[] | undefined
-    ) => {
-        checkIds: string[]
-        target: import('products/data_quality/frontend/overview/dataQualityOverviewLogic').OverviewRunTarget
-    } // dataQualityOverviewLogic
     loadDatabase: (
         args_0?:
             | {
@@ -211,7 +198,7 @@ export interface catalogTablesLogicActions {
         posthogTableSubjectIds: Record<string, string>
         payload?: any
     }
-    proposeCertification: (row: CatalogTableRow) => {
+    openRow: (row: CatalogTableRow) => {
         row: CatalogTableRow
     }
     reviewProposals: (
@@ -222,12 +209,6 @@ export interface catalogTablesLogicActions {
         decision: ProposalDecision
         rowKeys: string[]
         source: ReviewSource
-    }
-    runSelectedChecks: () => {
-        value: true
-    }
-    runTableChecks: (row: CatalogTableRow) => {
-        row: CatalogTableRow
     }
     setBulkActionInFlight: (bulkAction: TablesBulkAction | null) => {
         bulkAction: TablesBulkAction | null
@@ -258,10 +239,6 @@ export interface catalogTablesLogicActions {
     setSearch: (search: string) => {
         search: string
     }
-    toggleRowExpanded: (row: CatalogTableRow) => {
-        expandable: boolean
-        rowKey: string
-    }
     toggleRowSelected: (rowKey: string) => {
         rowKey: string
     }
@@ -286,6 +263,7 @@ export interface catalogTablesLogicMeta {
             certifications: DataCatalogCertificationApi[],
             nodes: DataModelingNode[],
             materializationProblems: MaterializationProblem[],
+            refreshRequests: Record<string, number>,
             posthogTableSubjectIds: Record<string, string>
         ) => CatalogTableRow[]
         rowsLoaded: (
@@ -332,17 +310,15 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
             lineageDataLogic,
             ['nodes'],
             modelsOverviewLogic,
-            ['materializationProblems', 'modelsFirstLoading'],
+            ['materializationProblems', 'modelsFirstLoading', 'refreshRequests'],
             viewsTabLogic,
             ['enrichedViews'],
         ],
         actions: [
             databaseTableListLogic,
             ['loadDatabase'],
-            dataQualityOverviewLogic,
-            ['runChecks'],
             certificationsLogic,
-            ['openNewCertificationModal', 'setNewCertificationForm', 'loadCertificationsSuccess'],
+            ['loadCertificationsSuccess'],
             viewsTabLogic,
             ['loadRunHistory'],
         ],
@@ -354,9 +330,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
         clearFilters: true,
         toggleSort: (column: TablesSortColumn) => ({ column }),
         setPage: (page: number) => ({ page }),
-        toggleRowExpanded: (row: CatalogTableRow) => ({ rowKey: row.key, expandable: rowIsExpandable(row) }),
-        runTableChecks: (row: CatalogTableRow) => ({ row }),
-        proposeCertification: (row: CatalogTableRow) => ({ row }),
+        openRow: (row: CatalogTableRow) => ({ row }),
         toggleRowSelected: (rowKey: string) => ({ rowKey }),
         setRowsSelected: (rowKeys: string[], selected: boolean) => ({ rowKeys, selected }),
         clearSelection: true,
@@ -366,7 +340,6 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
             source,
         }),
         certifyRows: (rowKeys: string[], source: ReviewSource) => ({ rowKeys, source }),
-        runSelectedChecks: true,
         setReviewingRows: (rowKeys: string[], reviewAction: TablesBulkAction | null) => ({ rowKeys, reviewAction }),
         setBulkActionInFlight: (bulkAction: TablesBulkAction | null) => ({ bulkAction }),
     }),
@@ -453,18 +426,6 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
                 setBulkActionInFlight: (_, { bulkAction }) => bulkAction,
             },
         ],
-        expandedRowKeys: [
-            [] as string[],
-            {
-                toggleRowExpanded: (state, { rowKey, expandable }) => {
-                    if (state.includes(rowKey)) {
-                        return state.filter((key) => key !== rowKey)
-                    }
-                    return expandable ? [...state, rowKey] : state
-                },
-                runTableChecks: (state, { row }) => (state.includes(row.key) ? state : [...state, row.key]),
-            },
-        ],
     }),
     selectors({
         rows: [
@@ -479,6 +440,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
                 s.certifications,
                 s.nodes,
                 s.materializationProblems,
+                s.refreshRequests,
                 s.posthogTableSubjectIds,
             ],
             (
@@ -492,6 +454,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
                 certifications: DataCatalogCertificationApi[],
                 nodes: DataModelingNode[],
                 materializationProblems: MaterializationProblem[],
+                refreshRequests: Record<string, number>,
                 posthogTableSubjectIds: Record<string, string>
             ): CatalogTableRow[] =>
                 buildCatalogTableRows({
@@ -505,6 +468,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
                     certifications,
                     nodes,
                     materializationProblems,
+                    refreshRequests,
                     posthogTableSubjectIds,
                 }),
         ],
@@ -637,25 +601,10 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
             !!values.bulkActionInFlight || rows.some((row) => !!values.reviewingRows[row.key])
 
         return {
-            runTableChecks: ({ row }) => {
-                if (!row.checkGroup) {
-                    return
+            openRow: ({ row }) => {
+                if (row.detailUrl) {
+                    router.actions.push(row.detailUrl)
                 }
-                actions.runChecks(
-                    { kind: 'subject', subjectKey: row.checkGroup.subjectKey },
-                    row.checkGroup.checks.map((check) => check.id)
-                )
-            },
-            proposeCertification: ({ row }) => {
-                if (!row.certificationTarget) {
-                    return
-                }
-                actions.openNewCertificationModal()
-                actions.setNewCertificationForm({
-                    targetId: row.certificationTarget.targetId,
-                    targetType: row.certificationTarget.targetType,
-                    targetName: row.name,
-                })
             },
             reviewProposals: async ({ rowKeys, decision, source }) => {
                 const rows = rowsFor(rowKeys).filter(hasPendingProposal)
@@ -719,14 +668,6 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
                     lemonToast.error(`Could not certify ${pluralize(failed, 'table')}. Try again.`)
                 }
             },
-            runSelectedChecks: () => {
-                const checkIds = values.selectedRows.flatMap(
-                    (row) => row.checkGroup?.checks.map((check) => check.id) ?? []
-                )
-                if (checkIds.length > 0) {
-                    actions.runChecks({ kind: 'all' }, checkIds)
-                }
-            },
         }
     }),
     subscriptions(({ actions }) => ({
@@ -740,7 +681,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
         [urls.dataCatalog()]: (_, searchParams, hashParams) => {
             const filter = searchParams[TABLES_FILTER_PARAM]
             const table = searchParams[TABLES_SEARCH_PARAM]
-            if (filter === undefined && table === undefined) {
+            if (searchParams.tab !== TABLES_TAB || (filter === undefined && table === undefined)) {
                 return
             }
             if (isTrustUrlFilter(filter)) {

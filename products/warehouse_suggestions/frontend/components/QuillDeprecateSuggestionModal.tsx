@@ -22,7 +22,7 @@ import {
 } from '@posthog/quill'
 
 import { deleteDisabledReason, isDeprecatePayload, noReadsLabel, refreshCostLabel } from '../suggestionCopy'
-import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { catalogEditBlockedReason, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { ACTION_CHOICES, ActionChoice, REFRESH_CHOICES, RefreshChoice } from './DeprecateSuggestionModal'
 
 interface QuillChoice<T extends string> {
@@ -95,10 +95,12 @@ export function QuillDeprecateSuggestionModal(): JSX.Element | null {
     const materialized = payload.materialized !== false
     const windowDays = status?.window_days ?? 0
     const noReads = noReadsLabel(windowDays)
-    const deleteBlockedReason = deleteDisabledReason(acceptConfirmSuggestion.evidence, windowDays)
-    const actionChoices = ACTION_CHOICES.map((choice) =>
-        choice.value === 'delete' ? { ...choice, disabledReason: deleteBlockedReason } : choice
-    )
+    const blockedReasons: Record<ActionChoice, string | undefined> = {
+        deprecate: catalogEditBlockedReason(),
+        delete: deleteDisabledReason(acceptConfirmSuggestion.evidence, windowDays),
+    }
+    const actionChoices = ACTION_CHOICES.map((choice) => ({ ...choice, disabledReason: blockedReasons[choice.value] }))
+    const chosen: ActionChoice = deleteView ? 'delete' : 'deprecate'
 
     return (
         <Dialog open onOpenChange={(open: boolean) => !open && !inFlight && closeAcceptConfirm()}>
@@ -116,7 +118,7 @@ export function QuillDeprecateSuggestionModal(): JSX.Element | null {
                         <QuillChoiceGroup<ActionChoice>
                             legend={ACTION_LEGEND}
                             idPrefix="deprecate-action"
-                            value={deleteView ? 'delete' : 'deprecate'}
+                            value={chosen}
                             onChange={(choice) => setDeleteView(choice === 'delete')}
                             choices={actionChoices}
                             disabled={inFlight}
@@ -144,6 +146,7 @@ export function QuillDeprecateSuggestionModal(): JSX.Element | null {
                     <Button
                         variant={deleteView ? 'destructive-outline' : 'primary'}
                         loading={inFlight}
+                        disabledReason={blockedReasons[chosen]}
                         onClick={() => confirmAccept()}
                         data-attr={
                             deleteView

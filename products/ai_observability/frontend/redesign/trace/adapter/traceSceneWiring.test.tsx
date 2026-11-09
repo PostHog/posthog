@@ -12,9 +12,13 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
+import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
 import type { TraceClusterApi } from '../../../generated/api.schemas'
+import { queryEvaluationRuns } from '../../../utils'
+import { traceReviewLogic } from '../traceReviewLogic'
 import { TraceScene } from '../TraceScene'
 import {
     decodeIdSegment,
@@ -52,6 +56,9 @@ const EXPORT_URL = '/api/projects/:team_id/ai_observability/traces/:id/exports/'
 const PULL_REQUEST_URL = '/api/projects/:team_id/ai_observability/traces/:id/pull_request/'
 const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
+const REVIEW_URL = '/api/projects/:team_id/ai_observability/traces/:id/review/'
+const REVIEW_QUEUES_URL = '/api/projects/:team_id/llm_analytics/review_queues/'
+const QUEUE_ITEM_URL = '/api/projects/:team_id/llm_analytics/review_queue_items/:id/'
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
     properties: {
@@ -67,6 +74,7 @@ const askedGeneration = makeNodeDetail({
 })
 const nodeDetails: Record<string, typeof answeredGeneration> = { 'gen-1': askedGeneration, 'gen-2': answeredGeneration }
 let nodeRequests: string[] = []
+let datasetListRequests = 0
 const nodeMock = {
     [NODE_URL]: ({ params }: { params: Record<string, unknown> }) => {
         const nodeId = decodeIdSegment(String(params.node_id))
@@ -78,6 +86,10 @@ const evaluationsMock = { [EVALUATIONS_URL]: () => [200, makeEvaluationResults()
 let clusters: TraceClusterApi[] = []
 const clustersMock = { [CLUSTERS_URL]: () => [200, { clusters }] }
 const feedbackMock = { [FEEDBACK_URL]: () => [200, makeFeedback({ scores: [], responses: [] })] }
+const reviewMock = {
+    [REVIEW_URL]: () => [200, { review: null, queue: null }],
+    [REVIEW_QUEUES_URL]: () => [200, { count: 0, next: null, previous: null, results: [] }],
+}
 
 const generation = makeEvent({
     id: 'gen-1',
@@ -91,17 +103,29 @@ const generation = makeEvent({
     },
 })
 
+let accessToRestore: { saved: Record<AccessControlResourceType, AccessControlLevel> } | null = null
+
 function renderNewView(
     flags: Record<string, boolean> = {},
-    params: Record<string, string> = {}
+    params: Record<string, string> = {},
+    aiObservabilityAccess: AccessControlLevel | null = null
 ): ReturnType<typeof render> {
     initKeaTests()
+    if (aiObservabilityAccess) {
+        const appContext = window.POSTHOG_APP_CONTEXT!
+        accessToRestore = { saved: appContext.resource_access_control }
+        appContext.resource_access_control = {
+            ...appContext.resource_access_control,
+            llm_analytics: aiObservabilityAccess,
+        }
+    }
     featureFlagLogic.mount()
     featureFlagLogic.actions.setFeatureFlags(
         Object.keys(flags).filter((flag) => flags[flag]),
         flags
     )
     nodeRequests = []
+    datasetListRequests = 0
     jest.mocked(performQuery).mockReset()
     jest.mocked(performQuery).mockResolvedValue({ results: [] })
     aiObservabilityTraceLogic.mount()
@@ -117,6 +141,10 @@ describe('TraceScene', () => {
     afterEach(() => {
         cleanup()
         resumeKeaLoadersErrors()
+        if (accessToRestore) {
+            window.POSTHOG_APP_CONTEXT!.resource_access_control = accessToRestore.saved
+            accessToRestore = null
+        }
     })
 
     describe('the new view', () => {
@@ -124,17 +152,21 @@ describe('TraceScene', () => {
             useMocks({
                 get: {
                     [TRACE_URL]: () => [200, makeTraceResource({ defaultNodeId: 'gen-2' })],
-                    [DATASETS_URL]: () => [200, { count: 0, results: [] }],
+                    [DATASETS_URL]: () => {
+                        datasetListRequests++
+                        return [200, { count: 0, results: [] }]
+                    },
                     [SEARCH_URL]: () => [200, { total: 1, matches: [{ nodeId: 'gen-1', count: 1 }] }],
                     ...nodeMock,
                     ...evaluationsMock,
                     ...clustersMock,
                     ...feedbackMock,
+                    ...reviewMock,
                 },
             })
         })
 
-        it('opens on the default node without the legacy trace or neighbours queries', async () => {
+        it('opens on the default node without the legacy trace, neighbours or evaluation runs queries', async () => {
             const apiQuery = jest.spyOn(api, 'query').mockResolvedValue({ results: [] })
             const { findAllByText, findByText } = renderNewView({ [TRACE_NAVIGATION_FLAG]: true })
 
@@ -143,6 +175,7 @@ describe('TraceScene', () => {
             await expectLogic(aiObservabilityTraceLogic).toFinishAllListeners()
             expect(jest.mocked(performQuery).mock.calls.some(([query]) => query.kind === 'TraceQuery')).toBe(false)
             expect(apiQuery.mock.calls.some(([query]) => query.kind === 'TraceNeighborsQuery')).toBe(false)
+            expect(queryEvaluationRuns).not.toHaveBeenCalled()
             apiQuery.mockRestore()
         })
 
@@ -446,8 +479,8 @@ describe('TraceScene', () => {
                     },
                 },
             })
-            const { findByText } = renderNewView()
-            const button = (await findByText('Export')).closest('button')
+            const { findByLabelText } = renderNewView()
+            const button = (await findByLabelText('Export this trace as a JSON file')).closest('button')
             if (!button) {
                 throw new Error('expected the export action to render as a button')
             }
@@ -465,6 +498,117 @@ describe('TraceScene', () => {
 
             expect(await findByText('Two seats were added.')).toBeTruthy()
             expect(queryByText('Add to dataset') !== null).toBe(enabled)
+            expect(datasetListRequests > 0).toBe(enabled)
+        })
+
+        it('keeps the dataset list loaded while an unread step loads', async () => {
+            const { findByText } = renderNewView({ [DATASETS_FLAG]: true })
+            await findByText('Add to dataset')
+            await waitFor(() => expect(datasetListRequests).toBeGreaterThan(0))
+            const requestsBeforeStep = datasetListRequests
+
+            fireEvent.click(await findByText('span-1'))
+            await waitFor(() => expect(nodeRequests).toContain('span-1'))
+            await findByText('Add to dataset')
+            await expectLogic(saveToDatasetButtonLogic).toFinishAllListeners()
+
+            expect(datasetListRequests).toBe(requestsBeforeStep)
+        })
+
+        it.each([
+            {
+                name: 'reviewed',
+                status: {
+                    review: {
+                        reviewedBy: 'Ada',
+                        reviewedAt: '2026-09-01T10:20:00Z',
+                        comment: null,
+                        scores: [{ name: 'Tone', value: '4.5', label: 'Tone: 4.5' }],
+                    },
+                    queue: null,
+                },
+                shown: ['Reviewed · 1 score', 'Edit review'],
+                hidden: ['Add to queue', 'Change queue'],
+            },
+            {
+                name: 'queued',
+                status: { review: null, queue: { id: 'q1', name: 'Support QA', itemId: 'i1' } },
+                shown: ['Support QA', 'Review', 'Change queue'],
+                hidden: ['Edit review', 'Add to queue'],
+            },
+            {
+                name: 'neither',
+                status: { review: null, queue: null },
+                shown: ['Review', 'Add to queue'],
+                hidden: ['Edit review', 'Change queue'],
+            },
+        ])('shows the review state and its actions in the header when $name', async ({ status, shown, hidden }) => {
+            useMocks({ get: { [REVIEW_URL]: () => [200, status] } })
+            const { findByText, queryByText } = renderNewView()
+
+            for (const text of shown) {
+                expect(await findByText(text)).toBeTruthy()
+            }
+            for (const text of hidden) {
+                expect(queryByText(text)).toBeNull()
+            }
+        })
+
+        it('keeps Review and an open review modal through a failed status reload, and hides the queue picker', async () => {
+            let reviewStatus = 200
+            useMocks({
+                get: {
+                    [REVIEW_URL]: () =>
+                        reviewStatus === 200
+                            ? [200, { review: null, queue: { id: 'q1', name: 'Support QA', itemId: 'i1' } }]
+                            : [500, { detail: 'nope' }],
+                },
+            })
+            const { findByText, queryByText } = renderNewView({}, {}, AccessControlLevel.Editor)
+            expect(await findByText('Change queue')).toBeTruthy()
+            fireEvent.click(await findByText('Review'))
+            expect(await findByText('Review trace')).toBeTruthy()
+
+            silenceKeaLoadersErrors()
+            reviewStatus = 500
+            traceReviewLogic({ traceId: 'trace-1' }).actions.loadReviewStatus()
+
+            await waitFor(() => expect(queryByText('Change queue')).toBeNull())
+            expect(queryByText('Review trace')).toBeTruthy()
+            expect(await findByText('Support QA')).toBeTruthy()
+        })
+
+        it('removes a queued trace from its queue from the queue chip, after confirming, and only once', async () => {
+            const deleted: string[] = []
+            let releaseDelete = (): void => {}
+            const deleteGate = new Promise<void>((resolve) => {
+                releaseDelete = resolve
+            })
+            useMocks({
+                get: {
+                    [REVIEW_URL]: () => [200, { review: null, queue: { id: 'q1', name: 'Support QA', itemId: 'i1' } }],
+                },
+                delete: {
+                    [QUEUE_ITEM_URL]: async ({ params }) => {
+                        deleted.push(String(params.id))
+                        await deleteGate
+                        return [204]
+                    },
+                },
+            })
+            const { container, findByText } = renderNewView({}, {}, AccessControlLevel.Editor)
+            await findByText('Support QA')
+            const remove = container.querySelector('[data-attr="trace-view-remove-from-queue"]')
+            if (!remove) {
+                throw new Error('expected a remove control on the queue chip')
+            }
+
+            fireEvent.click(remove)
+            fireEvent.click(await findByText('Remove from queue'))
+
+            await waitFor(() => expect(deleted).toEqual(['i1']))
+            expect(container.querySelector('[data-attr="trace-view-remove-from-queue"]')).toBeNull()
+            releaseDelete()
         })
 
         it('opens the feedback from the header chip and the step chips, and links each entry to its step', async () => {
@@ -526,6 +670,7 @@ describe('TraceScene', () => {
                     ...evaluationsMock,
                     ...clustersMock,
                     ...feedbackMock,
+                    ...reviewMock,
                 },
             })
         })

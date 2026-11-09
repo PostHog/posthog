@@ -6,6 +6,7 @@ import { SAVING_COLUMNS_CLASS } from './SuggestionRow'
 export function QuillSuggestedModelsSection({
     title,
     description,
+    showsSaving = true,
     children,
 }: SuggestedModelsSectionProps): JSX.Element {
     return (
@@ -19,14 +20,16 @@ export function QuillSuggestedModelsSection({
                         {description}
                     </Text>
                 </div>
-                <Text
-                    size="xs"
-                    variant="muted"
-                    render={<span />}
-                    className="hidden text-right @min-[36rem]/suggestions:block"
-                >
-                    Main saving a month
-                </Text>
+                {showsSaving && (
+                    <Text
+                        size="xs"
+                        variant="muted"
+                        render={<span />}
+                        className="hidden text-right @min-[36rem]/suggestions:block"
+                    >
+                        Main saving a month
+                    </Text>
+                )}
             </div>
             <div className="divide-y divide-border">{children}</div>
         </section>

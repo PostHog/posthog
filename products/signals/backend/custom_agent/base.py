@@ -25,14 +25,13 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import rank_assignee_candidates
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult, select_repository_for_team
+from products.signals.backend.task_profiles import CUSTOM_AGENT, REPO_SELECTION_WITHOUT_REPORT
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
     resolve_user_id_for_team,
 )
-from products.signals.backend.temporal.agentic.select_repository import GITHUB_ONLY_DOMAINS
-from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, extract_json_from_text
 
 if TYPE_CHECKING:
@@ -476,10 +475,7 @@ involvement — the ranking handles that.
         if self.user_id is None:
             raise RuntimeError("_resolve_repository requires user_id to be resolved first")
         sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-            self.team_id,
-            SIGNALS_REPO_DISCOVERY_ENV_NAME,
-            tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
-            allowed_domains=GITHUB_ONLY_DOMAINS,
+            self.team_id, SIGNALS_REPO_DISCOVERY_ENV_NAME, REPO_SELECTION_WITHOUT_REPORT
         )
         selected = await select_repository_for_team(
             team_id=self.team_id,
@@ -657,11 +653,7 @@ Return only a JSON object matching this schema. Do not include markdown fences o
             assert self.user_id is not None, "start() must run before send()"
             sandbox_environment_id = await database_sync_to_async(
                 get_or_create_signals_sandbox_env, thread_sensitive=False
-            )(
-                self.team_id,
-                SIGNALS_REPORT_RESEARCH_ENV_NAME,
-                tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
-            )
+            )(self.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, CUSTOM_AGENT)
             agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
                 self.team_id, STEP_CUSTOM_AGENT
             )
@@ -680,9 +672,8 @@ Return only a JSON object matching this schema. Do not include markdown fences o
                 prompt=prompt,
                 context=context,
                 step_name=label,
-                origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+                profile=CUSTOM_AGENT,
                 ai_stage=STEP_CUSTOM_AGENT,
-                internal=True,
             )
             self._session = session
             return raw_text

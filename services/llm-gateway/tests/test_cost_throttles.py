@@ -72,9 +72,9 @@ class TestProductCostLimitConfig:
     def test_default_product_cost_limits(self) -> None:
         get_settings.cache_clear()
         settings = get_settings()
-        assert "llm_gateway" in settings.product_cost_limits
-        assert settings.product_cost_limits["llm_gateway"].limit_usd == 1000.0
-        assert settings.product_cost_limits["llm_gateway"].window_seconds == 86400
+        assert "django" in settings.product_cost_limits
+        assert settings.product_cost_limits["django"].limit_usd == 5000.0
+        assert settings.product_cost_limits["django"].window_seconds == 86400
         assert settings.product_cost_limits["posthog_ai"].limit_usd == 5000.0
         assert settings.product_cost_limits["posthog_ai"].window_seconds == 86400
 
@@ -149,7 +149,7 @@ class TestProductCostThrottle:
         from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle
 
         throttle = ProductCostThrottle(redis=None)
-        context = make_context(product="llm_gateway")
+        context = make_context(product="django")
 
         result = await throttle.allow_request(context)
         assert result.allowed is True
@@ -159,9 +159,9 @@ class TestProductCostThrottle:
         from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle
 
         throttle = ProductCostThrottle(redis=None)
-        context = make_context(product="llm_gateway")
+        context = make_context(product="django")
 
-        await throttle.record_cost(context, 1000.0)
+        await throttle.record_cost(context, 5000.0)
 
         result = await throttle.allow_request(context)
         assert result.allowed is False
@@ -201,15 +201,15 @@ class TestProductCostThrottle:
         from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle
 
         throttle = ProductCostThrottle(redis=None)
-        context = make_context(product="llm_gateway")
+        context = make_context(product="django")
         await throttle.record_cost(context, 42.0)
 
-        status = await throttle.get_status_for_product("llm_gateway")
+        status = await throttle.get_status_for_product("django")
 
         assert status is not None
         assert status.used_usd == pytest.approx(42.0)
-        assert status.limit_usd == 1000.0
-        assert status.remaining_usd == pytest.approx(958.0)
+        assert status.limit_usd == 5000.0
+        assert status.remaining_usd == pytest.approx(4958.0)
         assert status.exceeded is False
         get_settings.cache_clear()
 
@@ -234,17 +234,17 @@ class TestProductCostThrottle:
 
         throttle = ProductCostThrottle(redis=None)
 
-        staff_context = make_context(user=make_user(user_id=1, is_staff=True), product="llm_gateway")
+        staff_context = make_context(user=make_user(user_id=1, is_staff=True), product="django")
         await throttle.record_cost(staff_context, 50.0)
 
-        status = await throttle.get_status_for_product("llm_gateway")
+        status = await throttle.get_status_for_product("django")
         assert status is not None
         assert status.used_usd == pytest.approx(0.0), "staff spend must not appear in the shared-pool gauge"
 
-        shared_context = make_context(user=make_user(user_id=2, is_staff=False), product="llm_gateway")
+        shared_context = make_context(user=make_user(user_id=2, is_staff=False), product="django")
         await throttle.record_cost(shared_context, 7.0)
 
-        status = await throttle.get_status_for_product("llm_gateway")
+        status = await throttle.get_status_for_product("django")
         assert status is not None
         assert status.used_usd == pytest.approx(7.0), "gauge should reflect shared-pool spend only"
         get_settings.cache_clear()
@@ -285,7 +285,7 @@ class TestUserCostBurstThrottle:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="llm_gateway")
+        context = make_context(product="django")
 
         await throttle.record_cost(context, 99.0)
         result = await throttle.allow_request(context)
@@ -374,7 +374,7 @@ class TestUserCostSustainedThrottle:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="llm_gateway")
+        context = make_context(product="django")
 
         await throttle.record_cost(context, 999.0)
         result = await throttle.allow_request(context)

@@ -38,6 +38,8 @@ import pydantic
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.hogql_queries import get_baseline_variant_key
@@ -180,7 +182,8 @@ def _resolve_exposure(
 ) -> ExposureQueryParams | None:
     try:
         return get_exposure_config_params_for_builder(exposure_criteria, team, start_date)
-    except pydantic.ValidationError:
+    except (pydantic.ValidationError, ExposedHogQLError):
+        # The builder refuses a warehouse-native exposure, which has no ClickHouse query params.
         return None
 
 
@@ -272,7 +275,7 @@ class ExperimentCalculationSettings:
     excluded_variants: tuple[str, ...]
     # What the query runner resolves from the stored exposure criteria. The `experiment-exposure-event` flag picks its
     # default exposure event, so equality and the key read `normalized_exposure` instead. None when the stored
-    # criteria do not parse. The query runner rejects such an experiment.
+    # criteria do not parse or name a warehouse-native exposure. The query runner rejects such an experiment.
     exposure: ExposureQueryParams | None = field(compare=False)
     # The stored exposure criteria as `normalize_exposure` returns them.
     normalized_exposure: dict[str, Any]

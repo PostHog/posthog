@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -10,7 +10,7 @@ import { DataModelingSyncInterval } from '~/types'
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
 import type { MainSavingKind } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { QuillSuggestedModelsDialogs } from './QuillSuggestedModelsDialogs'
+import { QuillSuggestedModelsStrip } from './QuillSuggestedModelsStrip'
 import { SuggestedModelsStrip } from './SuggestedModelsStrip'
 
 const LIST_URL = '/api/projects/:team_id/warehouse_suggestions/'
@@ -121,6 +121,21 @@ function unmaterialize(id: string, name: string): WarehouseSuggestionApi {
     }
 }
 
+function deprecate(id: string, name: string): WarehouseSuggestionApi {
+    const base = materialize(id, name, 0)
+    return {
+        ...base,
+        kind: 'deprecate',
+        payload: {
+            subject_name: name,
+            materialized: true,
+            refresh_seconds_per_month: 2700,
+            refresh_bytes_per_month: 2 * 10 ** 12,
+        },
+        evidence: { human_requests: 0, human_users: 0, human_days: 0, days_with_data: 30 },
+    }
+}
+
 const suggestions = [
     materialize('1', 'customer_monthly_revenue', 1080, { backgroundSeconds: -720, readSeconds: 45 }),
     materialize('2', 'team_usage_rollup', 32400, { backgroundSeconds: 32400, main: 'background' }),
@@ -130,6 +145,7 @@ const suggestions = [
         savedBytes: 100 * 10 ** 12,
     }),
     unmaterialize('4', 'legacy_signup_funnel'),
+    deprecate('5', 'old_campaign_rollup'),
 ]
 
 const manySuggestions = Array.from({ length: 7 }, (_, index) =>
@@ -199,11 +215,9 @@ function StripStory({
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
             {catalogDialogs ? (
-                <BindLogic logic={warehouseSuggestionsLogic} props={{ surface: 'models' }}>
-                    <div data-quill>
-                        <QuillSuggestedModelsDialogs />
-                    </div>
-                </BindLogic>
+                <div data-quill>
+                    <QuillSuggestedModelsStrip />
+                </div>
             ) : (
                 <SuggestedModelsStrip />
             )}
@@ -268,10 +282,41 @@ export const StopMaterializingDialog: Story = {
     parameters: DIALOG_SNAPSHOT,
 }
 
+export const BannerOnlyUnusedViews: Story = {
+    args: { results: [deprecate('5', 'old_campaign_rollup'), deprecate('6', 'q3_signup_export')] },
+}
+
+export const DeprecateDialog: Story = {
+    args: { confirmSuggestionId: '5' },
+    parameters: DIALOG_SNAPSHOT,
+}
+
 const CATALOG_DIALOG_SNAPSHOT: Story['parameters'] = {
     ...DIALOG_SNAPSHOT,
     featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
     testOptions: { ...DIALOG_SNAPSHOT.testOptions, snapshotBrowsers: [] },
+}
+
+export const CatalogBanner: Story = { args: { catalogDialogs: true }, parameters: CATALOG_DIALOG_SNAPSHOT }
+
+export const CatalogBannerNarrow: Story = {
+    args: { catalogDialogs: true, width: 'narrow' },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogWarmingUp: Story = {
+    args: { catalogDialogs: true, results: [], statusOverrides: { days_with_data: 12 } },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogReviewDialogWithUnusedViews: Story = {
+    args: { catalogDialogs: true, reviewOpen: true },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogDeprecateDialog: Story = {
+    args: { catalogDialogs: true, confirmSuggestionId: '5' },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
 }
 
 export const CatalogReviewDialog: Story = {

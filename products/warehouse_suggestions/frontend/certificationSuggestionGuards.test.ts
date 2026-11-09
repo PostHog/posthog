@@ -24,14 +24,21 @@ function suggestion(overrides: Partial<WarehouseSuggestionApi>): WarehouseSugges
 describe('certificationSuggestionGuards', () => {
     it.each([
         {
-            name: 'a catalog viewer cannot accept',
-            input: suggestion({}),
+            name: 'a catalog viewer cannot deprecate a table',
+            input: suggestion({ subject_kind: 'table' }),
             catalogEditor: false,
             inFlight: false,
             expected: {
                 acceptBlockedReason: 'You need edit access to the data catalog',
                 dismissBlockedReason: undefined,
             },
+        },
+        {
+            name: 'a catalog viewer can open the deprecate dialog for a view to delete it',
+            input: suggestion({}),
+            catalogEditor: false,
+            inFlight: false,
+            expected: { acceptBlockedReason: undefined, dismissBlockedReason: undefined },
         },
         {
             name: 'no edit access on the subject blocks every action',

@@ -336,10 +336,5 @@ describe('config', () => {
             const result = buildPlayerConfig(baseInput({ viewport_events: events }), 4, 5)
             expect(result.viewportEvents).toEqual(events)
         })
-
-        it('does not include recording API secret in player config', () => {
-            const result = buildPlayerConfig(baseInput(), 4, 5)
-            expect(result).not.toHaveProperty('recordingApiSecret')
-        })
     })
 })

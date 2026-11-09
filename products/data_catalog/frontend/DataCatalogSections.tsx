@@ -28,6 +28,7 @@ import { QuillModelsLineageTab } from 'products/data_modeling/frontend/lineage/Q
 import { CatalogOverview } from './CatalogOverview'
 import { CatalogUsageSection } from './CatalogUsageSection'
 import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
+import { CatalogDataQualitySection } from './dataQuality/CatalogDataQualitySection'
 import { relationshipsLogic } from './relationshipsLogic'
 import { CatalogTablesSection } from './tables/CatalogTablesSection'
 import { MetricsTab } from './tabs/MetricsTab'
@@ -42,11 +43,12 @@ const SECTION_LABELS: Record<DataCatalogTab, string> = {
     lineage: 'Lineage',
     metrics: 'Metrics',
     relationships: 'Relationships',
+    'data-quality': 'Data quality',
     certifications: 'Certifications',
     usage: 'Usage',
 }
 
-const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'usage']
+const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'data-quality', 'usage']
 
 const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     overview: CatalogOverview,
@@ -54,6 +56,7 @@ const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     lineage: QuillModelsLineageTab,
     metrics: MetricsTab,
     relationships: RelationshipsTab,
+    'data-quality': CatalogDataQualitySection,
     usage: CatalogUsageSection,
 }
 

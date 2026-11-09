@@ -1,12 +1,8 @@
-import { userHasAccess } from 'lib/utils/accessControlUtils'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
 import type { WarehouseSuggestionApi } from './generated/api.schemas'
 import { isDeprecatePayload } from './suggestionCopy'
+import { catalogEditBlockedReason } from './warehouseSuggestionsLogic'
 
 const EDIT_ACCESS_REASON = 'You need edit access to this view or table'
-const CATALOG_EDIT_ACCESS_REASON = 'You need edit access to the data catalog'
 const WORKING_REASON = 'Working'
 
 export interface CertificationSuggestionGuards {
@@ -27,11 +23,7 @@ export function certificationSuggestionGuards(
     return {
         isTable,
         confirmsFirst,
-        acceptBlockedReason:
-            blockedReason ??
-            (userHasAccess(AccessControlResourceType.DataCatalog, AccessControlLevel.Editor)
-                ? undefined
-                : CATALOG_EDIT_ACCESS_REASON),
+        acceptBlockedReason: blockedReason ?? (confirmsFirst ? undefined : catalogEditBlockedReason()),
         dismissBlockedReason: blockedReason ?? (inFlight ? WORKING_REASON : undefined),
     }
 }

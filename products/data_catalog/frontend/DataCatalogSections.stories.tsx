@@ -155,6 +155,58 @@ export const OverviewNarrow: Story = {
     decorators: [inMainContent('w-128')],
 }
 
+const suggestedMaterialization = {
+    id: 'suggestion-1',
+    kind: 'materialize',
+    subject_kind: 'saved_query',
+    subject_id: 'query-active-users-weekly',
+    payload: {
+        subject_name: 'active_users_weekly',
+        refresh_interval_seconds: 86400,
+        saves_seconds_per_month: 3600,
+        saves_bytes_per_month: 0,
+        freshness_today_seconds: 3600,
+        freshness_after_seconds: 90000,
+        live_sources: { names: ['events'], hidden_count: 0 },
+        unknown_sources: { names: [], hidden_count: 0 },
+        refresh_interval_basis: 'source_sync',
+        refresh_mode: 'full',
+    },
+    payload_version: 1,
+    evidence: { human_requests: 120, human_users: 4, human_days: 20, requests_by_surface: { sql_editor: 120 } },
+    evidence_window_start: '2026-08-15T00:00:00Z',
+    evidence_window_end: '2026-09-15T00:00:00Z',
+    last_seen_at: '2026-09-15T00:00:00Z',
+    status: 'proposed',
+    surfaced_at: '2026-09-15T00:00:00Z',
+    can_act: true,
+}
+
+export const OverviewWithSuggestions: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+            FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS,
+        ],
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_suggestions/': { results: [suggestedMaterialization], count: 1 },
+                    '/api/projects/:team_id/warehouse_suggestions/status/': {
+                        enabled: true,
+                        eligible: true,
+                        days_with_data: 30,
+                        window_days: 30,
+                        paused_reason: null,
+                        refreshed_at: '2026-09-15T00:00:00Z',
+                    },
+                },
+            },
+        },
+    },
+}
+
 export const OverviewWithoutWarehouseAccess: Story = {
     beforeEach: () => {
         const context = window.POSTHOG_APP_CONTEXT!
@@ -236,4 +288,9 @@ export const OverviewWithCertificationSuggestions: Story = {
 
 export const Lineage: Story = {
     parameters: { pageUrl: urls.dataCatalog('lineage') },
+}
+
+export const OverviewWithoutWarehouseAccessNarrow: Story = {
+    ...OverviewWithoutWarehouseAccess,
+    decorators: [inMainContent('w-128')],
 }
