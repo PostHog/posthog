@@ -998,8 +998,8 @@ function isNodeWithChildren(x: unknown): x is elementNode | documentNode {
  */
 function cloneWithoutChildren(converted: addedNodeMutation): addedNodeMutation {
     const cloned = { ...converted }
-    const clonedNode: serializedNodeWithId = { ...converted.node }
-    if (isNodeWithChildren(clonedNode)) {
+    const clonedNode = { ...converted.node }
+    if ('childNodes' in clonedNode) {
         clonedNode.childNodes = []
     }
     cloned.node = clonedNode
