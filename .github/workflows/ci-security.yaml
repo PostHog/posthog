@@ -127,6 +127,7 @@ jobs:
                         - '!services/**'
                       # Keep these paths aligned with semgrep-devex's scan targets.
                       devex:
+                        - '**/*.py'
                         - 'bin/**'
                         - 'common/**'
                         - 'docs/onboarding/**'
@@ -593,6 +594,23 @@ jobs:
                       --verbose \
                       --timeout 300 \
                       bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
+
+            - name: New sleeps in Python tests (blocking)
+              if: github.event_name == 'pull_request'
+              run: |
+                  if [ ! -f .semgrep/rules/devex/no-fixed-sleeps-in-tests.yaml ]; then
+                      echo "no-fixed-sleeps-in-tests not present on this branch yet, skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  mapfile -d '' -t test_files < <(git ls-files -z -- ':(glob)**/test_*.py' ':(glob)**/*_test.py' ':(glob)**/conftest.py' ':(glob)**/test/**/*.py' ':(glob)**/tests/**/*.py')
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config .semgrep/rules/devex/no-fixed-sleeps-in-tests.yaml \
+                      --baseline-commit "$(git rev-parse HEAD^1)" \
+                      --error --metrics=off --timeout 300 \
+                      -- "${test_files[@]}"
 
     semgrep-test-rules:
         needs: changes

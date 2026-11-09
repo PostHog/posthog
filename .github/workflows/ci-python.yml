@@ -466,13 +466,6 @@ jobs:
                     shell: bash
                     run: ruff check .
 
-                  - name: Reject new sleeps in Python tests
-                    shell: bash
-                    run: |
-                        if [ -f posthog/test/repo_invariants/test_no_test_sleeps.py ]; then
-                            python posthog/test/repo_invariants/test_no_test_sleeps.py
-                        fi
-
                   - name: Check formatting
                     shell: bash
                     run: ruff format --check --diff .

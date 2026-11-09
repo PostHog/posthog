@@ -155,13 +155,6 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
     ),
     DiffCheck(
-        key="test-sleeps",
-        label="new sleeps in Python tests",
-        triggers=["*.py", "posthog/test/repo_invariants/test_sleep_baseline.txt"],
-        verify=["python", "posthog/test/repo_invariants/test_no_test_sleeps.py"],
-        requires=("python-env",),
-    ),
-    DiffCheck(
         key="complexity",
         label=f"cyclomatic complexity (warn >{WARN_AT}, >{TEST_WARN_AT} in tests)",
         # From complexity_lint.py so preflight and the command can't drift on scope.

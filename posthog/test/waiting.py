@@ -13,4 +13,5 @@ def wait_until(
     while not condition():
         if time.monotonic() >= deadline:
             raise AssertionError(f"{message} within {timeout}s")
+        # nosemgrep: no-fixed-sleeps-in-tests -- bounded polling for APIs without a readiness signal
         time.sleep(interval)
