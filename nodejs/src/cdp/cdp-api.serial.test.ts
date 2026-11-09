@@ -3505,8 +3505,7 @@ describe('CDP API', () => {
         let redis: RedisV2
         let otherTeamId: number
 
-        // Raw audience literal and claim names: the wire contract with the Django route that mints this token.
-        const mintUploadToken = (
+        const mintUploadTokenAsTheDjangoRouteDoes = (
             teamId: number,
             claims: Record<string, string> = { kind: 'attachment_upload' },
             secret = 'local-dev-workflows-transactional-email-jwt'
@@ -3516,7 +3515,7 @@ describe('CDP API', () => {
                 expiresIn: '2m',
             })
 
-        const requestUploads = (teamId: number, body: object, token = mintUploadToken(teamId)) =>
+        const requestUploads = (teamId: number, body: object, token = mintUploadTokenAsTheDjangoRouteDoes(teamId)) =>
             supertest(app)
                 .post(`/api/projects/${teamId}/transactional_email/attachments/uploads`)
                 .set({ Authorization: `Bearer ${token}` })
@@ -3665,10 +3664,13 @@ describe('CDP API', () => {
         })
 
         it.each([
-            ['a code send token', () => mintUploadToken(team.id, { kind: 'code_send' })],
-            ['a template send token', () => mintUploadToken(team.id, {})],
-            ["another team's token", () => mintUploadToken(otherTeamId)],
-            ['a token signed with another key', () => mintUploadToken(team.id, undefined, 'wrong-key')],
+            ['a code send token', () => mintUploadTokenAsTheDjangoRouteDoes(team.id, { kind: 'code_send' })],
+            ['a template send token', () => mintUploadTokenAsTheDjangoRouteDoes(team.id, {})],
+            ["another team's token", () => mintUploadTokenAsTheDjangoRouteDoes(otherTeamId)],
+            [
+                'a token signed with another key',
+                () => mintUploadTokenAsTheDjangoRouteDoes(team.id, undefined, 'wrong-key'),
+            ],
         ])('refuses %s, and counts it as unauthorized', async (_name, token) => {
             const unauthorizedCount = async (): Promise<number> =>
                 (
@@ -3698,7 +3700,7 @@ describe('CDP API', () => {
             try {
                 const res = await supertest(builtApp)
                     .post(`/api/projects/${team.id}/transactional_email/attachments/uploads`)
-                    .set({ Authorization: `Bearer ${mintUploadToken(team.id)}` })
+                    .set({ Authorization: `Bearer ${mintUploadTokenAsTheDjangoRouteDoes(team.id)}` })
                     .send(asked(pdf()))
 
                 expect(res.status).toBe(status)
