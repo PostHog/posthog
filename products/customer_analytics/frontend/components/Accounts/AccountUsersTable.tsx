@@ -4,11 +4,12 @@ import { useMemo } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { getUserAdminUrl } from 'lib/utils/userAdmin'
+
 import { Query } from '~/queries/Query/Query'
 import { QueryContext } from '~/queries/types'
 
 import { accountMemberAdminLinksLogic } from './accountMemberAdminLinksLogic'
-import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountUsersTableLogic, IMPERSONATE_COLUMN } from './accountUsersTableLogic'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
@@ -31,7 +32,7 @@ function ImpersonateButton({
         <LemonButton
             type="secondary"
             size="xsmall"
-            to={getAccountRelatedUserAdminUrl(member.region, member.user.id)}
+            to={getUserAdminUrl(member.region, member.user.id)}
             targetBlank
             tooltip="Open this user in admin to impersonate them."
             data-attr="customer-analytics-account-user-admin-link"
