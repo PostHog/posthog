@@ -19,7 +19,9 @@ from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptS
 from products.aeo.backend.facade.api import (
     MAX_CONSENSUS_DOMAINS,
     MAX_OVERVIEW_DOMAINS,
+    MAX_OVERVIEW_SEARCHES,
     MAX_PROMPT_LENGTH,
+    MAX_SEARCH_PROMPTS,
     MAX_STATS_WORDS,
     archive_prompt,
     get_brand,
@@ -63,6 +65,8 @@ from products.aeo.backend.facade.contracts import (
     PromptSetDomain,
     PromptSetEngineCounts,
     PromptSetOverview,
+    PromptSetSearch,
+    PromptSetSearchPrompt,
     PromptSetTopicCounts,
     PromptStats,
     PromptSuggestion,
@@ -114,6 +118,9 @@ class AEOPromptEngineCheckSerializer(DataclassSerializer):
             },
             "target_best_position": {
                 "help_text": "1-based rank of the first target-domain URL among the answer's cited URLs. Null when the answer did not cite one."
+            },
+            "search_queries": {
+                "help_text": "The web searches the engine ran while answering, in the order it ran them. Empty when it ran none or the check failed."
             },
             "checked_at": {"help_text": "When the check ran."},
         }
@@ -433,6 +440,36 @@ class AEOPromptSetDomainSerializer(DataclassSerializer):
         }
 
 
+class AEOPromptSetSearchPromptSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptSetSearchPrompt
+        ref_name = "AEOPromptSetSearchPrompt"
+        extra_kwargs = {
+            "id": {"help_text": "The prompt id (a UUID)."},
+            "text": {"help_text": "The prompt's current text."},
+        }
+
+
+class AEOPromptSetSearchSerializer(DataclassSerializer):
+    top_prompts = AEOPromptSetSearchPromptSerializer(
+        many=True,
+        help_text=f"Up to {MAX_SEARCH_PROMPTS} prompts whose answers ran this search, the ones that ran it most first.",
+    )
+
+    class Meta:
+        dataclass = PromptSetSearch
+        ref_name = "AEOPromptSetSearch"
+        extra_kwargs = {
+            "query": {
+                "help_text": "The web search an engine ran while answering, lowercased with whitespace collapsed."
+            },
+            "prompts": {"help_text": "Distinct prompts whose answers ran this search in the window."},
+            "answers": {"help_text": "Answered checks in the window that ran this search."},
+            "cited": {"help_text": "Of those answers, how many cited a URL on the project's target domains."},
+            "engines": {"help_text": "Answer engines that ran this search, ordered by engine."},
+        }
+
+
 class AEOPromptSetOverviewSerializer(DataclassSerializer):
     current = AEOPromptSetCountsSerializer(help_text="Checks across the prompt set in the last 'days' days.")
     previous = AEOPromptSetCountsSerializer(help_text="The same counts for the 'days' days before 'window_from'.")
@@ -447,6 +484,10 @@ class AEOPromptSetOverviewSerializer(DataclassSerializer):
     top_domains = AEOPromptSetDomainSerializer(
         many=True,
         help_text=f"The {MAX_OVERVIEW_DOMAINS} domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged.",
+    )
+    top_searches = AEOPromptSetSearchSerializer(
+        many=True,
+        help_text=f"The {MAX_OVERVIEW_SEARCHES} web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project.",
     )
 
     class Meta:
