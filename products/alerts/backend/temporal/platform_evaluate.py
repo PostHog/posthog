@@ -25,7 +25,12 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
 
     from posthog.schema_enums import AlertCalculationInterval
-    from posthog.temporal.alerts.retry_policy import alert_timeouts
+    from posthog.temporal.alerts.retry_policy import (
+        ALERT_SIGNAL_RETRY_POLICY,
+        ALERT_SIGNAL_SCHEDULE_TO_CLOSE,
+        ALERT_SIGNAL_START_TO_CLOSE,
+        alert_timeouts,
+    )
     from posthog.temporal.common.errors import (
         MAX_ERROR_MESSAGE_CHARS,
         truncate_for_temporal_payload,
@@ -35,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections
 
     from products.alerts.backend.platform_chart_detail import RenderedChart, pending_chart_alert_id, with_chart
+    from products.alerts.backend.platform_firing_signal_detail import FiringSignalRequest, requested_firing_signals
     from products.alerts.backend.platform_investigation_detail import (
         InvestigationClaims,
         InvestigationStart,
@@ -141,6 +147,8 @@ _PATCH_WAIT_FOR_POOL = "platform-insight-wait-for-pool-2026-10"
 _PATCH_INVESTIGATIONS = "platform-insight-investigations-2026-11"
 # Runs started before it ran metrics investigations after a claim, and replay must not schedule one.
 _PATCH_METRICS_INVESTIGATIONS = "platform-insight-metrics-investigations-2026-11"
+# Runs started before it emitted inbox signals after a record, and replay must not schedule one.
+_PATCH_FIRING_SIGNALS = "platform-insight-firing-signals-2026-11"
 
 
 @frozen
@@ -189,6 +197,11 @@ class FailedInsightCheckInputs:
 class ClaimInsightInvestigationsInputs:
     team_id: int
     outcomes: tuple[PlatformAlertOutcome, ...]
+
+
+@frozen
+class FiringSignalsInputs:
+    requests: tuple[FiringSignalRequest, ...]
 
 
 @frozen
@@ -411,6 +424,21 @@ def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsIn
 
 
 @activity.defn
+async def emit_platform_insight_firing_signals_activity(inputs: FiringSignalsInputs) -> None:
+    """Sends the inbox signals that recorded firings asked for, side by side. Each send gives up on
+    its own, and a failed one never touches the recorded firing."""
+    from asgiref.sync import sync_to_async  # noqa: PLC0415
+
+    from posthog.temporal.alerts.alert_firing_signal import dispatch_alert_firing_signal  # noqa: PLC0415
+
+    from products.alerts.backend.platform_firing_signal import prepare_platform_firing_signals  # noqa: PLC0415
+
+    signals = await sync_to_async(prepare_platform_firing_signals, thread_sensitive=False)(inputs.requests)
+    # On the event loop, not in a thread: emit_signal needs the default executor.
+    await asyncio.gather(*(dispatch_alert_firing_signal(signal) for signal in signals))
+
+
+@activity.defn
 @close_db_connections
 def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> RenderedChart | None:
     """Sync, because the render blocks for its whole duration. Only a full render pool raises, for a
@@ -444,6 +472,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # check releases its slot only while the slot still carries this expiry.
         expires_at = (workflow.now() + source_evaluation_timeout(SourceKind.INSIGHT)).timestamp()
         self._investigating: list[asyncio.Task[None]] = []
+        self._signalling: list[asyncio.Task[None]] = []
         if workflow.patched(_PATCH_READMISSION) and workflow.patched(_PATCH_RECORD_AS_FINISHED):
             return await self._evaluate_and_record_in_rounds(inputs, expires_at)
         if workflow.patched(_PATCH_READMISSION):
@@ -481,7 +510,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         if not outcomes:
             return 0
         await self._record(inputs, evaluations, chunked=workflow.patched(_PATCH_CHUNKED_RECORD))
-        await asyncio.gather(*self._investigating)
+        await asyncio.gather(*self._investigating, *self._signalling)
         return len(outcomes)
 
     async def _with_charts(
@@ -675,7 +704,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     continue
                 recorded += await self._record_waiting(inputs, waiting, last_chance=True)
                 await asyncio.gather(*stopping, return_exceptions=True)
-                await asyncio.gather(*self._investigating)
+                await asyncio.gather(*self._investigating, *self._signalling)
                 return recorded
             running = [task for task in unrecorded.values() if not task.done()]
             if not running:
@@ -834,6 +863,23 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         if workflow.patched(_PATCH_INVESTIGATIONS) and investigated:
             # A task, so a slow claim holds back only the firings it holds, not the next record or round.
             self._investigating.append(asyncio.create_task(self._investigate(inputs, investigated)))
+        signals = requested_firing_signals(inputs.batch_key.team_id, chunk)
+        if workflow.patched(_PATCH_FIRING_SIGNALS) and signals:
+            # Beside the claim and inside its share of the budget, so a slow send holds back nothing.
+            self._signalling.append(asyncio.create_task(self._emit_firing_signals(signals)))
+
+    async def _emit_firing_signals(self, requests: tuple[FiringSignalRequest, ...]) -> None:
+        try:
+            await workflow.execute_activity(
+                emit_platform_insight_firing_signals_activity,
+                FiringSignalsInputs(requests=requests),
+                start_to_close_timeout=ALERT_SIGNAL_START_TO_CLOSE,
+                schedule_to_close_timeout=ALERT_SIGNAL_SCHEDULE_TO_CLOSE,
+                retry_policy=ALERT_SIGNAL_RETRY_POLICY,
+            )
+        except ActivityError:
+            # The signals are best effort. Their failure must not fail a batch whose firings already went out.
+            workflow.logger.warning("Could not emit the inbox signals of recorded platform insight firings")
 
     async def _investigate(self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]) -> None:
         claims = await self._claim_investigations(inputs, outcomes)
@@ -903,6 +949,7 @@ PLATFORM_EVALUATION_ACTIVITIES = [
     render_platform_insight_chart_activity,
     claim_platform_insight_investigations_activity,
     run_platform_metrics_investigations_activity,
+    emit_platform_insight_firing_signals_activity,
     fail_platform_insight_check_activity,
     stop_platform_insight_queries_activity,
 ]
