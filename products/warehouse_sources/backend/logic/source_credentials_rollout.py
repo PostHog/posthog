@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     STRIPPED_STORE_KEYS,
     SharedCredentialsEdit,
     SourceCredentialsMissingError,
+    UnreadableSourceInputsError,
     UnusableCredentialsReferenceError,
 )
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
@@ -163,13 +164,24 @@ def read_connection_fields(source: ExternalDataSource, inputs: dict[str, Any]) -
     """The inputs that `load` returns for the source. ``inputs`` is the decoded `job_inputs`.
 
     Raises `SourceCredentialsMissingError` when the row or the column that the source needs is missing or
-    unreadable, and `RuntimeError` when such a source is read in an event loop thread. A database error
-    re-raises.
+    unreadable, `UnreadableSourceInputsError` when the OAuth walk cannot read the inputs, and `RuntimeError`
+    when such a source is read in an event loop thread. A database error re-raises. A source of an unknown
+    type reads ``inputs`` as stored.
     """
     kept = _without_store_keys(inputs)
     try:
-        slot = _slot_of(_source_class(source.source_type), inputs)
+        source_class = _source_class(source.source_type)
+    except ValueError:
+        # No source class declares the type, so no write can have given the source a row or an OAuth pointer.
+        _count_read(source, "no_row")
+        return kept
+    try:
+        slot = _slot_of(source_class, inputs)
         reads_row = slot is None and _reads_typed_in_row(source, inputs)
+    except ValueError as error:
+        # The OAuth walk cannot read the shape of the inputs, so callers handle them like inputs that do not decode.
+        _count_read_error(source)
+        raise UnreadableSourceInputsError("job_inputs hold an OAuth field in a shape that cannot be read") from error
     except Exception:
         _count_read_error(source)
         raise
@@ -231,13 +243,19 @@ def read_connection_fields_many(
         if source.id not in loaded:
             continue
         inputs = loaded[source.id]
+        kept = _without_store_keys(inputs)
         try:
-            slot = _slot_of(_source_class(source.source_type), inputs)
+            source_class = _source_class(source.source_type)
+        except ValueError:
+            _count_read(source, "no_row")
+            result[source.id] = kept
+            continue
+        try:
+            slot = _slot_of(source_class, inputs)
             reads_row = slot is None and _reads_typed_in_row(source, inputs)
         except Exception:
             _count_read_error(source)
             continue
-        kept = _without_store_keys(inputs)
         if slot is not None:
             try:
                 result[source.id] = _with_column_pointer(source, kept, slot)
