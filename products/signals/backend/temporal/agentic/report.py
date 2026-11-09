@@ -1432,6 +1432,10 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             raise temporalio.exceptions.ApplicationError(
                 str(error), type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
             ) from error
+        if error.error_type == "RepositoryAccessError":
+            raise temporalio.exceptions.ApplicationError(
+                str(error), type=error.error_type, non_retryable=True
+            ) from error
         raise
     except Exception as error:
         logger.exception(
