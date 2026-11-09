@@ -341,3 +341,21 @@ class TransactionalEmailResults:
     revenue: float
     # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
     median_hours_to_convert: float | None
+
+
+@frozen
+class CodeManagedEmail:
+    """An email sent from code under a `template_key` with no template, as the Transactional emails list shows it."""
+
+    id: UUID
+    key: str
+    hog_flow_id: UUID
+    description: str
+    tags: tuple[str, ...]
+    sensitive: bool
+    source_url: str | None
+    created_at: datetime
+
+
+class CodeManagedEmailNotFound(Exception):
+    pass

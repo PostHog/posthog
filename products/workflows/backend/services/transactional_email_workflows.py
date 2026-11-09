@@ -2,16 +2,21 @@
 and an exit. The message template it was made from owns the content, so each content change writes a new version
 of the workflow through the same write path as the workflows UI, with its revision history."""
 
+from collections.abc import Collection
 from typing import Optional
 from uuid import UUID
 
-from django.db import transaction
+from django.db import models, transaction
 
+from posthog.api.tagged_item import current_tag_names, replace_tags_on_object
 from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models import TaggedItem
 from posthog.models.scoping import with_team_scope
+from posthog.models.tag import tagify
 
 from products.workflows.backend.facade.contracts import (
     TRANSACTIONAL_EMAIL_ACTION_ID,
+    CodeEmailWorkflow,
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderRequired,
@@ -263,3 +268,50 @@ def create_code_email_workflow(*, team_id: int, key: str) -> UUID:
         },
     )
     return UUID(str(result.current["id"]))
+
+
+def _code_email_flows(team_id: int) -> models.QuerySet[HogFlow]:
+    return HogFlow.objects.filter(team_id=team_id, origin_product=HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS)
+
+
+def _is_sensitive(actions: list[dict]) -> bool:
+    email = next((action for action in actions if action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID), None)
+    return bool(email and email.get("config", {}).get("sensitive"))
+
+
+def get_code_email_workflows(*, team_id: int, workflow_ids: Collection[UUID]) -> dict[UUID, CodeEmailWorkflow]:
+    """The labels of each code email workflow that still exists, keyed by its id."""
+    flows = (
+        _code_email_flows(team_id)
+        .filter(id__in=list(workflow_ids))
+        .only("id", "description", "actions")
+        .prefetch_related(
+            models.Prefetch(
+                "tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
+            )
+        )
+    )
+    return {
+        flow.id: CodeEmailWorkflow(
+            id=flow.id,
+            description=flow.description,
+            tags=tuple(sorted(current_tag_names(flow))),
+            sensitive=_is_sensitive(flow.actions or []),
+        )
+        for flow in flows
+    }
+
+
+def update_code_email_labels(
+    *, team_id: int, workflow_id: UUID, description: str | None, tags: list[str] | None
+) -> None:
+    """Change what people see about a code email. The steps stay as they are, so no new version is written."""
+    with transaction.atomic():
+        flow = _code_email_flows(team_id).select_for_update().only("id", "team_id").filter(id=workflow_id).first()
+        if flow is None:
+            raise WorkflowNotFound()
+        if description is not None:
+            # An update, not a save, so a label edit never rewrites the steps a send reads.
+            _code_email_flows(team_id).filter(id=workflow_id).update(description=description)
+        if tags is not None and {tagify(tag) for tag in tags} != current_tag_names(flow):
+            replace_tags_on_object(tags, flow)

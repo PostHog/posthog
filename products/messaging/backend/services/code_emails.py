@@ -1,0 +1,70 @@
+"""Emails sent from code under a `template_key` that no template owns. Each key has a hidden workflow, which holds the
+description and tags people add, while the key's own row holds the link to the file that sends it."""
+
+from collections.abc import Collection
+from typing import Any
+from uuid import UUID
+
+from django.db import models
+
+from products.messaging.backend.facade.contracts import CodeManagedEmail, CodeManagedEmailNotFound
+from products.messaging.backend.models import MessageTemplate, TransactionalEmailKey
+from products.workflows.backend.facade.transactional_emails import (
+    CodeEmailWorkflow,
+    get_code_email_workflows,
+    update_code_email_labels,
+)
+
+
+def _keys(team_id: int) -> models.QuerySet[TransactionalEmailKey]:
+    # A template that takes a key over gets its sends, so the key no longer sends as code.
+    template_keys = MessageTemplate.objects.filter(team_id=team_id, deleted=False, key__isnull=False).values("key")
+    return TransactionalEmailKey.objects.for_team(team_id, canonical=True).exclude(key__in=template_keys)
+
+
+def _code_emails(team_id: int, keys: list[TransactionalEmailKey]) -> list[CodeManagedEmail]:
+    workflows = get_code_email_workflows(team_id=team_id, workflow_ids=[key.hog_flow_id for key in keys])
+    return [_code_email(key, workflows[key.hog_flow_id]) for key in keys if key.hog_flow_id in workflows]
+
+
+def _code_email(key: TransactionalEmailKey, workflow: CodeEmailWorkflow) -> CodeManagedEmail:
+    return CodeManagedEmail(
+        id=key.id,
+        key=key.key,
+        hog_flow_id=key.hog_flow_id,
+        description=workflow.description,
+        tags=workflow.tags,
+        sensitive=workflow.sensitive,
+        source_url=key.source_url,
+        created_at=key.created_at,
+    )
+
+
+def list_code_emails(team_id: int, *, viewable_workflow_ids: Collection[str]) -> list[CodeManagedEmail]:
+    """The project's code emails whose workflow the reader may view, newest first."""
+    keys = [key for key in _keys(team_id).order_by("-created_at") if str(key.hog_flow_id) in viewable_workflow_ids]
+    return _code_emails(team_id, keys)
+
+
+def get_code_email(team_id: int, code_email_id: UUID, *, viewable_workflow_ids: Collection[str]) -> CodeManagedEmail:
+    key = _keys(team_id).filter(id=code_email_id).first()
+    emails = _code_emails(team_id, [key]) if key and str(key.hog_flow_id) in viewable_workflow_ids else []
+    if not emails:
+        raise CodeManagedEmailNotFound()
+    return emails[0]
+
+
+def update_code_email(
+    team_id: int, code_email_id: UUID, fields: dict[str, Any], *, viewable_workflow_ids: Collection[str]
+) -> CodeManagedEmail:
+    email = get_code_email(team_id, code_email_id, viewable_workflow_ids=viewable_workflow_ids)
+    if "description" in fields or "tags" in fields:
+        update_code_email_labels(
+            team_id=team_id,
+            workflow_id=email.hog_flow_id,
+            description=fields.get("description"),
+            tags=fields.get("tags"),
+        )
+    if "source_url" in fields:
+        _keys(team_id).filter(id=code_email_id).update(source_url=fields["source_url"])
+    return get_code_email(team_id, code_email_id, viewable_workflow_ids=viewable_workflow_ids)

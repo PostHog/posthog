@@ -1,0 +1,166 @@
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
+from products.access_control.backend.facade.testing import create_access_control
+from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.presentation.views.transactional_code_emails import CodeEmailUpdateSerializer
+from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
+from products.workflows.backend.facade.writes import destroy_workflow
+
+
+@patch(
+    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    return_value=True,
+)
+@patch("posthog.plugins.plugin_server_api.internal_requests.post")
+class TestTransactionalCodeEmails(APIBaseTest):
+    def _code_email(self, key: str, team_id: int | None = None) -> TransactionalEmailKey:
+        team_id = team_id or self.team.id
+        hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)
+        return TransactionalEmailKey.objects.for_team(team_id, canonical=True).create(
+            team_id=team_id, key=key, hog_flow_id=hog_flow_id
+        )
+
+    def _url(self, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/transactional_code_emails/{suffix}"
+
+    def _limit_to_members_with_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def test_lists_the_projects_code_emails_with_their_labels(self, _post, _flag):
+        reset = self._code_email("password-reset")
+        self._code_email("order-shipped")
+        self._code_email("other-team-email", team_id=self.create_team_with_organization(self.organization).id)
+        self.client.patch(
+            self._url(f"{reset.id}/"),
+            {
+                "description": "Sent when someone asks to reset their password",
+                "tags": ["auth"],
+                "source_url": "https://github.com/acme/web/blob/main/src/emails/password-reset.tsx",
+            },
+            format="json",
+        )
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = {row["key"]: row for row in response.json()}
+        assert set(rows) == {"password-reset", "order-shipped"}
+        assert rows["password-reset"] | {"created_at": None} == {
+            "id": str(reset.id),
+            "key": "password-reset",
+            "hog_flow_id": str(reset.hog_flow_id),
+            "description": "Sent when someone asks to reset their password",
+            "tags": ["auth"],
+            "source_url": "https://github.com/acme/web/blob/main/src/emails/password-reset.tsx",
+            "sensitive": True,
+            "created_at": None,
+        }
+        assert rows["order-shipped"]["description"] == ""
+        assert rows["order-shipped"]["tags"] == []
+        assert rows["order-shipped"]["source_url"] is None
+
+    @parameterized.expand(["workflow_deleted", "template_took_the_key"])
+    def test_hides_a_key_that_no_longer_sends_as_code(self, _post, _flag, reason):
+        gone = self._code_email("welcome")
+        if reason == "workflow_deleted":
+            destroy_workflow(team_id=self.team.id, hog_flow_id=gone.hog_flow_id)
+        else:
+            MessageTemplate.objects.create(team=self.team, name="Welcome", key="welcome")
+        kept = self._code_email("receipt")
+
+        assert [row["key"] for row in self.client.get(self._url()).json()] == ["receipt"]
+        assert self.client.get(self._url(f"{gone.id}/")).status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(self._url(f"{kept.id}/")).json()["key"] == "receipt"
+
+    def test_another_projects_code_email_is_not_found(self, _post, _flag):
+        other = self._code_email("invoice-paid", team_id=self.create_team_with_organization(self.organization).id)
+
+        assert self.client.get(self._url(f"{other.id}/")).status_code == status.HTTP_404_NOT_FOUND
+        patched = self.client.patch(self._url(f"{other.id}/"), {"description": "Mine now"}, format="json")
+        assert patched.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_update_changes_only_the_fields_sent(self, _post, _flag):
+        email = self._code_email("magic-link")
+        self.client.patch(
+            self._url(f"{email.id}/"),
+            {"description": "Sign-in link", "tags": ["auth", "login"], "source_url": "https://example.com/a.py"},
+            format="json",
+        )
+
+        response = self.client.patch(self._url(f"{email.id}/"), {"tags": ["auth"], "source_url": ""}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {k: response.json()[k] for k in ("description", "tags", "source_url")} == {
+            "description": "Sign-in link",
+            "tags": ["auth"],
+            "source_url": None,
+        }
+        assert self.client.get(self._url(f"{email.id}/")).json()["tags"] == ["auth"]
+
+    def test_rejects_a_source_url_that_is_not_a_web_link(self, _post, _flag):
+        email = self._code_email("export-ready")
+
+        response = self.client.patch(self._url(f"{email.id}/"), {"source_url": "javascript:alert(1)"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "source_url"
+
+    def test_follows_the_readers_access_to_each_email_workflow(self, _post, _flag):
+        hidden = self._code_email("payroll")
+        read_only = self._code_email("receipt")
+        self._limit_to_members_with_access()
+        for email, level in ((hidden, "none"), (read_only, "viewer")):
+            create_access_control(
+                team_id=self.team.id,
+                resource="hog_flow",
+                resource_id=str(email.hog_flow_id),
+                access_level=level,
+                organization_member_id=self.organization_membership.id,
+            )
+
+        assert [row["key"] for row in self.client.get(self._url()).json()] == ["receipt"]
+        assert self.client.get(self._url(f"{hidden.id}/")).status_code == status.HTTP_404_NOT_FOUND
+        patched = self.client.patch(self._url(f"{read_only.id}/"), {"description": "Edited"}, format="json")
+        assert patched.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_is_not_found_without_the_transactional_email_flags(self, _post, flag):
+        flag.return_value = False
+
+        assert self.client.get(self._url()).status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestCodeEmailUpdateSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("ftp://example.com/emails/receipt.py", False),
+            ("javascript:alert(1)", False),
+            ("src/emails/receipt.py", False),
+            ("https://example.com/" + "a" * 2048, False),
+            ("https://github.com/acme/web/blob/main/src/emails/receipt.tsx", True),
+            ("http://git.example.com/acme/billing/emails/receipt.py", True),
+        ]
+    )
+    def test_source_url_must_be_a_web_link(self, source_url: str, valid: bool) -> None:
+        assert CodeEmailUpdateSerializer(data={"source_url": source_url}, partial=True).is_valid() is valid
+
+    def test_an_empty_source_url_unlinks_the_file(self) -> None:
+        serializer = CodeEmailUpdateSerializer(data={"source_url": ""}, partial=True)
+
+        assert serializer.is_valid()
+        assert serializer.validated_data["source_url"] is None

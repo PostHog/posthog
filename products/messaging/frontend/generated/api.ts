@@ -15,6 +15,7 @@ import type {
     BulkAddOptOutsResultApi,
     BulkRemoveSuppressionsRequestApi,
     BulkRemoveSuppressionsResponseApi,
+    CodeEmailApi,
     EmailStatusApi,
     GenerateLinkRequestApi,
     ImportProviderOptionApi,
@@ -32,6 +33,7 @@ import type {
     PaginatedMessageSuppressionApi,
     PaginatedMessageTemplateListApi,
     PaginatedOptOutsApi,
+    PatchedCodeEmailUpdateApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
@@ -1034,6 +1036,64 @@ export const messagingTemplatesSendCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendTransactionalEmailApi),
+    })
+}
+
+export const getTransactionalCodeEmailsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/`
+}
+
+/**
+ * List the emails your code sends under a `template_key` that no template owns, newest first.
+ * @summary List emails sent from code
+ */
+export const transactionalCodeEmailsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CodeEmailApi[]> => {
+    return apiMutator<CodeEmailApi[]>(getTransactionalCodeEmailsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalCodeEmailsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/${id}/`
+}
+
+/**
+ * @summary Get an email sent from code
+ */
+export const transactionalCodeEmailsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CodeEmailApi> => {
+    return apiMutator<CodeEmailApi>(getTransactionalCodeEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalCodeEmailsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/${id}/`
+}
+
+/**
+ * Change the description, the tags or the linked source file. The content always comes from your code, so it can't change here.
+ * @summary Update an email sent from code
+ */
+export const transactionalCodeEmailsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCodeEmailUpdateApi?: PatchedCodeEmailUpdateApi,
+    options?: RequestInit
+): Promise<CodeEmailApi> => {
+    return apiMutator<CodeEmailApi>(getTransactionalCodeEmailsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCodeEmailUpdateApi),
     })
 }
 
