@@ -292,6 +292,26 @@ describe('CyclotronJobQueuePostgresV2', () => {
             expect(retryArg.scheduledAt).toEqual(scheduledAt.toJSDate())
         })
 
+        it.each([
+            { from: 'hog', to: 'email', persisted: 3 },
+            { from: 'email', to: 'hogflow', persisted: 3 },
+            { from: 'email', to: 'email', persisted: 3 },
+            { from: 'hog', to: 'hog', persisted: undefined },
+        ] as const)(
+            'persists the invocation priority on $from -> $to only when the email queue is on either side',
+            async ({ from, to, persisted }) => {
+                const { queue } = createQueue()
+                const job = createDequeuedJob({ queueName: from })
+                ;(queue as any).pendingJobs.set(job.id, job)
+
+                await queue.queueInvocationResults([
+                    createResult({ invocation: { ...baseInvocation, id: job.id, queue: to, queuePriority: 3 } }),
+                ])
+
+                expect(job.reschedule.mock.calls[0][0].priority).toBe(persisted)
+            }
+        )
+
         it('should pass undefined scheduledAt when queueScheduledAt is not set', async () => {
             const { queue } = createQueue()
             const job = createDequeuedJob()
