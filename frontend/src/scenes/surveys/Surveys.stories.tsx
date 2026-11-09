@@ -21,6 +21,8 @@ import {
     SurveyType,
 } from '~/types'
 
+import type { ActivityLogPaginatedResponseApi } from 'products/surveys/frontend/generated/api.schemas'
+
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
 
 const MOCK_BASIC_SURVEY: Survey = {
@@ -173,6 +175,44 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
     user_access_level: AccessControlLevel.Editor,
+}
+
+const MOCK_DRAFT_SURVEY: Survey = {
+    ...MOCK_BASIC_SURVEY,
+    id: '0187c279-bcae-0000-34f5-4f121921f007',
+    name: 'Checkout feedback',
+    description: '',
+    questions: [
+        {
+            type: SurveyQuestionType.Rating,
+            question: 'How easy was it to check out?',
+            display: 'number',
+            scale: 5,
+            lowerBoundLabel: 'Hard',
+            upperBoundLabel: 'Easy',
+        },
+        { type: SurveyQuestionType.Open, question: 'What almost stopped you from buying?' },
+        {
+            type: SurveyQuestionType.SingleChoice,
+            question: 'How did you hear about us?',
+            choices: ['Search', 'A friend', 'Social media', 'Other'],
+        },
+    ],
+    conditions: {
+        url: 'https://shop.example.com/checkout/complete',
+        events: { values: [{ name: 'order placed' }] },
+        actions: { values: [] },
+        seenSurveyWaitPeriodInDays: 14,
+    },
+    appearance: {
+        backgroundColor: 'white',
+        submitButtonColor: '#2C2C2C',
+        displayThankYouMessage: true,
+        thankYouMessageHeader: 'Thanks for the feedback',
+    },
+    schedule: SurveySchedule.Recurring,
+    iteration_count: 12,
+    iteration_frequency_days: 365,
 }
 
 const MOCK_SURVEY_SHOWN = {
@@ -335,6 +375,7 @@ const meta: Meta = {
                 ]),
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f005/': MOCK_BASIC_SURVEY,
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f006/': MOCK_SURVEY_WITH_RELEASE_CONS,
+                [`/api/projects/:team_id/surveys/${MOCK_DRAFT_SURVEY.id}/`]: MOCK_DRAFT_SURVEY,
                 '/api/projects/:team_id/surveys/998FE805-F9EF-4F25-A5D1-B9549C4E2143/':
                     MOCK_SURVEY_WITH_MULTIPLE_OPTIONS,
                 '/api/projects/:team_id/surveys/responses_count/': MOCK_RESPONSES_COUNT,
@@ -559,6 +600,64 @@ export const SurveyView: Story = {
     parameters: {
         pageUrl: urls.survey(MOCK_SURVEY_WITH_RELEASE_CONS.id),
     },
+}
+
+const MOCK_DRAFT_SURVEY_ACTIVITY: ActivityLogPaginatedResponseApi = {
+    results: [
+        {
+            id: 'draft-survey-updated',
+            user: { first_name: 'Alex Example', email: 'alex@example.com' },
+            activity: 'updated',
+            scope: 'Survey',
+            item_id: MOCK_DRAFT_SURVEY.id,
+            created_at: '2023-06-27T15:20:00Z',
+            is_system: false,
+            was_impersonated: false,
+            client: null,
+        },
+        {
+            id: 'draft-survey-created',
+            user: { first_name: 'Employee 427', email: 'test2@posthog.com' },
+            activity: 'created',
+            scope: 'Survey',
+            item_id: MOCK_DRAFT_SURVEY.id,
+            detail: {
+                id: MOCK_DRAFT_SURVEY.id,
+                name: MOCK_DRAFT_SURVEY.name,
+                short_id: '',
+                type: '',
+                trigger: {
+                    job_type: 'agent',
+                    job_id: '',
+                    payload: { intent: 'Find out what makes checkout hard for first-time buyers.' },
+                },
+            },
+            created_at: '2023-04-27T10:04:37Z',
+            is_system: false,
+            was_impersonated: false,
+            client: 'mcp',
+        },
+    ],
+    next: null,
+    previous: null,
+    total_count: 2,
+}
+
+export const SurveyDraftReview: Story = {
+    parameters: {
+        pageUrl: urls.survey(MOCK_DRAFT_SURVEY.id),
+        testOptions: {
+            waitForSelector: '[data-attr="launch-survey"]',
+            snapshotBrowsers: [],
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/surveys/${MOCK_DRAFT_SURVEY.id}/activity/`]: MOCK_DRAFT_SURVEY_ACTIVITY,
+            },
+        }),
+    ],
 }
 
 export const SurveyResults: Story = {

@@ -29,7 +29,7 @@ from products.logs.backend.alert_state_machine import apply_enabled
 from products.logs.backend.facade.api import close_incident_before_delete
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import CONDITION_FIELDS, SETTINGS_FIELDS, platform_upsert_of
-from products.logs.backend.platform_cutover import hand_over, in_an_environment, takes_new_alert
+from products.logs.backend.platform_cutover import hand_over, in_an_environment, takes_new_alert, team_cutover_at
 from products.logs.backend.platform_source_config import filters_of
 
 GROUPING_NOT_AVAILABLE: Final = "Grouping isn't available for this alert yet. Set the mode to single to save it."
@@ -54,10 +54,16 @@ def on_created(alert: LogsAlertConfiguration, at: datetime, *, grouping: Groupin
         return False
     if grouping.mode != GroupingMode.SINGLE and (problem := grouping_problem(grouping.keys, alert.threshold_operator)):
         raise InvalidPlatformAlertEdit("grouping", problem)
-    if hand_over(alert, at, grouping=grouping):
+    if _hand_over_new(alert, at, grouping):
         return True
     _refuse_grouping_on_logs(grouping)
     return False
+
+
+def _hand_over_new(alert: LogsAlertConfiguration, at: datetime, grouping: Grouping | None) -> bool:
+    # A week of its own per alert would keep the legacy evaluator running while the team adds alerts.
+    shadow_from = team_cutover_at(alert.team_id, new_alert_id=alert.id)
+    return hand_over(alert, at, grouping=grouping, shadow_from=shadow_from)
 
 
 def admit_platform_write(
@@ -91,7 +97,7 @@ def create_platform_owned(*, team_id: int, edit: PlatformAlertConfigurationEdit,
     )
     _set_settings(alert, edit)
     alert.save()
-    if not hand_over(alert, now, grouping=edit.grouping):
+    if not _hand_over_new(alert, now, edit.grouping):
         raise RuntimeError(f"Logs alert {alert.id} was created with a platform copy already firing")
     return alert.id
 

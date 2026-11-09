@@ -158,17 +158,25 @@ export class Telemetry {
         const key = (await this.credentials?.().catch(() => undefined))?.key
         const identity = key ? await this.identity(key) : undefined
         const installId = await this.installId()
-        const distinctId = identity?.distinctId ?? installId
+        const workload = key?.workload && isCloudHost(key.host) ? key.workload : undefined
+        // Each CI run is a new machine, and the hash keeps the repository ID out of the event.
+        const workloadId =
+            workload &&
+            `workload_${createHash('sha256').update(`${key?.host}\n${workload.provider}\n${workload.subject}`).digest('hex').slice(0, 32)}`
+        const distinctId = identity?.distinctId ?? workloadId ?? installId
         const groups = Object.fromEntries(
-            Object.entries({ organization: identity?.organization, project: identity?.project }).filter(
-                ([, key]) => key !== undefined
-            )
+            Object.entries({
+                organization: identity?.organization ?? workload?.organization,
+                project: identity?.project,
+            }).filter(([, key]) => key !== undefined)
         )
         const common = {
             ...this.commonProperties(),
             install_id: installId,
             // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
             env_id: key && isCloudHost(key.host) ? key.projectId : null,
+            credential_type: key?.status().kind ?? null,
+            ...(workload ? { workload_provider: workload.provider } : {}),
             ...(identity?.distinctId ? {} : { $process_person_profile: false }),
             ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
         }
@@ -222,7 +230,7 @@ export class Telemetry {
     // Looks the user up once per key and keeps the answer for 30 days, or a day when PostHog had
     // none, so most runs send no extra request. A key without the scopes stays anonymous.
     private async identity(key: AccessKey): Promise<Identity | undefined> {
-        if (!isCloudHost(key.host)) {
+        if (!isCloudHost(key.host) || !key.identifiesPerson) {
             return undefined
         }
         let path: string

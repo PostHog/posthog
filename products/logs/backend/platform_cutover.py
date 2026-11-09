@@ -12,6 +12,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Min
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -169,11 +170,19 @@ def in_an_environment(alert: LogsAlertConfiguration) -> bool:
     return alert.team.parent_team_id is not None
 
 
-def hand_over(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping | None = None) -> bool:
+def hand_over(
+    alert: LogsAlertConfiguration,
+    at: datetime,
+    *,
+    grouping: Grouping | None = None,
+    shadow_from: datetime | None = None,
+) -> bool:
     """Copies a logs alert locked by the caller onto the platform and makes the platform its owner,
     on both rows. False, changing nothing, when the platform copy is inside a firing of its own.
 
-    `grouping` applies only to a copy this creates, because the logs row stores none."""
+    `grouping` applies only to a copy this creates, because the logs row stores none.
+    `shadow_from` is the logs row's `owner_changed_at`, where its shadow starts, and defaults to `at`.
+    The platform copy always takes `at`, because its check fence and firing check need the real time."""
     upsert = platform_upsert_of(alert)
     savepoint = transaction.savepoint_create()
     upsert_configuration(upsert if grouping is None else replace(upsert, grouping=grouping))
@@ -195,9 +204,12 @@ def hand_over(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping
         return False
     transaction.savepoint_commit(savepoint)
     # `update()` rather than `save()`: a handover is not a user's edit, and `save()` would log one.
-    LogsAlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at)
+    owner_changed_at = shadow_from or at
+    LogsAlertConfiguration.objects.filter(id=alert.id).update(
+        owner=PlatformAlertOwner.PLATFORM, owner_changed_at=owner_changed_at
+    )
     alert.owner = PlatformAlertOwner.PLATFORM
-    alert.owner_changed_at = at
+    alert.owner_changed_at = owner_changed_at
     return True
 
 
@@ -212,3 +224,13 @@ def takes_new_alert(team_id: int, *, new_alert_id: UUID) -> bool:
         .distinct()
     )
     return not owners or PlatformAlertOwner.PLATFORM in owners
+
+
+def team_cutover_at(team_id: int, *, new_alert_id: UUID) -> datetime | None:
+    """When the platform took the earliest of a team's other logs alerts it still owns. None when it
+    owns none of them."""
+    return (
+        LogsAlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM)
+        .exclude(id=new_alert_id)
+        .aggregate(at=Min("owner_changed_at"))["at"]
+    )

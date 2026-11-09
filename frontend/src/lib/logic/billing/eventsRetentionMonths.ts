@@ -8,6 +8,14 @@ export function eventsRetentionMonths(features: BillingFeatureType[] | null | un
     return feature?.limit && monthsPerUnit ? feature.limit * monthsPerUnit : null
 }
 
+export function keepsEventsRetentionMonths(
+    currentPlan: BillingPlanType | null | undefined,
+    targetPlan: BillingPlanType | null | undefined
+): boolean {
+    const months = eventsRetentionMonths(currentPlan?.features)
+    return months !== null && months === eventsRetentionMonths(targetPlan?.features)
+}
+
 export function longestEventsRetentionMonths(plans: (BillingPlanType | null | undefined)[]): number | null {
     const months = plans
         .map((plan) => eventsRetentionMonths(plan?.features))

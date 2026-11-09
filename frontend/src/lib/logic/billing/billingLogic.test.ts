@@ -894,10 +894,10 @@ describe('billingLogic', () => {
             planAfterPackageDowngrade: 'paid-20240111',
         },
         {
-            name: 'the 7-year plan while billing still offers it to new customers',
+            name: 'the 7-year plan, which billing lists with only the free plan',
             paidPlanKeys: [GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY],
-            grandfathered: false,
-            planAfterPackageDowngrade: GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY,
+            grandfathered: true,
+            planAfterPackageDowngrade: undefined,
         },
         {
             name: 'the 7-year plan once billing offers the 2-year plan',

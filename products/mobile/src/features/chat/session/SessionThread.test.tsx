@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react-native'
-import { ScrollView } from 'react-native'
+import { ActivityIndicator, ScrollView } from 'react-native'
 
 import { SessionThread } from './SessionThread'
 import type { Session, SessionThreadItem, SessionToolInvocation } from './types'
@@ -71,6 +71,18 @@ const TWO_GROUPS: SessionThreadItem[] = [
 
 describe('SessionThread', () => {
     afterEach(() => jest.restoreAllMocks())
+
+    test('keeps received messages visible without a reconnecting indicator', () => {
+        render(
+            <SessionThread
+                session={session({ items: TWO_GROUPS.slice(0, 1), phase: 'reconnecting' })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+        expect(screen.getByText('Fix the legend')).toBeTruthy()
+        expect(screen.queryByText('Reconnecting…')).toBeNull()
+        expect(screen.UNSAFE_queryByType(ActivityIndicator)).toBeNull()
+    })
 
     test.each([
         ['above newer messages', 200],

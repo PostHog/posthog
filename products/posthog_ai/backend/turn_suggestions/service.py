@@ -64,15 +64,47 @@ def _skipped(reason: str) -> TurnSuggestionOutcome:
     return TurnSuggestionOutcome(status="skipped", reason=reason)
 
 
-def _turn_suggestions_enabled(task_run: TaskRun, user: "User") -> bool:
+def _flag_enabled(flag: str, task_run: TaskRun, user: "User") -> bool:
     organization_id = str(task_run.team.organization_id)
     return feature_enabled_or_false(
-        TURN_SUGGESTIONS_FLAG,
+        flag,
         str(user.distinct_id),
         groups={"organization": organization_id},
         group_properties={"organization": {"id": organization_id}},
         send_feature_flag_events=False,
     )
+
+
+@frozen
+class WebConversationRun:
+    task_run: TaskRun
+    user: "User"
+
+
+def load_web_conversation_run(run_id: str, team_id: int, *, flag: str) -> WebConversationRun | str:
+    try:
+        task_run = TaskRun.objects.select_related("task__created_by", "team__organization").get(
+            id=run_id, team_id=team_id
+        )
+    except TaskRun.DoesNotExist:
+        return "run_missing"
+
+    task = task_run.task
+    if task.origin_product != Task.OriginProduct.POSTHOG_AI or task_run.mode != "interactive":
+        return "not_posthog_ai_conversation"
+    # Cards render only in the PostHog AI web app. Slack conversations carry the Slack origin and
+    # fail the check above; PostHog Desktop ones carry the Desktop client provenance.
+    if task.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP:
+        return "not_started_in_web"
+    user = task.created_by
+    if user is None:
+        return "no_user"
+    # The judgment and the drafter send conversation text to third-party AI services.
+    if task_run.team.organization.is_ai_data_processing_approved is not True:
+        return "ai_data_processing_not_approved"
+    if not _flag_enabled(flag, task_run, user):
+        return "flag_off"
+    return WebConversationRun(task_run=task_run, user=user)
 
 
 def _history_is_whole(task_run: TaskRun) -> bool:
@@ -158,28 +190,11 @@ def _capture_classified(
 
 
 def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome:
-    try:
-        task_run = TaskRun.objects.select_related("task__created_by", "team__organization").get(
-            id=run_id, team_id=team_id
-        )
-    except TaskRun.DoesNotExist:
-        return _skipped("run_missing")
-
+    loaded = load_web_conversation_run(run_id, team_id, flag=TURN_SUGGESTIONS_FLAG)
+    if isinstance(loaded, str):
+        return _skipped(loaded)
+    task_run, user = loaded.task_run, loaded.user
     task = task_run.task
-    if task.origin_product != Task.OriginProduct.POSTHOG_AI or task_run.mode != "interactive":
-        return _skipped("not_posthog_ai_conversation")
-    # Cards render only in the PostHog AI web app. Slack conversations carry the Slack origin and
-    # fail the check above; PostHog Desktop ones carry the Desktop client provenance.
-    if task.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP:
-        return _skipped("not_started_in_web")
-    user = task.created_by
-    if user is None:
-        return _skipped("no_user")
-    # The judgment and the drafter send conversation text to third-party AI services.
-    if task_run.team.organization.is_ai_data_processing_approved is not True:
-        return _skipped("ai_data_processing_not_approved")
-    if not _turn_suggestions_enabled(task_run, user):
-        return _skipped("flag_off")
     if not judge_configured():
         logger.warning("posthog_ai_turn_suggestion_judge_not_configured", run_id=str(task_run.id))
         return _skipped("judge_not_configured")

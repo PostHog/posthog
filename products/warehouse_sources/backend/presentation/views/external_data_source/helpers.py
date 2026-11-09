@@ -485,12 +485,18 @@ def _collect_secret_values(data: Any, sensitive: set[str], into: set[str]) -> No
             _collect_secret_values(nested, sensitive, into)
 
 
-def get_error_redaction_values(source: ExternalDataSource) -> frozenset[str]:
-    """The stored secret values of a source, to mask wherever they appear in its error messages."""
-    try:
-        job_inputs = SourceInputsStore.load(source)
-    except UnreadableSourceInputsError:
-        return frozenset()
+def get_error_redaction_values(
+    source: ExternalDataSource, job_inputs: Mapping[str, Any] | None = None
+) -> frozenset[str]:
+    """The stored secret values of a source, to mask wherever they appear in its error messages.
+
+    ``job_inputs`` are inputs that the caller already loaded, so a list does not read each credentials row again.
+    """
+    if job_inputs is None:
+        try:
+            job_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return frozenset()
     try:
         source_config = SourceRegistry.get_source(source.source_type).get_source_config
         sensitive = get_sensitive_field_names(source_config.fields)

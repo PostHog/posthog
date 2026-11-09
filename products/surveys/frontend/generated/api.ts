@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivityLogPaginatedResponseApi,
     DesktopFeedbackRequestApi,
     DesktopFeedbackResponseApi,
     GenerateSurveyTranslationsRequestApi,
@@ -23,6 +24,7 @@ import type {
     SurveySerializerCreateUpdateOnlySchemaApi,
     SurveyStatsResponseApi,
     SurveySummarizeRequestApi,
+    SurveysActivityRetrieveParams,
     SurveysGlobalStatsRetrieveParams,
     SurveysListParams,
     SurveysResponsesListParams,
@@ -262,8 +264,24 @@ export const surveysDestroy = async (projectId: string, id: string, options?: Re
     })
 }
 
-export const getSurveysActivityRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/surveys/${id}/activity/`
+export const getSurveysActivityRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: SurveysActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/${id}/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/${id}/activity/`
 }
 
 /**
@@ -273,8 +291,13 @@ export const getSurveysActivityRetrieveUrl = (projectId: string, id: string) => 
  * decorator on serializer methods and converts them into the same responses the viewset path
  * produces (see decorators._result_to_response), so both paths share one contract.
  */
-export const surveysActivityRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysActivityRetrieveUrl(projectId, id), {
+export const surveysActivityRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: SurveysActivityRetrieveParams,
+    options?: RequestInit
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getSurveysActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

@@ -153,7 +153,7 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
                 "on the bucket and `s3:GetObject` on its objects."
             ),
             iconPath="/static/services/aws-s3.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

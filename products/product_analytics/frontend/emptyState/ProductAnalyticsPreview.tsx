@@ -2,7 +2,7 @@ import './ProductAnalyticsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // One combined series, then the same total split three ways. The parts stay under the
 // whole at every point, so the breakdown reads as a decomposition rather than new data.
@@ -24,7 +24,7 @@ function areaPath(line: string): string {
  * grids and crossfaded, so nothing shifts.
  */
 export function ProductAnalyticsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('InsightPreview', isStatic && 'InsightPreview--static')}>

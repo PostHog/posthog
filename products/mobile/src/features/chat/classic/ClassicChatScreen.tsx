@@ -174,10 +174,10 @@ export function ClassicChatScreen({
                                 topInset={insets.top + CHAT_HEADER_HEIGHT}
                             />
                         )}
-                        {items.length > 0 && (chat.historyError || chat.loading) ? (
+                        {items.length > 0 && chat.historyError ? (
                             <View style={styles.recovery}>
                                 <ChatErrorNotice
-                                    message={chat.historyError ?? 'Reconnecting…'}
+                                    message={chat.historyError}
                                     actions={
                                         <Pressable44
                                             disabled={chat.loading || chat.working}

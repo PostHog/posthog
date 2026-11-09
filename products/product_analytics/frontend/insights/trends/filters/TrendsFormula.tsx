@@ -95,7 +95,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
 
     const handleFormulaBlur = (e: React.FocusEvent<HTMLInputElement>): void => {
         // Ignore TrendsFormulaLabel switch click to prevent conflicting updateInsightFilter calls
-        if ((e.relatedTarget as HTMLElement | undefined)?.id !== 'trends-formula-switch') {
+        if (!(e.relatedTarget as HTMLElement | null)?.closest('[data-attr="trends-formula-switch"]')) {
             updateFormulas(localValues)
         }
     }

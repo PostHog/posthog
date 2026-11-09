@@ -13,6 +13,7 @@ from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.repo_selection.agent import (
     RepoSelectionRejectedError,
     RepoSelectionUsageLimitError,
@@ -23,9 +24,10 @@ from products.tasks.backend.logic.repo_selection.agent import (
     select_repository,
 )
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
-from products.tasks.backend.models import Task
 
 _AGENT = "products.tasks.backend.logic.repo_selection.agent"
+SLACK_PROFILE = get_task_profile("slack.repo_selection")
+SIGNALS_PROFILE = get_task_profile("signals.repo_selection")
 
 
 def test_corrections_section_included_only_when_given() -> None:
@@ -121,7 +123,7 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -213,7 +215,7 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -266,7 +268,7 @@ def test_select_repository_asks_again_after_a_progress_note(
                 1,
                 1,
                 "which repo?",
-                origin_product=Task.OriginProduct.SLACK,
+                profile=SLACK_PROFILE,
                 priority=Priority.NORMAL,
                 github=github,
                 candidate_repos=["acme/a", "acme/b"],
@@ -305,7 +307,7 @@ def test_select_repository_reports_a_usage_limit_refusal() -> None:
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -366,7 +368,7 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -430,7 +432,7 @@ def test_source_visibility_constrains_single_eligible_repository(
             1,
             1,
             "Find the repository for this issue.",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SIGNALS_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -461,7 +463,7 @@ def test_nonpublic_source_can_keep_its_repository(source_private: bool | None) -
             1,
             1,
             "Find the repository for this issue.",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SIGNALS_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -498,7 +500,7 @@ def test_source_visibility_constrains_agent_selection(selected_repository: str) 
                 1,
                 1,
                 "Find the repository for this issue.",
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile=SIGNALS_PROFILE,
                 priority=Priority.NORMAL,
                 github=github,
                 candidate_repos=["acme/b", "acme/c", "acme/d"],

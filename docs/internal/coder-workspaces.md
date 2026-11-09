@@ -19,6 +19,9 @@ hogli devbox:doctor              # read-only health check: tailnet access, reach
 hogli devbox:exec -- bash -lc 'gh auth status'   # run one command on the box and get its exit code
 ```
 
+Project tools such as `pnpm` and `pytest` are on `PATH` only inside PostHog's flox environment.
+Add `--flox` to run the command in `~/posthog` inside it, for example `hogli devbox:exec --flox -- pnpm --filter=@posthog/frontend typescript:check`.
+
 `devbox:doctor` is the first thing to run when a devbox command misbehaves. It names the likely cause, most often the wrong tailnet, instead of failing cryptically.
 
 ## Common scenarios
@@ -32,6 +35,12 @@ Terminals and agents you open in that space run on the devbox.
 The first run copies `hc` onto the box; later runs show the same space again.
 The devbox must be running, so run `hogli devbox:start` first.
 Stopping the devbox ends its terminals, and Herdr gives each pane a new shell after the next start.
+Deleting a devbox with `hogli devbox:destroy` or a worktree cleanup command also removes its Herdr machine.
+
+Herdr users pick one of two ways to work:
+
+- **Agents on the devbox.** Run `hogli devbox:open --herdr` and create worktrees from that space. They live on the devbox, and nothing syncs. The worktrees share one devbox, so only one of them runs the dev stack at a time.
+- **Agents on your laptop.** Run `hogli devbox:worktree --auto herdr`. Each worktree that Herdr creates on your laptop gets its own devbox, with its own dev stack. The mirror copies your edits to the box, so edit locally. `hogli devbox:open --herdr <label>` opens a space on a worktree's box to run the stack and tests there.
 
 **Running the dev stack in detached mode** —
 Start the PostHog dev stack in the background without an interactive terminal:
@@ -63,15 +72,15 @@ Mirror your local PostHog checkout to a devbox with `hogli devbox:sync`. Local i
 hogli devbox:start                                   # ensure the box is running
 hogli devbox:sync                                    # create the mirror (idempotent)
 # edit files locally — changes propagate within seconds
-hogli devbox:exec -- bash -lc 'cd ~/posthog && pnpm --filter=@posthog/frontend typescript:check'
+hogli devbox:exec --flox -- pnpm --filter=@posthog/frontend typescript:check
 hogli devbox:sync --status                           # check sync state
 hogli devbox:sync --terminate                        # tear down when done
 ```
 
-`devbox:open --vscode` / `--cursor` / `--herdr` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
+`devbox:open --vscode` / `--cursor` / `--herdr` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth. For a worktree's devbox, the warning names the worktree to edit instead.
 
 **One devbox per git worktree** —
-Run `hogli devbox:worktree` from a linked worktree to give it its own labeled box and sync mirror. The label comes from the branch name, shortened with a hash when it would push the workspace name past Coder's 32-character limit. Re-running reuses the same box and mirror. `--clone-from <label>` creates the box with `devbox:clone`, and `--dry-run` prints the plan.
+Run `hogli devbox:worktree` from a linked worktree to give it its own labeled box and sync mirror. The label comes from the branch name without a leading `<coder-user>/`, shortened with a hash when it would push the workspace name past Coder's 32-character limit. Re-running reuses the same box and mirror. Inside that worktree, commands such as `devbox:exec`, `devbox:ssh` and `devbox:status` target its box without `-n <label>` and print which box they picked, and `-n @<coder-user>` targets your default box. When that box was deleted, they stop and point to `hogli devbox:worktree` to create it again. `--clone-from <label>` creates the box with `devbox:clone`, and `--dry-run` prints the plan.
 
 `hogli worktrees:clean --mode full --stop-boxes` (or `--delete-boxes`) also stops (or deletes) the box of each worktree it removes. Save a default with `hogli devbox:worktree --on-clean stop|delete|keep`, and override it with `--keep-boxes`. Only boxes that `devbox:worktree` set up are touched.
 It also handles boxes whose worktree was already removed some other way, but only once the box itself has not been used since the `--before` cutoff.
@@ -108,6 +117,8 @@ This does the host-side setup only:
 - installs the `coder` CLI at the version matching the server and the `mutagen` binary (pinned v0.18.1) that powers `devbox:sync`
 - links `coder` into `~/.local/bin` (or `~/bin`) when that directory is on your PATH, so you can run `coder` yourself; otherwise it prints the PATH line to add
 - logs you into the Coder deployment. Login asks you to paste a token from the browser, so run setup in a terminal that takes input. In a shell without one, setup stops and tells you to run `coder login` in a terminal first
+  - Without a terminal, set `CODER_SESSION_TOKEN` to a token from `https://coder.dev.posthog.dev/cli-auth` and `CODER_URL` to `https://coder.dev.posthog.dev`. The Coder CLI uses that token before any stored login, so login and every `hogli devbox:*` command work with no `coder login`. Setup still prompts for each configuration step you have not saved, so pass its `--skip-configure-*` flag. If login with the token fails, hogli shows the Coder error instead of asking you to log in
+  - The Coder SSH entries read the login stored on disk, so a program that doesn't inherit `CODER_SESSION_TOKEN`, such as an editor or a mutagen daemon started from another shell, can't connect. When only the variable holds the login, setup prints the command that stores it: `coder login --use-token-as-session <url>`. Store it again after the token changes
 - configures `~/.ssh/config` with Coder workspace entries (use `--skip-configure-ssh` to skip)
 - shows a compact "Currently configured:" status block with your saved settings
 - prompts for Git identity, an optional dotfiles repo, a preferred region, and an optional Claude OAuth token (stored as a Coder user secret)

@@ -1,9 +1,12 @@
 import asyncio
+import tempfile
 import functools
 import dataclasses
 from collections.abc import Mapping
+from contextlib import closing
 from datetime import UTC, datetime
 from typing import IO, TYPE_CHECKING, Any, cast
+from urllib.parse import urlsplit
 
 import s3fs
 import boto3
@@ -15,6 +18,7 @@ from aiobotocore.session import AioSession
 from azure.core.exceptions import ClientAuthenticationError, HttpResponseError, ResourceNotFoundError
 from azure.storage.blob import ContainerClient
 from botocore import UNSIGNED
+from botocore.awsrequest import AWSRequest
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 from fsspec import AbstractFileSystem
@@ -30,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     valid_bucket_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    FILE_PARSE_ERROR,
     INVALID_CONFIG_ERROR,
     NO_SUCH_BUCKET_ERROR,
     TOO_MANY_FILES_ERROR,
@@ -40,9 +45,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     CONNECT_TIMEOUT_SECONDS,
+    COPY_CHUNK_BYTES,
     MAX_LISTED_KEYS,
     MAX_REQUEST_ATTEMPTS,
+    MAX_UNSIZED_OBJECT_BYTES,
     READ_TIMEOUT_SECONDS,
+    SPOOL_MEMORY_BYTES,
 )
 
 if TYPE_CHECKING:
@@ -244,6 +252,42 @@ class S3ObjectStore(ObjectStore):
             key = f"{self.prefix}/"
         return self._list(key, max_objects)
 
+    def open(self, relative: str) -> IO[bytes]:
+        try:
+            return ObjectStore.open(self, relative)
+        except KeyError as e:
+            if e.args != ("ContentLength",):
+                raise
+        return self._download(relative)
+
+    def _download(self, relative: str) -> IO[bytes]:
+        """Copy an object to a local file with one plain GET.
+
+        Cloud Storage unpacks an object stored with `Content-Encoding: gzip` when it sends it. For such an
+        object it gives no size and ignores ranges, and s3fs needs both to read a file in parts.
+        """
+        key = "/".join(part for part in (self.prefix, relative) if part)
+        copy = tempfile.SpooledTemporaryFile(max_size=SPOOL_MEMORY_BYTES)
+        try:
+            with closing(self.client.get_object(Bucket=self.bucket, Key=key)["Body"]) as body:
+                copied_bytes = 0
+                while chunk := body.read(COPY_CHUNK_BYTES):
+                    copied_bytes += len(chunk)
+                    if copied_bytes > MAX_UNSIZED_OBJECT_BYTES:
+                        raise ObjectStorageError(
+                            f"{FILE_PARSE_ERROR} '{relative}': the storage provider sends it without a size, and "
+                            f"it is more than {MAX_UNSIZED_OBJECT_BYTES:,} bytes. Remove the file's "
+                            "Content-Encoding metadata, or split it into smaller files."
+                        )
+                    copy.write(chunk)
+        except BaseException as e:
+            copy.close()
+            if isinstance(e, ClientError):
+                raise translate_boto_error(e) from e
+            raise
+        copy.seek(0)
+        return cast(IO[bytes], copy)
+
     def _list(self, key_prefix: str, max_objects: int) -> list[StoredObject]:
         root_key = f"{self.prefix}/" if self.prefix else ""
         paginator = self.client.get_paginator("list_objects_v2")
@@ -281,24 +325,34 @@ class S3ObjectStore(ObjectStore):
         return objects
 
 
+def _preserve_gzip_encoding(request: AWSRequest, **kwargs: Any) -> None:
+    # GCS must keep .gz objects compressed because the parsers use the filename suffix.
+    if request.url and urlsplit(request.url).path.lower().endswith(".gz"):
+        request.headers["Accept-Encoding"] = "gzip"
+
+
 def build_s3_client(config: ObjectStoreConfig) -> Any:
     if config.role_credentials is not None:
         botocore_session = botocore.session.get_session()
         botocore_session._credentials = config.role_credentials  # type: ignore[attr-defined]
-        return boto3.session.Session(botocore_session=botocore_session).client(
+        client = boto3.session.Session(botocore_session=botocore_session).client(
             "s3",
             region_name=config.region,
             endpoint_url=config.endpoint_url,
             config=BotoConfig(**_request_config(config)),
         )
-    return boto3.client(
-        "s3",
-        aws_access_key_id=config.access_key_id,
-        aws_secret_access_key=config.secret_access_key,
-        region_name=config.region,
-        endpoint_url=config.endpoint_url,
-        config=BotoConfig(**_request_config(config)),
-    )
+    else:
+        client = boto3.client(
+            "s3",
+            aws_access_key_id=config.access_key_id,
+            aws_secret_access_key=config.secret_access_key,
+            region_name=config.region,
+            endpoint_url=config.endpoint_url,
+            config=BotoConfig(**_request_config(config)),
+        )
+    if config.provider == ObjectStoreProvider.GCS:
+        client.meta.events.register("before-sign.s3.GetObject", _preserve_gzip_encoding)
+    return client
 
 
 @functools.lru_cache(maxsize=1024)

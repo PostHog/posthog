@@ -3,6 +3,8 @@ import json
 from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import Literal
+from uuid import UUID
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -81,10 +83,13 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
 from products.signals.backend.signal_metadata import SignalSourceReference
+from products.signals.backend.task_profiles import IMPLEMENTATION
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
+from products.signals.backend.trial.funding import TrialFunding
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import SourceKind, TaskSource
 
 SCOUT_SKILL = "signals-scout-error-tracking"
 
@@ -733,13 +738,13 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     assert second is False
     assert mock_create.call_count == 1
     call_kwargs = mock_create.call_args.kwargs
-    assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+    assert call_kwargs["profile"] == IMPLEMENTATION
+    assert call_kwargs["source"] == TaskSource(kind=SourceKind.SIGNAL_REPORT, id=str(report.id))
     assert call_kwargs["ai_stage"] == "implementation"
     assert call_kwargs["implementation_spend_kind"] == spend_kind
-    assert call_kwargs["internal"] is True
     # The description's memory protocol is rendered from this same posture, so a posture that stops
     # granting the scratchpad would leave the run told to remember with no tool to remember with.
-    assert grants_scratchpad_write(call_kwargs["posthog_mcp_scopes"])
+    assert grants_scratchpad_write(call_kwargs["options"].mcp_scopes)
     # The server-generated head branch is the unforgeable end of the run->PR link the review
     # carve-out matches on; dropping the stamp or the description instruction silently kills
     # self-driving reviews (the agent pushes to a name the server never stamped).
@@ -866,10 +871,10 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
     ):
         _create_implementation_task_if_absent(**kwargs)
 
-    call_kwargs = mock_create.call_args.kwargs
-    assert call_kwargs["runtime_adapter"] == "codex"
-    assert call_kwargs["model"] == "gpt-5.6-terra"
-    assert call_kwargs["reasoning_effort"] == "medium"
+    options = mock_create.call_args.kwargs["options"]
+    assert options.adapter == "codex"
+    assert options.model == "gpt-5.6-terra"
+    assert options.reasoning_effort == "medium"
 
 
 @pytest.mark.asyncio
@@ -1529,21 +1534,31 @@ async def test_autostart_requires_admission_or_available_quota(
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("on_trial", "repository_autostart_eligible", "expect_task", "expect_pause_event"),
+    ("on_trial", "repository_autostart_eligible", "expect_task", "expect_pause_event", "funding", "allowed"),
     [
-        (True, True, False, True),
-        (False, True, True, False),
+        (True, True, True, False, None, True),
+        (True, True, False, True, "existing", False),
+        (False, True, False, True, "existing", False),
+        (True, True, True, False, "existing", True),
+        (True, True, True, False, "trial", True),
+        (True, True, True, False, "paid", True),
+        (False, True, True, False, None, True),
         # An inferred repository blocks the reviewer-less fallback, so no runner resolves and the
         # report opens no pull request off the trial either. The trial held nothing back, so the
         # sales count must not carry it.
-        (True, False, False, False),
+        (True, False, False, False, None, True),
     ],
 )
-async def test_free_trial_gate_blocks_autostart(
-    on_trial, repository_autostart_eligible, expect_task, expect_pause_event
-):
-    # A trial org gets reports, not pull requests: the implementation task is the step that opens
-    # one, so auto-start creates none while the flag is on, and counts the held-back PR.
+async def test_free_trial_gate_preserves_admitted_implementation_eligibility(
+    on_trial: bool,
+    repository_autostart_eligible: bool,
+    expect_task: bool,
+    expect_pause_event: bool,
+    funding: Literal["trial", "paid", "existing"] | None,
+    allowed: bool,
+) -> None:
+    # Eligibility belongs to the accepted report. Later flag changes cannot interrupt it;
+    # older reports without a snapshot are allowed to implement.
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
 
@@ -1558,6 +1573,15 @@ async def test_free_trial_gate_blocks_autostart(
         report = SignalReport.objects.create(
             team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
         )
+        if funding is not None:
+            report.self_driving_funding = TrialFunding(
+                funding=funding,
+                grant_id=UUID("11111111-1111-1111-1111-111111111111") if funding == "trial" else None,
+                report_pass_key="accepted",
+                implementation_allowed=allowed,
+            ).as_dict()
+            report.save(update_fields=["self_driving_funding"])
+            SignalUserAutonomyConfig.objects.create(user=enabler, autostart_priority=Priority.P2)
         return team, report
 
     team, report = await sync_to_async(_setup)()
@@ -1575,7 +1599,10 @@ async def test_free_trial_gate_blocks_autostart(
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
-        patch("products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=on_trial),
+        patch(
+            "products.signals.backend.free_trial.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: on_trial if key == "self-driving-free-trial" else False,
+        ),
         patch("products.signals.backend.auto_start.capture_signal_report_free_trial_paused") as capture_mock,
     ):
         await maybe_autostart_implementation_task(

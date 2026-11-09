@@ -359,6 +359,18 @@ Each enabled tick captures `personal inbox ranking tick` with the due pairs, the
 It also carries `unchanged_pair_seconds_p50`, `unchanged_pair_seconds_p95`, `built_pair_seconds_p50` and `built_pair_seconds_p95`: the seconds from the start of a pair to its result, for sizing `max_concurrency` and `max_pairs_per_tick`.
 `personal inbox ranking built` and the model call's trace carry `trigger` (`tick` or `on_demand`), so cost can be split by what started a build.
 
+`due_pairs`, `due_without_list` and `oldest_due_hours` are read when the tick plans, before it does any work.
+A healthy tick reads `oldest_due_hours` a little above `target_interval_minutes`, and one old list that just became due makes it spike, so do not alert on it.
+`oldest_due_activity_hours` and `oldest_due_summary_hours` are the hours since the last activity and since the activity summary of the pair behind `oldest_due_hours`, to show whether that pair just became eligible again.
+
+The backlog after the tick is in `remaining_due_pairs`, `remaining_due_without_list` and `remaining_oldest_due_hours`. Alert on these:
+
+- A due pair of the plan leaves the backlog when its result is `built`, `unchanged` or `not_enrolled`. Every other result, a pair that raised, a pair a stop never started, and a due pair past `max_pairs_per_tick` or `max_org_share` stay in it.
+- `remaining_oldest_due_hours` is the hours at the end of the tick since the oldest remaining list was built or checked. It ignores remaining pairs with no list, which `remaining_due_without_list` counts.
+- An empty backlog reads 0, 0 and null. A backlog of only pairs with no list also has a null age, so read the age with `remaining_due_pairs`.
+- A pair that becomes due while the tick runs is not in the plan, so it counts in the next tick.
+- The three fields are null for a tick planned before the deploy that added them.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`

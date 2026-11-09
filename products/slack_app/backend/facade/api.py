@@ -50,6 +50,9 @@ from products.slack_app.backend.logic.progress_phases import (
     phase_line_title,
     tool_call_from_acp_update,
 )
+from products.slack_app.backend.logic.reply_suggestions import (
+    report_implementation_button as slack_report_implementation_button,
+)
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.public_channel_catalog import public_channel_options
@@ -88,6 +91,7 @@ __all__ = [
     "slack_channel_is_approved",
     "slack_followup_invite",
     "slack_followup_invite_text",
+    "slack_report_implementation_button",
 ]
 
 logger = structlog.get_logger(__name__)

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 
 @dataclass(frozen=False)
@@ -10,7 +10,7 @@ class ShortcutEndpointConfig:
     path: str
     # The flat list endpoints are plain GETs that return the whole collection. Stories have
     # no top-level list endpoint, so they're fetched via `POST /stories/search`.
-    method: str = "GET"
+    method: Literal["GET", "POST"] = "GET"
     primary_key: str = "id"
     # Stable field used for datetime partitioning. Never `updated_at` — partitions must not move.
     partition_key: Optional[str] = "created_at"
@@ -19,6 +19,10 @@ class ShortcutEndpointConfig:
     # timestamp filter (verified against the v3 OpenAPI spec), so only `stories` is incremental.
     incremental_params: dict[str, str] = field(default_factory=dict)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    fanout: DependentEndpointConfig | None = None
+    single_object: bool = False
+    page_size: int = 100
+    default_incremental_field: str | None = None
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -50,6 +54,31 @@ SHORTCUT_ENDPOINTS: dict[str, ShortcutEndpointConfig] = {
     "linked_files": ShortcutEndpointConfig(name="linked_files", path="/linked-files"),
     "repositories": ShortcutEndpointConfig(name="repositories", path="/repositories"),
     "entity_templates": ShortcutEndpointConfig(name="entity_templates", path="/entity-templates"),
+    "epic_workflow": ShortcutEndpointConfig(name="epic_workflow", path="/epic-workflow", single_object=True),
+    "documents": ShortcutEndpointConfig(name="documents", path="/documents", partition_key=None),
+    "story_history": ShortcutEndpointConfig(
+        name="story_history",
+        path="/stories/{story_id}/history",
+        partition_key="changed_at",
+        fanout=DependentEndpointConfig(
+            parent_name="stories",
+            resolve_param="story_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "story_id"},
+        ),
+    ),
+    "epic_comments": ShortcutEndpointConfig(
+        name="epic_comments",
+        path="/epics/{epic_id}/comments",
+        fanout=DependentEndpointConfig(
+            parent_name="epics",
+            resolve_param="epic_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "epic_id"},
+        ),
+    ),
     "stories": ShortcutEndpointConfig(
         name="stories",
         path="/stories/search",
