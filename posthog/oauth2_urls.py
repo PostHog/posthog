@@ -14,6 +14,7 @@ from posthog.api.oauth import (
     OAuthTokenView,
     OAuthUserInfoView,
 )
+from posthog.api.oauth.scope_reference import OAuthScopeReferenceView
 from posthog.utils import opt_slash_path
 
 app_name = "oauth2_provider"  # We need this to match the namepace of django-oauth-toolkit for reverse lookups within their views to work
@@ -43,4 +44,5 @@ urlpatterns = [
     path(".well-known/jwks.json", OAuthJwksInfoView.as_view(), name="jwks-info"),
     opt_slash_path("oauth/userinfo", OAuthUserInfoView.as_view(), name="user-info"),
     opt_slash_path("oauth/register", DynamicClientRegistrationView.as_view(), name="register"),
+    opt_slash_path("oauth/scopes", OAuthScopeReferenceView.as_view(), name="scopes"),
 ]

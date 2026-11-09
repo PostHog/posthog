@@ -14,11 +14,12 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
 from django.db.models import Count
 from django.db.models.functions import Lower
-from django.test import override_settings
+from django.test import Client, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import include, path
 from django.utils import timezone
 
+import structlog
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -65,8 +66,13 @@ class FooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "annotation"
+    scope_object_read_actions = ["list", "retrieve", "log_context"]
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
+
+    @action(detail=False, methods=["get"])
+    def log_context(self, request, **kwargs):
+        return Response({"team_id": structlog.contextvars.get_contextvars().get("team_id")})
 
 
 class OrderedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -205,6 +211,43 @@ class TestTeamAndOrgViewSetMixinSpanTagging(APIBaseTest):
         self.assertNotIn("team_id", self._root_span(exporter).attributes or {})
 
 
+@override_settings(ROOT_URLCONF=__name__)
+class TestTeamAndOrgViewSetMixinLogContext(APIBaseTest):
+    """Every log line of a team-scoped request should name the team the view resolved."""
+
+    def setUp(self):
+        super().setUp()
+        self.key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key",
+            user=self.user,
+            secure_value=hash_key_value(self.key_value),
+            scopes=["*"],
+        )
+
+    def test_a_key_authenticated_request_binds_the_team(self):
+        # A fresh client carries no session, so `request.user` is anonymous for the whole
+        # middleware chain and DRF authenticates inside the view. That is the shape of every
+        # API-key call, and the middleware that reads `request.user` binds nothing for it.
+        response = Client().get(
+            f"/api/scoped_environments/{self.team.id}/scoped_foos/log_context/",
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["team_id"], self.team.id)
+
+    def test_a_session_request_binds_the_url_team_over_the_users_current_team(self):
+        other_team = Team.objects.create(organization=self.organization, project=self.project)
+        self.user.current_team = self.team
+        self.user.save()
+
+        response = self.client.get(f"/api/scoped_environments/{other_team.id}/scoped_foos/log_context/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["team_id"], other_team.id)
+
+
 @override_settings(ROOT_URLCONF=__name__)  # Use `urlpatterns` from this file and not from `posthog.urls`
 class TestTeamAndOrgViewSetMixin(APIBaseTest):
     test_annotation: Annotation
@@ -332,7 +375,9 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
             response = self.client.get(url)
 
         assert response.status_code == 200
-        assert cache_round_trips() == 1
+        assert cache_round_trips("organization_access:") == 1
+        assert cache_round_trips("ip_restrictions:") == 2
+        assert cache_round_trips(None) == 3
         assert not [query for query in queries.captured_queries if AccessControl._meta.db_table in query["sql"]]
 
     @parameterized.expand(

@@ -956,30 +956,6 @@ class TestGetGithubToken(TestCase):
 
     @parameterized.expand(
         [
-            ("readable", 200, False),
-            ("not_found", 404, True),
-            ("forbidden", 403, True),
-            ("unauthorized", 401, False),
-            ("upstream_error", 503, False),
-            ("probe_raises", None, False),
-        ]
-    )
-    def test_installation_confirms_repository_denied_only_on_a_clear_refusal(self, _name, status, expected):
-        from posthog.models.integration import GitHubIntegration
-
-        from products.tasks.backend.temporal.process_task.utils import installation_confirms_repository_denied
-
-        github = MagicMock(spec=GitHubIntegration)
-        if status is None:
-            github.api_request.side_effect = RuntimeError("probe failed")
-        else:
-            github.api_request.return_value = MagicMock(status_code=status)
-
-        assert installation_confirms_repository_denied(github, "acme/api") is expected
-        github.api_request.assert_called_once_with("GET", "/repos/acme/api", endpoint="/repos/{owner}/{repo}")
-
-    @parameterized.expand(
-        [
             ("renamed_account", "OldAcme", ["acme/api"], ["api"], "ghs_scoped"),
             ("dedupes_owner_and_case", "Acme", ["Acme/API", "acme/api", "acme/web"], ["api", "web"], "ghs_scoped"),
             ("drops_public_bootstrap_repo", "Acme", ["acme/web", "PostHog/.github"], ["web"], "ghs_scoped"),

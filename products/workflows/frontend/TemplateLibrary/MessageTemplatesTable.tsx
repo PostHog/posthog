@@ -58,7 +58,7 @@ export function MessageTemplatesTable(): JSX.Element {
 
     const showProductIntroduction = !templatesLoading && templates.length === 0
     // Same check as the "New template" button in the header: the template API needs Editor access.
-    const newTemplateDisabledReason = getAccessControlDisabledReason(
+    const editTemplatesDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Workflow,
         AccessControlLevel.Editor
     )
@@ -125,20 +125,20 @@ export function MessageTemplatesTable(): JSX.Element {
                         <button
                             type="button"
                             className={
-                                newTemplateDisabledReason
+                                editTemplatesDisabledReason
                                     ? 'MessageTemplateItem cursor-not-allowed'
                                     : 'MessageTemplateItem cursor-pointer'
                             }
                             onClick={startNewTemplate}
-                            disabled={!!newTemplateDisabledReason}
-                            title={newTemplateDisabledReason ?? undefined}
+                            disabled={!!editTemplatesDisabledReason}
+                            title={editTemplatesDisabledReason ?? undefined}
                             data-attr="message-templates-new-card"
                         >
                             <div className="MessageTemplateItemInner flex flex-col items-center justify-center gap-2 rounded border border-dashed bg-surface-primary px-4 text-center text-secondary hover:text-primary">
                                 <IconPlus className="text-3xl" />
                                 <span className="font-semibold">New template</span>
-                                {newTemplateDisabledReason && (
-                                    <span className="text-xs">{newTemplateDisabledReason}</span>
+                                {editTemplatesDisabledReason && (
+                                    <span className="text-xs">{editTemplatesDisabledReason}</span>
                                 )}
                             </div>
                         </button>
@@ -166,9 +166,11 @@ export function MessageTemplatesTable(): JSX.Element {
                                                 {
                                                     label: 'Duplicate',
                                                     onClick: () => duplicateTemplate(template),
+                                                    disabledReason: editTemplatesDisabledReason,
                                                 },
                                                 {
                                                     label: 'Edit tags',
+                                                    disabledReason: editTemplatesDisabledReason,
                                                     onClick: () =>
                                                         LemonDialog.openForm({
                                                             title: 'Edit tags',
@@ -208,6 +210,7 @@ export function MessageTemplatesTable(): JSX.Element {
                                                     status: 'danger' as const,
                                                     icon: <IconTrash />,
                                                     onClick: () => deleteTemplate(template),
+                                                    disabledReason: editTemplatesDisabledReason,
                                                 },
                                             ]}
                                         />
