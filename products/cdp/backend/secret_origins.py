@@ -31,6 +31,8 @@ _Prefix = tuple[str, bool]
 _Values = frozenset[_Prefix]
 _UNKNOWN: _Values = frozenset({("", False)})
 _MAX_VALUES = 32
+# Only the start of a value can hold its origin, so text past this length is dropped instead of tracked.
+_MAX_TEXT = 2048
 _MAX_ITERATIONS = 64
 # Expression evaluations one analysis may make. The budget sits far above what real templates need, so
 # only a source written to be slow runs out, and the analysis then treats it as one it cannot pin down.
@@ -40,6 +42,8 @@ _DEFAULT_PORTS = {"http": "80", "https": "443"}
 _UNSAFE_AUTHORITY = re.compile(r"[@\\%\s\x00-\x1f\x7f]")
 _NUMERIC_LABEL = re.compile(r"^(\d+|0x[0-9a-f]*)$")
 _BY_NAME_OPTIONS = frozenset({"secret_headers_input", "standard_webhooks", "aws_sigv4"})
+# Headers that route a request to a host other than the one in its URL, as on a CDN that serves many hosts.
+_HOST_HEADERS = frozenset({"host", ":authority"})
 _VALUE_CALLS = frozenset({"concat", "coalesce", "ifNull", "if"})
 # Standard library calls that never log, send or quote their arguments, not even in an error. Any other
 # call, including a worker function added later, can carry its arguments out of the function.
@@ -67,6 +71,13 @@ _PURE_CALLS = frozenset(
 _DIGEST_CALLS = frozenset(
     {"md5Hex", "sha1Hex", "sha256", "sha256Hex", "sha1HmacChainHex", "sha256HmacChain", "sha256HmacChainHex"}
 )
+# Calls whose result reveals only part of the secret, or a few bits of it. Code can pick the part, so a
+# digest of the result can be reversed by trying every value it can have.
+_PIECE_CALLS = frozenset({"substring", "replaceAll", "length", "empty", "notEmpty", "equals", "notEquals"})
+_PIECE_EXPRS = (ast.CompareOperation, ast.BetweenExpr, ast.Not, ast.And, ast.Or)
+# The worker prints an object shaped like a query AST with its HogQL printer when it converts it to text,
+# and the printer quotes an unknown node type in the error it throws.
+_PRINTING_CALLS = frozenset({"concat", "toString"})
 # Calls that feed their lambda only elements of their other arguments, unlike `arrayReduce` or template code.
 _ELEMENT_CALLBACK_CALLS = frozenset({"arrayMap", "arrayFilter", "arrayExists", "arrayCount"})
 # Code that declares one of these names replaces the meaning the analysis gives it.
@@ -103,19 +114,31 @@ class _Derived:
     key: str
 
 
-_Taint = frozenset[str | _Derived]
+@frozen
+class _Piece:
+    """A value computed from part of the secret `key`, or from a few bits of it. It counts as the secret
+    itself, and a digest of it does too."""
+
+    key: str
+
+
+_Taint = frozenset[str | _Derived | _Piece]
 
 
 def _derived(taint: _Taint) -> _Taint:
     return frozenset(_Derived(key=item) if isinstance(item, str) else item for item in taint)
 
 
+def _pieces(taint: _Taint) -> _Taint:
+    return frozenset(_Piece(key=item) if isinstance(item, str) else item for item in taint)
+
+
 def _held(taint: _Taint) -> frozenset[str]:
-    return frozenset(item for item in taint if isinstance(item, str))
+    return frozenset(item.key if isinstance(item, _Piece) else item for item in taint if not isinstance(item, _Derived))
 
 
 def _reached(taint: _Taint) -> frozenset[str]:
-    return frozenset(item.key if isinstance(item, _Derived) else item for item in taint)
+    return frozenset(item if isinstance(item, str) else item.key for item in taint)
 
 
 class _CannotAnalyze(Exception):
@@ -192,7 +215,7 @@ def url_origin(prefix: str, complete: bool) -> str | None:
 
 
 def _is_canonical_port(port: str) -> bool:
-    return port.isdigit() and not port.startswith("0") and int(port) <= 65535
+    return len(port) <= 5 and port.isdigit() and not port.startswith("0") and int(port) <= 65535
 
 
 # The worker's WHATWG parser rewrites IPv6 and short or hex IPv4 hosts, so only a dotted quad keeps its text.
@@ -203,7 +226,7 @@ def _is_canonical_host(host: str) -> bool:
     if not _NUMERIC_LABEL.match(labels[-1]):
         return True
     return len(labels) == 4 and all(
-        label.isdigit() and str(int(label)) == label and int(label) <= 255 for label in labels
+        len(label) <= 3 and label.isdigit() and str(int(label)) == label and int(label) <= 255 for label in labels
     )
 
 
@@ -216,12 +239,17 @@ def _concat(parts: list[_Values]) -> _Values:
     for part in parts:
         joined = _normalize(
             frozenset(
-                (text + more, more_complete) if complete else (text, False)
+                _append(text, more, more_complete) if complete else (text, False)
                 for text, complete in joined
                 for more, more_complete in (part if complete else [("", False)])
             )
         )
     return joined
+
+
+def _append(text: str, more: str, more_complete: bool) -> _Prefix:
+    room = max(0, _MAX_TEXT - len(text))
+    return text + more[:room], more_complete and len(more) <= room
 
 
 def _children(node: Any) -> Iterator[ast.AST]:
@@ -254,6 +282,49 @@ def _assignment_base(left: ast.Expr) -> tuple[str, int]:
     return left.chain[0], depth + len(left.chain) - 1
 
 
+def _header_entry_hosts(name: Any, value: ast.Expr) -> frozenset[str] | None:
+    if not isinstance(name, str):
+        return None
+    if name.lower() not in _HOST_HEADERS:
+        return frozenset()
+    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+        return frozenset({value.value})
+    return None
+
+
+def _is_constant(node: ast.Expr, value: str) -> bool:
+    return isinstance(node, ast.Constant) and node.value == value
+
+
+def _assignment_target(left: ast.Expr) -> ast.Expr:
+    while isinstance(left, ast.ArrayAccess | ast.TupleAccess):
+        left = left.array if isinstance(left, ast.ArrayAccess) else left.tuple
+    return left
+
+
+def _assigned_keys(left: ast.Expr) -> list[str | None]:
+    accessed: list[str | None] = []
+    while isinstance(left, ast.ArrayAccess | ast.TupleAccess):
+        if isinstance(left, ast.ArrayAccess):
+            key = left.property
+            accessed.append(str(key.value) if isinstance(key, ast.Constant) and key.value is not None else None)
+            left = left.array
+        else:
+            accessed.append(str(left.index))
+            left = left.tuple
+    chain = [str(part) for part in left.chain[1:]] if isinstance(left, ast.Field) else []
+    return chain + accessed[::-1]
+
+
+def _computed_keys(left: ast.Expr) -> list[ast.Expr]:
+    keys = []
+    while isinstance(left, ast.ArrayAccess | ast.TupleAccess):
+        if isinstance(left, ast.ArrayAccess) and not isinstance(left.property, ast.Constant):
+            keys.append(left.property)
+        left = left.array if isinstance(left, ast.ArrayAccess) else left.tuple
+    return keys
+
+
 class _Analysis:
     def __init__(self, hog: str, input_sets: list[dict[str, Any]], secret_keys: set[str]) -> None:
         self.secret_keys = frozenset(secret_keys)
@@ -265,6 +336,13 @@ class _Analysis:
         self.declarations: set[str] = set()
         self.assignments: list[tuple[str, ast.Expr]] = []
         self.member_assignments: list[tuple[str, int, ast.Expr]] = []
+        self.member_writes: list[tuple[str, list[str | None], ast.Expr]] = []
+        self.fresh_containers: set[str] = set()
+        # Nodes that read a dict only to send it, or to write into it, so the read hands it to no other code.
+        self.sending_reads: set[int] = set()
+        # Names and `inputs.<key>` whose dict other code can reach, with "inputs" for every input.
+        self.escaped: set[str] = set()
+        self.host_write_bases: set[str] = set()
         self.shared_assignments: list[ast.Expr] = []
         self.reads_all_inputs = False
         # Names bound by loops, lambdas and catch clauses, with the expressions that feed them, or
@@ -300,6 +378,10 @@ class _Analysis:
         bound_elsewhere |= {param for params in self.functions.values() for param in params}
         variables = {name for name, _ in self.assignments} | self.declarations | bound_elsewhere
         fresh = self._fresh_container_names() - bound_elsewhere
+        self.fresh_containers = fresh
+        self.host_write_bases = {
+            base for base, keys, _ in self.member_writes if keys[-1] is None or keys[-1].lower() in _HOST_HEADERS
+        }
         self.shared_assignments = [
             expr for base, depth, expr in self.member_assignments if depth > 1 or base not in fresh
         ]
@@ -312,6 +394,7 @@ class _Analysis:
         self.exits += [expr for name, expr in self.assignments if name not in local]
         self.assigned_only = self.declarations - bound_elsewhere - {base for base, _, _ in self.member_assignments}
         self.exits += self._compared_exits(self.comparisons)
+        self.exits += self._printed_exits(self.calls)
         quiet = {"fetch", *_SAFE_CALLS, *self.functions, *self.lambdas_only}
         self.exits += [
             arg for call in self.calls if call.name not in quiet and not _calls_back_inline(call) for arg in call.args
@@ -393,6 +476,7 @@ class _Analysis:
             arg for node in nodes if isinstance(node, ast.Call) and node.name not in _SAFE_CALLS for arg in node.args
         ]
         self.exits += self._compared_exits(node for node in nodes if isinstance(node, _COMPARISONS))
+        self.exits += self._printed_exits(node for node in nodes if isinstance(node, ast.Call))
         return self._value(expr), self._taint(expr)
 
     def _compared_exits(self, comparisons: Iterable[ast.CompareOperation | ast.BetweenExpr]) -> list[ast.Expr]:
@@ -407,6 +491,15 @@ class _Analysis:
             else:
                 exits += [side for side in (node.left, node.right) if not self._scalar(side, frozenset())]
         return exits
+
+    def _printed_exits(self, calls: Iterable[ast.Call]) -> list[ast.Expr]:
+        return [
+            arg
+            for call in calls
+            if call.name in _PRINTING_CALLS
+            for arg in call.args
+            if not self._scalar(arg, frozenset())
+        ]
 
     def _scalar(self, node: ast.Expr, seen: frozenset[str]) -> bool:
         """Whether `node` can only be a string, number, boolean or null. `seen` holds the names and
@@ -428,9 +521,29 @@ class _Analysis:
         name = str(node.chain[0])
         if name in seen:
             return True
-        if name not in self.assigned_only:
-            return False
-        return all(self._scalar(expr, seen | {name}) for assigned, expr in self.assignments if assigned == name)
+        if name in self.assigned_only:
+            feeds: list[ast.Expr] | None = [expr for assigned, expr in self.assignments if assigned == name]
+        else:
+            feeds = self._parameter_feeds(name)
+        return feeds is not None and all(self._scalar(expr, seen | {name}) for expr in feeds)
+
+    def _parameter_feeds(self, name: str) -> list[ast.Expr] | None:
+        """Every value a name bound only as a parameter of `fun` declarations can hold, or None when
+        something else can bind it. Code cannot pass such a function as a value, so its calls are all
+        visible. A missing argument is null."""
+        functions = [function for function, params in self.functions.items() if name in params]
+        if (
+            not functions
+            or name in self.declarations
+            or any(fed == name for fed, _ in self.fed_names)
+            or any(base == name for base, _, _ in self.member_assignments)
+        ):
+            return None
+        feeds = [expr for assigned, expr in self.assignments if assigned == name]
+        for function in functions:
+            index = self.functions[function].index(name)
+            feeds += [call.args[index] for call in self.calls if call.name == function and index < len(call.args)]
+        return feeds
 
     def _scalar_input(self, key: str, seen: frozenset[str]) -> bool:
         marker = f"inputs.{key}"
@@ -462,11 +575,13 @@ class _Analysis:
             if isinstance(node.expr, ast.Lambda):
                 self.lambda_names[id(node.expr)] = node.name
         elif isinstance(node, ast.VariableAssignment):
+            self.sending_reads.add(id(_assignment_target(node.left)))
             base, depth = _assignment_base(node.left)
             if depth == 0:
                 self.assignments.append((base, node.right))
             else:
-                self.member_assignments.append((base, depth, node.right))
+                self.member_assignments += [(base, depth, expr) for expr in (node.right, *_computed_keys(node.left))]
+                self.member_writes.append((base, _assigned_keys(node.left), node.right))
         elif isinstance(node, ast.Function):
             if node.name in self.functions:
                 raise _CannotAnalyze("unsupported_code")
@@ -497,13 +612,24 @@ class _Analysis:
             self.exits += node.args
         elif isinstance(node, ast.Call):
             self.calls.append(node)
+            if node.name == "fetch" and len(node.args) > 1:
+                options = node.args[1]
+                self.sending_reads.add(id(options))
+                if isinstance(options, ast.Dict):
+                    self.sending_reads |= {id(value) for key, value in options.items if _is_constant(key, "headers")}
             for arg in node.args if node.name in _ELEMENT_CALLBACK_CALLS else []:
                 if isinstance(arg, ast.Lambda):
                     self.lambda_feeds[id(arg)] = [other for other in node.args if other is not arg]
         elif isinstance(node, ast.ArrayAccess) and isinstance(node.array, ast.Field) and node.array.chain == ["inputs"]:
+            if id(node) not in self.sending_reads:
+                key = _input_key(node)
+                self.escaped.add("inputs" if key is None else f"inputs.{key}")
             self._collect(node.property, function)
             return
         elif isinstance(node, ast.Field):
+            if id(node) not in self.sending_reads:
+                head = str(node.chain[0])
+                self.escaped.add(f"inputs.{node.chain[1]}" if head == "inputs" and len(node.chain) > 1 else head)
             self.field_heads.add(str(node.chain[0]))
             self.reads_all_inputs |= node.chain == ["inputs"]
         for child in _children(node):
@@ -535,12 +661,136 @@ class _Analysis:
                 continue
             urls = self._value(call.args[0]) if call.args else _UNKNOWN
             found = {url_origin(text, complete) for text, complete in urls}
+            hosts = self._options_hosts(call.args[1], frozenset()) if len(call.args) > 1 else frozenset()
+            if hosts is None:
+                found.add(None)
+            else:
+                # The URL's host still receives the request, so it keeps its origin next to the routed one.
+                schemes = {origin.partition("://")[0] for origin in found if origin}
+                found |= {url_origin(f"{scheme}://{host}", complete=True) for scheme in schemes for host in hosts}
             for key in carried:
                 if None in found:
                     unbound.add(key)
                 else:
                     origins[key] |= {origin for origin in found if origin}
         return {key: UNBOUND if key in unbound else value for key, value in origins.items()}
+
+    def _options_hosts(self, node: ast.Expr, seen: frozenset[str]) -> frozenset[str] | None:
+        """The hosts that the `Host` or `:authority` headers of fetch options name, or None when code or
+        config can set a header the analysis does not see."""
+        self._spend_evaluation()
+        if isinstance(node, ast.Constant) and node.value is None:
+            return frozenset()
+        if isinstance(node, ast.Dict):
+            entries: list[tuple[str | None, ast.Expr]] = [
+                (key.value if isinstance(key, ast.Constant) and isinstance(key.value, str) else None, value)
+                for key, value in node.items
+            ]
+            return self._union_hosts(self._option_hosts(key, value, seen) for key, value in entries)
+        resolved = self._container_sources(node, seen)
+        if resolved is None:
+            return None
+        sources, writes, seen = resolved
+        return self._union_hosts(
+            [self._options_hosts(source, seen) for source in sources]
+            + [self._option_hosts(keys[0], value, seen) for keys, value in writes if len(keys) == 1]
+            + [
+                _header_entry_hosts(keys[1], value)
+                for keys, value in writes
+                if len(keys) == 2 and keys[0] in ("headers", None)
+            ]
+        )
+
+    def _option_hosts(self, key: str | None, value: ast.Expr, seen: frozenset[str]) -> frozenset[str] | None:
+        if key == "headers":
+            return self._header_hosts(value, seen)
+        if key == "secret_headers_input":
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                return self._configured_header_hosts(value.value)
+            return None
+        return None if key is None else frozenset()
+
+    def _header_hosts(self, node: ast.Expr, seen: frozenset[str]) -> frozenset[str] | None:
+        self._spend_evaluation()
+        if isinstance(node, ast.Constant) and node.value is None:
+            return frozenset()
+        if isinstance(node, ast.Dict):
+            return self._union_hosts(
+                _header_entry_hosts(key.value if isinstance(key, ast.Constant) else None, value)
+                for key, value in node.items
+            )
+        input_key = _input_key(node)
+        if input_key is not None and not (isinstance(node, ast.Field) and len(node.chain) > 2):
+            if self._written_from_elsewhere(f"inputs.{input_key}"):
+                return None
+            return self._configured_header_hosts(input_key)
+        resolved = self._container_sources(node, seen)
+        if resolved is None:
+            return None
+        sources, writes, seen = resolved
+        return self._union_hosts(
+            [self._header_hosts(source, seen) for source in sources]
+            + [_header_entry_hosts(keys[0], value) for keys, value in writes if len(keys) == 1]
+        )
+
+    def _configured_header_hosts(self, key: str) -> frozenset[str] | None:
+        hosts: set[str] = set()
+        for item in self.definitions.get(key, []):
+            value = item["value"]
+            if value is None:
+                continue
+            if not isinstance(value, dict):
+                return None
+            for name, header in value.items():
+                if not isinstance(name, str):
+                    return None
+                if name.lower() not in _HOST_HEADERS:
+                    continue
+                # Any templating can make the host whatever an event says.
+                if not isinstance(header, str) or "{" in header:
+                    return None
+                hosts.add(header)
+        return frozenset(hosts)
+
+    def _container_sources(
+        self, node: ast.Expr, seen: frozenset[str]
+    ) -> tuple[list[ast.Expr], list[tuple[list[str | None], ast.Expr]], frozenset[str]] | None:
+        """The expressions a dict can come from and the member assignments that change it, or None when
+        it can come from somewhere the analysis does not see."""
+        if isinstance(node, ast.Field) and len(node.chain) == 1 and str(node.chain[0]) in self.fresh_containers:
+            name = str(node.chain[0])
+            if self._written_from_elsewhere(name):
+                return None
+            if name in seen:
+                return [], [], seen
+            sources = [expr for assigned, expr in self.assignments if assigned == name]
+            writes = [(keys, value) for base, keys, value in self.member_writes if base == name]
+            return sources, writes, seen | {name}
+        if isinstance(node, ast.Call) and node.name in self.functions:
+            marker = f"{node.name}()"
+            if marker in seen:
+                return [], [], seen
+            return [expr for function, expr in self.returns if function == node.name], [], seen | {marker}
+        if isinstance(node, ast.Call) and node.name in ("coalesce", "ifNull"):
+            return list(node.args), [], seen
+        if isinstance(node, ast.Call) and node.name == "if" and len(node.args) == 3:
+            return list(node.args[1:]), [], seen
+        return None
+
+    def _written_from_elsewhere(self, holder: str) -> bool:
+        """Whether code can set a host header on the dict `holder` names through another name. That needs
+        a write with a computed or host key, and the dict reaching code other than the fetch that sends it."""
+        escaped = holder in self.escaped or (holder.startswith("inputs.") and "inputs" in self.escaped)
+        return escaped and any(base != holder for base in self.host_write_bases)
+
+    @staticmethod
+    def _union_hosts(found: Iterable[frozenset[str] | None]) -> frozenset[str] | None:
+        hosts: set[str] = set()
+        for item in found:
+            if item is None:
+                return None
+            hosts |= item
+        return frozenset(hosts)
 
     def _fetch_carries(self, call: ast.Call, taint: _Taint) -> frozenset[str]:
         """The secrets a fetch sends: those its arguments hold or were derived from, and every secret
@@ -629,6 +879,8 @@ class _Analysis:
             return _derived(self._fetch_carries(node, taint))
         if isinstance(node, ast.Call) and node.name in _DIGEST_CALLS:
             return _derived(taint)
+        if (isinstance(node, ast.Call) and node.name in _PIECE_CALLS) or isinstance(node, _PIECE_EXPRS):
+            return _pieces(taint)
         if isinstance(node, ast.Call):
             taint |= self.taints.get(node.name, frozenset())
         return taint

