@@ -2226,6 +2226,7 @@ export class AgentServer {
       runSpanContext: telemetry?.getRunSpanContext(),
       isInternal: launch.internal,
       originProduct: launch.originProduct,
+      billingProduct: launch.billingProduct,
       signalReportId: launch.signalReportId,
       aiStage: launch.aiStage,
       aiAgentName: launch.aiAgentName,

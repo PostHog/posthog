@@ -368,6 +368,7 @@ const taskRunStateFields = {
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
   benjamin_version: optionalField(z.string()),
+  billing_product: optionalField(z.string()),
   codex_max_subagents: optionalField(z.number().int().positive()),
   codex_shared_prompt_cache: optionalField(z.boolean()),
   disable_repo_hooks: optionalField(z.boolean()),

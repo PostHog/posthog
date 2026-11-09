@@ -152,7 +152,9 @@ class TestSharedRoutingContract:
     )
 
     @pytest.mark.parametrize(
-        "case", _CASES["resolve_ai_product"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}"
+        "case",
+        _CASES["resolve_ai_product"],
+        ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}/{c.get('billing_product')}",
     )
     def test_resolve_matches_contract(self, case):
         assert (
@@ -160,6 +162,7 @@ class TestSharedRoutingContract:
                 case["origin_product"],
                 case["ai_stage"],
                 internal=case["internal"],
+                billing_product=case.get("billing_product"),
             )
             == case["expected"]
         )
@@ -543,6 +546,20 @@ class TestAiGatewayEnvVars:
                     assert env["AI_GATEWAY_PRODUCT"] == product
                     mint.assert_called_once_with(ai_product=product, team_id=123, user=None)
             quota.assert_called_once_with(123, "ai_credits")
+
+    @pytest.mark.parametrize(
+        "origin, state",
+        [
+            ("signal_report", {"ai_stage": "inbox", "billing_product": "posthog_ai"}),
+            ("signals_scout", {"billing_product": "posthog_ai"}),
+        ],
+    )
+    def test_self_driving_run_off_the_posthog_ai_pin_fails_instead_of_falling_back(self, mint_settings, origin, state):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "posthog_ai"
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+            with pytest.raises(GatewayTokenUnavailableError, match="Choose another model"):
+                ai_gateway_env_vars(team_id=123, origin_product=origin, state=state, model="zai-org/glm-5.3")
+        mint.assert_not_called()
 
     # The agent trusts these as the worker's word, so the API must refuse a run-supplied value.
     def test_reserved_keys_cover_the_pinned_product_env(self):

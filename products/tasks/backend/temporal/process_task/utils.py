@@ -82,6 +82,7 @@ from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
     MINTABLE_PRODUCTS,
+    POSTHOG_AI_BILLED_SIGNALS_ORIGINS,
     POSTHOG_CODE_PRODUCT,
     is_slack_origin,
     mint_refusal,
@@ -1841,6 +1842,9 @@ WORKFLOWS_CREDITS_EXHAUSTED_DETAIL = (
     "This project has used its monthly PostHog AI credits. "
     "Raise the AI credit limit in billing settings, or wait for the next billing period."
 )
+SELF_DRIVING_MODEL_UNAVAILABLE_DETAIL = (
+    "This run's model isn't available for Self-driving runs. Choose another model and try again."
+)
 
 
 def ai_gateway_env_vars(
@@ -1871,7 +1875,8 @@ def ai_gateway_env_vars(
     or a caller that cannot supply run context) degrades the run to the Python
     gateway, except a `posthog_code` run, which raises: the Python gateway
     refuses `posthog_code`. A `workflows` run whose team is out of AI credits
-    also raises, because the Python gateway refuses it too.
+    also raises, because the Python gateway refuses it too. So does a Self-driving
+    run billed to `posthog_ai` whose model is outside that product's pin.
     """
     ai_product = (
         resolve_sandbox_ai_product(
@@ -1953,6 +1958,17 @@ def ai_gateway_env_vars(
                 if ai_product == WORKFLOWS_PRODUCT and refusal == WORKFLOWS_CREDITS_EXHAUSTED_REFUSAL:
                     raise GatewayTokenUnavailableError(
                         WORKFLOWS_CREDITS_EXHAUSTED_DETAIL, {"team_id": team_id, "reason": refusal}
+                    )
+                # A Self-driving run billed to posthog_ai holds a PostHog AI credential. The legacy
+                # gateway reserves the catalog models outside this pin for other products or does not
+                # serve them, so a fallback fails later with an error that does not name the model.
+                if (
+                    ai_product == "posthog_ai"
+                    and origin_product in POSTHOG_AI_BILLED_SIGNALS_ORIGINS
+                    and refusal == "model_outside_pin"
+                ):
+                    raise GatewayTokenUnavailableError(
+                        SELF_DRIVING_MODEL_UNAVAILABLE_DETAIL, {"team_id": team_id, "reason": refusal}
                     )
                 return env_vars
             mint_kwargs: dict[str, Any] = {}

@@ -20,6 +20,27 @@
       "expected": "signals_inbox"
     },
     {
+      "origin_product": "signal_report",
+      "ai_stage": "inbox",
+      "internal": false,
+      "billing_product": "posthog_ai",
+      "expected": "posthog_ai"
+    },
+    {
+      "origin_product": "signals_scout",
+      "ai_stage": null,
+      "internal": false,
+      "billing_product": "posthog_ai",
+      "expected": "posthog_ai"
+    },
+    {
+      "origin_product": "slack",
+      "ai_stage": null,
+      "internal": false,
+      "billing_product": "posthog_ai",
+      "expected": "slack_app"
+    },
+    {
       "origin_product": "signals_chat",
       "ai_stage": "chat",
       "internal": false,
