@@ -21,15 +21,12 @@ from posthog.hogql.database.database import (
     is_reserved_models_name,
     models_namespace_chain,
 )
-from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
-from posthog.hogql.direct_sql import get_raw_adapter_for_source
 from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
@@ -46,11 +43,11 @@ from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.api import has_incremental_history
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
+    CONNECTION_SAVE_REASON,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
     ViewColumnSource,
     ViewEngine,
-    ViewEngineDialect,
     ViewEngineTarget,
     validate_saved_query_name,
 )
@@ -721,23 +718,9 @@ class DataWarehouseSavedQuerySerializer(
         user = self.context["request"].user
         engine = ViewEngine.from_query(query)
 
-        connection_source = None
+        # Saved connection views stay as they are; this only blocks writing a connection query.
         if engine.target == ViewEngineTarget.CONNECTION:
-            connection_source = get_direct_connection_source(
-                self.context["get_team"](), engine.connection_id, user=user
-            )
-            if connection_source is None:
-                raise exceptions.ValidationError(detail=INVALID_CONNECTION_ID_ERROR)
-
-        if connection_source is not None and engine.dialect == ViewEngineDialect.RAW:
-            adapter = get_raw_adapter_for_source(connection_source, team=self.context["get_team"]())
-            if adapter is None:
-                raise exceptions.ValidationError(detail=INVALID_CONNECTION_ID_ERROR)
-            try:
-                adapter.prepare_raw_sql(query["query"])
-            except ExposedHogQLError as err:
-                raise exceptions.ValidationError(detail=f"Invalid query: {err}")
-            return query
+            raise exceptions.ValidationError(detail=CONNECTION_SAVE_REASON)
 
         if engine.is_raw_trino:
             try:
@@ -769,19 +752,13 @@ class DataWarehouseSavedQuerySerializer(
             raise exceptions.ValidationError(detail="Filters and placeholder expressions are not allowed in views")
 
         try:
-            if connection_source is not None:
-                # Resolves names against the connection's tables, as the SQL editor does when it runs the query.
-                HogQLQueryExecutor(
-                    query=query["query"], team=self.context["get_team"](), user=user, connection_id=engine.connection_id
-                ).generate_clickhouse_sql()
-            else:
-                prepare_and_print_ast(
-                    node=select_ast,
-                    context=context,
-                    dialect="clickhouse",
-                    stack=None,
-                    settings=None,
-                )
+            prepare_and_print_ast(
+                node=select_ast,
+                context=context,
+                dialect="clickhouse",
+                stack=None,
+                settings=None,
+            )
         except Exception as err:
             if isinstance(err, ExposedHogQLError):
                 refusal = _unreferenceable_view_refusal(team_id, query["query"])
