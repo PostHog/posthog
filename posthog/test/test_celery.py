@@ -1,3 +1,4 @@
+import gc
 import os
 import threading
 
@@ -5,6 +6,7 @@ from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 import posthoganalytics
+from celery.signals import worker_init
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -16,6 +18,16 @@ from posthog.celery_task_names import (
     VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
 )
 from posthog.tasks.tasks import clickhouse_errors_count
+
+
+class TestFreezeBeforePoolForks(TestCase):
+    def test_worker_init_freezes_the_objects_the_pool_will_inherit(self) -> None:
+        gc.unfreeze()
+        self.addCleanup(gc.unfreeze)
+
+        worker_init.send(sender=None)
+
+        self.assertGreater(gc.get_freeze_count(), 0)
 
 
 class TestWorkerShutdownFlushesAnalyticsMetrics(TestCase):
