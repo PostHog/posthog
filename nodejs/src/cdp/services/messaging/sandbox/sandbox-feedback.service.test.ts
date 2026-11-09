@@ -99,6 +99,9 @@ const complaint = (feedbackType = 'abuse') => ({
     },
 })
 
+const fetchResponse = (status: number): FetchResponse =>
+    ({ status, headers: {}, json: () => Promise.resolve({}), text: () => Promise.resolve('') }) as FetchResponse
+
 const counterValue = async (name: string, labels: Record<string, string>): Promise<number> => {
     const metric = await register.getSingleMetric(name)?.get()
     return metric?.values.find((v) => Object.entries(labels).every(([k, value]) => v.labels[k] === value))?.value ?? 0
@@ -215,23 +218,21 @@ describe('SandboxFeedbackService', () => {
             expect(writes()).toEqual({})
         })
 
-        it('asks SNS to retry while the signing certificate cannot be downloaded', async () => {
-            mockFetch.mockResolvedValueOnce({
-                status: 503,
-                headers: {},
-                json: () => Promise.resolve({}),
-                text: () => Promise.resolve(''),
-            } as FetchResponse)
-            const body = notification(sesRecord(TEAM_ID, complaint()))
+        it.each([
+            ['a server error', () => mockFetch.mockResolvedValueOnce(fetchResponse(503)), 503],
+            ['a network error', () => mockFetch.mockRejectedValueOnce(new Error('socket hang up')), 503],
+            ['a missing certificate', () => mockFetch.mockResolvedValueOnce(fetchResponse(404)), 403],
+        ])(
+            'answers %s from the certificate download with %s, then verifies once it recovers',
+            async (_label, fail, status) => {
+                fail()
+                const body = notification(sesRecord(TEAM_ID, complaint()))
 
-            expect(await service.handle({ body })).toEqual({
-                status: 503,
-                message: 'SNS signing certificate unavailable',
-            })
-            expect(suppression.recordComplaints).not.toHaveBeenCalled()
-            expect((await service.handle({ body })).status).toBe(200)
-            expect(suppression.recordComplaints).toHaveBeenCalledTimes(1)
-        })
+                expect((await service.handle({ body })).status).toBe(status)
+                expect(suppression.recordComplaints).not.toHaveBeenCalled()
+                expect((await service.handle({ body })).status).toBe(200)
+            }
+        )
 
         it.each([
             ['confirms', 'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&Token=t', 200, 1],

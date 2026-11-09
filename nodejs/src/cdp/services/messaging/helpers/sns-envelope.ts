@@ -51,6 +51,15 @@ export type SnsEnvelopeVerdict =
 
 class SnsCertificateUnavailableError extends Error {}
 
+class SnsFetchError extends Error {
+    constructor(
+        url: string,
+        public status: number
+    ) {
+        super(`Failed to fetch ${url}: ${status}`)
+    }
+}
+
 export class SnsEnvelopeVerifier {
     certCache: Record<string, Promise<string> | undefined> = {}
     protected allowedTopicArns: Set<string>
@@ -70,7 +79,7 @@ export class SnsEnvelopeVerifier {
     private async fetchText(url: string): Promise<string> {
         const response = await fetch(url)
         if (response.status >= 400) {
-            throw new Error(`Failed to fetch ${url}: ${response.status}`)
+            throw new SnsFetchError(url, response.status)
         }
         return await response.text()
     }
@@ -181,6 +190,10 @@ export class SnsEnvelopeVerifier {
         try {
             cert = await this.fetchCert(envelope.SigningCertURL)
         } catch (error) {
+            // A 4xx is AWS's final answer about this URL; only a network error or a 5xx is worth a retry.
+            if (error instanceof SnsFetchError && error.status < 500) {
+                return false
+            }
             throw new SnsCertificateUnavailableError(String(error))
         }
         try {
