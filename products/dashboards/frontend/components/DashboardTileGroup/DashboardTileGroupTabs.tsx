@@ -1,4 +1,7 @@
+import { IconPlusSmall } from '@posthog/icons'
+
 import type { DashboardWidgetPlacementDestination } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenu'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -26,6 +29,7 @@ interface DashboardTileGroupTabsProps {
     onChangeGroupDisplay?: (groupDisplay: TileGroupDisplay) => void
     getAddTileOptions?: (groupKey: string) => DashboardTileGroupMenuActions['addTileOptions']
     getEmptyGroupAddAction?: (groupKey: string) => React.ReactNode
+    onAddGroup?: () => void
     children: React.ReactNode
 }
 
@@ -43,6 +47,7 @@ export function DashboardTileGroupTabs({
     onChangeGroupDisplay,
     getEmptyGroupAddAction,
     getAddTileOptions,
+    onAddGroup,
     children,
 }: DashboardTileGroupTabsProps): JSX.Element {
     const activeSection = sections.find((section) => section.key === activeSectionKey)
@@ -110,6 +115,17 @@ export function DashboardTileGroupTabs({
                 }))}
                 rightSlotClassName="pr-0"
                 trackTabSizes
+                afterTabsSlot={
+                    onAddGroup && (
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconPlusSmall />}
+                            tooltip="New tab"
+                            onClick={onAddGroup}
+                            data-attr="dashboard-tile-group-tabs-add"
+                        />
+                    )
+                }
                 rightSlot={
                     hasTileGroupMenuActions(activeMenuActions) && <DashboardTileGroupMenu {...activeMenuActions} />
                 }

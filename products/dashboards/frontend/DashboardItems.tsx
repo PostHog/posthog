@@ -7,12 +7,15 @@ import { GridLayout, Responsive as ReactGridLayout } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 import { type PositionStrategy, setTransform } from 'react-grid-layout/core'
 
+import { IconPlusSmall } from '@posthog/icons'
+
 import 'scenes/dashboard/DashboardItems.scss'
 import { ApiError } from 'lib/api'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { reportDashboardTileRepositioned } from 'scenes/dashboard/dashboardEvents'
@@ -167,6 +170,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         openButtonTileModal,
         setAddWidgetModalOpen,
         removeTileGroup,
+        addTileGroup,
         setDashboardEditing,
         toggleTileGroup,
         selectTileGroupTab,
@@ -309,6 +313,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             ? (groupKey: string) => <DashboardEmptyGroupAddButton groupKey={groupKey} />
             : undefined
     const onRemoveTileGroup = canEditDashboard && isEditablePlacement && !layoutEditMode ? removeTileGroup : undefined
+    const onAddTileGroup =
+        canEditDashboard && isEditablePlacement && !layoutEditMode && tileGroupSectionsEnabled
+            ? () => addTileGroup()
+            : undefined
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
@@ -937,6 +945,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         onChangeGroupDisplay={onChangeGroupDisplay}
                         getAddTileOptions={getAddTileOptions}
                         getEmptyGroupAddAction={getEmptyGroupAddAction}
+                        onAddGroup={onAddTileGroup}
                     >
                         {renderSectionGrid(tileGroupSections[activeTabIndex], activeTabIndex)}
                     </DashboardTileGroupTabs>
@@ -947,6 +956,19 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     {tileGroupSections.map(renderSection)}
                     {showTakeOutDropZone && (
                         <TileGroupTakeOutDropZone isDropTarget={dropTargetKey === TAKE_OUT_DROP_ZONE_KEY} />
+                    )}
+                    {onAddTileGroup && (
+                        <div>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                onClick={onAddTileGroup}
+                                data-attr="dashboard-tile-group-sections-add"
+                            >
+                                Add group
+                            </LemonButton>
+                        </div>
                     )}
                 </div>
             )}

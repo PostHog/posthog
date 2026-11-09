@@ -45,6 +45,8 @@ export interface LemonTabsProps<T extends string | number> {
     /** Pass in JSX to be sticky to the right of the tabs. */
     rightSlot?: React.ReactNode
     rightSlotClassName?: string
+    /** Pass in JSX to sit right after the last tab, such as a button that adds a tab. */
+    afterTabsSlot?: React.ReactNode
     /** Keeps the underline in place when a tab label changes width, as in an in-place rename. */
     trackTabSizes?: boolean
 }
@@ -65,6 +67,7 @@ export function LemonTabs<T extends string | number>({
     sceneInset = false,
     rightSlot,
     rightSlotClassName,
+    afterTabsSlot,
     trackTabSizes = false,
 }: LemonTabsProps<T>): JSX.Element {
     /** Tabs with falsy entries filtered out. */
@@ -154,6 +157,7 @@ export function LemonTabs<T extends string | number>({
                             </Tooltip>
                         )
                     })}
+                    {afterTabsSlot && <div className="mb-[1px] flex shrink-0 items-center">{afterTabsSlot}</div>}
                 </div>
                 {rightSlot && (
                     <div
