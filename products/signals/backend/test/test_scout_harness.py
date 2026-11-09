@@ -9,10 +9,11 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 import time_machine
@@ -44,7 +45,13 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.daily_limit import DailyReportLimitGate
-from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportCheck,
+    SignalScoutConfig,
+    SignalScoutRun,
+    SignalSpend,
+)
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_metrics import (
@@ -112,6 +119,8 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
     run_signals_scout_activity,
     start_trial_signals_scout_run,
 )
+from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
+from products.signals.backend.trial.models import SignalTrialGrant
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.facade.agents import AgentTurnFailed, CustomPromptSandboxContext
 
@@ -2024,6 +2033,12 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     runtime_drift = outcome_case == "runtime_drift"
     final_metrics_failure = outcome_case == "final_metrics_failure"
     task_cancelled = outcome_case in {"task_cancelled_no_message", "task_cancelled_with_message"}
+    if outcome_case == "completed":
+        await database_sync_to_async(SignalTrialGrant.objects.for_team(ateam.id, canonical=True).create)(
+            team_id=ateam.id,
+            organization_id=ateam.organization_id,
+            claimed_by_id=atrial_operator.id,
+        )
     await database_sync_to_async(LLMSkill.objects.filter(pk=aerrors_skill.pk).update)(allowed_tools=["emit_report"])
     config = await database_sync_to_async(SignalScoutConfig.objects.create)(
         team=ateam,
@@ -2785,7 +2800,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort, expected_service_tier",
+    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort, expected_service_tier, grant_status",
     [
         # Gate resolved, no pin: the gate's triple reaches the sandbox as-is — the runtime (and
         # optional effort) travel with the model so the agent server can route it.
@@ -2795,6 +2810,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "@cf/zai-org/glm-5.2",
             "codex",
             "high",
+            None,
             None,
         ),
         # Gate resolved AND a fleet-wide pin present: the gate wins — a pin silently swallowing a
@@ -2806,6 +2822,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "codex",
             None,
             None,
+            None,
         ),
         # Gate unallocated remainder: falls through to the pin's whole triple (the fleet default).
         (
@@ -2815,9 +2832,10 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "codex",
             "high",
             None,
+            None,
         ),
         # Neither configured: agent-server default.
-        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None, None),
+        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None, None, None),
         # The tier travels with the model it was configured beside. A slice pinned to flex asks for
         # flex even when the pipeline pin names the same model untiered, so a same-model flex arm can
         # run against the remainder's standard queue. Dropping this leaves the arm on standard and the
@@ -2829,6 +2847,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "codex",
             "medium",
             "flex",
+            None,
         ),
         # The unallocated remainder runs the pin's model, so it takes the pin's tier with it.
         (
@@ -2838,6 +2857,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "codex",
             None,
             "flex",
+            None,
         ),
         # A slice with no tier of its own does NOT inherit the pin's: the pin's tier was paired with
         # the pin's model, and some models reject the field outright.
@@ -2846,6 +2866,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="priority"),
             "gpt-5.6-luna",
             "codex",
+            None,
             None,
             None,
         ),
@@ -2858,6 +2879,36 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "claude",
             None,
             None,
+            None,
+        ),
+        (
+            ScoutModel(
+                model="claude-opus-5", runtime_adapter="claude", reasoning_effort="high", service_tier="priority"
+            ),
+            AgentRuntime(runtime_adapter="claude", model="claude-opus-5", reasoning_effort="high"),
+            "gpt-6-luna",
+            "codex",
+            None,
+            None,
+            "active",
+        ),
+        (
+            ScoutModel(model="claude-opus-5", runtime_adapter="claude", reasoning_effort="high"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-6-sol"),
+            "claude-opus-5",
+            "claude",
+            "high",
+            None,
+            "exhausted",
+        ),
+        (
+            ScoutModel(model="claude-opus-5", runtime_adapter="claude", reasoning_effort="high"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-6-sol"),
+            "claude-opus-5",
+            "claude",
+            "high",
+            None,
+            "preserve_model",
         ),
     ],
 )
@@ -2870,6 +2921,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     expected_runtime_adapter,
     expected_reasoning_effort,
     expected_service_tier,
+    grant_status,
 ):
     # The `scouts-model-selection` gate is the per-run experiment layer and wins when it resolves a
     # model; the `signals-pipeline-models` pin is the default layer beneath it. Either way one
@@ -2877,6 +2929,27 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     # it: the selected slice's own tier, or the pin's when the pin's model runs, codex only.
     # The routed model must also ride on both lifecycle events (omitted on the default path), so
     # run outcomes are sliceable by model without joining through $ai_generation.
+    if grant_status is not None:
+        grant = await database_sync_to_async(SignalTrialGrant.objects.for_team(ateam.id, canonical=True).create)(
+            team_id=ateam.id,
+            organization_id=ateam.organization_id,
+            claimed_by_id=42,
+        )
+        if grant_status == "exhausted":
+            await database_sync_to_async(SignalSpend.objects.for_team(ateam.id, canonical=True).create)(
+                team=ateam,
+                kind=SignalSpend.Kind.AD_HOC,
+                signal_id=uuid4(),
+                trial_grant=grant,
+                spend=Decimal(grant.allowance_microusd) / 10_000,
+                finalized_at=timezone.now(),
+            )
+    if grant_status == "preserve_model":
+        aerrors_skill.metadata = {
+            "seeded_by": HARNESS_SEEDED_BY,
+            "canonical_hash": _compute_row_hash(aerrors_skill, []),
+        }
+        await database_sync_to_async(aerrors_skill.save)(update_fields=["metadata"])
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
@@ -2889,6 +2962,19 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     with (
         patch("products.signals.backend.github_optional.ResearchAccessPolicy.enabled", return_value=True),
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
+        patch(
+            "products.signals.backend.trial.billing.TrialBilling.status",
+            return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.canonical_scouts_preserving_trial_model",
+            return_value=frozenset({"signals-scout-errors"}),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.lazy_seed.canonical_skill_names",
+            return_value=frozenset({"signals-scout-errors"}),
+        ),
         patch(
             "products.signals.backend.scout_harness.runner.resolve_scout_model",
             return_value=resolved,
@@ -2976,6 +3062,10 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
         return session, result
 
     with (
+        patch(
+            "products.signals.backend.scout_harness.runner.trial_scout_runtime",
+            return_value=AgentRuntime(runtime_adapter="codex", model="gpt-6-luna"),
+        ),
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
         patch(
             "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
@@ -3235,6 +3325,58 @@ def _stubbed_spawn_dependencies():
         ),
     ):
         yield
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind", ["canonical", "edited", "ordinary"])
+async def test_scout_trial_funding_respects_system_exemption_before_run_creation(ateam, kind):
+    from products.signals.backend.models import SignalSpend
+    from products.signals.backend.trial.policy import TrialPolicy
+
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    skill_name = "signals-scout-errors" if kind == "ordinary" else "signals-scout-health-checks"
+
+    def prepare():
+        skill = LLMSkill.objects.create(
+            team=ateam, name=skill_name, description="Scout", body="scout", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        skill.metadata["canonical_hash"] = _compute_row_hash(skill, [])
+        if kind == "edited":
+            skill.body += " edited"
+        skill.save()
+        return TrialPolicy(ateam).claim(user_id=42)
+
+    async def start(*args, before_task_dispatch=None, **kwargs):
+        def create_session():
+            task = Task.objects.create(team=ateam, title="scout", origin_product=Task.OriginProduct.SIGNALS_SCOUT)
+            session = MagicMock()
+            session.task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+            session.end = AsyncMock()
+            result = MagicMock()
+            result.summary = "ok"
+            return session, result
+
+        session, result = await database_sync_to_async(create_session)()
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+        return session, result
+
+    with (
+        patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
+        patch("products.signals.backend.scout_harness.runner.sync_canonical_skills"),
+        _stubbed_spawn_dependencies(),
+    ):
+        grant = await database_sync_to_async(prepare)()
+        result = await arun_signals_scout(team_id=ateam.id, skill_name=skill_name)
+
+    assert result.task_run_id is not None
+    run = await TaskRun.objects.aget(id=result.task_run_id)
+    assert run.state["self_driving_funding"]["funding"] == ("existing" if kind == "canonical" else "trial")
+    receipt = await SignalSpend.objects.for_team(ateam.id, canonical=True).aget(task_run_id=run.id)
+    assert receipt.trial_grant_id == (None if kind == "canonical" else grant.id)
 
 
 @pytest.mark.asyncio

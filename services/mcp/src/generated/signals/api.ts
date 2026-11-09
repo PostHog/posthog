@@ -537,7 +537,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of your stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. It only reads the stored ranking and never starts a build. With no stored personal ranking, it is the recommended order."
+            "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order."
         ),
     source_id: zod
         .string()
@@ -5082,7 +5082,7 @@ export const SignalsScoutScratchpadRememberBody = () => zod
             .string()
             .max(signalsScoutScratchpadRememberBodyKeyMax)
             .describe(
-                "Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the \*stable identity\* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state\/cursors, use one fixed key and keep the timestamp in `content`."
+                "Short stable ID for what you're tracking, e.g. `noise:<fingerprint>`; max 300 chars, the note goes in `content`. Unique per team; re-using a key overwrites the entry. Never embed a date, timestamp, or run id (that mints a new row every run). For run state, use one fixed key and keep the timestamp in `content`."
             ),
         content: zod
             .string()

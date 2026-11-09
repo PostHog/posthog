@@ -11,6 +11,8 @@ export class KeySession {
     // PostHog also answers 401 for a valid token when the account can't act. Once a renewed token
     // gets 401 too, renewing again for every request would only rotate the login for nothing.
     private renewalHelps = true
+    // One renewal at a time, so concurrent requests share it instead of each renewing.
+    private renewal: Promise<AccessKey> | undefined
 
     constructor(
         private readonly runtime: Runtime,
@@ -23,9 +25,26 @@ export class KeySession {
         return this.key
     }
 
+    private async renew(storage: AccessKeyStorage, rejectedToken?: string): Promise<AccessKey> {
+        while (this.renewal) {
+            // A failed renewal fails its waiters too, so an outage costs one exchange and not one per request.
+            await this.renewal
+        }
+        if (rejectedToken !== undefined && this.key.token !== rejectedToken) {
+            return this.key
+        }
+        this.renewal = this.key
+            .fresh(this.runtime, storage, rejectedToken)
+            .then((key) => (this.key = key))
+            .finally(() => {
+                this.renewal = undefined
+            })
+        return this.renewal
+    }
+
     async token(): Promise<BearerToken> {
         if (this.storage) {
-            this.key = await this.key.fresh(this.runtime, this.storage)
+            await this.renew(this.storage)
         }
         return this.key.token
     }
@@ -52,12 +71,11 @@ export class KeySession {
         if (!rejected(result) || !this.storage || !this.renewalHelps) {
             return result
         }
-        const renewed = await this.key.fresh(this.runtime, this.storage, token)
+        const renewed = await this.renew(this.storage, token)
         // A personal API key can't be renewed, so its 401 stands.
         if (renewed.token === token) {
             return result
         }
-        this.key = renewed
         const retried = await attempt(renewed.token)
         this.renewalHelps = !rejected(retried)
         return retried

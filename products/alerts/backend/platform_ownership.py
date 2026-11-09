@@ -47,12 +47,27 @@ _EDITED_FIELDS = ("name", "source_config", "schedule_restriction")
 def on_created(alert: AlertConfiguration, at: datetime) -> bool:
     """Hands a new alert, locked by the caller, to the platform when its team has begun the cutover,
     so the team never has to be cut over again for it. False when the alert stays with insight."""
-    return (
-        not in_an_environment(alert)
-        and can_move(alert)
-        and has_begun_cutover(alert.team_id)
-        and delivers_as_it_does_today(alert)
-        and hand_over(alert, at)
+    return platform_takes_new_alert(alert) and delivers_as_it_does_today(alert) and hand_over(alert, at)
+
+
+def platform_takes_new_alert(alert: AlertConfiguration) -> bool:
+    """Whether `on_created` hands an alert like this one to the platform. The alert may be unsaved.
+
+    A new alert has no destinations yet, so it always delivers as it does today.
+    """
+    return not in_an_environment(alert) and can_move(alert) and has_begun_cutover(alert.team_id)
+
+
+def platform_takes_new_alert_with(
+    *, team_id: int, calculation_interval: str, investigation_agent_enabled: bool
+) -> bool:
+    """Whether `on_created` hands a new alert with these settings to the platform."""
+    return platform_takes_new_alert(
+        AlertConfiguration(
+            team_id=team_id,
+            calculation_interval=calculation_interval,
+            investigation_agent_enabled=investigation_agent_enabled,
+        )
     )
 
 

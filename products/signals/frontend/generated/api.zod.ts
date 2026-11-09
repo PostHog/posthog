@@ -4416,7 +4416,7 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .string()
             .max(signalsScoutScratchpadRememberBodyKeyMax)
             .describe(
-                "Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the \*stable identity\* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state\/cursors, use one fixed key and keep the timestamp in `content`."
+                "Short stable ID for what you're tracking, e.g. `noise:<fingerprint>`; max 300 chars, the note goes in `content`. Unique per team; re-using a key overwrites the entry. Never embed a date, timestamp, or run id (that mints a new row every run). For run state, use one fixed key and keep the timestamp in `content`."
             ),
         content: zod
             .string()
@@ -4955,6 +4955,31 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
         .describe(
             'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
         ),
+})
+
+/**
+ * Check allow and block patterns for the product analytics source before saving them. Returns why each list would be rejected, and what the patterns do to the project's enabled alerts: which ones they let through and which ones they drop. Saves nothing.
+ * @summary Preview product analytics alert patterns
+ */
+export const signalsSourceConfigsAlertPatternPreviewCreateBodyAlertAllowPatternsItemMax = 1000
+
+export const signalsSourceConfigsAlertPatternPreviewCreateBodyAlertAllowPatternsMax = 100
+
+export const signalsSourceConfigsAlertPatternPreviewCreateBodyAlertBlockPatternsItemMax = 1000
+
+export const signalsSourceConfigsAlertPatternPreviewCreateBodyAlertBlockPatternsMax = 100
+
+export const SignalsSourceConfigsAlertPatternPreviewCreateBody = /* @__PURE__ */ zod.object({
+    alert_allow_patterns: zod
+        .array(zod.string().max(signalsSourceConfigsAlertPatternPreviewCreateBodyAlertAllowPatternsItemMax))
+        .max(signalsSourceConfigsAlertPatternPreviewCreateBodyAlertAllowPatternsMax)
+        .optional()
+        .describe('Allow patterns to try, as they would be saved in `config.alert_allow_patterns`.'),
+    alert_block_patterns: zod
+        .array(zod.string().max(signalsSourceConfigsAlertPatternPreviewCreateBodyAlertBlockPatternsItemMax))
+        .max(signalsSourceConfigsAlertPatternPreviewCreateBodyAlertBlockPatternsMax)
+        .optional()
+        .describe('Block patterns to try, as they would be saved in `config.alert_block_patterns`.'),
 })
 
 /**

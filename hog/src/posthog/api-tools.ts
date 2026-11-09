@@ -14,7 +14,7 @@ import { VERSION } from '@/version'
 import { ApiError, stepUpRequired } from './api'
 import type { Credentials } from './credentials'
 import type { OrganizationId, ProjectId } from './ids'
-import { addToKeyHint, canStepUp, isScopeName } from './scope-challenge'
+import { addToKeyHint, canStepUp, isScopeName, workloadScopesHint } from './scope-challenge'
 
 export interface ToolGroup {
     slug: string
@@ -143,6 +143,9 @@ export function missingScopesError(
     credentials: Credentials | undefined
 ): HogError {
     const message = `Your credentials need ${scopes.join(', ')} to call ${tool}.`
+    if (credentials?.source === 'workload') {
+        return new HogError('missing_scopes', message, workloadScopesHint(scopes))
+    }
     const loginCanAdd = canStepUp(credentials)
     if (loginCanAdd && scopes.every(isScopeName)) {
         return stepUpRequired(scopes, { message, host: credentials?.key.host })

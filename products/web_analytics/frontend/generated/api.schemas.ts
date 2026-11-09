@@ -7,6 +7,117 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `own` - Own
+ * * `competitor` - Competitor
+ * * `publisher` - Publisher
+ * * `unknown` - Unknown
+ */
+export type BrandKindEnumApi = (typeof BrandKindEnumApi)[keyof typeof BrandKindEnumApi]
+
+export const BrandKindEnumApi = {
+    Own: 'own',
+    Competitor: 'competitor',
+    Publisher: 'publisher',
+    Unknown: 'unknown',
+} as const
+
+/**
+ * * `suggested` - Suggested
+ * * `confirmed` - Confirmed
+ * * `ignored` - Ignored
+ */
+export type BrandStatusEnumApi = (typeof BrandStatusEnumApi)[keyof typeof BrandStatusEnumApi]
+
+export const BrandStatusEnumApi = {
+    Suggested: 'suggested',
+    Confirmed: 'confirmed',
+    Ignored: 'ignored',
+} as const
+
+/**
+ * * `citations` - Citations
+ * * `manual` - Manual
+ */
+export type BrandSourceEnumApi = (typeof BrandSourceEnumApi)[keyof typeof BrandSourceEnumApi]
+
+export const BrandSourceEnumApi = {
+    Citations: 'citations',
+    Manual: 'manual',
+} as const
+
+export interface AEOBrandApi {
+    /** Brand id. */
+    id: string
+    /** Brand name as people say it. Starts as a guess from the domain until someone edits it. */
+    name: string
+    /** Registrable domain, for example 'amplitude.com'. Citations on its subdomains count for the brand. */
+    domain: string
+    /** What the brand is to the project: 'own' (the project's site), 'competitor', 'publisher' (a review, community or media site) or 'unknown' (not labeled yet).
+     *
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown */
+    kind: BrandKindEnumApi
+    /** 'suggested' (added from citations, not reviewed), 'confirmed' or 'ignored'. Only people change it.
+     *
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored */
+    status: BrandStatusEnumApi
+    /** How the brand entered the catalog: 'citations' or 'manual'.
+     *
+     * * `citations` - Citations
+     * * `manual` - Manual */
+    source: BrandSourceEnumApi
+    /** Other names for the brand, used to find it in answer text. */
+    aliases: string[]
+    /** When the brand entered the catalog. */
+    created_at: string
+    /**
+     * When a person last changed the brand.
+     * @nullable
+     */
+    updated_at: string | null
+}
+
+export interface PaginatedAEOBrandListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AEOBrandApi[]
+}
+
+export interface PatchedAEOBrandUpdateRequestApi {
+    /**
+     * Brand name as people say it.
+     * @maxLength 200
+     */
+    name?: string
+    /** What the brand is to the project: 'own', 'competitor', 'publisher' or 'unknown'.
+     *
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown */
+    kind?: BrandKindEnumApi
+    /** 'confirmed' to accept the brand, 'ignored' to hide it, 'suggested' to put it back for review.
+     *
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored */
+    status?: BrandStatusEnumApi
+    /**
+     * Replaces the brand's other names. Names are trimmed, and repeated names are dropped.
+     * @maxItems 20
+     * @items.maxLength 200
+     */
+    aliases?: string[]
+}
+
 export interface AEOPromptEngineCheckApi {
     /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
     engine: string
@@ -19,6 +130,8 @@ export interface AEOPromptEngineCheckApi {
      * @nullable
      */
     target_best_position: number | null
+    /** The web searches the engine ran while answering, in the order it ran them. Empty when it ran none or the check failed. */
+    search_queries: string[]
     /** When the check ran. */
     checked_at: string
 }
@@ -460,6 +573,28 @@ export interface AEOPromptSetDomainApi {
     is_target: boolean
 }
 
+export interface AEOPromptSetSearchPromptApi {
+    /** The prompt id (a UUID). */
+    id: string
+    /** The prompt's current text. */
+    text: string
+}
+
+export interface AEOPromptSetSearchApi {
+    /** Up to 5 prompts whose answers ran this search, the ones that ran it most first. */
+    top_prompts: AEOPromptSetSearchPromptApi[]
+    /** The web search an engine ran while answering, lowercased with whitespace collapsed. */
+    query: string
+    /** Distinct prompts whose answers ran this search in the window. */
+    prompts: number
+    /** Answered checks in the window that ran this search. */
+    answers: number
+    /** Of those answers, how many cited a URL on the project's target domains. */
+    cited: number
+    /** Answer engines that ran this search, ordered by engine. */
+    engines: string[]
+}
+
 export interface AEOPromptSetOverviewApi {
     /** Checks across the prompt set in the last 'days' days. */
     current: AEOPromptSetCountsApi
@@ -471,6 +606,8 @@ export interface AEOPromptSetOverviewApi {
     topics: AEOPromptSetTopicCountsApi[]
     /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
     top_domains: AEOPromptSetDomainApi[]
+    /** The 20 web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project. */
+    top_searches: AEOPromptSetSearchApi[]
     /** Length of each window in days. */
     days: number
     /** First day of the current window, in the project's timezone. */
@@ -483,6 +620,91 @@ export interface AEOPromptSetOverviewApi {
     target_domains: string[]
     /** Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention. */
     brand_names: string[]
+}
+
+export interface AEORankedBrandApi {
+    /** Registrable domain of the brand, for example 'example.com'. */
+    domain: string
+    /** The word an answer must contain to count as naming the brand. For the project's own brand, a comma-separated list where any name counts. */
+    name: string
+    /** Whether this is the project's own brand. The others are competitors. */
+    is_target: boolean
+    /** Answered checks in the current window that named the brand or cited its domain: the numerator of 'visibility'. */
+    answers_mentioning: number
+    /**
+     * Share (0-1) of answered checks in the current window that named the brand or cited its domain. Null without answers.
+     * @nullable
+     */
+    visibility: number | null
+    /**
+     * The same share for the window before. Null without answers.
+     * @nullable
+     */
+    previous_visibility: number | null
+    /**
+     * For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored.
+     * @nullable
+     */
+    positive_share: number | null
+}
+
+export interface AEORankedBrandDayApi {
+    /** Day, in the project's timezone. */
+    date: string
+    /** The brand's registrable domain, matching a row in 'brands'. */
+    domain: string
+    /** Answered checks that day. */
+    answers: number
+    /**
+     * Share (0-1) of that day's answers that named the brand or cited its domain.
+     * @nullable
+     */
+    visibility: number | null
+}
+
+export interface AEORankedDomainApi {
+    /** Registrable domain of the cited URLs, for example 'example.com'. */
+    domain: string
+    /** Answered checks in the window that cited a URL on this domain. */
+    answers: number
+    /** Share (0-1) of answered checks in the window that cited the domain. */
+    share_of_answers: number
+    /** Distinct URLs on this domain cited in the window. */
+    urls: number
+    /** Whether the domain is the project's own site. */
+    is_target: boolean
+    /** Whether the domain is one of the competitors in 'brands'. */
+    is_competitor: boolean
+}
+
+export interface AEORankedPageApi {
+    /** The cited URL, as the engine returned it. */
+    url: string
+    /** Answered checks in the window that cited this URL. */
+    answers: number
+    /** Share (0-1) of answered checks in the window that cited the URL. */
+    share_of_answers: number
+    /** Whether the URL is on the project's own site. */
+    is_target: boolean
+}
+
+export interface AEOPromptSetRankingsApi {
+    /** The project's brand and up to 10 competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks. A competitor counts as named when its domain's name appears as a word, so a common-word name can over-count. */
+    brands: AEORankedBrandApi[]
+    /** Visibility per brand and day in the current window, ordered by day then domain. */
+    daily: AEORankedBrandDayApi[]
+    /** The 20 registrable domains the engines cited most in the window, most cited first. */
+    top_domains: AEORankedDomainApi[]
+    /** The 20 pages the engines cited most in the window, most cited first. */
+    top_pages: AEORankedPageApi[]
+    /** Length of each window in days. */
+    days: number
+    /** First day of the current window, in the project's timezone. */
+    window_from: string
+    /** Last day of the current window (today), in the project's timezone. */
+    window_to: string
+    /** Answered checks in the current window: the denominator of every share. */
+    answers: number
 }
 
 export interface AEOPromptSuggestRequestApi {
@@ -2251,6 +2473,54 @@ export interface GeneratePathCleaningSuggestionResponseApi {
     suggestion?: PathCleaningSuggestionIssueApi | null
 }
 
+export type AeoBrandsListParams = {
+    /**
+     * Only list brands of this kind.
+     *
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown
+     * @minLength 1
+     */
+    kind?: AeoBrandsListKind
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only list brands with this review status.
+     *
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored
+     * @minLength 1
+     */
+    status?: AeoBrandsListStatus
+}
+
+export type AeoBrandsListKind = (typeof AeoBrandsListKind)[keyof typeof AeoBrandsListKind]
+
+export const AeoBrandsListKind = {
+    Own: 'own',
+    Competitor: 'competitor',
+    Publisher: 'publisher',
+    Unknown: 'unknown',
+} as const
+
+export type AeoBrandsListStatus = (typeof AeoBrandsListStatus)[keyof typeof AeoBrandsListStatus]
+
+export const AeoBrandsListStatus = {
+    Suggested: 'suggested',
+    Confirmed: 'confirmed',
+    Ignored: 'ignored',
+} as const
+
 export type AeoPromptsListParams = {
     /**
      * Only list prompts that are on (true) or off (false). Omit to list both.
@@ -2313,6 +2583,15 @@ export type AeoPromptsChecksParams = {
 }
 
 export type AeoPromptsOverviewParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
+}
+
+export type AeoPromptsRankingsParams = {
     /**
      * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
      * @minimum 1

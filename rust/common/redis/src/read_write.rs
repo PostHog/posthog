@@ -499,6 +499,24 @@ impl Client for ReadWriteClient {
         }
     }
 
+    async fn get_multiple(
+        &self,
+        keys: Vec<String>,
+    ) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
+        match self.reader.get_multiple(keys.clone()).await {
+            Ok(value) => Ok(value),
+            Err(err) if !err.is_unrecoverable_error() => {
+                warn!(
+                    "Replica get_multiple failed for {} keys, falling back to primary: {}",
+                    keys.len(),
+                    err
+                );
+                self.writer.get_multiple(keys).await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {
         match self.reader.scard_multiple(keys.clone()).await {
             Ok(value) => Ok(value),

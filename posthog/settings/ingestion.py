@@ -80,6 +80,19 @@ OTEL_METRICS_EXPORT_INTERVAL_MS = get_from_env("OTEL_METRICS_EXPORT_INTERVAL_MS"
 # the result lands in that team's metrics. Empty = recording rules are not evaluated.
 METRICS_RECORDING_RULES_INGEST_URL = os.getenv("METRICS_RECORDING_RULES_INGEST_URL", "")
 
+# The names and defaults match the Node producer (nodejs/src/logs/config.ts), so one env set configures both runtimes.
+LOGS_INTERNAL_PRODUCER_URL = os.getenv("LOGS_INTERNAL_PRODUCER_URL", "")
+LOGS_INTERNAL_INGESTION_SIGNING_KEYS = os.getenv("LOGS_INTERNAL_INGESTION_SIGNING_KEYS", "")
+LOGS_INTERNAL_PRODUCER_TEAMS = os.getenv("LOGS_INTERNAL_PRODUCER_TEAMS", "")
+LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT = get_from_env("LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT", type_cast=int, default=20)
+LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES = get_from_env(
+    "LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES", type_cast=int, default=64 * 1024 * 1024
+)
+# The librdkafka default message.timeout.ms, so a record retries as long as the log_entries Kafka write it runs beside.
+LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS = get_from_env(
+    "LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS", type_cast=int, default=300_000
+)
+
 # Thread-pool size for capture_internal batch chunk fan-out (default 8, was per-event fan-out pre-v1).
 CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=8)
 

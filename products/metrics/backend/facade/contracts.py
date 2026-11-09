@@ -76,6 +76,18 @@ METRICS_RECORDING_RULES_FEATURE_FLAG = "metrics-recording-rules"
 # Each rule runs one PromQL query a minute, one after another inside the team's evaluation budget.
 MAX_RECORDING_RULES_PER_TEAM = 20
 
+# Gates the metrics that the query computes from spans and logs, on top of METRICS_FEATURE_FLAG.
+METRICS_DERIVED_SERIES_FEATURE_FLAG = "metrics-derived-series"
+
+# Names under this prefix are computed from spans and logs at query time, never ingested.
+# Other products must not let users create metrics with this prefix.
+DERIVED_METRIC_PREFIX = "posthog.derived."
+
+# Labels an async MetricsQuery status with each source a derived metric reads, so retrieval can check access.
+# Stable wire identifier shared by query-status producers and readers. Renaming requires
+# a dual-read rollout and a drain of in-flight query statuses.
+DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX = "metrics-derived-source:"
+
 
 @dataclass(frozen=True, slots=True)
 class MetricFilter:

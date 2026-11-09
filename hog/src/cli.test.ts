@@ -101,6 +101,7 @@ describe('hog', () => {
             'auth logout',
             'auth migrate',
             'auth status',
+            'ci setup',
             'query run',
             'query check',
             'query editor',
