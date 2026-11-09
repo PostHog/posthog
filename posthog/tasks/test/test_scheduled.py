@@ -2,6 +2,7 @@ from unittest.mock import MagicMock
 
 from django.test import SimpleTestCase
 
+from celery.schedules import crontab
 from parameterized import parameterized
 
 from posthog.celery import app
@@ -18,6 +19,20 @@ class TestScheduledTasks(SimpleTestCase):
             setup_periodic_tasks(app)
         except Exception as exc:
             assert exc is None, exc
+
+
+class TestCrontabSchedules(SimpleTestCase):
+    @parameterized.expand([("cloud", "US"), ("hobby", None)])
+    def test_a_schedule_limited_to_some_hours_also_sets_a_minute(self, _name: str, deployment: str | None) -> None:
+        sender = MagicMock()
+        with self.settings(CLOUD_DEPLOYMENT=deployment, DEBUG=False):
+            setup_periodic_tasks(sender)
+        every_minute_of_some_hours = [
+            call.kwargs.get("name")
+            for call in sender.add_periodic_task.call_args_list
+            if isinstance(call.args[0], crontab) and len(call.args[0].hour) < 24 and len(call.args[0].minute) == 60
+        ]
+        self.assertEqual(every_minute_of_some_hours, [])
 
 
 class TestPrivacyTaskScheduling(SimpleTestCase):
