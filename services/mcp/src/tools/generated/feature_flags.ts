@@ -1201,6 +1201,82 @@ const updateFeatureFlag = (): ToolBase<
     ),
 })
 
+const FeatureFlagGetVersionSchema = () => {
+    const FeatureFlagsVersionsRetrieveParams = orvalSchemas.FeatureFlagsVersionsRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsVersionsRetrieveParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, FeatureFlagsVersionsRetrieveParams.shape['id']),
+        })
+    )
+}
+
+const featureFlagGetVersion = (): ToolBase<
+    ReturnType<typeof FeatureFlagGetVersionSchema>,
+    Schemas.FeatureFlagVersionResponse
+> => ({
+    name: 'feature-flag-get-version',
+    schema: FeatureFlagGetVersionSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagGetVersionSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlagVersionResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/versions/${encodeURIComponent(String(params.version_number))}/`,
+        })
+        return result
+    },
+})
+
+const FeatureFlagRestoreVersionSchema = () => {
+    const FeatureFlagsVersionsRestoreCreateBody = orvalSchemas.FeatureFlagsVersionsRestoreCreateBody()
+    const FeatureFlagsVersionsRestoreCreateParams = orvalSchemas.FeatureFlagsVersionsRestoreCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsVersionsRestoreCreateParams.omit({ project_id: true })
+            .extend(FeatureFlagsVersionsRestoreCreateBody.shape)
+            .extend({ id: z.preprocess(castStringToInt, FeatureFlagsVersionsRestoreCreateParams.shape['id']) })
+    )
+}
+
+const featureFlagRestoreVersion = (): ToolBase<
+    ReturnType<typeof FeatureFlagRestoreVersionSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
+    name: 'feature-flag-restore-version',
+    schema: FeatureFlagRestoreVersionSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagRestoreVersionSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ask_rollback_reason !== undefined) {
+            body['ask_rollback_reason'] = params.ask_rollback_reason
+        }
+        if (params.rollback_reason !== undefined) {
+            body['rollback_reason'] = params.rollback_reason
+        }
+        if (params.rollback_reason_note !== undefined) {
+            body['rollback_reason_note'] = params.rollback_reason_note
+        }
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/versions/${encodeURIComponent(String(params.version_number))}/restore/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'name',
+            'active',
+            'archived',
+            'filters',
+            'version',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'create-feature-flag': createFeatureFlag,
     'delete-feature-flag': deleteFeatureFlag,
@@ -1232,4 +1308,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scheduled-changes-list': scheduledChangesList,
     'scheduled-changes-update': scheduledChangesUpdate,
     'update-feature-flag': updateFeatureFlag,
+    'feature-flag-get-version': featureFlagGetVersion,
+    'feature-flag-restore-version': featureFlagRestoreVersion,
 }

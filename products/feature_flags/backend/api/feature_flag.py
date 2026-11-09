@@ -3716,6 +3716,7 @@ class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
             "filters",
             "active",
             "deleted",
+            "archived",
             "version",
             "ensure_experience_continuity",
             "has_enriched_analytics",
@@ -4135,6 +4136,18 @@ class FeatureFlagSetActiveRequestSerializer(serializers.Serializer):
             "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is "
             "2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after "
             "that version. Null is the same as leaving it out."
+        ),
+    )
+
+
+class FeatureFlagRestoreVersionRequestSerializer(FeatureFlagRollbackReasonSerializer):
+    version = serializers.IntegerField(
+        min_value=0,
+        allow_null=True,
+        help_text=(
+            "The flag's current `version`, from your most recent read of it. This is not the version to restore, "
+            "which goes in the URL. The restore is refused with 409 if anyone changed the flag after this version. "
+            "A flag written before versioning reads as `null`; send that back unchanged and it is read as 0."
         ),
     )
 
@@ -5058,6 +5071,75 @@ class FeatureFlagViewSet(
             )
 
         return Response(FeatureFlagVersionResponseSerializer(instance=result).data)
+
+    @validated_request(
+        FeatureFlagRestoreVersionRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                "version_number",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                required=True,
+                description="The past version to restore.",
+            ),
+        ],
+        responses={
+            **flag_lifecycle_responses(
+                "The flag is archived, has encrypted payloads, or uses a configuration format other than 1, or the "
+                "past version no longer passes validation, for example because it targets a deleted cohort.",
+                version_precondition=True,
+            ),
+            404: OpenApiResponse(description="Version not found."),
+            422: OpenApiResponse(description="Activity log incomplete; cannot reconstruct this version."),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path=r"versions/(?P<version_number>[0-9]+)/restore",
+        required_scopes=["feature_flag:write"],
+    )
+    def restore_version(self, request: ValidatedRequest, version_number: str, **kwargs) -> Response:
+        """
+        Restore a past version of a feature flag.
+
+        Sets the flag's release conditions, variants, payloads, name and evaluation options back to
+        what they were at `version_number`. Read that version first with the versions endpoint to see
+        what will change. The flag's key, its enabled state, and its archived state stay as they are,
+        as do tags, evaluation contexts and the cohorts it targets. The restore is saved as a new
+        version, so it can be undone by restoring the version before it.
+
+        Send the flag's current `version`. A change after that version is refused with 409. An
+        approval policy that gates the change opens a change request instead. A restore to a version
+        that matches the current configuration writes nothing and returns the flag.
+        """
+        from products.feature_flags.backend.facade.api import restore_flag_version
+
+        feature_flag: FeatureFlag = self.get_object()
+        rejection = self._deleted_flag_rejection(feature_flag, "restoring a past version")
+        if rejection is not None:
+            return rejection
+        version = request.validated_data["version"] or 0
+        # Runs before the approval gate so a stale caller never opens a change request for a
+        # write the serializer would then refuse under its row lock.
+        self._version_precondition(feature_flag, version)
+        rollback_fields = {
+            field: request.validated_data[field] for field in ROLLBACK_REASON_FIELDS if field in request.validated_data
+        }
+        try:
+            restored = restore_flag_version(
+                feature_flag,
+                int(version_number),
+                team=self.team,
+                user=request.user,
+                request=FlagVersionCheckedWriteRequest(request, version=version),
+                extra_data=rollback_fields,
+            )
+        except VersionNotFound as e:
+            return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except VersionHistoryIncomplete as e:
+            return Response({"detail": str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        return self._lifecycle_response(restored)
 
     @validated_request(
         query_serializer=MyFlagsQuerySerializer,

@@ -34,6 +34,23 @@ def _get_reconstructable_fields() -> frozenset[str]:
 
 RECONSTRUCTABLE_FIELDS = _get_reconstructable_fields()
 
+# Fields a restore writes back from a past version. Every other reconstructed field stays as it is now:
+# `active` because turning a flag on or off is its own action, `key` because SDKs and code call the
+# flag by it and the old key may belong to another flag by now, `deleted` and `archived` because they
+# have their own lifecycle actions, `has_encrypted_payloads` because the log holds ciphertext, and
+# `version` and `last_called_at` because they are bookkeeping, not configuration.
+RESTORABLE_FIELDS = frozenset(
+    {
+        "filters",
+        "name",
+        "ensure_experience_continuity",
+        "bucketing_identifier",
+        "evaluation_runtime",
+        "is_remote_configuration",
+        "has_enriched_analytics",
+    }
+)
+
 # Safety cap on the number of activity log entries scanned when walking backwards.
 # In normal use we stop early once we reach the target version; this bound protects
 # against unbounded scans if the activity log is malformed or much larger than expected.
@@ -283,3 +300,13 @@ def reconstruct_flag_at_timestamp(
 
     # Use the existing reconstruction logic
     return reconstruct_flag_at_version(flag, target_version, team_id)
+
+
+def restore_payload(flag: FeatureFlag, reconstructed: dict[str, Any]) -> dict[str, Any]:
+    """The restorable fields of a reconstructed version that differ from the flag as it is now."""
+    current = _extract_tracked_fields(flag)
+    return {
+        field: reconstructed[field]
+        for field in sorted(RESTORABLE_FIELDS)
+        if field in reconstructed and reconstructed[field] != current.get(field)
+    }
