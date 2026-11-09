@@ -56,24 +56,23 @@ def test_rejects_sources_that_cannot_load(source: str) -> None:
         load_recipe_yaml(source)
 
 
-def test_a_duplicate_key_error_does_not_render_aliased_values() -> None:
-    lines = ["a0: &a0 [x, x]"] + [f"a{i}: &a{i} [*a{i - 1}, *a{i - 1}]" for i in range(1, 16)]
-    source = "\n".join(lines) + "\nd: {k: *a15, k: *a15}\n"
-    with pytest.raises(RecipeCompileError, match='duplicate key "k"') as error:
-        load_recipe_yaml(source)
-    assert len(str(error.value)) < 1_000
-
-
 @pytest.mark.parametrize(
-    "source, expected",
+    "source",
     [
-        ("a: &x {b: 1}\nc:\n  <<: *x\n", {"a": {"b": 1}, "c": {"<<": {"b": 1}}}),
-        ("c:\n  <<: {a: 1}\n  b: 2\n", {"c": {"<<": {"a": 1}, "b": 2}}),
+        "a: &x 1\n",
+        "a: &x 1\nb: *x\n",
+        "a: &x {b: 1}\nc:\n  <<: *x\n",
+        "a0: &a0 [x, x]\n" + "".join(f"a{i}: &a{i} [*a{i - 1}, *a{i - 1}]\n" for i in range(1, 30)),
     ],
-    ids=["alias", "inline mapping"],
+    ids=["anchor", "alias", "merge key alias", "doubling aliases"],
 )
-def test_merge_key_stays_a_plain_key(source: str, expected: object) -> None:
-    assert load_recipe_yaml(source) == expected
+def test_rejects_anchors_and_aliases(source: str) -> None:
+    with pytest.raises(RecipeCompileError, match="anchors .* or aliases"):
+        load_recipe_yaml(source)
+
+
+def test_merge_key_stays_a_plain_key() -> None:
+    assert load_recipe_yaml("c:\n  <<: {a: 1}\n  b: 2\n") == {"c": {"<<": {"a": 1}, "b": 2}}
 
 
 @pytest.mark.parametrize(

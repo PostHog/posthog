@@ -1,5 +1,3 @@
-import time
-
 import pytest
 
 from parameterized import parameterized
@@ -103,11 +101,6 @@ def test_non_ascii_path_names_compile_like_javascript() -> None:
             "Unknown emit key 'colour'",
         ),
         ("a bad type name", {"id": "t", "rules": [{"on": {"f": {"is": "text"}}, "emit": {}}]}, "'is:' must be a type"),
-        (
-            "a YAML !!pairs literal",
-            {"id": "t", "rules": [{"on": {}, "emit": {"content": {"literal": [("k", "v")]}}}]},
-            "unsupported YAML collection 'tuple'",
-        ),
     ]
 )
 def test_rejects_invalid_recipes(_name: str, raw: object, message: str) -> None:
@@ -118,45 +111,6 @@ def test_rejects_invalid_recipes(_name: str, raw: object, message: str) -> None:
 def test_prefixes_rule_errors_with_the_recipe_and_rule() -> None:
     with pytest.raises(RecipeCompileError, match=r"^Recipe 't' rule\[1\]: "):
         compile_recipe({"id": "t", "rules": [{"on": {}, "emit": {}}, {"on": "nope", "emit": {}}]})
-
-
-def doubling_aliases(emit: str) -> str:
-    lines = ["a0: &a0 [x, x]"] + [f"a{i}: &a{i} [*a{i - 1}, *a{i - 1}]" for i in range(1, 30)]
-    return "\n".join(lines) + f"\nrules:\n  - on: {{}}\n    emit: {{{emit}}}\n"
-
-
-def repeated(alias: str, times: int) -> str:
-    return "[" + ", ".join([f"*{alias}"] * times) + "]"
-
-
-def aliased_content(text: str, times: int) -> str:
-    return f"s: &s '{text}'\nrules:\n  - on: {{}}\n    emit: {{content: {repeated('s', times)}}}\n"
-
-
-@parameterized.expand(
-    [
-        ("a compiled value", doubling_aliases("content: *a29")),
-        ("a literal payload", doubling_aliases("content: {literal: *a29}")),
-        (
-            "followups that compile no value",
-            f"f: &f {{role: user}}\nfs: &fs {repeated('f', 400)}\n"
-            f"r: &r {{on: {{}}, emit: {{}}, followups: *fs}}\nrules: {repeated('r', 400)}\n",
-        ),
-        ("interpolated paths", aliased_content(" ".join(["$.a"] * 1_000), 201)),
-        ("path segments", aliased_content("$." + ".".join(["a"] * 6_000), 600)),
-        ("interpolated text", aliased_content("x" * 50_000 + " $.a", 201)),
-        (
-            "type names",
-            f"s: &s string\nt: &t {repeated('s', 1_000)}\n"
-            f"r: &r {{on: {{f: {{is: *t}}}}, emit: {{}}}}\nrules: {repeated('r', 600)}\n",
-        ),
-    ]
-)
-def test_rejects_an_alias_bomb_quickly(_name: str, source: str) -> None:
-    started = time.monotonic()
-    with pytest.raises(RecipeCompileError, match="compiles to more than"):
-        compile_recipe(load_recipe_yaml(source), "bomb")
-    assert time.monotonic() - started < 1
 
 
 @parameterized.expand([("selct", "select"), ("joins", "join"), ("omat", "omit")])
