@@ -40,8 +40,8 @@ def is_unowned_test(resolver: OwnersResolver, path: str) -> bool:
 
 
 def unowned_test_directories(resolver: OwnersResolver, paths: Iterable[str]) -> set[str]:
-    """Directories rather than files, so adding or removing a file in a listed directory leaves the
-    baseline unchanged."""
+    """Returns directories, not files, so that adding or removing a file in a listed directory does not
+    change the baseline."""
     return {str(PurePosixPath(path).parent) for path in paths if is_unowned_test(resolver, path)}
 
 

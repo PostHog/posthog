@@ -1653,10 +1653,6 @@ jobs:
             - name: Check for new files under ee/
               if: github.event_name == 'pull_request'
               run: python .github/scripts/check-no-new-ee-files.py --against HEAD^1 --committed
-            # The repo invariant compares directories with a baseline, so it passes a new unowned test
-            # inside a directory that the baseline lists. This step checks each new test file.
-            # continue-on-error keeps it from failing the job, so a branch opened before this check can
-            # add its owners first. The command writes its findings to the step summary.
             - name: Check that new test files have a team owner
               if: github.event_name == 'pull_request'
               continue-on-error: true

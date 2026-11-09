@@ -1,8 +1,4 @@
-"""Find tests that no team owns: new test files, and directories missing from the baseline.
-
-The CI gates (test_unowned_test_directories.py and `hogli lint:test-owners`) and the `test-owners`
-preflight check use it.
-"""
+"""Find tests that no team owns: new test files, and directories missing from the baseline."""
 
 from __future__ import annotations
 
