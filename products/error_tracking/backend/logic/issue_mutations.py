@@ -692,6 +692,8 @@ def assign_issue_automatically(team_id: int, issue_id: UUID | str, decision: "De
     if candidate.assignee.type != "user":
         return _counted(AutoAssignmentOutcome.ROLE_SKIPPED)
     user_id = int(candidate.assignee.id)
+    if not OrganizationMembership.objects.filter(user_id=user_id, organization__team__id=team_id).exists():
+        return _counted(AutoAssignmentOutcome.NOT_MEMBER)
 
     operation = ChangeOperation.for_automation(team_id, AUTO_ASSIGNMENT_AUTOMATION_ID)
     with transaction.atomic():
@@ -699,10 +701,6 @@ def assign_issue_automatically(team_id: int, issue_id: UUID | str, decision: "De
         if not locked:
             raise ErrorTrackingIssueNotFoundError
         issue = locked[0]
-        if not OrganizationMembership.objects.filter(
-            user_id=user_id, organization_id=issue.team.organization_id
-        ).exists():
-            return _counted(AutoAssignmentOutcome.NOT_MEMBER)
         # Look up by issue only, because cymbal writes rule assignments without a team_id.
         # nosemgrep: idor-lookup-without-team (the issue is locked under team_id above)
         assignment, created = ErrorTrackingIssueAssignment.objects.get_or_create(
@@ -711,10 +709,10 @@ def assign_issue_automatically(team_id: int, issue_id: UUID | str, decision: "De
         if created:
             _stamp_issue_state(team_id=team_id, issue_ids=[issue.id])
             record_issue_changes(operation, [IssueChange(issue=issue, data=AssigneeChanged(previous=None))])
-            _log_automatic_assignment(issue, user_id, decision)
+            _log_automatic_assignment(issue, assignment, decision)
 
+    outcome = _counted(AutoAssignmentOutcome.ASSIGNED if created else AutoAssignmentOutcome.KEPT_EXISTING)
     if created:
-        outcome = _counted(AutoAssignmentOutcome.ASSIGNED)
         with ph_scoped_capture() as capture:
             capture(
                 distinct_id=str(issue.team.uuid),
@@ -729,8 +727,6 @@ def assign_issue_automatically(team_id: int, issue_id: UUID | str, decision: "De
                 },
                 groups=groups(team=issue.team),
             )
-    else:
-        outcome = _counted(AutoAssignmentOutcome.KEPT_EXISTING)
     if assignment.user_id == user_id:
         # A retry after a failed sync finds the row it wrote and returns kept_existing, so it must still sync.
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
@@ -742,7 +738,9 @@ def _counted(outcome: AutoAssignmentOutcome) -> AutoAssignmentOutcome:
     return outcome
 
 
-def _log_automatic_assignment(issue: ErrorTrackingIssue, user_id: int, decision: "Decision") -> None:
+def _log_automatic_assignment(
+    issue: ErrorTrackingIssue, assignment: ErrorTrackingIssueAssignment, decision: "Decision"
+) -> None:
     candidate = decision.candidate
     log_activity(
         organization_id=issue.team.organization_id,
@@ -761,7 +759,7 @@ def _log_automatic_assignment(issue: ErrorTrackingIssue, user_id: int, decision:
                     type="ErrorTrackingIssue",
                     field="assignee",
                     before=None,
-                    after={"id": user_id, "type": "user"},
+                    after=_assignment_repr(assignment),
                     action="changed",
                 )
             ],

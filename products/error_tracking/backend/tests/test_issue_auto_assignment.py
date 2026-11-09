@@ -35,20 +35,6 @@ Who = Literal["nobody", "member", "other_member", "former_member", "role"]
 REASON = "Assigned on 3 of the 3 most similar past issues"
 
 
-def _decision(assignee: AssigneeRef | None) -> Decision:
-    assert assignee is not None
-    return Decision(
-        candidate=Candidate(
-            assignee=assignee,
-            confidence=1.0,
-            source="history",
-            reason=REASON,
-            evidence=HistoryEvidence(similar_issue_ids=("similar-1", "similar-2"), nearest_distance=0.05),
-        ),
-        threshold=0.66,
-    )
-
-
 def _outcome_count(outcome: AutoAssignmentOutcome) -> float:
     return REGISTRY.get_sample_value("error_tracking_issue_auto_assignment_total", {"outcome": outcome}) or 0.0
 
@@ -90,6 +76,20 @@ class TestAssignIssueAutomatically(BaseTest):
             case "former_member":
                 return AssigneeRef(type="user", id=str(self.former_member.id))
 
+    def _decision(self, who: Who) -> Decision:
+        assignee = self._ref(who)
+        assert assignee is not None
+        return Decision(
+            candidate=Candidate(
+                assignee=assignee,
+                confidence=1.0,
+                source="history",
+                reason=REASON,
+                evidence=HistoryEvidence(similar_issue_ids=("similar-1", "similar-2"), nearest_distance=0.05),
+            ),
+            threshold=0.66,
+        )
+
     def _activity(self) -> QuerySet[ActivityLog]:
         return ActivityLog.objects.filter(team_id=self.team.id, scope="ErrorTrackingIssue", item_id=str(self.issue.id))
 
@@ -125,7 +125,7 @@ class TestAssignIssueAutomatically(BaseTest):
         count_before = _outcome_count(outcome)
 
         with self.captureOnCommitCallbacks(execute=True):
-            result = assign_issue_automatically(self.team.id, self.issue.id, _decision(self._ref(proposed)))
+            result = assign_issue_automatically(self.team.id, self.issue.id, self._decision(proposed))
 
         assert result == outcome
         assert _outcome_count(outcome) == count_before + 1
@@ -143,7 +143,7 @@ class TestAssignIssueAutomatically(BaseTest):
         self.lifecycle.assert_not_called()
 
     def test_records_the_reason_and_the_automation_on_a_write(self) -> None:
-        assign_issue_automatically(self.team.id, str(self.issue.id), _decision(self._ref("member")))
+        assign_issue_automatically(self.team.id, str(self.issue.id), self._decision("member"))
 
         activity = self._activity().get()
         assert (activity.user, activity.activity) == (None, "assigned")
@@ -180,7 +180,7 @@ class TestAssignIssueAutomatically(BaseTest):
         other_team = Team.objects.create(organization=self.organization)
 
         with self.assertRaises(ErrorTrackingIssueNotFoundError):
-            assign_issue_automatically(other_team.id, self.issue.id, _decision(self._ref("member")))
+            assign_issue_automatically(other_team.id, self.issue.id, self._decision("member"))
 
         assert not ErrorTrackingIssueAssignment.objects.filter(issue=self.issue).exists()
 
@@ -192,7 +192,7 @@ class TestAssignIssueAutomatically(BaseTest):
             patch.object(ActivityLog.objects, "create", side_effect=DatabaseError),
             self.assertRaises(DatabaseError),
         ):
-            assign_issue_automatically(self.team.id, self.issue.id, _decision(self._ref("member")))
+            assign_issue_automatically(self.team.id, self.issue.id, self._decision("member"))
 
         assert not ErrorTrackingIssueAssignment.objects.filter(issue=self.issue).exists()
         assert not ErrorTrackingIssueChange.objects.for_team(self.team.id).exists()
