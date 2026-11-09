@@ -1,3 +1,5 @@
+import { cleanup, render, screen } from '@testing-library/react'
+import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -74,7 +76,8 @@ describe('hogFunctionSecretReentryLogic', () => {
     let configLogic: ReturnType<typeof hogFunctionConfigurationLogic.build>
     let logic: ReturnType<typeof hogFunctionSecretReentryLogic.build>
 
-    // Imported after initKeaTests, because the test logic reads the team id from the app context at import.
+    // Imported after initKeaTests, because the test logic, which the scene also imports, reads the team id from the
+    // app context at import.
     const mountTestLogic = async (): Promise<
         ReturnType<typeof import('./hogFunctionTestLogic').hogFunctionTestLogic.build>
     > => {
@@ -97,6 +100,10 @@ describe('hogFunctionSecretReentryLogic', () => {
         logic.mount()
         await expectLogic(configLogic).toDispatchActions(['loadHogFunctionSuccess'])
         configLogic.actions.setConfigurationValue('inputs.url', { value: 'https://new.example.com' })
+    })
+
+    afterEach(() => {
+        cleanup()
     })
 
     it('asks for each refused secret in turn and retries the save with the edits kept', async () => {
@@ -142,6 +149,26 @@ describe('hogFunctionSecretReentryLogic', () => {
             api_key: { value: 'new key' },
             secret_headers: { value: { Authorization: 'Bearer new' } },
         })
+    })
+
+    it('opens the dialog from the scene for a refused save, with no failure toast over it', async () => {
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+        mockApi.update.mockRejectedValueOnce(refusal('api_key'))
+        const { HogFunctionScene, hogFunctionSceneLogic } = await import('../HogFunctionScene')
+        const props = { id: SECRET_SENDER.id }
+        // The History tab keeps the render light: the dialog sits above the tabs, so any tab shows it.
+        hogFunctionSceneLogic(props).actions.setCurrentTab('history')
+        render(
+            <BindLogic logic={hogFunctionSceneLogic} props={props}>
+                <HogFunctionScene />
+            </BindLogic>
+        )
+
+        configLogic.actions.submitConfiguration()
+
+        // The modal shows the refusal detail as its description, so finding the text proves the scene mounts it.
+        await screen.findByText(refusalDetail('api_key'))
+        expect(toastSpy).not.toHaveBeenCalled()
     })
 
     it('leaves the edit unsaved and the field without an error when the user cancels', async () => {
