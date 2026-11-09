@@ -66,13 +66,12 @@ class TestCanvasArtifacts(APIBaseTest):
         assert response["Content-Security-Policy"].startswith(
             "sandbox allow-scripts allow-pointer-lock; default-src 'none'"
         )
-        assert "connect-src https://api.example.com" in response["Content-Security-Policy"]
-        assert "style-src 'self' 'unsafe-inline' https://api.example.com" in response["Content-Security-Policy"]
-        assert "img-src 'self' data: blob: https://api.example.com" in response["Content-Security-Policy"]
-        assert "font-src 'self' data: https://api.example.com" in response["Content-Security-Policy"]
-        assert "media-src 'self' data: blob: https://api.example.com" in response["Content-Security-Policy"]
-        assert "frame-src https://api.example.com" in response["Content-Security-Policy"]
-        assert "script-src 'self' https://api.example.com" not in response["Content-Security-Policy"]
+        assert "api.example.com" not in response["Content-Security-Policy"]
+        assert "connect-src 'none'" in response["Content-Security-Policy"]
+        assert "frame-src 'none'" in response["Content-Security-Policy"]
+        assert (
+            "img-src 'self' data: blob: http://localhost:8010/uploaded_media/;" in response["Content-Security-Policy"]
+        )
         assert response["Cache-Control"] == "private, max-age=31536000, immutable"
         # The sandboxed iframe's opaque origin fetches module scripts in CORS
         # mode; without this the entry bundle is blocked and the canvas

@@ -135,8 +135,9 @@ To add a local image:
    returned `form_fields` entry and put the file part last.
 3. Call `posthog:media-image-upload-complete` with the returned id and use its permanent `url` as
    the image `src`.
-4. Add the URL's exact origin to `project.capabilities.network.origins`. Canvas validation checks
-   this declaration, and the published artifact uses it in its Content Security Policy.
+
+A published canvas loads images from the PostHog media library without any declaration. It can't
+load anything from other sites, so don't add an origin to `project.capabilities.network.origins`.
 
 Canvas media URLs are public and do not require authentication. Never upload secrets, credentials,
 customer data, or sensitive screenshots. Images must be under 4 MB and decode as PNG, JPEG, GIF,

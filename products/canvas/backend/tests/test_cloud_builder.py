@@ -676,15 +676,13 @@ bridge.port1.close();
 
         self.assertEqual(manifest["capabilities"], project["capabilities"])
         html = next(file["content"] for file in files if file["path"] == "index.html")
-        self.assertIn("connect-src https://api.example.com", html)
-        self.assertIn("style-src 'self' 'unsafe-inline' https://api.example.com", html)
+        self.assertIn("connect-src 'none'", html)
+        self.assertIn("style-src 'self' 'unsafe-inline';", html)
         self.assertIn("img-src 'self' data: blob: https://api.example.com", html)
-        self.assertIn("font-src 'self' data: https://api.example.com", html)
-        self.assertIn("media-src 'self' data: blob: https://api.example.com", html)
-        self.assertIn("frame-src https://api.example.com", html)
-        self.assertNotIn("script-src 'self' https://api.example.com", html)
+        self.assertIn("font-src 'self' data:;", html)
+        self.assertIn("frame-src 'none'", html)
 
-    def test_preserves_declared_remote_stylesheet_links(self) -> None:
+    def test_keeps_remote_stylesheet_links_without_granting_them(self) -> None:
         project = self._project('document.body.textContent = "Hello"')
         project["files"]["index.html"] = (
             '<head><link rel="stylesheet" href="https://styles.example.com/theme.css" /></head>'
@@ -699,11 +697,11 @@ bridge.port1.close();
 
         self.assertEqual(diagnostics, [])
         html = next(file["content"] for file in files if file["path"] == "index.html")
-        # A declared remote stylesheet is not a local build entry, so it stays in
-        # the HTML and loads at runtime under the widened style-src CSP, instead
-        # of failing the build with entry_not_found.
+        # A remote stylesheet is not a local build entry, so it stays in the HTML
+        # instead of failing the build with entry_not_found. The style-src policy
+        # does not admit it.
         self.assertIn('href="https://styles.example.com/theme.css"', html)
-        self.assertIn("style-src 'self' 'unsafe-inline' https://styles.example.com", html)
+        self.assertIn("style-src 'self' 'unsafe-inline';", html)
 
     def test_runtime_reports_csp_violations_without_blocked_urls(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))

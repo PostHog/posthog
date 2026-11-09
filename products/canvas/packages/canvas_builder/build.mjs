@@ -635,16 +635,12 @@ async function buildCanvas(project) {
             `${runtime}${notebookBridge}\n${selectionRuntime}\n${highlightRuntime}\n${keyboardRuntime}`
         )
     )
-    const networkOrigins = project.capabilities?.network?.origins ?? []
-    const externalSources = networkOrigins.join(' ')
-    const projectCsp = externalSources
-        ? csp
-              .replace("connect-src 'none'", `connect-src ${externalSources}`)
-              .replace("style-src 'self' 'unsafe-inline'", `style-src 'self' 'unsafe-inline' ${externalSources}`)
-              .replace("img-src 'self' data: blob:", `img-src 'self' data: blob: ${externalSources}`)
-              .replace("font-src 'self' data:", `font-src 'self' data: ${externalSources}`)
-              .replace("media-src 'self' data: blob:", `media-src 'self' data: blob: ${externalSources}`)
-              .replace("frame-src 'none'", `frame-src ${externalSources}`)
+    // Only the artifact origin's response header grants network access, and it admits PostHog's
+    // own media path and nothing a project declares. Declared origins stay in this meta policy's
+    // img-src so that the meta policy does not block media images the header admits.
+    const imageSources = (project.capabilities?.network?.origins ?? []).join(' ')
+    const projectCsp = imageSources
+        ? csp.replace("img-src 'self' data: blob:", `img-src 'self' data: blob: ${imageSources}`)
         : csp
     // `sandbox` is ignored in a <meta> policy and logs a console warning on every
     // artifact load; the artifact origin delivers it via the response header.
