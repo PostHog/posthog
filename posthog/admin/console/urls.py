@@ -1,10 +1,16 @@
+from collections.abc import Callable
+from uuid import UUID
+
 from django.contrib import admin
+from django.http import Http404, HttpRequest, HttpResponse
 from django.urls import path, re_path
 
 from posthog.admin.console import views
 from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.constants import GROUP_TYPES_LIMIT
+
+from products.managed_warehouse.backend.facade.staff import organization_id_for_duckgres_server
 
 # Old Django admin URLs of team actions that moved. Staff keep bookmarks to them, query parameters included.
 MOVED_TEAM_ACTIONS = {
@@ -37,6 +43,26 @@ MOVED_DELETION_REQUEST_ACTIONS = {
     "fetch-stats": "#panel-stats",
     "preview-stats": "#panel-stats",
 }
+
+# Old Django admin URLs of managed warehouse server actions. They name the server, and the actions moved to the
+# panel of the server's organization.
+MOVED_DUCKGRES_SERVER_ACTIONS = {
+    "enable-backfill": "managed-warehouse/enable-backfill/",
+    "deprovision": "managed-warehouse/deprovision/",
+}
+
+
+def _moved_duckgres_server_action(target: str) -> Callable[..., HttpResponse]:
+    organization_redirect = MovedToConsole.record_redirect("organizations", target)
+
+    def view(request: HttpRequest, server_id: UUID) -> HttpResponse:
+        organization_id = organization_id_for_duckgres_server(server_id)
+        if organization_id is None:
+            raise Http404("No managed warehouse server with this ID")
+        return organization_redirect(request, pk=organization_id)
+
+    return view
+
 
 # Every route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up, and admin_view
 # adds the staff check, the login redirect and CSRF protection. The console needs no auth of its own.
@@ -110,6 +136,13 @@ urlpatterns = [
         "admin/posthog/team/<int:pk>/view-cache/",
         MovedToConsole.page_redirect("The cached config view", "/admin/console/tools/remote-config-cache/?team={pk}"),
     ),
+    *[
+        path(
+            f"admin/managed_warehouse/duckgresserver/<uuid:server_id>/{old}/",
+            admin.site.admin_view(_moved_duckgres_server_action(target)),
+        )
+        for old, target in MOVED_DUCKGRES_SERVER_ACTIONS.items()
+    ],
     path(
         "admin/posthog/organization/bulk-deactivate/",
         MovedToConsole.page_redirect("Bulk deactivation", "/admin/console/tools/bulk-deactivate-organizations/"),
