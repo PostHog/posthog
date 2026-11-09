@@ -310,13 +310,18 @@ describe('HogInvocationResultsService', () => {
             expect(rows[0].error_kind).toBe('')
         })
 
-        it('writes status=failed and classifies the error kind', async () => {
+        it.each([
+            ['Request timed out after 30s', 'timeout'],
+            ['JavaScript heap out of memory', 'oom'],
+            ['Container OOM killed', 'oom'],
+            ['this email waited 6 days for an email worker with room for its files', 'hog_error'],
+        ])('writes status=failed and classifies %j as %s', async (message, kind) => {
             const invocation = createExampleInvocation()
             service.queueInvocationResults([
                 {
                     invocation,
                     finished: true,
-                    error: new Error('Request timed out after 30s'),
+                    error: new Error(message),
                     logs: [],
                     metrics: [],
                     capturedPostHogEvents: [],
@@ -329,9 +334,9 @@ describe('HogInvocationResultsService', () => {
             const rows = parseProducedRows(outputs)
             expect(rows).toHaveLength(1)
             expect(rows[0].status).toBe('failed')
-            expect(rows[0].error_kind).toBe('timeout')
+            expect(rows[0].error_kind).toBe(kind)
             // Exact match: the message only, never the stack trace.
-            expect(rows[0].error_message).toBe('Request timed out after 30s')
+            expect(rows[0].error_message).toBe(message)
         })
 
         it('writes status=canceled on a finished result flagged canceled, with no error fields', async () => {
