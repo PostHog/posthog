@@ -1,4 +1,5 @@
 from functools import cached_property
+from typing import Any
 
 from django.db.models import Count, QuerySet
 
@@ -14,6 +15,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
+from products.cdp.backend.credential_auth import validate_auth_declarations
 from products.cdp.backend.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, hidden_gated_template_ids
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions import HogFunction
@@ -38,6 +40,10 @@ class HogFunctionMappingTemplateSerializer(serializers.Serializer):
     inputs_schema = serializers.JSONField(
         required=False, allow_null=True, help_text="Additional input schema fields specific to this mapping."
     )
+
+    def validate_inputs_schema(self, value: Any) -> Any:
+        validate_auth_declarations(value)
+        return value
 
 
 class HogFunctionTemplateSerializer(serializers.ModelSerializer):
@@ -83,6 +89,10 @@ class HogFunctionTemplateSerializer(serializers.ModelSerializer):
             "filters": {"help_text": "Default event filters."},
             "masking": {"help_text": "Default PII masking configuration."},
         }
+
+    def validate_inputs_schema(self, value: Any) -> Any:
+        validate_auth_declarations(value)
+        return value
 
 
 # NOTE: There is nothing currently private about these values

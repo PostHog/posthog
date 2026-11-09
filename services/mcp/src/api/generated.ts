@@ -16576,6 +16576,55 @@ export namespace Schemas {
     }
 
     /**
+     * * `bearer` - bearer
+     * * `header` - header
+     * * `basic` - basic
+     * * `query` - query
+     * * `body` - body
+     */
+    export type AuthSchemeEnum = typeof AuthSchemeEnum[keyof typeof AuthSchemeEnum];
+
+
+    export const AuthSchemeEnum = {
+      Bearer: 'bearer',
+      Header: 'header',
+      Basic: 'basic',
+      Query: 'query',
+      Body: 'body',
+    } as const;
+
+    export interface AuthDeclarationSchema {
+      /** Where the worker puts the credential. query and body need opt_in.
+       *
+       * * `bearer` - bearer
+       * * `header` - header
+       * * `basic` - basic
+       * * `query` - query
+       * * `body` - body */
+      scheme: AuthSchemeEnum;
+      /** The header or query parameter that holds the credential. */
+      name?: string;
+      /** Text the header value starts with, such as 'Token '. */
+      prefix?: string;
+      /** The dotted path of the JSON body key for scheme body. */
+      path?: string;
+      /** Must be true for scheme query or body. */
+      opt_in?: boolean;
+      /** For scheme basic on a secret: the non-secret input that holds the username. */
+      username_input?: string;
+      /** For scheme basic on an integration: the connection field that holds the username. */
+      username_field?: string;
+      /** For scheme basic on an integration: the connection field that holds the password. */
+      password_field?: string;
+      /** For an integration: the connection field that holds the credential. */
+      field?: string;
+      /** For a secret: the origins, such as https://api.example.com, the secret may be sent to. */
+      origins?: string[];
+      /** For a secret: the URL input whose origin, when the secret is typed, becomes the only allowed origin. */
+      origin_input?: string;
+    }
+
+    /**
      * * `oauth` - oauth
      * * `credentials` - credentials
      */
@@ -56496,6 +56545,8 @@ export namespace Schemas {
       integration_field?: string;
       requiredScopes?: string;
       templating?: boolean | 'hog' | 'liquid';
+      /** How the worker applies this credential to a fetch that passes the input as `auth`. Code never reads the value. */
+      auth?: AuthDeclarationSchema;
     }
 
     export interface HogFunctionMasking {
