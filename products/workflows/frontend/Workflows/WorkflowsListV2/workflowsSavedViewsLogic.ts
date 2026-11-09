@@ -51,6 +51,7 @@ import {
     normalizeViewColumns,
     savedViewChanges,
     savedViewFailureMessage,
+    withoutFolderScope,
     workflowViewState,
     workflowViewValue,
 } from './workflowSavedViews'
@@ -376,7 +377,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
     reducers({
         addedFilters: [
             [] as FacetFilter[],
-            { setAddedFilters: (_, { filters }) => filters, clearSavedViews: () => [] },
+            { setAddedFilters: (_, { filters }) => withoutFolderScope(filters), clearSavedViews: () => [] },
         ],
         savedViewsLoadFailed: [
             false,

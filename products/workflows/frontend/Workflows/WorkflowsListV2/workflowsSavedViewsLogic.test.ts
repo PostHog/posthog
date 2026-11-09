@@ -296,6 +296,28 @@ describe('workflowsSavedViewsLogic', () => {
         expect(workflowsListV2Logic.values.value.filters).toEqual([])
     })
 
+    it('treats an open folder as navigation, so it changes no view and picking a view leaves the folder', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: true,
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true,
+        })
+        router.actions.push(urls.workflows())
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        const inBilling: FacetFilter = { facet: 'in', value: 'Billing', negated: false }
+
+        workflowsListV2Logic.actions.setValue({ filters: [inBilling], text: '' })
+        expect(logic.values.isModified).toBe(false)
+        expect(logic.values.addedFilters).toEqual([])
+
+        workflowsListV2Logic.actions.setValue({ filters: [inBilling, eventTrigger], text: '' })
+        applyViewById('drafts')
+        expect(workflowsListV2Logic.values.value.filters).toEqual([status('draft'), eventTrigger])
+        expect(router.values.searchParams.q).toBe('status:draft trigger:event')
+    })
+
     it('withholds health view counts when run metrics are unavailable', async () => {
         useMocks({
             get: { '/api/projects/:team_id/hog_flows/metrics/global/': () => [500, { detail: 'Unavailable' }] },
