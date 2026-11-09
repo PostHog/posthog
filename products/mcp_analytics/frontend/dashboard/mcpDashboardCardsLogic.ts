@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import { MCP_CARD_IDS, McpDashboardCardId } from './dashboardCards'
+import { MCP_DASHBOARD_CARDS, McpDashboardCardId } from './dashboardCards'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 
@@ -60,7 +60,7 @@ export const mcpDashboardCardsLogic = kea<mcpDashboardCardsLogicType>([
         hiddenCards: [
             (s) => [s.hiddenCardIds],
             (hiddenCardIds: McpDashboardCardId[]): McpDashboardCardId[] =>
-                MCP_CARD_IDS.filter((id) => hiddenCardIds.includes(id)),
+                MCP_DASHBOARD_CARDS.map(({ id }) => id).filter((id) => hiddenCardIds.includes(id)),
         ],
         isCardVisible: [
             (s) => [s.hiddenCardIds],

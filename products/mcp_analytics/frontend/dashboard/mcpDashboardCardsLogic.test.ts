@@ -30,7 +30,6 @@ describe('mcpDashboardCardsLogic', () => {
         { toggles: ['model'], hidden: ['model'] },
         { toggles: ['model', 'model'], hidden: [] },
         { toggles: ['recent-activity', 'kpis'], hidden: ['kpis', 'recent-activity'] },
-        { toggles: ['error-rate'], hidden: ['error-rate'] },
     ])('toggling $toggles leaves $hidden hidden', ({ toggles, hidden }) => {
         mountLogic()
 

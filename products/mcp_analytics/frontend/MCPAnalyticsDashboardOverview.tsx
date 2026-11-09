@@ -73,7 +73,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         loadToolRows,
         loadSessionRows,
     } = useActions(mcpDashboardOverviewLogic)
-    const { isCardVisible } = useValues(mcpDashboardCardsLogic)
+    const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { showAllCards } = useActions(mcpDashboardCardsLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -98,15 +98,6 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             <McpSharedFilters
                 pageKey="mcp-dashboard-overview"
                 dataAttrPrefix="mcp-dashboard"
-                actions={
-                    <DashboardCardsMenu
-                        cards={MCP_DASHBOARD_CARDS}
-                        cardsWithoutData={[
-                            ...(hasModelData ? [] : ['model' as const]),
-                            ...(hasProtocolVersionData ? [] : ['protocol-version' as const]),
-                        ]}
-                    />
-                }
                 onRefresh={reloadAll}
                 refreshing={
                     kpisLoading ||
@@ -129,6 +120,12 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     }}
                     dataAttr="mcp-dashboard-date-filter"
                 />
+                <DashboardCardsMenu
+                    cardsWithoutData={[
+                        ...(hasModelData ? [] : ['model' as const]),
+                        ...(hasProtocolVersionData ? [] : ['protocol-version' as const]),
+                    ]}
+                />
             </McpSharedFilters>
             <MCPAnalyticsFeedbackPrompt
                 contextKey={feedbackContextKey}
@@ -137,7 +134,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             />
             <MCPAnalyticsFirstLook />
             {showsNoCards &&
-                (MCP_DASHBOARD_CARDS.every(({ id }) => !isCardVisible(id)) ? (
+                (hiddenCards.length === MCP_DASHBOARD_CARDS.length ? (
                     <div className="flex flex-col items-start gap-2" data-attr="mcp-dashboard-all-cards-hidden">
                         <p className="mb-0">All cards are hidden.</p>
                         <LemonButton

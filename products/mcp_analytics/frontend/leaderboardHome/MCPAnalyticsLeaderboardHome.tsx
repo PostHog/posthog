@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { Button, Skeleton } from '@posthog/quill-primitives'
+import { Skeleton } from '@posthog/quill-primitives'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -14,12 +14,9 @@ import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { ActivityChart } from '../dashboard/ActivityChart'
 import { Card } from '../dashboard/Card'
-import { MCP_LEADERBOARD_CARDS, McpDashboardCardId } from '../dashboard/dashboardCards'
-import { DashboardCardsMenu } from '../dashboard/DashboardCardsMenu'
 import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
 import { KpiTiles } from '../dashboard/KpiTiles'
-import { mcpDashboardCardsLogic } from '../dashboard/mcpDashboardCardsLogic'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
@@ -89,14 +86,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         reliabilitySeries,
     } = useValues(mcpLeaderboardHomeLogic)
     const { setScoreboardMetric } = useActions(mcpLeaderboardHomeLogic)
-    const { isCardVisible } = useValues(mcpDashboardCardsLogic)
-    const { showAllCards } = useActions(mcpDashboardCardsLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const theme = useChartTheme()
-
-    const anyCardVisible = (...ids: McpDashboardCardId[]): boolean => ids.some((id) => isCardVisible(id))
-    const allCardsHidden = MCP_LEADERBOARD_CARDS.every(({ id }) => !isCardVisible(id))
 
     const failedFacet = (...keys: FacetKey[]): boolean => keys.some((key) => facets.failedFacets.includes(key))
 
@@ -130,7 +122,6 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
             <McpSharedFilters
                 pageKey="mcp-dashboard-overview"
                 dataAttrPrefix="mcp-dashboard"
-                actions={<DashboardCardsMenu cards={MCP_LEADERBOARD_CARDS} />}
                 onRefresh={reloadAll}
                 refreshing={dashboardLoading || leaderboardLoading}
             >
@@ -145,238 +136,181 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 />
             </McpSharedFilters>
 
-            {allCardsHidden && (
-                <div className="flex flex-col items-start gap-2" data-attr="mcp-dashboard-all-cards-hidden">
-                    <p className="mb-0">All cards are hidden.</p>
-                    <Button variant="outline" onClick={showAllCards} data-attr="mcp-dashboard-empty-show-all-cards">
-                        Show all cards
-                    </Button>
-                </div>
-            )}
+            <Section title="Key metrics">
+                <KpiTiles
+                    kpis={headlineKpis}
+                    users={periodTotals.users}
+                    intentClusterCount={intentClusterCount}
+                    kpisLoading={kpisLoading}
+                    usersLoading={periodTotalsLoading}
+                    kpisFailed={failedLoads.kpis}
+                    usersFailed={failedLoads.periodTotals}
+                    onRetryKpis={loadKPIs}
+                    onRetryUsers={loadPeriodTotals}
+                    showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
+                    theme={theme}
+                    interval={interval}
+                    incompleteTail={kpiIncompleteTail}
+                />
+                <ActivityChart
+                    daily={dailyActivity}
+                    loading={activityRowsLoading}
+                    failed={failedLoads.activityRows}
+                    onRetry={loadActivityRows}
+                    theme={theme}
+                    timezone={timezone}
+                    interval={interval}
+                    incompleteTail={activityIncompleteTail}
+                />
+            </Section>
 
-            {anyCardVisible('kpis', 'activity') && (
-                <Section title="Key metrics">
-                    {isCardVisible('kpis') && (
-                        <KpiTiles
-                            kpis={headlineKpis}
-                            users={periodTotals.users}
-                            intentClusterCount={intentClusterCount}
-                            kpisLoading={kpisLoading}
-                            usersLoading={periodTotalsLoading}
-                            kpisFailed={failedLoads.kpis}
-                            usersFailed={failedLoads.periodTotals}
-                            onRetryKpis={loadKPIs}
-                            onRetryUsers={loadPeriodTotals}
-                            showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
+            <Section title="Models">
+                <LabScoreboard
+                    shares={scoreboardShares}
+                    loading={facetsLoading}
+                    failed={
+                        scoreboardMetric === 'calls' ? failedFacet('model') : failedFacet('labUsers', 'namedModelUsers')
+                    }
+                    metric={scoreboardMetric}
+                    onMetricChange={setScoreboardMetric}
+                />
+                <TwoColumns>
+                    <ShareOverTimeChart
+                        title="Model share of calls over time"
+                        labels={dailyActivity.labels}
+                        series={modelSeries}
+                        loading={facetsLoading}
+                        failed={failedFacet('model')}
+                        theme={theme}
+                        timezone={timezone}
+                        interval={interval}
+                        colorOf={modelColorOf}
+                    />
+                    {leaderboardModelRows.length === 0 && (facetsLoading || modelRowsLoading) ? (
+                        <Card title="Share of calls by model" className="min-w-0">
+                            <Skeleton className="h-48 w-full" />
+                        </Card>
+                    ) : (
+                        <ModelBarChart
+                            rows={leaderboardModelRows}
                             theme={theme}
-                            interval={interval}
-                            incompleteTail={kpiIncompleteTail}
+                            filters={queryFilters}
+                            colorOf={modelColorOf}
+                            rowLabels={modelRowLabelMap}
+                            fillHeight
                         />
                     )}
-                    {isCardVisible('activity') && (
-                        <ActivityChart
-                            daily={dailyActivity}
-                            loading={activityRowsLoading}
-                            failed={failedLoads.activityRows}
-                            onRetry={loadActivityRows}
-                            theme={theme}
-                            timezone={timezone}
-                            interval={interval}
-                            incompleteTail={activityIncompleteTail}
-                        />
-                    )}
-                </Section>
-            )}
+                </TwoColumns>
+                <TwoColumns>
+                    <ShareOverTimeChart
+                        title="AI lab share of calls over time"
+                        labels={dailyActivity.labels}
+                        series={labSeries}
+                        loading={facetsLoading}
+                        failed={failedFacet('model')}
+                        theme={theme}
+                        timezone={timezone}
+                        interval={interval}
+                        colorOf={labColorOf}
+                    />
+                    <HarnessBarChart
+                        rows={harnessRows}
+                        loading={harnessRowsLoading}
+                        failed={failedLoads.harnessRows}
+                        onRetry={loadHarnessRows}
+                        theme={theme}
+                        fillHeight
+                    />
+                </TwoColumns>
+            </Section>
 
-            {anyCardVisible('lab-scoreboard', 'model-share-over-time', 'model', 'lab-share-over-time', 'harness') && (
-                <Section title="Models">
-                    {isCardVisible('lab-scoreboard') && (
-                        <LabScoreboard
-                            shares={scoreboardShares}
-                            loading={facetsLoading}
-                            failed={
-                                scoreboardMetric === 'calls'
-                                    ? failedFacet('model')
-                                    : failedFacet('labUsers', 'namedModelUsers')
-                            }
-                            metric={scoreboardMetric}
-                            onMetricChange={setScoreboardMetric}
-                        />
-                    )}
-                    <TwoColumns>
-                        {isCardVisible('model-share-over-time') && (
-                            <ShareOverTimeChart
-                                title="Model share of calls over time"
-                                labels={dailyActivity.labels}
-                                series={modelSeries}
-                                loading={facetsLoading}
-                                failed={failedFacet('model')}
-                                theme={theme}
-                                timezone={timezone}
-                                interval={interval}
-                                colorOf={modelColorOf}
-                            />
-                        )}
-                        {isCardVisible('model') &&
-                            (leaderboardModelRows.length === 0 && (facetsLoading || modelRowsLoading) ? (
-                                <Card title="Share of calls by model" className="min-w-0">
-                                    <Skeleton className="h-48 w-full" />
-                                </Card>
-                            ) : (
-                                <ModelBarChart
-                                    rows={leaderboardModelRows}
-                                    theme={theme}
-                                    filters={queryFilters}
-                                    colorOf={modelColorOf}
-                                    rowLabels={modelRowLabelMap}
-                                    fillHeight
-                                />
-                            ))}
-                    </TwoColumns>
-                    <TwoColumns>
-                        {isCardVisible('lab-share-over-time') && (
-                            <ShareOverTimeChart
-                                title="AI lab share of calls over time"
-                                labels={dailyActivity.labels}
-                                series={labSeries}
-                                loading={facetsLoading}
-                                failed={failedFacet('model')}
-                                theme={theme}
-                                timezone={timezone}
-                                interval={interval}
-                                colorOf={labColorOf}
-                            />
-                        )}
-                        {isCardVisible('harness') && (
-                            <HarnessBarChart
-                                rows={harnessRows}
-                                loading={harnessRowsLoading}
-                                failed={failedLoads.harnessRows}
-                                onRetry={loadHarnessRows}
-                                theme={theme}
-                                fillHeight
-                            />
-                        )}
-                    </TwoColumns>
-                </Section>
-            )}
+            <Section title="Protocol">
+                <ShareOverTimeChart
+                    title="Protocol version share of calls over time"
+                    labels={dailyActivity.labels}
+                    series={protocolVersionSeries}
+                    loading={facetsLoading}
+                    failed={failedFacet('protocolVersion')}
+                    theme={theme}
+                    timezone={timezone}
+                    interval={interval}
+                    colorOf={paletteColorOf}
+                />
+            </Section>
 
-            {anyCardVisible('protocol-version-share-over-time') && (
-                <Section title="Protocol">
-                    {isCardVisible('protocol-version-share-over-time') && (
-                        <ShareOverTimeChart
-                            title="Protocol version share of calls over time"
-                            labels={dailyActivity.labels}
-                            series={protocolVersionSeries}
-                            loading={facetsLoading}
-                            failed={failedFacet('protocolVersion')}
-                            theme={theme}
-                            timezone={timezone}
-                            interval={interval}
-                            colorOf={paletteColorOf}
-                        />
-                    )}
-                </Section>
-            )}
+            <Section title="What agents do">
+                <FacetShareCard
+                    title="Most called tools"
+                    rows={facets.tool}
+                    loading={facetsLoading}
+                    failed={failedFacet('tool')}
+                    theme={theme}
+                />
+            </Section>
 
-            {anyCardVisible('most-called-tools') && (
-                <Section title="What agents do">
-                    {isCardVisible('most-called-tools') && (
-                        <FacetShareCard
-                            title="Most called tools"
-                            rows={facets.tool}
-                            loading={facetsLoading}
-                            failed={failedFacet('tool')}
-                            theme={theme}
-                        />
-                    )}
-                </Section>
-            )}
-
-            {anyCardVisible(
-                'error-rate',
-                'latency',
-                'tool-errors',
-                'failure-reasons',
-                'harness-error-rate',
-                'notable-sessions'
-            ) && (
-                <Section title="Reliability">
-                    <TwoColumns>
-                        {isCardVisible('error-rate') && (
-                            <TrendLineCard
-                                title="Error rate"
-                                labels={reliabilitySeries.labels}
-                                lines={errorRateLines}
-                                loading={reliabilityRowsLoading}
-                                isEmpty={reliabilityUnavailable}
-                                failed={reliabilityFailed}
-                                theme={theme}
-                                timezone={timezone}
-                                interval={interval}
-                                formatTick={formatErrorRateTick}
-                            />
-                        )}
-                        {isCardVisible('latency') && (
-                            <TrendLineCard
-                                title="Latency"
-                                labels={reliabilitySeries.labels}
-                                lines={latencyLines}
-                                loading={reliabilityRowsLoading}
-                                isEmpty={reliabilityUnavailable}
-                                failed={reliabilityFailed}
-                                theme={theme}
-                                timezone={timezone}
-                                interval={interval}
-                                formatTick={formatMsAsSeconds}
-                            />
-                        )}
-                    </TwoColumns>
-                    <TwoColumns>
-                        {isCardVisible('tool-errors') && (
-                            <ToolErrorRateChart
-                                rows={rankToolsByErrorRate(toolRows)}
-                                emptyMessage={rankedToolsEmptyMessage(toolRows)}
-                                loading={toolRowsLoading}
-                                failed={failedLoads.toolRows}
-                                onRetry={loadToolRows}
-                                theme={theme}
-                                onToolClick={openToolReport}
-                            />
-                        )}
-                        {isCardVisible('failure-reasons') && (
-                            <FacetShareCard
-                                title="Why calls fail"
-                                rows={facets.errorType}
-                                loading={facetsLoading}
-                                failed={failedFacet('errorType')}
-                                theme={theme}
-                            />
-                        )}
-                    </TwoColumns>
-                    <TwoColumns>
-                        {isCardVisible('harness-error-rate') && (
-                            <ToolErrorRateChart
-                                rows={harnessErrorRows}
-                                loading={harnessRowsLoading}
-                                failed={failedLoads.harnessRows}
-                                onRetry={loadHarnessRows}
-                                theme={theme}
-                                title="Error rate by harness"
-                                emptyMessage="No harness data in this date range. Try a wider range."
-                            />
-                        )}
-                        {isCardVisible('notable-sessions') && (
-                            <NotableSessionsTable
-                                sessions={notableSessions}
-                                loading={sessionRowsLoading}
-                                failed={failedLoads.sessionRows}
-                                onRetry={loadSessionRows}
-                            />
-                        )}
-                    </TwoColumns>
-                </Section>
-            )}
+            <Section title="Reliability">
+                <TwoColumns>
+                    <TrendLineCard
+                        title="Error rate"
+                        labels={reliabilitySeries.labels}
+                        lines={errorRateLines}
+                        loading={reliabilityRowsLoading}
+                        isEmpty={reliabilityUnavailable}
+                        failed={reliabilityFailed}
+                        theme={theme}
+                        timezone={timezone}
+                        interval={interval}
+                        formatTick={formatErrorRateTick}
+                    />
+                    <TrendLineCard
+                        title="Latency"
+                        labels={reliabilitySeries.labels}
+                        lines={latencyLines}
+                        loading={reliabilityRowsLoading}
+                        isEmpty={reliabilityUnavailable}
+                        failed={reliabilityFailed}
+                        theme={theme}
+                        timezone={timezone}
+                        interval={interval}
+                        formatTick={formatMsAsSeconds}
+                    />
+                </TwoColumns>
+                <TwoColumns>
+                    <ToolErrorRateChart
+                        rows={rankToolsByErrorRate(toolRows)}
+                        emptyMessage={rankedToolsEmptyMessage(toolRows)}
+                        loading={toolRowsLoading}
+                        failed={failedLoads.toolRows}
+                        onRetry={loadToolRows}
+                        theme={theme}
+                        onToolClick={openToolReport}
+                    />
+                    <FacetShareCard
+                        title="Why calls fail"
+                        rows={facets.errorType}
+                        loading={facetsLoading}
+                        failed={failedFacet('errorType')}
+                        theme={theme}
+                    />
+                </TwoColumns>
+                <TwoColumns>
+                    <ToolErrorRateChart
+                        rows={harnessErrorRows}
+                        loading={harnessRowsLoading}
+                        failed={failedLoads.harnessRows}
+                        onRetry={loadHarnessRows}
+                        theme={theme}
+                        title="Error rate by harness"
+                        emptyMessage="No harness data in this date range. Try a wider range."
+                    />
+                    <NotableSessionsTable
+                        sessions={notableSessions}
+                        loading={sessionRowsLoading}
+                        failed={failedLoads.sessionRows}
+                        onRetry={loadSessionRows}
+                    />
+                </TwoColumns>
+            </Section>
         </div>
     )
 }
