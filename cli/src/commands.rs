@@ -43,9 +43,9 @@ pub struct Cli {
     rate_limit: Option<usize>,
 
     /// Load PostHog credentials from this dotenv-style file when not present in the process
-    /// environment. Also settable as `POSTHOG_CLI_DOTENV_FILE`, for callers that control the
-    /// environment but not the command line (e.g. an Xcode build phase invoking the iOS SDK's
-    /// upload-symbols.sh).
+    /// environment.
+    /// Also settable as `POSTHOG_CLI_DOTENV_FILE`, for callers that control the environment but
+    /// not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh).
     #[arg(
         long = "dotenv-file",
         value_name = "PATH",

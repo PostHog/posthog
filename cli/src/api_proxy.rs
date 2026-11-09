@@ -288,7 +288,6 @@ pub fn run(
 ) -> Result<Option<i32>, CapturedError> {
     let script = find_script().map_err(|error| CapturedError::from(anyhow::Error::new(error)))?;
     let mut cmd = Command::new("node");
-    // The user's arguments belong to the script. `--` ends Node's own options.
     cmd.arg("--");
     cmd.arg(script);
     cmd.args(args);
