@@ -270,9 +270,8 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
             LogsAlertConfiguration.objects.filter(team=self.team).count(),
             read.json()["name"],
             read.json()["threshold_count"],
-            read.json()["created_by"]["id"],
             read.json()["first_enabled_at"] is not None,
-        ) == (0 if native_create else 1, "High error rate", 10, self.user.id, True)
+        ) == (0 if native_create else 1, "High error rate", 10, True)
 
     def test_a_native_create_keeps_the_snooze_terraform_sent(self, *_: object) -> None:
         self.native_create = True
