@@ -502,15 +502,15 @@ export interface StamphogSyncInstallationResponseApi {
 }
 
 /**
- * * `self_driving` - SELF_DRIVING
- * * `manual` - MANUAL
- * * `reviewhog_clean` - REVIEWHOG_CLEAN
- * * `label` - LABEL
- * * `all` - ALL
+ * * `self_driving` - Self-driving
+ * * `manual` - Manual
+ * * `reviewhog_clean` - Clean PostHog Review
+ * * `label` - Label
+ * * `all` - All
  */
-export type ReviewRunTriggerEnumApi = (typeof ReviewRunTriggerEnumApi)[keyof typeof ReviewRunTriggerEnumApi]
+export type ReviewTriggerEnumApi = (typeof ReviewTriggerEnumApi)[keyof typeof ReviewTriggerEnumApi]
 
-export const ReviewRunTriggerEnumApi = {
+export const ReviewTriggerEnumApi = {
     SelfDriving: 'self_driving',
     Manual: 'manual',
     ReviewhogClean: 'reviewhog_clean',
@@ -636,12 +636,12 @@ export interface ReviewRunApi {
     readonly delivery_id: string | null
     /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo reviewing every PR event.
      *
-     * * `self_driving` - SELF_DRIVING
-     * * `manual` - MANUAL
-     * * `reviewhog_clean` - REVIEWHOG_CLEAN
-     * * `label` - LABEL
-     * * `all` - ALL */
-    readonly trigger: ReviewRunTriggerEnumApi
+     * * `self_driving` - Self-driving
+     * * `manual` - Manual
+     * * `reviewhog_clean` - Clean PostHog Review
+     * * `label` - Label
+     * * `all` - All */
+    readonly trigger: ReviewTriggerEnumApi
     /** Current stage of the review run's lifecycle.
      *
      * * `queued` - QUEUED

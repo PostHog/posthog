@@ -74935,16 +74935,16 @@ export namespace Schemas {
     }
 
     /**
-     * * `self_driving` - SELF_DRIVING
-     * * `manual` - MANUAL
-     * * `reviewhog_clean` - REVIEWHOG_CLEAN
-     * * `label` - LABEL
-     * * `all` - ALL
+     * * `self_driving` - Self-driving
+     * * `manual` - Manual
+     * * `reviewhog_clean` - Clean PostHog Review
+     * * `label` - Label
+     * * `all` - All
      */
-    export type ReviewRunTriggerEnum = typeof ReviewRunTriggerEnum[keyof typeof ReviewRunTriggerEnum];
+    export type ReviewTriggerEnum = typeof ReviewTriggerEnum[keyof typeof ReviewTriggerEnum];
 
 
-    export const ReviewRunTriggerEnum = {
+    export const ReviewTriggerEnum = {
       SelfDriving: 'self_driving',
       Manual: 'manual',
       ReviewhogClean: 'reviewhog_clean',
@@ -75072,12 +75072,12 @@ export namespace Schemas {
       readonly delivery_id: string | null;
       /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo reviewing every PR event.
        *
-       * * `self_driving` - SELF_DRIVING
-       * * `manual` - MANUAL
-       * * `reviewhog_clean` - REVIEWHOG_CLEAN
-       * * `label` - LABEL
-       * * `all` - ALL */
-      readonly trigger: ReviewRunTriggerEnum;
+       * * `self_driving` - Self-driving
+       * * `manual` - Manual
+       * * `reviewhog_clean` - Clean PostHog Review
+       * * `label` - Label
+       * * `all` - All */
+      readonly trigger: ReviewTriggerEnum;
       /** Current stage of the review run's lifecycle.
        *
        * * `queued` - QUEUED
