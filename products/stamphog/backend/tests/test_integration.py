@@ -2531,43 +2531,51 @@ def test_visible_request_publishes_a_withheld_verdict_only_while_its_inputs_hold
 
 
 @pytest.mark.parametrize(
-    "stored_verdict, engine_output, expected_outcome",
+    "stored_verdict",
     [
-        pytest.param(ReviewVerdict.APPROVED, "approved", "approval", id="stored-approval-never-reposted"),
-        pytest.param(ReviewVerdict.WAIT, "wait", "not_reusable", id="stored-wait-never-reused"),
+        pytest.param(ReviewVerdict.APPROVED, id="stored-approval-never-reposted"),
+        pytest.param(ReviewVerdict.WAIT, id="stored-wait-never-reused"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_withheld_approval_or_wait_is_never_reused(
-    team, stamphog_chain: StamphogChain, stored_verdict: ReviewVerdict, engine_output: str, expected_outcome: str
+    team, stamphog_chain: StamphogChain, stored_verdict: ReviewVerdict
 ) -> None:
     repo_config = _silent_repo_config(team.id)
+    stamphog_chain.recorder.register_pr(REPO, 163, _silent_review_pr(163, "sha163a"), _pr_files())
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=163, author_login="devex-dev"
     )
-    raw = fakes.approved_engine_output() if engine_output == "approved" else _waiting_engine_output()
+    approved = stored_verdict == ReviewVerdict.APPROVED
     silent_run = ReviewRun.objects.for_team(team.id).create(
         team_id=team.id,
         pull_request=pull_request,
         head_sha="sha163a",
         status=ReviewRunStatus.COMPLETED,
         verdict=stored_verdict,
-        output={"review_trigger": "reviewhog_clean", "reviewer_raw": raw, "decision_fingerprint": "x"},
-    )
-    visible_run = ReviewRun.objects.for_team(team.id).create(
-        team_id=team.id,
-        pull_request=pull_request,
-        head_sha="sha163a",
-        status=ReviewRunStatus.QUEUED,
-        output={"review_trigger": "manual", "withheld_run_id": str(silent_run.id)},
+        output={
+            "review_trigger": "reviewhog_clean",
+            "pr": {"base": {"ref": "master", "sha": BASE_SHA}},
+            "reviewer_raw": fakes.approved_engine_output() if approved else _waiting_engine_output(),
+            "decision_fingerprint": "x",
+        },
     )
 
-    result = _run_activity(reuse_withheld_verdict, StamphogReviewInput(str(visible_run.id), team.id))
+    with patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow"):
+        queued = request_manual_review(team.id, None, REPO, 163)
 
+    assert queued.created is True
+    assert "withheld_run_id" not in queued.run.output
+    if not approved:
+        return
+    # The adopt step refuses a stored approval on its own too, whatever pointed the run at it.
+    ReviewRun.objects.for_team(team.id).filter(id=queued.run.id).update(
+        output={**queued.run.output, "withheld_run_id": str(silent_run.id)}
+    )
+    result = _run_activity(reuse_withheld_verdict, StamphogReviewInput(str(queued.run.id), team.id))
     assert result == {"reused": False}
-    visible_run.refresh_from_db()
-    assert visible_run.output["withheld_verdict_outcome"] == expected_outcome
-    assert "reviewer_raw" not in visible_run.output
+    queued.run.refresh_from_db()
+    assert queued.run.output["withheld_verdict_outcome"] == "approval"
     assert stamphog_chain.recorder.github_writes == []
 
 

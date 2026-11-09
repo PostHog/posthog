@@ -933,7 +933,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         first = self._request().json()["run"]["id"]
         output = {"pr": {"base": {"ref": reviewed_base_ref}}} if reviewed_base_ref else {}
         if existing_silent:
-            output["silent_review"] = {"source": "reviewhog_clean"}
+            output["review_trigger"] = "reviewhog_clean"
         ReviewRun.objects.unscoped().filter(id=first).update(status=existing_status, output=output)
         self.start_workflow.reset_mock()
 

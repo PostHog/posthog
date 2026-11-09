@@ -594,10 +594,17 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
 
 def _fetch_review_context(input: StamphogReviewInput) -> dict:
     run = _load_run(input)
+    number = run.pull_request.pr_number
+    stored = run.output or {}
+    if (
+        stored.get("withheld_verdict_outcome")
+        and ((stored.get("pr") or {}).get("head") or {}).get("sha") == run.head_sha
+    ):
+        # reuse_withheld_verdict read the context for this head moments ago and found it changed.
+        return {"pr_number": number, "file_count": len(stored.get("files") or []), "head_sha": run.head_sha}
     context = _read_review_context(run)
     _merge_run_output(run, context)
 
-    number = run.pull_request.pr_number
     activity.logger.info(
         f"Fetched review context for run {run.id} (pr #{number}, {len(context['files'])} files); "
         f"timings: {context['context_timings_ms']}"
@@ -1740,13 +1747,11 @@ def _decision_fingerprint(run: ReviewRun, context: dict[str, Any]) -> str:
     )
 
 
-_REUSABLE_WITHHELD_VERDICTS = frozenset({ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE})
-
-
 def _adopt_withheld_verdict(run: ReviewRun) -> str:
     """Give ``run`` the verdict a silent run withheld for its head, when nothing it was decided on changed.
 
-    Returns ``reused``, or why ``run`` has to review the PR itself.
+    Eligibility was decided when the request created ``run`` (``_reusable_withheld_run``). Returns
+    ``reused``, or why ``run`` has to review the PR itself.
     """
     output = run.output or {}
     withheld = (
@@ -1763,8 +1768,6 @@ def _adopt_withheld_verdict(run: ReviewRun) -> str:
     # approval it finds, so a stored approval must never reach it from here.
     if ReviewVerdict.APPROVED in (withheld.verdict, parsed.verdict):
         return "approval"
-    if not withheld.verdict_withheld or parsed.verdict not in _REUSABLE_WITHHELD_VERDICTS:
-        return "not_reusable"
     if withheld.head_sha != run.head_sha:
         return "head_moved"
     stored_fingerprint = withheld_output.get(DECISION_FINGERPRINT_OUTPUT_KEY)
@@ -1782,6 +1785,8 @@ def _adopt_withheld_verdict(run: ReviewRun) -> str:
 
     context = _read_review_context(run)
     context["review_evidence"] = _read_review_evidence(run, [])
+    # Stored whatever the outcome, so a run that reviews after all skips reading the same context again.
+    _merge_run_output(run, context)
     current_pr = context["pr"]
     if (current_pr.get("state") or "") != "open":
         return "not_open"
@@ -1794,12 +1799,7 @@ def _adopt_withheld_verdict(run: ReviewRun) -> str:
     if _decision_fingerprint(run, context) != stored_fingerprint:
         return "inputs_changed"
     _merge_run_output(
-        run,
-        {
-            **context,
-            "reviewer_raw": withheld_output.get("reviewer_raw", ""),
-            REUSED_FROM_RUN_OUTPUT_KEY: str(withheld.id),
-        },
+        run, {"reviewer_raw": withheld_output.get("reviewer_raw", ""), REUSED_FROM_RUN_OUTPUT_KEY: str(withheld.id)}
     )
     return "reused"
 
@@ -1898,9 +1898,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     run.change_summary = scrub_credentials(parsed.change_summary)
     if parsed.stamphog_version:
         _merge_run_output(run, {"stamphog_version": parsed.stamphog_version})
-    # A silent run withholds a non-approval, and a visible request for the same head may publish it
-    # later. That is safe only while every input this verdict was decided on is unchanged.
-    _merge_run_output(run, {DECISION_FINGERPRINT_OUTPUT_KEY: _decision_fingerprint(run, output)})
 
     update_fields = [
         "gate_result",
@@ -2032,6 +2029,9 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     run.completed_at = timezone.now()
     run.verdict_posted_at = run.completed_at if published else None
+    # A withheld verdict may be published later by a visible request for the same head. That is safe
+    # only while every input it was decided on is unchanged, so its inputs are fingerprinted here.
+    withheld_fingerprint = {} if published else {DECISION_FINGERPRINT_OUTPUT_KEY: _decision_fingerprint(run, output)}
     # Conditional terminal save: a delivery superseding this run between the guards above and here
     # must win — a plain save would write COMPLETED back over SUPERSEDED and resurrect a stale run.
     updated = (
@@ -2040,6 +2040,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         .exclude(status=ReviewRunStatus.SUPERSEDED)
         .update(
             **{field: getattr(run, field) for field in update_fields if field != "updated_at"},
+            **({"output": _output_merge(withheld_fingerprint)} if withheld_fingerprint else {}),
             updated_at=timezone.now(),
         )
     )

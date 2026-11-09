@@ -204,11 +204,11 @@ Publication is its own state: a withheld verdict keeps `verdict_posted_at` empty
 
 A silent run never covers a visible request. `_queue_review_at_head` ignores a silent run whose verdict is unpublished unless the request is silent too, so a manual request supersedes a silent run in flight, as the label webhook always did.
 A visible request (the trigger label, or a manual request) creates its own run as always, so a caller polling that run follows it to the real outcome.
-When the head's latest run withheld a REFUSED or ESCALATE verdict (`_reusable_withheld_run`), the new run carries `withheld_run_id`.
-`post_verdict` stores `decision_fingerprint` on every run (`logic/decision_fingerprint.py`): a hash of the engine context minus the fields that move without changing the decision, each one named in that module.
+When the head's latest run withheld a REFUSED or ESCALATE verdict (`_reusable_withheld_run`, asked by `_queue_review_at_head` for every visible request and by the webhook for the trigger label), the new run carries `withheld_run_id`.
+`post_verdict` stores `decision_fingerprint` on a run whose verdict it withholds, in the terminal save (`logic/decision_fingerprint.py`): a hash of the engine context minus the fields that move without changing the decision, each one named in that module.
 The workflow runs `reuse_withheld_verdict` before the sandbox starts. It reads the context again with no sandbox and no LLM call, and adopts the silent run's reviewer output only when the fingerprint matches, the PR is open, the head and the base are the reviewed ones, and a writer-pinned read finds no run between the two.
 The run then goes straight to `post_verdict`, which posts under its usual guards, records `reused_from_run_id`, and stamps the silent run's `verdict_posted_at` with its own, so neither run reads as withheld.
-Every other outcome, an error included, lets the same run review the PR the normal way.
+Every other outcome, an error included, lets the same run review the PR the normal way, from the context the check already stored.
 A stored APPROVE never reaches `post_verdict` from here: a silent approval was posted when it was decided.
 A WAIT is never reused, because a WAIT can end with time alone (a reviewer bot's 👀 ages out) and the fingerprint cannot see that.
 A field added to the engine context belongs in the fingerprint, or a stale verdict gets published over the new input.
