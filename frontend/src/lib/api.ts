@@ -170,8 +170,6 @@ import {
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
     ProductTour,
-    ProductTourAIGenerationResponse,
-    ProductTourStep,
     ProjectSecretAPIKeyRequest,
     ProjectType,
     PropertyDefinition,
@@ -4983,6 +4981,8 @@ const api = {
             include_source_metadata?: 'true' | 'false'
             /** ISO 8601 datetime. Keeps reports created at or after it. */
             created_after?: string
+            /** For `sort=personal`: the `ranking_id` of the first page, so later pages keep its order. */
+            ranking_id?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5409,15 +5409,6 @@ const api = {
         },
         async delete(tourId: ProductTour['id']): Promise<void> {
             await new ApiRequest().productTour(tourId).delete()
-        },
-        async generateContent(
-            tourId: ProductTour['id'],
-            title: ProductTour['name'],
-            steps: ProductTourStep[],
-            goal: string
-        ): Promise<ProductTourAIGenerationResponse> {
-            const apiRequest = new ApiRequest().productTour(tourId).withAction('generate')
-            return await apiRequest.create({ data: { title, steps, goal } })
         },
         async saveDraft(tourId: ProductTour['id'], data: Partial<ProductTour>): Promise<ProductTour> {
             return await new ApiRequest().productTour(tourId).withAction('draft').update({ data })

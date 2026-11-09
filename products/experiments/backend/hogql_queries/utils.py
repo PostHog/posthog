@@ -1,6 +1,7 @@
 import math
+from collections.abc import Callable
 from enum import Enum
-from typing import Any, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -30,12 +31,14 @@ from posthog.models import Team, User
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig, get_cuped_config
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
+from products.experiments.stats.bayesian.tests import BayesianResult
 from products.experiments.stats.frequentist.method import (
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
     FrequentistConfig,
     FrequentistMethod,
     TestType,
 )
+from products.experiments.stats.frequentist.tests import TestResult
 from products.experiments.stats.shared.cuped import CupedCovariate, cuped_adjust
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
@@ -44,6 +47,9 @@ from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     StatisticError,
 )
+
+if TYPE_CHECKING:
+    from products.experiments.stats.shared.statistics import RelativeEffectBaseline
 
 logger = structlog.get_logger(__name__)
 
@@ -398,7 +404,7 @@ ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic
 class CupedAdjustment:
     test_stat: ExperimentStatistic
     control_stat: ExperimentStatistic
-    control_unadjusted_mean: float | None
+    relative_effect_baseline: RelativeEffectBaseline | None
 
 
 def _apply_cuped_adjustment_if_enabled(
@@ -409,7 +415,7 @@ def _apply_cuped_adjustment_if_enabled(
     test_variant: ExperimentStatsBaseValidated,
     control_variant: ExperimentStatsBaseValidated,
 ) -> CupedAdjustment:
-    unadjusted = CupedAdjustment(test_stat=test_stat, control_stat=control_stat, control_unadjusted_mean=None)
+    unadjusted = CupedAdjustment(test_stat=test_stat, control_stat=control_stat, relative_effect_baseline=None)
 
     if not cuped_config.enabled:
         return unadjusted
@@ -430,11 +436,79 @@ def _apply_cuped_adjustment_if_enabled(
         metric_variant_to_cuped_data(control_variant),
     )
 
+    # With theta = 0 CUPED adjusts nothing, but the adjusted statistics still carry the variance floor. The floor
+    # turns a treatment arm without spread into a decisive result, where the unadjusted test rejects it.
+    if cuped_result.theta == 0.0:
+        return unadjusted
+
     return CupedAdjustment(
         test_stat=cuped_result.treatment_adjusted,
         control_stat=cuped_result.control_adjusted,
-        control_unadjusted_mean=cuped_result.control_unadjusted_mean,
+        relative_effect_baseline=cuped_result.relative_effect_baseline,
     )
+
+
+VariantResultT = TypeVar("VariantResultT", ExperimentVariantResultFrequentist, ExperimentVariantResultBayesian)
+TestResultT = TypeVar("TestResultT", TestResult, BayesianResult)
+
+
+def _variant_result_with_inputs(
+    result_class: type[VariantResultT], variant: ExperimentStatsBaseValidated
+) -> VariantResultT:
+    result = result_class(
+        key=variant.key,
+        number_of_samples=variant.number_of_samples,
+        sum=variant.sum,
+        sum_squares=variant.sum_squares,
+        step_counts=variant.step_counts,
+        validation_failures=variant.validation_failures,
+    )
+
+    if hasattr(variant, "denominator_sum") and variant.denominator_sum is not None:
+        result.denominator_sum = variant.denominator_sum
+        result.denominator_sum_squares = variant.denominator_sum_squares
+        result.numerator_denominator_sum_product = variant.numerator_denominator_sum_product
+    _copy_cuped_fields(result, variant)
+    return result
+
+
+def _compare_with_control(
+    run_test: Callable[..., TestResultT],
+    *,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    cuped_config: CupedQueryConfig,
+    control_stat: ExperimentStatistic | None,
+    control_variant: ExperimentStatsBaseValidated,
+    test_variant: ExperimentStatsBaseValidated,
+) -> TestResultT | None:
+    """Runs the test of one variant against the control, with CUPED where it applies. Returns None when either
+    side has no valid statistic, and logs why when the statistics are invalid."""
+    if not control_stat or test_variant.validation_failures:
+        return None
+
+    try:
+        test_stat = metric_variant_to_statistic(metric, test_variant)
+        cuped_adjustment = _apply_cuped_adjustment_if_enabled(
+            metric,
+            cuped_config,
+            test_stat,
+            control_stat,
+            test_variant,
+            control_variant,
+        )
+        return run_test(
+            cuped_adjustment.test_stat,
+            cuped_adjustment.control_stat,
+            relative_effect_baseline=cuped_adjustment.relative_effect_baseline,
+        )
+    except StatisticError as e:
+        logger.info(
+            "experiment_statistics_skipped",
+            variant_key=test_variant.key,
+            number_of_samples=test_variant.number_of_samples,
+            reason=str(e),
+        )
+        return None
 
 
 def _resolve_sequential_settings(
@@ -565,56 +639,24 @@ def get_frequentist_experiment_result(
     variants: list[ExperimentVariantResultFrequentist] = []
 
     for test_variant_validated in test_variants_validated:
-        experiment_variant_result = ExperimentVariantResultFrequentist(
-            key=test_variant_validated.key,
-            number_of_samples=test_variant_validated.number_of_samples,
-            sum=test_variant_validated.sum,
-            sum_squares=test_variant_validated.sum_squares,
-            step_counts=test_variant_validated.step_counts,
-            validation_failures=test_variant_validated.validation_failures,
+        experiment_variant_result = _variant_result_with_inputs(
+            ExperimentVariantResultFrequentist, test_variant_validated
+        )
+        result = _compare_with_control(
+            method.run_test,
+            metric=metric,
+            cuped_config=resolved_cuped_config,
+            control_stat=control_stat,
+            control_variant=control_variant_validated,
+            test_variant=test_variant_validated,
         )
 
-        if hasattr(test_variant_validated, "denominator_sum") and test_variant_validated.denominator_sum is not None:
-            experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
-            experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
-            experiment_variant_result.numerator_denominator_sum_product = (
-                test_variant_validated.numerator_denominator_sum_product
-            )
-        _copy_cuped_fields(experiment_variant_result, test_variant_validated)
+        if result is not None:
+            confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
-        if control_stat and not test_variant_validated.validation_failures:
-            try:
-                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                cuped_adjustment = _apply_cuped_adjustment_if_enabled(
-                    metric,
-                    resolved_cuped_config,
-                    test_stat,
-                    control_stat,
-                    test_variant_validated,
-                    control_variant_validated,
-                )
-
-                if cuped_adjustment.control_unadjusted_mean is None:
-                    result = method.run_test(cuped_adjustment.test_stat, cuped_adjustment.control_stat)
-                else:
-                    result = method.run_test(
-                        cuped_adjustment.test_stat,
-                        cuped_adjustment.control_stat,
-                        unadjusted_mean=cuped_adjustment.control_unadjusted_mean,
-                    )
-
-                confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
-
-                experiment_variant_result.p_value = result.p_value
-                experiment_variant_result.confidence_interval = confidence_interval
-                experiment_variant_result.significant = result.is_significant
-            except StatisticError as e:
-                logger.info(
-                    "experiment_statistics_skipped",
-                    variant_key=test_variant_validated.key,
-                    number_of_samples=test_variant_validated.number_of_samples,
-                    reason=str(e),
-                )
+            experiment_variant_result.p_value = result.p_value
+            experiment_variant_result.confidence_interval = confidence_interval
+            experiment_variant_result.significant = result.is_significant
 
         variants.append(experiment_variant_result)
 
@@ -655,56 +697,22 @@ def get_bayesian_experiment_result(
     variants: list[ExperimentVariantResultBayesian] = []
 
     for test_variant_validated in test_variants_validated:
-        experiment_variant_result = ExperimentVariantResultBayesian(
-            key=test_variant_validated.key,
-            number_of_samples=test_variant_validated.number_of_samples,
-            sum=test_variant_validated.sum,
-            sum_squares=test_variant_validated.sum_squares,
-            step_counts=test_variant_validated.step_counts,
-            validation_failures=test_variant_validated.validation_failures,
+        experiment_variant_result = _variant_result_with_inputs(ExperimentVariantResultBayesian, test_variant_validated)
+        result = _compare_with_control(
+            method.run_test,
+            metric=metric,
+            cuped_config=resolved_cuped_config,
+            control_stat=control_stat,
+            control_variant=control_variant_validated,
+            test_variant=test_variant_validated,
         )
 
-        if hasattr(test_variant_validated, "denominator_sum") and test_variant_validated.denominator_sum is not None:
-            experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
-            experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
-            experiment_variant_result.numerator_denominator_sum_product = (
-                test_variant_validated.numerator_denominator_sum_product
-            )
-        _copy_cuped_fields(experiment_variant_result, test_variant_validated)
+        if result is not None:
+            credible_interval = [result.credible_interval[0], result.credible_interval[1]]
 
-        if control_stat and not test_variant_validated.validation_failures:
-            try:
-                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                cuped_adjustment = _apply_cuped_adjustment_if_enabled(
-                    metric,
-                    resolved_cuped_config,
-                    test_stat,
-                    control_stat,
-                    test_variant_validated,
-                    control_variant_validated,
-                )
-
-                if cuped_adjustment.control_unadjusted_mean is None:
-                    result = method.run_test(cuped_adjustment.test_stat, cuped_adjustment.control_stat)
-                else:
-                    result = method.run_test(
-                        cuped_adjustment.test_stat,
-                        cuped_adjustment.control_stat,
-                        unadjusted_mean=cuped_adjustment.control_unadjusted_mean,
-                    )
-
-                credible_interval = [result.credible_interval[0], result.credible_interval[1]]
-
-                experiment_variant_result.chance_to_win = result.chance_to_win
-                experiment_variant_result.credible_interval = credible_interval
-                experiment_variant_result.significant = result.is_decisive
-            except StatisticError as e:
-                logger.info(
-                    "experiment_statistics_skipped",
-                    variant_key=test_variant_validated.key,
-                    number_of_samples=test_variant_validated.number_of_samples,
-                    reason=str(e),
-                )
+            experiment_variant_result.chance_to_win = result.chance_to_win
+            experiment_variant_result.credible_interval = credible_interval
+            experiment_variant_result.significant = result.is_decisive
 
         variants.append(experiment_variant_result)
 

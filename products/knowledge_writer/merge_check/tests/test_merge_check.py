@@ -10,8 +10,9 @@ import requests
 from anthropic import Anthropic
 
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind
-from products.knowledge_writer.merge_check.check import run_merge_check
+from products.knowledge_writer.merge_check.check import PullRequestNotIndexed, run_merge_check
 from products.knowledge_writer.merge_check.judge import JudgeVerdict
+from products.knowledge_writer.merge_check.sources import LandedChange
 
 COMPONENT_PATH = "products/feature_flags/frontend/FlagBanner.tsx"
 COMPONENT_CHUNK = f"diff --git a/{COMPONENT_PATH} b/{COMPONENT_PATH}\n-old\n+new\n"
@@ -21,24 +22,36 @@ FLAGS_PATHS = [f"feature-flags/page-{number}" for number in range(200)]
 FLAGS_PAGES = [f"https://posthog.com/docs/{path}" for path in FLAGS_PATHS]
 
 
+def landed(commit_sha: str) -> LandedChange:
+    return LandedChange(repository="PostHog/posthog", after=commit_sha)
+
+
 class FakePostHogGitHub:
-    def __init__(self, commit_sha: str, published_page_paths: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        commit_sha: str,
+        published_page_paths: tuple[str, ...] = (),
+        *,
+        is_commit_indexed: bool = True,
+    ) -> None:
         self.commit_sha = commit_sha
         self.published_page_paths = published_page_paths
+        self.is_commit_indexed = is_commit_indexed
+
+    def merged_pull_request(self) -> dict[str, object]:
+        return {
+            "number": 7,
+            "title": "chore: drop legacy rollout",
+            "html_url": "https://github.com/PostHog/posthog/pull/7",
+            "merge_commit_sha": self.commit_sha,
+            "merged_at": "2026-10-27T00:00:00Z",
+            "base": {"ref": "stack/parent-branch"},
+            "author_association": "MEMBER",
+        }
 
     def api_request(self, method: str, path: str, **_options: object) -> requests.Response:
-        if path.endswith("/pulls"):
-            pulls = [
-                {
-                    "number": 7,
-                    "title": "chore: drop legacy rollout",
-                    "html_url": "https://github.com/PostHog/posthog/pull/7",
-                    "merge_commit_sha": self.commit_sha,
-                    "merged_at": "2026-10-27T00:00:00Z",
-                    "base": {"ref": "master"},
-                    "author_association": "MEMBER",
-                }
-            ]
+        if path.endswith(f"/commits/{self.commit_sha}/pulls"):
+            pulls = [self.merged_pull_request()] if self.is_commit_indexed else []
             return github_response(json.dumps(pulls))
         if "/contents/docs/published/docs/" in path:
             page_file = path.split("/contents/docs/published/docs/", 1)[1]
@@ -46,7 +59,9 @@ class FakePostHogGitHub:
             return github_response("", status_code=200 if is_published else 404)
         if path.endswith("/.gitattributes"):
             return github_response("# Generated code\nposthog/schema.py linguist-generated\n")
-        return github_response(GENERATED_CHUNK + SCRIPT_CHUNK + COMPONENT_CHUNK)
+        if path.endswith(f"/commits/{self.commit_sha}"):
+            return github_response(GENERATED_CHUNK + SCRIPT_CHUNK + COMPONENT_CHUNK)
+        return github_response(COMPONENT_CHUNK)
 
 
 def github_response(body: str, status_code: int = 200) -> requests.Response:
@@ -95,7 +110,8 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
     )
 
     report = run_merge_check(
-        commit_sha,
+        landed(commit_sha),
+        is_final_attempt=False,
         github=FakePostHogGitHub(commit_sha),
         http=fake_sitemap(),
         anthropic_client=judge_recording(verdict, judge_requests),
@@ -115,7 +131,8 @@ def test_update_naming_no_sitemap_page_becomes_create() -> None:
     )
 
     report = run_merge_check(
-        commit_sha,
+        landed(commit_sha),
+        is_final_attempt=False,
         github=FakePostHogGitHub(commit_sha),
         http=fake_sitemap(),
         anthropic_client=judge_recording(verdict, []),
@@ -135,7 +152,8 @@ def test_a_page_published_from_this_repository_skips_the_writer(published_page_p
     )
 
     report = run_merge_check(
-        commit_sha,
+        landed(commit_sha),
+        is_final_attempt=False,
         github=FakePostHogGitHub(commit_sha, published_page_paths=(published_page_path,)),
         http=fake_sitemap(),
         anthropic_client=judge_recording(verdict, []),
@@ -148,10 +166,50 @@ def test_malformed_judge_output_declines_instead_of_raising() -> None:
     commit_sha = "b" * 40
 
     report = run_merge_check(
-        commit_sha,
+        landed(commit_sha),
+        is_final_attempt=False,
         github=FakePostHogGitHub(commit_sha),
         http=fake_sitemap(),
         anthropic_client=judge_returning_malformed_output(),
     )
 
     assert (report.needs_docs, report.reason) == (False, "judge_declined")
+
+
+@pytest.mark.parametrize(
+    "is_commit_indexed, is_final_attempt, expected_reason",
+    [
+        pytest.param(True, False, "no docs needed", id="indexed_pull_request_is_judged"),
+        pytest.param(False, True, "no_pull_request", id="final_attempt_without_a_pull_request"),
+    ],
+)
+def test_a_landed_change_is_judged_once_github_lists_its_pull_request(
+    is_commit_indexed: bool, is_final_attempt: bool, expected_reason: str
+) -> None:
+    commit_sha = "e" * 40
+    judge_requests: list[dict] = []
+    verdict = JudgeVerdict(needs_docs=False, change_kind=None, page_urls=[], reason="no docs needed")
+
+    report = run_merge_check(
+        landed(commit_sha),
+        is_final_attempt=is_final_attempt,
+        github=FakePostHogGitHub(commit_sha, is_commit_indexed=is_commit_indexed),
+        http=fake_sitemap(),
+        anthropic_client=judge_recording(verdict, judge_requests),
+    )
+
+    assert (report.needs_docs, report.reason) == (False, expected_reason)
+    assert bool(judge_requests) == (expected_reason == verdict.reason)
+
+
+def test_an_unindexed_merge_retries_instead_of_recording_no_pull_request() -> None:
+    commit_sha = "e" * 40
+
+    with pytest.raises(PullRequestNotIndexed):
+        run_merge_check(
+            landed(commit_sha),
+            is_final_attempt=False,
+            github=FakePostHogGitHub(commit_sha, is_commit_indexed=False),
+            http=fake_sitemap(),
+            anthropic_client=judge_returning_malformed_output(),
+        )
