@@ -10,7 +10,7 @@ import { ALL_ROUTE_EVENT_KINDS, ROUTE_EVENT_KIND_OPTIONS } from './platformAlert
 import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
 
 export function PlatformAlertRoutesTable(): JSX.Element {
-    const { routes, routesLoading, receiversById } = useValues(platformAlertRoutingLogic)
+    const { routes, routesLoading, receivers, receiversById, togglingIds } = useValues(platformAlertRoutingLogic)
     const { openRouteModal, deleteRoute, setRouteEnabled } = useActions(platformAlertRoutingLogic)
 
     const columns: LemonTableColumns<AlertRouteApi> = [
@@ -31,7 +31,8 @@ export function PlatformAlertRoutesTable(): JSX.Element {
         },
         {
             title: 'Sends to',
-            render: (_, route) => receiversById[route.receiver_id]?.name ?? 'Unknown receiver',
+            render: (_, route) =>
+                receivers === null ? null : (receiversById[route.receiver_id]?.name ?? 'Unknown receiver'),
         },
         {
             title: 'Events',
@@ -50,6 +51,7 @@ export function PlatformAlertRoutesTable(): JSX.Element {
                 <LemonSwitch
                     checked={route.enabled}
                     onChange={(enabled) => setRouteEnabled(route, enabled)}
+                    disabled={togglingIds.includes(route.id)}
                     data-attr="platform-alert-route-enabled"
                 />
             ),

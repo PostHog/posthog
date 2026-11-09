@@ -10,7 +10,7 @@ import { receiverTarget, receiverTypeLabel } from './platformAlertRoutingFormat'
 import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
 
 export function PlatformAlertReceiversTable(): JSX.Element {
-    const { receivers, receiversLoading } = useValues(platformAlertRoutingLogic)
+    const { receivers, receiversLoading, togglingIds } = useValues(platformAlertRoutingLogic)
     const { openReceiverModal, deleteReceiver, setReceiverEnabled } = useActions(platformAlertRoutingLogic)
 
     const columns: LemonTableColumns<AlertReceiverApi> = [
@@ -27,6 +27,7 @@ export function PlatformAlertReceiversTable(): JSX.Element {
                 <LemonSwitch
                     checked={receiver.enabled}
                     onChange={(enabled) => setReceiverEnabled(receiver, enabled)}
+                    disabled={togglingIds.includes(receiver.id)}
                     data-attr="platform-alert-receiver-enabled"
                 />
             ),

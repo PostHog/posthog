@@ -111,13 +111,18 @@ def create_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:
     _validate_matchers(matchers)
     event_kinds = edit.event_kinds or DEFAULT_ROUTE_EVENT_KINDS
     validate_event_kinds(event_kinds)
-    row = AlertRoute.objects.for_team(team_id).create(
-        team_id=team_id,
-        receiver_id=edit.receiver_id,
-        matchers=_stored_matchers(matchers),
-        event_kinds=[kind.value for kind in event_kinds],
-        enabled=True if edit.enabled is None else edit.enabled,
-    )
+    try:
+        with transaction.atomic():
+            row = AlertRoute.objects.for_team(team_id).create(
+                team_id=team_id,
+                receiver_id=edit.receiver_id,
+                matchers=_stored_matchers(matchers),
+                event_kinds=[kind.value for kind in event_kinds],
+                enabled=True if edit.enabled is None else edit.enabled,
+            )
+    except IntegrityError as error:
+        # The receiver was deleted after the check above.
+        raise _unknown_receiver() from error
     return _stored_route(row)
 
 
@@ -137,7 +142,11 @@ def update_route(*, team_id: int, route_id: UUID, edit: AlertRouteEdit) -> Store
             row.event_kinds = [kind.value for kind in edit.event_kinds]
         if edit.enabled is not None:
             row.enabled = edit.enabled
-        row.save()
+        try:
+            with transaction.atomic():
+                row.save()
+        except IntegrityError as error:
+            raise _unknown_receiver() from error
     return _stored_route(row)
 
 
@@ -167,7 +176,11 @@ def _validate_receiver_data(data: AlertDestinationData) -> None:
 def _check_receiver(team_id: int, receiver_id: UUID) -> None:
     # Delivery loads receivers by team, so a route to another team's receiver would never send.
     if not AlertReceiver.objects.for_team(team_id).filter(id=receiver_id).exists():
-        raise AlertDestinationValidationError("Choose a receiver in this project.", field="receiver_id")
+        raise _unknown_receiver()
+
+
+def _unknown_receiver() -> AlertDestinationValidationError:
+    return AlertDestinationValidationError("Choose a receiver in this project.", field="receiver_id")
 
 
 def _validate_matchers(matchers: tuple[RouteMatcher, ...]) -> None:
