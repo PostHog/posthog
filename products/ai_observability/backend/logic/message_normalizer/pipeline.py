@@ -87,12 +87,11 @@ class SlotCoercer:
         charge_output(nodes=len(message))
         stamped = dict(message)
         if emit.role is not None:
-            stamped["role"] = self._role(emit.role, scope)
+            stamped["role"] = to_json_value(self._role(emit.role, scope))
         if emit.tool_call_id is not None:
             tool_call_id = emit.tool_call_id.eval(scope)
             if isinstance(tool_call_id, str):
-                charge_output(nodes=1, chars=len(tool_call_id))
-                stamped["tool_call_id"] = tool_call_id
+                stamped["tool_call_id"] = to_json_value(tool_call_id)
         return stamped
 
     @staticmethod
@@ -177,7 +176,7 @@ class RecipePipeline:
         role = Scope.for_node(value, inherited_role).role
         content = value.get("content") if is_mapping(value) else None
         charge_messages(1)
-        return [{"role": role, "content": to_text(content if isinstance(content, str) else value)}]
+        return [{"role": to_json_value(role), "content": to_text(content if isinstance(content, str) else value)}]
 
 
 def _tool_calls(value: Value) -> Value:

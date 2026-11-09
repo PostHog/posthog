@@ -315,6 +315,25 @@ def peak_memory_of_a_failed_run(recipe: Recipe, value: Value, match: str) -> int
             {"id": "x" * 2_000, "blocks": [""] * 1_000},
             id="stamped tool call ids",
         ),
+        pytest.param(
+            compile_recipe(
+                {"id": "salvage", "rules": [{"on": {"blocks": {"exists": True}}, "delegateEach": "$.blocks"}]}
+            ),
+            {"role": "x" * 2_000, "blocks": [""] * 1_000},
+            id="salvaged inherited roles",
+        ),
+        pytest.param(
+            compile_recipe(
+                {
+                    "id": "stamp",
+                    "rules": [
+                        {"on": {"blocks": {"exists": True}}, "delegateEach": "$.blocks", "stamp": {"role": "$.missing"}}
+                    ],
+                }
+            ),
+            {"role": "x" * 2_000, "blocks": [{"role": "user"}] * 1_000},
+            id="stamped inherited roles",
+        ),
     ],
 )
 @pytest.mark.usefixtures("low_output_char_cap")
