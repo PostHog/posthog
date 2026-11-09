@@ -96021,6 +96021,40 @@ export namespace Schemas {
       finished_at: string | null;
     }
 
+    export interface ProviderKeyAlternative {
+      /** Provider key ID. */
+      id: string;
+      /** Provider key name. */
+      name: string;
+      /** Provider of the key. */
+      provider: string;
+    }
+
+    export interface ProviderKeyDependentEvaluation {
+      /** Evaluation ID. */
+      id: string;
+      /** Evaluation name. */
+      name: string;
+      /** Model configuration that pins this key. Absent for evaluations on the active key. */
+      model_configuration_id?: string;
+      /** Whether the evaluation is running. */
+      enabled: boolean;
+      /**
+         * Why the system turned the evaluation off, such as provider_key_quota_exceeded.
+         * @nullable
+         */
+      status_reason: string | null;
+    }
+
+    export interface ProviderKeyDependentConfigs {
+      /** Evaluations whose model configuration pins this key. */
+      evaluations: ProviderKeyDependentEvaluation[];
+      /** Working keys for the same provider that could replace this one. */
+      alternative_keys: ProviderKeyAlternative[];
+      /** Errored evaluations with no pinned key, which run on this key while it is the project's active key. */
+      active_key_evaluations: ProviderKeyDependentEvaluation[];
+    }
+
     export interface ProvisionWarehouseRequest {
       /** Name for the new database */
       database_name: string;
