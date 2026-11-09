@@ -2,10 +2,13 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
+from parameterized import parameterized
+
 from posthog.api.oauth.mcp_resource_scopes import (
     build_oauth_mcp_consent_context,
     is_trusted_posthog_mcp_resource,
     mcp_advertised_scopes,
+    mcp_session_required_scopes,
 )
 from posthog.mcp_tool_definitions import mcp_tool_required_scopes
 
@@ -73,3 +76,14 @@ class TestMcpResourceScopes(SimpleTestCase):
 
     def test_build_oauth_mcp_consent_context_ignores_untrusted_resource(self):
         self.assertIsNone(build_oauth_mcp_consent_context("https://evil.example.com/mcp"))
+
+    @parameterized.expand(
+        [
+            ("mcp_resource", "https://mcp.posthog.com/mcp", ["user:read", "notebook:read"], ["user:read"]),
+            ("no_resource", None, ["user:read", "notebook:read"], []),
+            ("untrusted_resource", "https://evil.example.com/mcp", ["user:read"], []),
+            ("not_grantable", "https://mcp.posthog.com/mcp", ["notebook:read"], []),
+        ]
+    )
+    def test_mcp_session_required_scopes(self, _name, resource_url, grantable, expected):
+        self.assertEqual(mcp_session_required_scopes(resource_url, grantable), expected)

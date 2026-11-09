@@ -70,7 +70,11 @@ from posthog.api.oauth.device import (
     device_token_response,
     token_server_kwargs,
 )
-from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context, is_trusted_posthog_mcp_resource
+from posthog.api.oauth.mcp_resource_scopes import (
+    build_oauth_mcp_consent_context,
+    is_trusted_posthog_mcp_resource,
+    mcp_session_required_scopes,
+)
 from posthog.api.oauth.metadata import (
     Document,
     authorization_server_metadata,
@@ -1799,13 +1803,22 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if already_granted_scopes and is_read_only_impersonation(request):
             already_granted_scopes = downgrade_scopes_to_read_only(" ".join(already_granted_scopes)).split()
 
+        consent_required_scopes = list(
+            dict.fromkeys(
+                [
+                    *application.required_scopes,
+                    *mcp_session_required_scopes(resource, grantable_ceiling(application.ceiling_scopes)),
+                ]
+            )
+        )
+
         template_context: dict[str, object] = {
             "oauth_application": {
                 "name": application.name,
                 "client_id": application.client_id,
                 "is_verified": application.is_verified,
                 "logo_uri": application.logo_uri,
-                "required_scopes": application.required_scopes,
+                "required_scopes": consent_required_scopes,
                 # The read-only form of a `*` grant, computed from the same ceiling
                 # resolution `validate_scopes` enforces — the frontend's scope list
                 # drifts from the server's (both over- and under-granting otherwise).

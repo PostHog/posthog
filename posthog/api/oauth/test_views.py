@@ -284,6 +284,7 @@ class TestOAuthAPI(APIBaseTest):
                 "scopes": ["openid", "notebook:read", "notebook:write", "query:read"],
             },
         )
+        self.assertIn("user:read", template_context["oauth_application"]["required_scopes"])
 
     @parameterized.expand(
         [

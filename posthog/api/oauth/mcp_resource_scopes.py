@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TypedDict
 from urllib.parse import urlparse
 
@@ -21,6 +22,10 @@ PRODUCTION_MCP_HOSTS = frozenset(
     }
 )
 LOCAL_MCP_HOSTS = frozenset({"localhost", "127.0.0.1"})
+
+# The MCP server reads `/api/users/@me/` when a session starts, so a grant without
+# these scopes cannot connect at all. The consent screen locks them for MCP requests.
+MCP_SESSION_SCOPES = ("user:read",)
 
 
 class OAuthMcpConsentContext(TypedDict, total=False):
@@ -59,6 +64,15 @@ def mcp_advertised_scopes() -> list[str]:
     """
     required = mcp_tool_required_scopes()
     return [scope for scope in get_oauth_scopes_supported() if ":" not in scope or scope in required]
+
+
+def mcp_session_required_scopes(resource_url: str | None, grantable_scopes: Iterable[str]) -> list[str]:
+    """The session scopes to lock at consent, limited to what the app may grant so the
+    screen never promises a scope `/authorize` would clamp away."""
+    if not resource_url or not is_trusted_posthog_mcp_resource(resource_url):
+        return []
+    grantable = set(grantable_scopes)
+    return [scope for scope in MCP_SESSION_SCOPES if scope in grantable]
 
 
 def build_oauth_mcp_consent_context(
