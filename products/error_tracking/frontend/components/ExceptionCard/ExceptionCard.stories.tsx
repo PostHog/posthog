@@ -600,7 +600,7 @@ export function ExceptionCardRecordingWithVisionButton(): JSX.Element {
     const event = asErrorEventType(TEST_EVENTS['javascript_resolved'])
 
     return (
-        <HeaderWidthMatrix widths={RECORDING_TAB_WIDTHS} height="h-44">
+        <HeaderWidthMatrix widths={RECORDING_TAB_WIDTHS} height="h-36">
             {(width) => (
                 <OpenTab tab="recording" issueId={`recording-${width}`} onSetUpVisionScanner={noop}>
                     <ExceptionCard
@@ -702,10 +702,10 @@ function HeaderWidthMatrix({
     )
 }
 
-// The narrow pane is the issue page's minimum right-column width, where the two sub-header buttons wrap.
+// The narrow pane is the issue page's minimum right-column width, where the vision button uses its short label.
 const RECORDING_TAB_WIDTHS: typeof HEADER_WIDTHS = [
-    { width: 375, caption: '375px: narrowest issue pane, the sub-header wraps' },
-    { width: 900, caption: '900px: both buttons on one row' },
+    { width: 375, caption: '375px: narrowest issue pane, short label' },
+    { width: 900, caption: '900px: full label' },
 ]
 
 // The footer shows how long ago the event happened. Pin the clock so the label stays "a year ago".

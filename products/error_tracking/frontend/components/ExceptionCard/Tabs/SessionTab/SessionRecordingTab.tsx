@@ -60,9 +60,8 @@ export function SessionRecordingContent(): JSX.Element {
     )
 
     return (
-        <div className="flex h-full min-w-0 flex-col overflow-hidden">
-            {/* Two buttons do not fit one row in a narrow pane, so the header grows instead of clipping. */}
-            <SubHeader className="shrink-0 flex-wrap justify-end h-auto min-h-9 py-1">
+        <div className="@container/recording-tab flex h-full min-w-0 flex-col overflow-hidden">
+            <SubHeader className="shrink-0 justify-end">
                 {onSetUpVisionScanner ? (
                     <Button
                         variant="default"
@@ -71,7 +70,9 @@ export function SessionRecordingContent(): JSX.Element {
                         data-attr="error-tracking-recording-tab-scan-with-vision"
                     >
                         <IconSparkles className="text-ai" />
-                        Watch every new session with this error
+                        {/* The full label does not fit beside "Open in session replay" in the narrowest pane. */}
+                        <span className="hidden @lg/recording-tab:inline">Watch every new session with this error</span>
+                        <span className="@lg/recording-tab:hidden">Watch new sessions</span>
                     </Button>
                 ) : null}
                 <Button variant="default" size="sm" render={<LinkPrimitive to={replayUrl} target="_blank" />}>
