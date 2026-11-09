@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
+    frozen,
     make_tracked_session,
     parse_datetime_value,
     rest_api_resource,
@@ -30,7 +31,7 @@ from products.warehouse_sources.sources.spot_io.settings import (
 DATA_SELECTOR = "response.items"
 
 
-@dataclasses.dataclass
+@frozen
 class SpotIoResumeConfig:
     # Opaque framework checkpoint (fan-out resume state for the per-group and per-cluster
     # endpoints; the entity list endpoints have no pagination and are never resumed).
