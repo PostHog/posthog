@@ -220,20 +220,32 @@ function authorityOrigin(protocol: string, authority: string): string {
     return parsed ?? `${protocol}//${value.toLowerCase()}`
 }
 
+// A longer origin is shown as REDACTED_ORIGIN unscanned, so redaction work stays bounded when the request controls the
+// host. A host name has at most 253 characters, so a real origin fits.
+const MAX_SCANNED_ORIGIN_LENGTH = 512
+
+const REDACTED_ORIGIN = '[redacted origin]'
+
 // A named input is checked at any length, so every secret is redacted. Plain string matching, because a regular
 // expression built from a long secret throws, and its message holds the secret.
 function secretRedactor(secrets: string[]): (origin: string) => string {
-    const lowered = [...new Set(secrets.map((secret) => secret.toLowerCase()))]
-        .filter((secret) => secret.length > 0)
-        .sort((a, b) => b.length - a.length)
+    const lowered = [...new Set(secrets.map((secret) => secret.toLowerCase()))].filter(
+        (secret) => secret.length > 0 && secret.length <= MAX_SCANNED_ORIGIN_LENGTH
+    )
     return (origin) => {
+        if (origin.length > MAX_SCANNED_ORIGIN_LENGTH) {
+            return REDACTED_ORIGIN
+        }
         const text = origin.toLowerCase()
+        const longestAt = new Array<number>(text.length).fill(0)
+        for (const secret of lowered) {
+            for (let start = text.indexOf(secret); start !== -1; start = text.indexOf(secret, start + 1)) {
+                longestAt[start] = Math.max(longestAt[start], secret.length)
+            }
+        }
         let shown = ''
-        let index = 0
-        while (index < text.length) {
-            const secret = lowered.find((candidate) => text.startsWith(candidate, index))
-            shown += secret ? REDACTED : text[index]
-            index += secret ? secret.length : 1
+        for (let index = 0; index < text.length; index += longestAt[index] || 1) {
+            shown += longestAt[index] ? REDACTED : text[index]
         }
         return shown
     }

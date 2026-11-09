@@ -2199,13 +2199,23 @@ describe('Hog Executor', () => {
                 expect(result.error === undefined).toBe(sent)
             })
 
-            it.each<{ carriedBy: string; url: string; headers: Record<string, string>; carry: Carry; secret: string }>([
+            const SHOWN_HOST = 'https://***REDACTED***.evil.example'
+
+            it.each<{
+                carriedBy: string
+                url: string
+                headers: Record<string, string>
+                carry: Carry
+                secret: string
+                shown: string
+            }>([
                 {
                     carriedBy: 'the URL',
                     url: `https://${HOST_SECRET}.evil.example/`,
                     headers: {},
                     carry: 'body',
                     secret: HOST_SECRET,
+                    shown: SHOWN_HOST,
                 },
                 {
                     carriedBy: 'a Host header',
@@ -2213,6 +2223,7 @@ describe('Hog Executor', () => {
                     headers: { Host: `${HOST_SECRET}.evil.example` },
                     carry: 'body',
                     secret: HOST_SECRET,
+                    shown: SHOWN_HOST,
                 },
                 {
                     carriedBy: 'the URL as a secret dictionary key',
@@ -2220,6 +2231,7 @@ describe('Hog Executor', () => {
                     headers: {},
                     carry: 'dictionary_key',
                     secret: HOST_SECRET,
+                    shown: SHOWN_HOST,
                 },
                 {
                     carriedBy: 'the URL as a very long secret',
@@ -2227,6 +2239,15 @@ describe('Hog Executor', () => {
                     headers: {},
                     carry: 'body',
                     secret: LONG_SECRET,
+                    shown: '[redacted origin]',
+                },
+                {
+                    carriedBy: 'the body, to a long host of near matches',
+                    url: `https://${'a'.repeat(100_000)}.evil.example/`,
+                    headers: {},
+                    carry: 'body',
+                    secret: `${'a'.repeat(10_000)}b`,
+                    shown: '[redacted origin]',
                 },
                 {
                     carriedBy: 'the URL as a short named secret header',
@@ -2234,19 +2255,18 @@ describe('Hog Executor', () => {
                     headers: {},
                     carry: 'secret_header_value',
                     secret: SHORT_SECRET,
+                    shown: SHOWN_HOST,
                 },
             ])(
                 'enforce: leaves a secret in a host from $carriedBy out of the refusal and the warning',
-                async ({ url, headers, carry, secret }) => {
+                async ({ url, headers, carry, secret, shown }) => {
                     const warn = jest.spyOn(logger, 'warn')
                     const invocation = await secretInvocation(url, ['https://good.example'], carry, secret)
                     ;(invocation.queueParameters as CyclotronInvocationQueueParametersFetchType).headers = headers
 
                     const result = await enforcingExecutor().executeFetch(invocation)
 
-                    expect(result.logs.map((log) => log.message)).toEqual([
-                        expect.stringContaining('https://***REDACTED***.evil.example'),
-                    ])
+                    expect(result.logs.map((log) => log.message)).toEqual([expect.stringContaining(shown)])
                     expect(warn.mock.calls.some(([, , context]) => context?.inputKey === 'api_key')).toBe(true)
                     expect(JSON.stringify([result.logs, warn.mock.calls]).toLowerCase()).not.toContain(
                         secret.toLowerCase()
