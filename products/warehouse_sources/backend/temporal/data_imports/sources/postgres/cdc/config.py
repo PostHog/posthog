@@ -12,6 +12,7 @@ import dataclasses
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from posthog.dataclasses import frozen
 from posthog.utils import str_to_bool
 
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore, UnreadableSourceInputsError
@@ -29,15 +30,40 @@ DEFAULT_LAG_WARNING_THRESHOLD_MB = 512
 DEFAULT_LAG_CRITICAL_THRESHOLD_MB = 2048
 
 
+@frozen
+class PostgresSetupNames:
+    """The slot and publication a CDC setup request names. None where the request leaves one blank."""
+
+    slot_name: str | None
+    publication_name: str | None
+
+    @classmethod
+    def from_setup(cls, setup: Mapping[str, Any]) -> PostgresSetupNames:
+        return cls(
+            slot_name=setup.get("cdc_slot_name") or None,
+            publication_name=setup.get("cdc_publication_name") or None,
+        )
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class PostgresCDCConfig(CDCConfig):
     """Typed view of the CDC-related fields stored in ``source.job_inputs``.
 
-    Inherits the universal CDC fields (slot/publication/management/lag) from
-    ``CDCConfig`` and adds postgres-specific extras such as ``consistent_point``.
+    Inherits the universal CDC fields (management/lag) from ``CDCConfig`` and adds
+    the replication slot, the publication and the slot's ``consistent_point``.
     """
 
+    slot_name: str
+    publication_name: str
     consistent_point: str | None
+
+    @property
+    def stream_name(self) -> str:
+        return self.slot_name
+
+    @property
+    def stream_resources_configured(self) -> bool:
+        return bool(self.slot_name and self.publication_name)
 
     @classmethod
     def from_dict(cls, job_inputs: Mapping[str, Any] | str | None) -> PostgresCDCConfig:

@@ -57,6 +57,8 @@ import type {
   SignalReportArtefact,
   SignalReportArtefactsResponse,
   SignalReportRefundReason,
+  SignalReportSectionCounts,
+  SignalReportSectionCountsParams,
   SignalReportSignalsResponse,
   SignalReportStatus,
   SignalReportsQueryParams,
@@ -2143,6 +2145,7 @@ export class PostHogAPIClient {
         appVersion: options.appVersion ?? clientAppVersion,
         fetch: options.fetch,
         userAgent: options.userAgent,
+        taskClientProvenance: this.taskClientProvenance,
       }),
       baseUrl,
     );
@@ -4615,11 +4618,6 @@ export class PostHogAPIClient {
         method: "post",
         url,
         path: urlPath,
-        parameters: {
-          header: {
-            "X-PostHog-Client-Provenance": this.taskClientProvenance,
-          },
-        },
         overrides: {
           body: JSON.stringify({
             repository: options.repository,
@@ -5840,6 +5838,29 @@ export class PostHogAPIClient {
       results: data.results ?? [],
       count: data.count ?? data.results?.length ?? 0,
     };
+  }
+
+  async getSignalReportSectionCounts(
+    params?: SignalReportSectionCountsParams,
+  ): Promise<SignalReportSectionCounts> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/section_counts/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    if (params?.source_product) {
+      url.searchParams.set("source_product", params.source_product);
+    }
+    if (params?.priority) url.searchParams.set("priority", params.priority);
+    if (params?.suggested_reviewers) {
+      url.searchParams.set("suggested_reviewers", params.suggested_reviewers);
+    }
+
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch signal report section counts: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as SignalReportSectionCounts;
   }
 
   async getSignalProcessingState(): Promise<SignalProcessingStateResponse> {

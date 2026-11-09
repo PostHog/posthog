@@ -5124,10 +5124,21 @@ mod tests {
         );
     }
 
+    // A behavioral-cohort non-match must report NoConditionMatchCohortNotEvaluated, not a bare
+    // NoConditionMatch: the evaluator can't resolve behavioral membership, so the negative is unreliable.
+    // An operator the matcher does not honor rejects the person whatever the membership is, so that
+    // negative is reliable and keeps the bare reason.
+    #[rstest::rstest]
+    #[case::supported_operator(None, FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated)]
+    #[case::unsupported_operator(
+        Some(OperatorType::Exact),
+        FeatureFlagMatchReason::NoConditionMatch
+    )]
     #[tokio::test]
-    async fn test_behavioral_cohort_non_match_surfaces_cohort_not_evaluated_reason() {
-        // A behavioral-cohort non-match must report NoConditionMatchCohortNotEvaluated, not a bare
-        // NoConditionMatch: the evaluator can't resolve behavioral membership, so the negative is unreliable.
+    async fn test_behavioral_cohort_non_match_reason_follows_the_cohort_operator(
+        #[case] operator_override: Option<OperatorType>,
+        #[case] expected_reason: FeatureFlagMatchReason,
+    ) {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),
@@ -5158,7 +5169,10 @@ mod tests {
             .await
             .unwrap();
 
-        let flag = flag_targeting_cohort(team.id, cohort.id);
+        let mut flag = flag_targeting_cohort(team.id, cohort.id);
+        if let Some(operator) = operator_override {
+            flag.filters.groups[0].properties.as_mut().unwrap()[0].operator = Some(operator);
+        }
 
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
@@ -5179,10 +5193,7 @@ mod tests {
         let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(!result.matches);
-        assert_eq!(
-            result.reason,
-            FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated
-        );
+        assert_eq!(result.reason, expected_reason);
         // Serializes as the backward-compatible code; the enriched signal rides the description.
         assert_eq!(result.reason.to_string(), "no_condition_match");
     }

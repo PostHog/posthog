@@ -10,16 +10,20 @@ import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type ToolBase } f
 import type {
     ExplainChartData,
     StoryChapter,
+    StoryEvidenceChartData,
     StorySeriesResult,
     StoryTrendsQuery,
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
+import { sqlEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/sqlEvidenceChart'
+import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
+import { storyEvidenceNode } from 'products/product_analytics/mcp/apps/explainChart/storyEvidenceNode'
 
 import { analyzeQuery } from '../shared'
 import { findStoryRange, lastBucketInProgress } from './storyRanges'
 
 const schema = ExplainChartInputSchema
 
-type Params = z.infer<typeof schema>
+export type Params = z.infer<typeof schema>
 
 type Result = ExplainChartData & { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: string }
 
@@ -55,12 +59,89 @@ const NOT_TRENDS = 'This tool only explains trends charts. For other kinds, writ
 const NOT_OVER_TIME =
     'This tool explains a trends chart that shows one value over time, and this chart does not. Write the explanation in the chat instead.'
 
-// The explanation redraws evidence through `query-trends`, whose schema is narrower than a TrendsQuery's, so evidence
-// it would refuse keeps its link and no chart.
-const redrawSchema = GENERATED_TOOLS['query-trends']!().schema
+// The explanation redraws insight evidence through the query tool for its kind. A tool's schema is narrower than the
+// query's, so evidence the tool would refuse keeps its link and no chart.
+const REDRAW_TOOLS = new Map(
+    (
+        [
+            ['TrendsQuery', 'query-trends'],
+            ['FunnelsQuery', 'query-funnel'],
+            ['RetentionQuery', 'query-retention'],
+            ['StickinessQuery', 'query-stickiness'],
+            ['PathsQuery', 'query-paths'],
+            ['LifecycleQuery', 'query-lifecycle'],
+        ] as const
+    ).map(([kind, tool]) => [kind as string, { tool, schema: GENERATED_TOOLS[tool]!().schema }])
+)
 
-interface StoryChart {
+function redrawToolFor(query: Record<string, unknown> | undefined): string | null {
+    // A trends query may leave out `kind`, which the trends tool fills in.
+    const kind = query?.kind ?? 'TrendsQuery'
+    const redraw = query && typeof kind === 'string' ? REDRAW_TOOLS.get(kind) : undefined
+    return redraw && redraw.schema.safeParse(query).success ? redraw.tool : null
+}
+
+type SqlEvidence = { chart: StoryEvidenceChartData | null } | { error: string }
+
+const SQL_EVIDENCE_TIME_LIMIT_MS = 60_000
+
+function isSqlQuery(query: Record<string, unknown> | undefined): query is Record<string, unknown> {
+    return query?.kind === 'HogQLQuery' && typeof query.query === 'string'
+}
+
+async function runSqlEvidence(
+    context: Context,
+    projectId: string,
+    chapters: Params['chapters']
+): Promise<Map<string, SqlEvidence>> {
+    const queries = new Map<string, Record<string, unknown>>()
+    for (const item of chapters.flatMap((chapter) => chapter.evidence ?? [])) {
+        if (isSqlQuery(item.query)) {
+            queries.set(JSON.stringify(item.query), item.query)
+        }
+    }
+    // One at a time, so the evidence does not use up the team's concurrent query limit, within one shared time limit.
+    const signal = AbortSignal.timeout(SQL_EVIDENCE_TIME_LIMIT_MS)
+    const results = new Map<string, SqlEvidence>()
+    for (const [key, query] of queries) {
+        if (signal.aborted) {
+            results.set(key, { error: 'it did not finish in time' })
+            continue
+        }
+        try {
+            const response = await context.api.query({ projectId }).runQuery({ query, signal })
+            const columns = (response.columns ?? []).map(String)
+            const rows = Array.isArray(response.results) ? (response.results as unknown[][]) : []
+            results.set(key, { chart: sqlEvidenceChart(columns, rows) })
+        } catch (error) {
+            results.set(key, { error: error instanceof Error ? error.message : String(error) })
+        }
+    }
+    return results
+}
+
+function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlEvidence>): string[] {
+    return chapters.flatMap((chapter) =>
+        (chapter.evidence ?? []).flatMap((item) => {
+            const result = isSqlQuery(item.query) ? sqlEvidence.get(JSON.stringify(item.query)) : undefined
+            if (!result) {
+                return []
+            }
+            if ('error' in result) {
+                return [`The SQL behind "${item.text}" failed, so it shows as a link only: ${result.error}`]
+            }
+            return result.chart
+                ? []
+                : [
+                      `The SQL behind "${item.text}" returned nothing to draw, so it shows as a link only. Select the x-axis column first, then either the numbers to draw, or one text column to break down by followed by one number.`,
+                  ]
+        })
+    )
+}
+
+export interface StoryChart {
     query: StoryTrendsQuery
+    linkableInsightId: number | null
     insightName: string | null
     path: string
 }
@@ -83,21 +164,19 @@ function asTrendsQuery(query: unknown): StoryTrendsQuery {
 }
 
 function newInsightPath(query: Record<string, unknown>): string {
-    const kind = query.kind
-    const node =
-        kind === 'HogQLQuery'
-            ? { kind: 'DataVisualizationNode', source: query }
-            : typeof kind === 'string' && kind.endsWith('Node')
-              ? query
-              : { kind: 'InsightVizNode', source: query }
-    return `/insights/new#q=${encodeURIComponent(JSON.stringify(node))}`
+    const node = storyEvidenceNode(query)
+    const encoded = encodeURIComponent(JSON.stringify(node))
+    // A new insight cannot show or edit SQL, so SQL opens in the SQL editor like `urls.insightNew()` does
+    return (node.source as { kind?: unknown } | undefined)?.kind === 'HogQLQuery'
+        ? `/sql?open_query=${encoded}`
+        : `/insights/new#q=${encoded}`
 }
 
 async function loadChart(context: Context, projectId: string, params: Params): Promise<StoryChart> {
     if (params.insightId === undefined) {
         const query = asTrendsQuery(params.query)
         await applyProjectTestAccountDefault(context, query)
-        return { query, insightName: null, path: newInsightPath(query) }
+        return { query, linkableInsightId: null, insightName: null, path: newInsightPath(query) }
     }
     const insight = await context.api.insights({ projectId }).get({ insightId: params.insightId })
     if (!insight.success) {
@@ -105,6 +184,11 @@ async function loadChart(context: Context, projectId: string, params: Params): P
     }
     return {
         query: asTrendsQuery(insight.data.query),
+        linkableInsightId: insightPageShowsStory(
+            (analyzeQuery(insight.data.query).innerQuery as StoryTrendsQuery | undefined)?.trendsFilter?.display
+        )
+            ? insight.data.id
+            : null,
         insightName: insight.data.name || insight.data.derived_name || null,
         path: `/insights/${insight.data.short_id}`,
     }
@@ -116,15 +200,15 @@ function warningMessages(warnings: unknown[]): string[] {
     )
 }
 
-function describeResult(
-    chart: StoryChart,
-    series: StorySeriesResult,
-    chapters: Params['chapters'],
-    missed: string[],
-    warnings: unknown[]
-): string {
+function describeResult(built: BuiltExplanation, chapterCount: number): string {
+    const { chart, series, missed, warnings, evidenceProblems } = built
     const name = chart.insightName ?? series.label ?? 'the chart'
-    const lines = [`The explanation of "${name}" has ${chapters.length} chapters.`]
+    const lines = [`The explanation of "${name}" has ${chapterCount} chapters.`]
+    if (chart.linkableInsightId !== null) {
+        lines.push(
+            'Where the person cannot see it rendered inline, call explain-chart-save with the same arguments for a link that opens it beside the chart in PostHog.'
+        )
+    }
     if (warnings.length) {
         lines.push(`The query came with warnings the person should hear about: ${warningMessages(warnings).join(' ')}`)
     }
@@ -135,13 +219,22 @@ function describeResult(
             } without a highlight. Use dates from the chart's \`days\` and call this tool again.`
         )
     }
+    lines.push(...evidenceProblems)
     return lines.join(' ')
 }
 
-export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = async (
-    context: Context,
-    params: Params
-) => {
+export interface BuiltExplanation {
+    projectId: string
+    baseUrl: string
+    chart: StoryChart
+    series: StorySeriesResult
+    data: ExplainChartData
+    missed: string[]
+    warnings: unknown[]
+    evidenceProblems: string[]
+}
+
+export async function buildExplanation(context: Context, params: Params): Promise<BuiltExplanation> {
     const projectId = await context.stateManager.getProjectId()
     const chart = await loadChart(context, projectId, params)
 
@@ -156,6 +249,7 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         )
     }
 
+    const sqlEvidence = await runSqlEvidence(context, projectId, params.chapters)
     const baseUrl = context.api.getProjectBaseUrl(projectId)
     const interval = chart.query.interval ?? 'day'
     const { timezone, warnings = [] } = response as { timezone?: string; warnings?: unknown[] | null }
@@ -172,16 +266,27 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
             cause: chapter.cause ?? null,
             confidence: chapter.confidence ?? null,
             confidenceReason: chapter.confidence_reason ?? null,
-            evidence: (chapter.evidence ?? []).map((item) => ({
-                text: item.text,
-                url: item.query ? `${baseUrl}${newInsightPath(item.query)}` : (item.url ?? null),
-                query: item.query && redrawSchema.safeParse(item.query).success ? item.query : null,
-                chart: item.chart ?? null,
-            })),
+            evidence: (chapter.evidence ?? []).map((item) => {
+                const queryTool = redrawToolFor(item.query)
+                const sql = isSqlQuery(item.query) ? sqlEvidence.get(JSON.stringify(item.query)) : undefined
+                return {
+                    text: item.text,
+                    url: item.query
+                        ? `${baseUrl}${newInsightPath(item.query)}`
+                        : item.insightShortId
+                          ? `${baseUrl}/insights/${item.insightShortId}`
+                          : (item.url ?? null),
+                    query: item.query ?? null,
+                    insightShortId: item.insightShortId ?? null,
+                    queryTool,
+                    chart: sql && 'chart' in sql ? sql.chart : null,
+                }
+            }),
         }
     })
 
-    return {
+    const data: ExplainChartData = {
+        shape: 'time_series',
         query: chart.query,
         results,
         seriesIndex: params.series,
@@ -190,14 +295,28 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         ...(warnings?.length ? { warnings } : {}),
         headline: params.headline,
         chapters,
-        _posthogUrl: `${baseUrl}${chart.path}`,
-        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: describeResult(
-            chart,
-            series,
-            params.chapters,
-            missed,
-            warnings ?? []
-        ),
+    }
+    return {
+        projectId,
+        baseUrl,
+        chart,
+        series,
+        data,
+        missed,
+        warnings: warnings ?? [],
+        evidenceProblems: sqlProblems(params.chapters, sqlEvidence),
+    }
+}
+
+export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
+    const built = await buildExplanation(context, params)
+    return {
+        ...built.data,
+        _posthogUrl: `${built.baseUrl}${built.chart.path}`,
+        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: describeResult(built, params.chapters.length),
     }
 }
 

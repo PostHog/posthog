@@ -16,7 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _check_count_triggered_eval_report_sync,
     _check_count_triggered_eval_reports_batch,
@@ -48,6 +48,7 @@ from posthog.temporal.ai_observability.eval_reports.types import (
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 def _scanned_window(query: ast.SelectQuery) -> list[dt.datetime]:
@@ -218,7 +219,7 @@ async def test_store_sentiment_report_emits_generic_metrics_only() -> None:
             return_value=report_run,
         ),
         patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
-        patch("posthog.models.event.util.create_event") as create_event,
+        patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as create_event,
     ):
         result = await store_report_run_activity(inputs)
 
@@ -263,7 +264,7 @@ async def test_store_legacy_boolean_report_emits_normalized_generic_metrics() ->
             return_value=report_run,
         ) as create_report_run,
         patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
-        patch("posthog.models.event.util.create_event") as create_event,
+        patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as create_event,
     ):
         await store_report_run_activity(inputs)
 
@@ -308,7 +309,7 @@ async def test_store_strips_nul_from_report_content() -> None:
             return_value=report_run,
         ) as create_report_run,
         patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
-        patch("posthog.models.event.util.create_event") as create_event,
+        patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as create_event,
     ):
         await store_report_run_activity(inputs)
 
@@ -344,7 +345,7 @@ async def test_store_metrics_unavailable_report_omits_placeholder_metrics() -> N
             return_value=report_run,
         ) as create_report_run,
         patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
-        patch("posthog.models.event.util.create_event") as create_event,
+        patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as create_event,
     ):
         await store_report_run_activity(inputs)
 

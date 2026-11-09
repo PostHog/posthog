@@ -14,6 +14,7 @@ ClickHouse queries and must never hold the row lock or affect the check outcome.
 """
 
 import math
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import structlog
@@ -93,6 +94,11 @@ def run_metrics_alert_investigation(alert: AlertConfiguration, alert_check: Aler
 
 
 def _run_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> str:
+    return investigate_metrics_alert(alert, fired_at=alert_check.created_at)
+
+
+def investigate_metrics_alert(alert: AlertConfiguration, *, fired_at: datetime) -> str:
+    """The summary of an investigation of the window around `fired_at`. Raises when it cannot run."""
     # Deferred: the facade pulls in HogQL machinery that must stay off the
     # alerts import path (matching how core defers facade.queries).
     from products.metrics.backend.facade.api import investigate_incident  # noqa: PLC0415
@@ -104,7 +110,7 @@ def _run_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> st
             team=alert.team,
             context=IncidentContext(
                 metric_name=target.metric_name,
-                fired_at=alert_check.created_at,
+                fired_at=fired_at,
                 service_name=target.service_name,
             ),
         )

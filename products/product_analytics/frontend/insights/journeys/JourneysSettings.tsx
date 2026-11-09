@@ -2,7 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
+import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
 import { PathCleaningControls } from 'lib/components/PathCleanFilters/PathCleaningControls'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 
 import { EditorFilterProps } from '~/types'
@@ -10,11 +12,15 @@ import { EditorFilterProps } from '~/types'
 import { MAX_ROWS_PER_STEP_BOUNDS, MAX_STEPS_BOUNDS } from './editorBounds'
 import { journeysDataLogic } from './journeysDataLogic'
 
+const COLLAPSE_REPEATS_INFO =
+    'Merge immediate repeats of the same path item within a journey. For example, A → A → B becomes A → B.'
+
 export function JourneysSettings({ insightProps }: EditorFilterProps): JSX.Element {
     const { pathsV2Filter, draftMaxSteps, draftMaxRowsPerStep } = useValues(journeysDataLogic(insightProps))
     const { updateInsightFilter, setDraftMaxSteps, setDraftMaxRowsPerStep, commitGridSize } = useActions(
         journeysDataLogic(insightProps)
     )
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <div className="flex flex-col gap-4 mt-2">
@@ -52,15 +58,25 @@ export function JourneysSettings({ insightProps }: EditorFilterProps): JSX.Eleme
                     />
                 </div>
             </div>
-            <LemonSwitch
-                checked={pathsV2Filter?.collapseRepeats ?? true}
-                onChange={(collapseRepeats) => updateInsightFilter({ collapseRepeats })}
-                label="Collapse repeated steps"
-                tooltip="Merge immediate repeats of the same path item within a journey. For example, A → A → B becomes A → B."
-                bordered
-                fullWidth
-                data-attr="journeys-collapse-repeats"
-            />
+            {todayRailNav ? (
+                <QuillChartOptionSwitch
+                    label="Collapse repeated steps"
+                    info={COLLAPSE_REPEATS_INFO}
+                    checked={pathsV2Filter?.collapseRepeats ?? true}
+                    onChange={(collapseRepeats) => updateInsightFilter({ collapseRepeats })}
+                    data-attr="journeys-collapse-repeats"
+                />
+            ) : (
+                <LemonSwitch
+                    checked={pathsV2Filter?.collapseRepeats ?? true}
+                    onChange={(collapseRepeats) => updateInsightFilter({ collapseRepeats })}
+                    label="Collapse repeated steps"
+                    tooltip={COLLAPSE_REPEATS_INFO}
+                    bordered
+                    fullWidth
+                    data-attr="journeys-collapse-repeats"
+                />
+            )}
             <div>
                 <LemonLabel
                     className="mb-2"

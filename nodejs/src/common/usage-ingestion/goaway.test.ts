@@ -14,7 +14,7 @@ describe('Http2SessionManager GOAWAY on an idle connection', () => {
     beforeAll(async () => {
         server = http2.createServer()
         server.on('session', (session) => serverSessions.push(session))
-        server.on('stream', (stream) => stream.respond({ ':status': 200 }))
+        server.on('stream', (stream: http2.ServerHttp2Stream) => stream.respond({ ':status': 200 }))
         await new Promise<void>((resolve) => server.listen(0, resolve))
     })
 

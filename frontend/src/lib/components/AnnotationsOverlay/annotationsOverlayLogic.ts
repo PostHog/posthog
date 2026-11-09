@@ -41,6 +41,8 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
      *  would share the same kea instance and the second mount's `dates`/`ticks` would
      *  overwrite the first. */
     kind?: string
+    // Charts without an insight query, like SQL charts, pass the scope in. Unset reads it from the insight.
+    annotationsScope?: AnnotationScope | null
 }
 
 /** Week/month charts bucket annotations by day so distinct dates don't collapse into one badge. */
@@ -183,7 +185,8 @@ export interface annotationsOverlayLogicMeta {
             savedInsight: Partial<InsightModel<Node<Record<string, any>>>>,
             properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined,
             breakdownFilter: BreakdownFilter | null | undefined,
-            annotationsScope: AnnotationScope | null | undefined
+            annotationsScope: AnnotationScope | null | undefined,
+            arg: AnnotationScope | null | undefined
         ) => DatedAnnotationType[]
         groupedAnnotations: (
             relevantAnnotations: DatedAnnotationType[],
@@ -370,6 +373,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 s.properties,
                 s.breakdownFilter,
                 s.annotationsScope,
+                (_, props: AnnotationsOverlayLogicProps) => props.annotationsScope,
             ],
             (
                 annotations: AnnotationType[],
@@ -383,8 +387,10 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 >,
                 properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined,
                 breakdownFilter: BreakdownFilter | null | undefined,
-                annotationsScope: AnnotationScope | null | undefined
+                insightAnnotationsScope: AnnotationScope | null | undefined,
+                annotationsScopeOverride: AnnotationScope | null | undefined
             ) => {
+                const annotationsScope = annotationsScopeOverride ?? insightAnnotationsScope
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
                 // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,
                 // where 3 projects exceed this limit. To accommodate those, we should always make a request for the
@@ -475,22 +481,35 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 if (dates.length === 0) {
                     return []
                 }
-                // Don't startOf(intervalUnit) here — dayjs uses Sunday-start weeks, which would
-                // drift Monday-aligned dates backward and bias every fractional index by 1/7.
-                const firstDate = parseDateInTimezone(dates[0], timezone)
+                // Interpolate between the actual data points instead of assuming one point per interval:
+                // SQL charts can skip dates or bucket coarser than the insight interval.
+                // SQL charts can have tens of thousands of points, so binary search and parse only the dates it visits.
+                const pointTime = (index: number): number => parseDateInTimezone(dates[index], timezone).valueOf()
                 const lastIndex = dates.length - 1
                 return Object.entries(groupedAnnotations)
                     .map(([dateKey, annotations]) => {
                         const date = annotations[0].date_marker.startOf(getGroupingUnit(intervalUnit))
-                        const wholeIndex = date.diff(firstDate, intervalUnit)
-                        const intervalStart = firstDate.add(wholeIndex, intervalUnit)
-                        const intervalEnd = intervalStart.add(1, intervalUnit)
-                        const intervalSpanMs = intervalEnd.valueOf() - intervalStart.valueOf()
-                        const fraction =
-                            intervalSpanMs > 0 ? (date.valueOf() - intervalStart.valueOf()) / intervalSpanMs : 0
-                        // Clamp to lastIndex so annotations past the final data point snap onto
-                        // it rather than extrapolating off the canvas.
-                        const dataIndex = Math.min(wholeIndex + fraction, lastIndex)
+                        const time = date.valueOf()
+                        let nextIndex = 0
+                        let end = dates.length
+                        while (nextIndex < end) {
+                            const middle = (nextIndex + end) >> 1
+                            if (pointTime(middle) > time) {
+                                end = middle
+                            } else {
+                                nextIndex = middle + 1
+                            }
+                        }
+                        // Before the first point → negative, filtered out below. Past the final point → snap
+                        // onto it rather than extrapolating off the canvas.
+                        if (nextIndex === dates.length) {
+                            return { dateKey, date, dataIndex: lastIndex }
+                        }
+                        if (nextIndex === 0) {
+                            return { dateKey, date, dataIndex: -1 }
+                        }
+                        const previousTime = pointTime(nextIndex - 1)
+                        const dataIndex = nextIndex - 1 + (time - previousTime) / (pointTime(nextIndex) - previousTime)
                         return { dateKey, date, dataIndex }
                     })
                     .filter(({ dataIndex }) => dataIndex >= 0)

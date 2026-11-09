@@ -8,7 +8,8 @@ import {
 
 describe('rankingFormat', () => {
     test.each([
-        [0.04, '0.0x'],
+        [0.04, '<0.1x'],
+        [0.1, '0.1x'],
         [1, '1.0x'],
         [2.74, '2.7x'],
         [9.94, '9.9x'],
@@ -24,6 +25,7 @@ describe('rankingFormat', () => {
         [1.04, '1.0x as likely'],
         [0.96, '1.0x as likely'],
         [0.6, '0.6x as likely'],
+        [0.04, '<0.1x as likely'],
         [12.4, '12x more likely'],
     ])('labels a lift of %s on the pill as %s', (lift, expected) => {
         expect(formatRankingLiftComparison(lift)).toBe(expected)

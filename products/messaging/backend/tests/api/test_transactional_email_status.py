@@ -112,9 +112,19 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
     def test_reports_the_latest_status_of_the_send(self, _flag, _name, rows, expected_status, status_offset, reason):
         self._status_rows(rows)
 
-        response = self.client.get(self._url(self.message_id))
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
+        ) as capture:
+            response = self.client.get(self._url(self.message_id))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+        assert capture.call_args.kwargs["properties"] == {
+            "team_id": self.team.id,
+            "outcome": "found",
+            "status": expected_status,
+            "auth_method": "project_secret_api_key",
+            "authorized_by": "hog_flow",
+        }
         assert response.json() == {
             "id": self.message_id,
             "status": expected_status,
@@ -137,22 +147,36 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             self._status_rows([("sent", 2, "")], team=Team.objects.create(organization=self.organization, name="Other"))
         ids = {"message_id": self.message_id, "old": self._message_id(datetime.now(UTC) - timedelta(days=31))}
 
-        response = self.client.get(self._url(ids.get(message_id, message_id)))
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
+        ) as capture:
+            response = self.client.get(self._url(ids.get(message_id, message_id)))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert capture.call_args.kwargs["properties"]["outcome"] == "not_found"
 
     @parameterized.expand(
         [
-            ("read_scope", ["hog_flow:read"], status.HTTP_200_OK),
-            ("no_workflow_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+            ("read_scope", ["hog_flow:read"], status.HTTP_200_OK, "hog_flow"),
+            ("status_scope", ["transactional_email:read"], status.HTTP_200_OK, "transactional_email"),
+            ("send_scope", ["transactional_email:write"], status.HTTP_200_OK, "transactional_email"),
+            ("no_workflow_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN, None),
+            ("preference_scope", ["messaging_preference:write"], status.HTTP_403_FORBIDDEN, None),
         ]
     )
-    def test_project_secret_api_key_needs_the_read_scope(self, _flag, _name, scopes, expected_status):
+    def test_project_secret_api_key_needs_the_read_scope(
+        self, _flag, _name, scopes, expected_status, expected_authorized_by
+    ):
         self._status_rows([("queued", 0, "")])
 
-        response = self._psak_client(scopes).get(self._url(self.message_id))
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
+        ) as capture:
+            response = self._psak_client(scopes).get(self._url(self.message_id))
 
         assert response.status_code == expected_status
+        if expected_authorized_by:
+            assert capture.call_args.kwargs["properties"]["authorized_by"] == expected_authorized_by
 
     def test_a_session_cannot_read_a_status(self, _flag):
         self._status_rows([("queued", 0, "")])
@@ -163,10 +187,17 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_is_hidden_while_the_flag_is_off(self, flag):
-        flag.return_value = False
+    @parameterized.expand(
+        [
+            ("both_send_flags_off", set(), status.HTTP_404_NOT_FOUND),
+            ("only_the_template_send_flag", {"workflows-transactional-email-api"}, status.HTTP_200_OK),
+            ("only_the_code_send_flag", {"workflows-email-from-code"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_reads_a_status_under_either_send_flag(self, flag, _name, enabled_flags, expected_status):
+        flag.side_effect = lambda key, *args, **kwargs: key in enabled_flags
         self._status_rows([("queued", 0, "")])
 
         response = self.client.get(self._url(self.message_id))
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == expected_status

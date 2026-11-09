@@ -1,1 +1,1 @@
-0136_retire_search_suggestion_columns
+0148_squash_2026_11_02_schema_addons

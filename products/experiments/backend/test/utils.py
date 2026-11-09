@@ -17,3 +17,11 @@ def patch_exposure_event_flag(*, enabled: bool) -> AbstractContextManager[Any]:
         return enabled and flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
 
     return patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled)
+
+
+def patch_calculation_key_version(key_version: int) -> AbstractContextManager[Any]:
+    """Makes every new operation use this calculation key version, as the activation decision would."""
+    return patch(
+        "products.experiments.backend.metric_calculation.config.resolve_calculation_key_version",
+        return_value=key_version,
+    )

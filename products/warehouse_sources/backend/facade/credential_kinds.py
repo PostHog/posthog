@@ -2,7 +2,7 @@
 
 The `Integration` kind that holds the typed-in credentials of each warehouse source type, keyed by
 source type value. A kind is stored data, so a change to an existing value needs a data migration.
-See `sources/common/credential_kind.py` for the derivation.
+The file is append-only: a removed source keeps its entry. See `sources/common/credential_kind.py`.
 """
 
 from collections.abc import Mapping
@@ -370,6 +370,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Develocity": "develocity",
     "DevinAI": "devin-ai",
     "Dialpad": "dialpad",
+    "Didit": "didit",
     "DigitalOcean": "digital-ocean",
     "DingConnect": "ding-connect",
     "Directus": "directus",
@@ -443,6 +444,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "FarosAi": "faros-ai",
     "Fastbill": "fastbill",
     "Fastly": "fastly",
+    "Fathom": "fathom",
     "Fauna": "fauna",
     "Featurebase": "featurebase",
     "Feishu": "feishu",
@@ -650,6 +652,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Interzoid": "interzoid",
     "Inth": "inth",
     "Intruder": "intruder",
+    "Invoca": "invoca",
     "Invoiced": "invoiced",
     "Invoiceninja": "invoiceninja",
     "IronSourceAds": "iron-source-ads",
@@ -768,6 +771,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Mastodon": "mastodon",
     "Matomo": "matomo",
     "Maxio": "maxio",
+    "Measure": "measure",
     "Medusa": "medusa",
     "Meetup": "meetup",
     "Megaphone": "megaphone",
@@ -838,6 +842,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Mycase": "mycase",
     "N8n": "n8n",
     "NagerDate": "nager-date",
+    "Nango": "nango",
     "Nasa": "nasa",
     "NationBuilder": "nation-builder",
     "Navan": "navan",
@@ -1046,6 +1051,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "RentManager": "rent-manager",
     "Repairshopr": "repairshopr",
     "Replicate": "replicate",
+    "Replit": "replit",
     "ReplyIo": "reply-io",
     "Resend": "resend",
     "RetailExpress": "retail-express",
@@ -1192,6 +1198,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Squarespace": "squarespace",
     "StackAdapt": "stack-adapt",
     "StackOverflowForTeams": "stack-overflow-for-teams",
+    "Stamped": "stamped",
     "Starburst": "starburst",
     "Statsig": "statsig",
     "Statuscake": "statuscake",
@@ -1347,6 +1354,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Watchmode": "watchmode",
     "Waydev": "waydev",
     "Wayfair": "wayfair",
+    "Webengage": "webengage",
     "Webflow": "webflow",
     "WeightsAndBiases": "weights-and-biases",
     "WhatsappBusinessManagement": "whatsapp-business-management",

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import SimpleTestCase
 
+from owners_yaml import OwnersResolver
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
@@ -20,6 +21,7 @@ from posthog.ownership.github_files import (
     _CHUNK_FILES,
     _MAX_RESPONSE_BYTES,
     AuthenticatedRepoFiles,
+    AuthenticatedRepoTree,
     GitHubFilesFetcher,
     fetcher_for_team,
 )
@@ -372,6 +374,26 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
             # Another batch at the same head misses on a new path, and takes the compare answer from the cache.
             assert self._files().read("rust/owners.yaml") is None
         assert github.compare_calls == compare_calls
+
+    def test_a_tree_reports_the_new_part_of_an_added_path_from_one_kind_lookup(self) -> None:
+        # The owners of additions apply to the part the default branch lacks. A path that was never
+        # looked up must raise, because reading it as absent would report it as new.
+        github = _FakeGitHub(
+            {"owners.yaml": "version: 1\nowners: [team-root]\nadditions: [team-arch]\n", "products/a.py": "x"},
+            trees=frozenset({"products"}),
+        )
+        with patch("posthog.ownership.github_files.github_request", side_effect=github):
+            tree = AuthenticatedRepoTree(_REPOSITORY, _fetcher())
+            tree.prefetch_kinds(["products/new/thing.py", "products/a.py"])
+            kind_calls = github.file_calls
+            resolutions = OwnersResolver(source=tree).map(["products/new/thing.py", "products/a.py"])
+            with self.assertRaises(OwnershipUnavailable):
+                tree.path_kind("frontend")
+
+        assert kind_calls == 1
+        added = resolutions["products/new/thing.py"].added
+        assert added is not None and (added.path, added.additions) == ("products/new", ["team-arch"])
+        assert resolutions["products/a.py"].added is None
 
 
 class TestFetcherForTeam(BaseTest):

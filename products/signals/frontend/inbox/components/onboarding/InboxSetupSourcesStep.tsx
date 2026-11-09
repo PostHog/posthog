@@ -9,28 +9,17 @@ import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AutonomySettingGroup } from '../config/AutonomySettingGroup'
 import { AutonomySettingRow } from '../config/AutonomySettingRow'
-import { DataSourceSetup } from '../config/DataSourceSetup'
 
 export function InboxSetupSourcesStep(): JSX.Element {
-    const { sources, draft, ready, saving, sourceSetupSource } = useValues(inboxSetupLogic)
-    const { toggleSource, setSourceSetupSource, finishSourceSetup } = useActions(inboxSetupLogic)
+    const { sources, draft, ready, saving } = useValues(inboxSetupLogic)
+    const { toggleSource } = useActions(inboxSetupLogic)
     const { productStatusBySource, enablingProduct } = useValues(signalSourcesLogic)
     const { enableSourceProduct } = useActions(signalSourcesLogic)
-    const productsNeedingSetup = sources.filter((source) => !source.available && !source.warehouseSource)
-    if (sourceSetupSource) {
-        return (
-            <DataSourceSetup
-                source={sourceSetupSource}
-                onComplete={finishSourceSetup}
-                onCancel={() => setSourceSetupSource(null)}
-                completing={saving}
-            />
-        )
-    }
+    const productsNeedingSetup = sources.filter((source) => !source.available)
     return (
         <GuidedWizardSection
             title="Choose what to watch"
-            description="Signals from these sources tell Self-Driving when something needs a closer look."
+            description="Signals from these sources tell Self-driving when something needs a closer look."
             descriptionClassName="text-sm"
         >
             {!ready ? (
@@ -71,7 +60,7 @@ export function InboxSetupSourcesStep(): JSX.Element {
                     {!sources.some((source) => source.available) && (
                         <p>
                             No products are sending usable signals yet. Enable a product below or choose a scout in the
-                            next step. You need at least one source or scout to activate Self-Driving.
+                            next step. You need at least one source or scout to activate Self-driving.
                         </p>
                     )}
                     {productsNeedingSetup.length > 0 && (

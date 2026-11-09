@@ -10,18 +10,19 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.contrib.auth import BACKEND_SESSION_KEY, load_backend
+from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY, get_user, load_backend
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpRequest, HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
+import requests
 from asgiref.sync import sync_to_async
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
@@ -29,15 +30,21 @@ from django_otp.util import random_hex
 from httpx import ASGITransport, AsyncClient
 from parameterized import parameterized
 from rest_framework import authentication, status
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
+from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 
-from posthog.api.authentication import password_reset_token_generator, social_login_notification
+from posthog.api.authentication import (
+    password_reset_token_generator,
+    social_grant_staff_to_google_workspace_members,
+    social_login_notification,
+)
 from posthog.api.email_verification import is_email_verification_disabled
+from posthog.api.oauth.cimd import CIMDFetchError
 from posthog.auth import (
     ExportRendererAuthentication,
     InternalAPIUser,
@@ -54,6 +61,7 @@ from posthog.auth import (
     mint_export_renderer_token,
 )
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags, tags_context
+from posthog.helpers.dev_oauth_connectors import DEV_OAUTH_CONNECTOR_CIMD_URLS, seed_dev_oauth_connectors
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
@@ -68,6 +76,7 @@ from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
@@ -782,10 +791,31 @@ class TestDevLoginAPI(APIBaseTest):
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
     def test_dev_login_list_and_create_when_allowed(self):
+        for url in DEV_OAUTH_CONNECTOR_CIMD_URLS:
+            OAuthApplication.objects.create(
+                name=f"Connector {url}",
+                client_id=url,
+                client_type="public",
+                authorization_grant_type="authorization-code",
+                redirect_uris="https://connector.example.com/callback",
+                algorithm="RS256",
+                is_cimd_client=True,
+            )
+
         response = self.client.get("/api/login/dev")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
         emails = {user["email"] for user in response.json()["users"]}
         self.assertIn(self.user.email, emails)
+
+        authorize_paths = {
+            connector["client_id"]: connector["authorize_path"] for connector in response.json()["oauth_connectors"]
+        }
+        self.assertEqual(set(authorize_paths), set(DEV_OAUTH_CONNECTOR_CIMD_URLS))
+        self.assertIn(
+            "redirect_uri=https%3A%2F%2Fconnector.example.com%2Fcallback",
+            authorize_paths[DEV_OAUTH_CONNECTOR_CIMD_URLS[0]],
+        )
 
         self.client.logout()
         response = self.client.post("/api/login/dev", {"email": self.user.email})
@@ -805,6 +835,19 @@ class TestDevLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         emails = [user["email"] for user in response.json()["users"]]
         self.assertEqual(emails[:2], ["test@posthog.com", "zzz-recent@posthog.com"])
+
+    @parameterized.expand(
+        [
+            ("rejected_document", CIMDFetchError("Metadata document endpoint returned HTTP 503")),
+            ("dropped_connection", requests.exceptions.ChunkedEncodingError("Connection broken")),
+        ]
+    )
+    def test_dev_connector_seed_records_unreachable_documents(self, _name, error):
+        with patch("posthog.helpers.dev_oauth_connectors.get_or_create_cimd_application", side_effect=error):
+            result = seed_dev_oauth_connectors()
+
+        self.assertEqual(result.created, [])
+        self.assertEqual(result.failed, list(DEV_OAUTH_CONNECTOR_CIMD_URLS))
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_dev_login_hidden_when_allow_dev_login_disabled(self):
@@ -901,6 +944,32 @@ class TestSessionBackendsRefuseInactiveUsers(APIBaseTest):
         User.objects.filter(pk=self.user.pk).update(is_active=False)
 
         assert backend.get_user(self.user.pk) is None
+
+
+class TestLegacySessionBackends(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("saml", "ee.api.authentication.MultitenantSAMLAuth"),
+            ("google", "ee.api.authentication.CustomGoogleOAuth2"),
+        ]
+    )
+    def test_legacy_backend_restores_an_existing_session(self, _name: str, legacy_path: str) -> None:
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda r: HttpResponse()).process_request(request)
+        request.session[SESSION_KEY] = str(self.user.pk)
+        request.session[BACKEND_SESSION_KEY] = legacy_path
+        request.session[HASH_SESSION_KEY] = self.user.get_session_auth_hash()
+
+        assert get_user(request) == self.user
+
+    @parameterized.expand(
+        [
+            ("saml", "ee.api.authentication.MultitenantSAMLAuth"),
+            ("google", "ee.api.authentication.CustomGoogleOAuth2"),
+        ]
+    )
+    def test_legacy_backend_refuses_new_authentication(self, _name: str, legacy_path: str) -> None:
+        assert load_backend(legacy_path).authenticate(RequestFactory().get("/")) is None
 
 
 class TestLogoutRedirect(APIBaseTest):
@@ -1013,6 +1082,42 @@ class TestTwoFactorAPI(APIBaseTest):
 
         response = self.client.get("/api/users/@me/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
+
+    def test_password_reauth_keeps_the_session_usable_until_the_2fa_step(self):
+        self.organization.enforce_2fa = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        credentials = {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+
+        now = datetime.now()
+        with time_machine.travel(now, tick=False):
+            assert self.client.post("/api/login", credentials).status_code == status.HTTP_401_UNAUTHORIZED
+            assert self.client.post("/api/login/token", {"token": totp_str(device.bin_key)}).status_code == 200
+
+        # A remembered device skips the 2FA step, so the re-auth below would never reach it.
+        for cookie_name in [name for name in self.client.cookies if name.startswith(REMEMBER_COOKIE_PREFIX)]:
+            del self.client.cookies[cookie_name]
+
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            response = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert response.json()["code"] == "sensitive_action_required_reauth"
+
+            response = self.client.post("/api/login", credentials)
+            assert response.json()["code"] == "2fa_required"
+
+            response = self.client.get("/api/organizations/@current")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            response = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert response.json()["code"] == "sensitive_action_required_reauth"
+
+            response = self.client.post("/api/login/token", {"token": totp_str(device.bin_key)})
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            response = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert response.status_code == status.HTTP_200_OK, response.json()
 
     @parameterized.expand([("authenticator_code", "000000"), ("backup_code", "zzzz7777")])
     def test_2fa_throttling(self, _name: str, wrong_token: str) -> None:
@@ -2434,6 +2539,17 @@ class TestTimeSensitivePermissions(APIBaseTest):
             ("github_disconnect", "delete", "/api/users/@me/integrations/github/123/"),
             ("slack_start", "post", "/api/users/@me/integrations/slack/start/"),
             ("slack_disconnect", "delete", "/api/users/@me/integrations/slack/U0123ABC/"),
+            ("workload_trust_policy_create", "post", "/api/projects/@current/workload_trust_policies/"),
+            (
+                "workload_trust_policy_delete",
+                "delete",
+                "/api/projects/@current/workload_trust_policies/00000000-0000-0000-0000-000000000001/",
+            ),
+            (
+                "workload_trust_policy_request_approve",
+                "post",
+                "/api/projects/@current/workload_trust_policy_requests/00000000-0000-0000-0000-000000000001/approve/",
+            ),
         ]
     )
     def test_credential_writes_require_recent_authentication(self, _name, method, url):
@@ -2737,6 +2853,28 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertEqual(user.project_secret_api_key.pk, self.psak.pk)
         self.assertEqual(authenticator.project_secret_api_key.pk, self.psak.pk)
 
+    @parameterized.expand([("203.0.113.7", True), ("198.51.100.7", False)])
+    def test_authenticate_checks_organization_ip_policy(self, ip: str, allowed: bool) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        request = self._request_with_header(self.token)
+        request.META["REMOTE_ADDR"] = ip
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        if allowed:
+            self.assertIsNotNone(authenticator.authenticate(request))
+        else:
+            with self.assertRaises(PermissionDenied):
+                authenticator.authenticate(request)
+
+    def test_authenticate_uses_destination_policy_after_team_transfer(self) -> None:
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        self.assertIsNotNone(authenticator.authenticate(self._request_with_header(self.token)))
+        destination = Organization.objects.create(name="Destination organization")
+        OrganizationIPRestrictions.objects.create(organization=destination, ip_restrictions=["203.0.113.0/24"])
+        self.team.organization = destination
+        self.team.save(update_fields=["organization"])
+        with self.assertRaises(PermissionDenied):
+            authenticator.authenticate(self._request_with_header(self.token))
+
     def test_authenticate_tags_queries_with_psak_access_method(self):
         authenticator = ProjectSecretAPIKeyAuthentication()
         with patch("posthog.auth.tag_authentication") as mock_tag_authentication:
@@ -2856,6 +2994,9 @@ class TestScoutPrivateCaptureAuthentication(SimpleTestCase):
             tags_context(is_scout_experiment=False),
             patch.object(OAuthAccessTokenAuthentication, "_validate_token", return_value=token),
             patch("posthog.auth.activity_storage.is_request_scoped", return_value=False),
+            # The authenticator enforces IP restrictions after resolving the principal. This case
+            # tests query tagging on a synthetic user, so the database-backed check is stubbed out.
+            patch("posthog.auth.enforce_ip_restrictions"),
         ):
             self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
             self.assertEqual(get_query_tags().is_scout_experiment, private)
@@ -2884,6 +3025,21 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             expires=timezone.now() + timedelta(hours=1),
             scope="openid profile",
         )
+
+    @parameterized.expand([(False,), (True,)])
+    def test_authenticate_checks_organization_ip_policy(self, impersonated: bool) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        if impersonated:
+            self.access_token.impersonated_by = self.user
+            self.access_token.save()
+        request = Request(
+            self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}", REMOTE_ADDR="198.51.100.7")
+        )
+        if impersonated:
+            self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
+        else:
+            with self.assertRaises(PermissionDenied):
+                OAuthAccessTokenAuthentication().authenticate(request)
 
     @covers_authentication(OAuthAccessTokenAuthentication)
     def test_authenticate_with_valid_oauth_token(self):
@@ -3283,6 +3439,29 @@ class TestOAuthLoginNotification(APIBaseTest):
 
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 0
+
+
+class TestSocialGrantStaffToGoogleWorkspaceMembers(TestCase):
+    @parameterized.expand(
+        [
+            ("prod_us", "US", "google-oauth2", "jane@posthog.com", "posthog.com", False, False),
+            ("workspace_member", "DEV", "google-oauth2", "jane@posthog.com", "posthog.com", False, True),
+            ("no_workspace", "DEV", "google-oauth2", "jane@posthog.com", None, False, False),
+            ("other_workspace", "DEV", "google-oauth2", "jane@posthog.com", "example.com", False, False),
+            ("non_posthog_email", "DEV", "google-oauth2", "jane@example.com", "posthog.com", False, False),
+            ("other_backend", "DEV", "github", "jane@posthog.com", "posthog.com", False, False),
+            ("existing_staff_kept", "DEV", "google-oauth2", "jane@posthog.com", None, True, True),
+        ]
+    )
+    def test_grant(self, _name, cloud_deployment, backend_name, email, hosted_domain, was_staff, expected_is_staff):
+        user = User.objects.create(email=email, distinct_id=str(uuid.uuid4()), is_staff=was_staff)
+        backend = type("Backend", (), {"name": backend_name})()
+
+        with self.settings(CLOUD_DEPLOYMENT=cloud_deployment, ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS=["posthog.com"]):
+            social_grant_staff_to_google_workspace_members(backend, {"hd": hosted_domain}, user)
+
+        user.refresh_from_db()
+        assert user.is_staff is expected_is_staff
 
 
 class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):

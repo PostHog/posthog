@@ -72,13 +72,14 @@ function ConnectSlackPrompt(): JSX.Element {
 /**
  * Team-wide channel where every actionable report is posted regardless of the suggested reviewer,
  * backed by `default_slack_notification_channel` on `signalTeamConfigLogic`. Toggling off (or
- * clearing the channel) disables the team default. The backend routes the team channel through the
- * team's first Slack integration (`_get_team_slack_integration`), so we target `integrations[0]`
- * here too.
+ * clearing the channel) disables the team default. The channel is saved with the workspace it came
+ * from, because a channel id from one Slack workspace fails in every other.
  */
-function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX.Element {
+function TeamChannelCard({ integrations }: { integrations: IntegrationType[] }): JSX.Element {
     const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
     const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+    const savedIntegrationId = teamConfig?.default_slack_notification_integration ?? null
+    const integration = integrations.find((i) => i.id === savedIntegrationId) ?? integrations[0]
     // Local view state: the toggle is on but no channel has been picked yet. A saved
     // channel implies enabled on its own, so this only bridges the picking moment.
     const [pickerExpanded, setPickerExpanded] = useState(false)
@@ -119,7 +120,12 @@ function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX
                     <SlackChannelPicker
                         integration={integration}
                         value={channel ?? undefined}
-                        onChange={(next) => patchTeamConfig({ default_slack_notification_channel: next })}
+                        onChange={(next) =>
+                            patchTeamConfig({
+                                default_slack_notification_channel: next,
+                                default_slack_notification_integration: next ? integration.id : null,
+                            })
+                        }
                     />
                 </div>
             )}
@@ -420,7 +426,7 @@ export function SlackNotificationsSection(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
-            <TeamChannelCard integration={integrations[0]} />
+            <TeamChannelCard integrations={integrations} />
             <PerUserNotificationCard integrations={integrations} />
         </div>
     )
