@@ -1472,7 +1472,9 @@ export class CdpApi {
         // refusals are rare and the verdict is cached per domain.
         const suspension = this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)
         const suppressed = Promise.all(
-            recipients.map((email) => this.emailSuppressionService.isSuppressed(teamId, email, { transactional: true }))
+            recipients.map((email) =>
+                this.emailSuppressionService.isKnownSuppressed(teamId, email, { transactional: true })
+            )
         )
         const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         // A DNS failure lets the send through.

@@ -5268,18 +5268,6 @@ export namespace Schemas {
       created_by: UserBasic | null;
     }
 
-    export interface ActionSelectorMatchChange {
-      /** ID of an affected action. */
-      action_id: number;
-      /**
-         * Name of the affected action, or null when it has no name.
-         * @nullable
-         */
-      action_name: string | null;
-      /** CSS selectors whose matching behavior changed, in action step order. */
-      selectors: string[];
-    }
-
     /**
      * * `immediately_actionable` - immediately_actionable
      * * `requires_human_input` - requires_human_input
@@ -33987,6 +33975,89 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `clickhouse` - ClickHouse
+     * * `managed_trino` - Hosted Trino
+     * * `connection` - Direct connection
+     */
+    export type ViewEngineTargetEnum = typeof ViewEngineTargetEnum[keyof typeof ViewEngineTargetEnum];
+
+
+    export const ViewEngineTargetEnum = {
+      Clickhouse: 'clickhouse',
+      ManagedTrino: 'managed_trino',
+      Connection: 'connection',
+    } as const;
+
+    /**
+     * * `hogql` - HogQL
+     * * `raw` - Raw SQL
+     */
+    export type ViewEngineDialectEnum = typeof ViewEngineDialectEnum[keyof typeof ViewEngineDialectEnum];
+
+
+    export const ViewEngineDialectEnum = {
+      Hogql: 'hogql',
+      Raw: 'raw',
+    } as const;
+
+    export interface ViewCapability {
+      /** Whether the view supports this. */
+      available: boolean;
+      /**
+         * Why the view does not support this, written for the user. Null when available.
+         * @nullable
+         */
+      reason: string | null;
+    }
+
+    /**
+     * * `clickhouse_probe` - ClickHouse probe
+     * * `client_types` - Column types sent by the client
+     */
+    export type ViewColumnSourceEnum = typeof ViewColumnSourceEnum[keyof typeof ViewColumnSourceEnum];
+
+
+    export const ViewColumnSourceEnum = {
+      ClickhouseProbe: 'clickhouse_probe',
+      ClientTypes: 'client_types',
+    } as const;
+
+    export interface ViewEngineCapabilities {
+      /** Whether the view can be materialized, run or scheduled. */
+      materialize: ViewCapability;
+      /** Whether the view has lineage and a node in the data modeling DAG. */
+      lineage: ViewCapability;
+      /** Whether HogQL queries on ClickHouse can read from this view by name. */
+      referenceable_from_clickhouse: ViewCapability;
+      /** Where the view's column types come from: a ClickHouse probe of the query, or the types the client sends from its last run.
+       *
+       * * `clickhouse_probe` - ClickHouse probe
+       * * `client_types` - Column types sent by the client */
+      column_source: ViewColumnSourceEnum;
+    }
+
+    export interface ViewEngine {
+      /** The engine that runs this view: ClickHouse, hosted Trino, or a direct connection.
+       *
+       * * `clickhouse` - ClickHouse
+       * * `managed_trino` - Hosted Trino
+       * * `connection` - Direct connection */
+      target: ViewEngineTargetEnum;
+      /** Whether the view stores HogQL or raw SQL for its engine.
+       *
+       * * `hogql` - HogQL
+       * * `raw` - Raw SQL */
+      dialect: ViewEngineDialectEnum;
+      /**
+         * The direct connection that runs this view. Null for any other engine.
+         * @nullable
+         */
+      connection_id: string | null;
+      /** What the rest of the product can do with this view. */
+      capabilities: ViewEngineCapabilities;
+    }
+
+    /**
      * Shared methods for DataWarehouseSavedQuery serializers.
      *
      * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -34086,7 +34157,9 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended: DataWarehouseSavedQuerySuspended;
-      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      /** The engine that runs this view, and what the product can do with it. */
+      readonly engine: ViewEngine;
+      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
       readonly is_raw_managed_trino: boolean;
     }
 
@@ -34231,7 +34304,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
-      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      /** The engine that runs this view, and what the product can do with it. */
+      readonly engine: ViewEngine;
+      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
       readonly is_raw_managed_trino: boolean;
     }
 
@@ -44059,6 +44134,7 @@ export namespace Schemas {
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -44089,6 +44165,7 @@ export namespace Schemas {
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+      UnservedVariantExposures: 'unserved_variant_exposures',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
       FlagVariantsMismatch: 'flag_variants_mismatch',
       SplitChangedMidRun: 'split_changed_mid_run',
@@ -44160,6 +44237,7 @@ export namespace Schemas {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      */
@@ -44188,6 +44266,7 @@ export namespace Schemas {
       ZeroExposures: 'zero_exposures',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
       Srm: 'srm',
+      UnservedVariantExposures: 'unserved_variant_exposures',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
     } as const;
@@ -44216,6 +44295,7 @@ export namespace Schemas {
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+       * * `unserved_variant_exposures` - Unserved Variant Exposures
        * * `forced_variant_release_condition` - Forced Variant Release Condition
        * * `flag_variants_mismatch` - Flag Variants Mismatch
        * * `split_changed_mid_run` - Split Changed Mid Run
@@ -44278,6 +44358,7 @@ export namespace Schemas {
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
        * * `srm` - Srm
+       * * `unserved_variant_exposures` - Unserved Variant Exposures
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share */
       check: ExperimentHealthCheckKeyEnum;
@@ -44309,6 +44390,8 @@ export namespace Schemas {
      * * `since_launch_hours` - Hours since launch
      * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
      * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+     * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
      * * `primary_metric_count` - Primary metrics that the calculation computes
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -44334,6 +44417,8 @@ export namespace Schemas {
       SinceLaunchHours: 'since_launch_hours',
       ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
       KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
+      UnservedExposedCount: 'unserved_exposed_count',
+      UnservedExposedPercentage: 'unserved_exposed_percentage',
       OnlyCountMaturedUsers: 'only_count_matured_users',
       PrimaryMetricCount: 'primary_metric_count',
       WaitingMetricCount: 'waiting_metric_count',
@@ -44381,6 +44466,8 @@ export namespace Schemas {
        * * `since_launch_hours` - Hours since launch
        * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
        * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+       * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+       * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
        * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
        * * `primary_metric_count` - Primary metrics that the calculation computes
        * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -44409,6 +44496,8 @@ export namespace Schemas {
        * * `since_launch_hours` - Hours since launch
        * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
        * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+       * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+       * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
        * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
        * * `primary_metric_count` - Primary metrics that the calculation computes
        * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -44465,6 +44554,7 @@ export namespace Schemas {
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
        * * `srm` - Srm
+       * * `unserved_variant_exposures` - Unserved Variant Exposures
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share */
       key: ExperimentHealthCheckKeyEnum;
@@ -44798,6 +44888,7 @@ export namespace Schemas {
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+      UnservedVariantExposures: 'unserved_variant_exposures',
     } as const;
 
     export type ExperimentExposureHealthValueKey = typeof ExperimentExposureHealthValueKey[keyof typeof ExperimentExposureHealthValueKey];
@@ -44813,6 +44904,8 @@ export namespace Schemas {
       SinceLaunchHours: 'since_launch_hours',
       ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
       KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
+      UnservedExposedCount: 'unserved_exposed_count',
+      UnservedExposedPercentage: 'unserved_exposed_percentage',
     } as const;
 
     export interface ExperimentExposureHealthRuleMinimum {
@@ -44894,6 +44987,7 @@ export namespace Schemas {
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+      UnservedVariantExposures: 'unserved_variant_exposures',
     } as const;
 
     export type ExperimentExposureHealthFindingSeverity = typeof ExperimentExposureHealthFindingSeverity[keyof typeof ExperimentExposureHealthFindingSeverity];
@@ -82946,7 +83040,9 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
-      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      /** The engine that runs this view, and what the product can do with it. */
+      readonly engine?: ViewEngine;
+      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
       readonly is_raw_managed_trino?: boolean;
     }
 
@@ -123868,22 +123964,6 @@ export namespace Schemas {
 
 
     export const ActionsBulkUpdateTagsCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type ActionsSelectorMatchChangesListParams = {
-    /**
-     * Action IDs used by the insight. Accepts repeated or comma-separated values.
-     */
-    action_ids: number[];
-    format?: ActionsSelectorMatchChangesListFormat;
-    };
-
-    export type ActionsSelectorMatchChangesListFormat = typeof ActionsSelectorMatchChangesListFormat[keyof typeof ActionsSelectorMatchChangesListFormat];
-
-
-    export const ActionsSelectorMatchChangesListFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

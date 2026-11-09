@@ -11291,14 +11291,14 @@ Note: Parsed both official OpenAPI files, openapi.yaml for V1 and openapi-v2.yam
 
 ## Smaily — gaps
 
-Today (8): `ab_tests`, `automations`, `campaign_statistics`, `campaigns`, `segment_subscribers`, `segments`, `templates`, `users`
+Today (12): `ab_test_statistics`, `ab_tests`, `automations`, `campaign_statistics`, `campaigns`, `message_actions`, `segment_rules`, `segment_subscribers`, `segments`, `subscriber_actions`, `templates`, `users`
 
 Diffed against: <https://smaily.com/help/api/>
 
-- [ ] `GET /api/split.php?id=… (A/B test statistics)` — the headline per-variant open/click metrics for A/B tests we already sync (high)
-- [ ] `GET /api/history.php (subscriber action log)` — per-subscriber event stream (opens, clicks, opt-outs) - the core analytical fact table (high)
-- [ ] `GET /api/message/action/log.php (message action log)` — per-message action events, joins campaigns/automations to subscriber behaviour (high)
-- [ ] `GET /api/list.php?id=… (segment rules)` — filter_type and filter_data rules plus subscribers_count that explain each synced segment (medium)
+- [x] `GET /api/split.php?id=… (A/B test statistics)` — the headline per-variant open/click metrics for A/B tests we already sync (high) → `ab_test_statistics` (full refresh, fan-out over `ab_tests`)
+- [x] `GET /api/history.php (subscriber action log)` — per-subscriber event stream (opens, clicks, opt-outs) - the core analytical fact table (high) → `subscriber_actions` (incremental on `seq_id`)
+- [x] `GET /api/message/action/log.php (message action log)` — per-message action events, joins campaigns/automations to subscriber behaviour (high) → `message_actions` (incremental on `seq_id`)
+- [x] `GET /api/list.php?id=… (segment rules)` — filter_type and filter_data rules plus subscribers_count that explain each synced segment (medium) → `segment_rules` (full refresh, fan-out over `segments`)
 
 Note: Both action logs only retain the last 30 days, so they need frequent incremental syncs keyed on since_seq_id. Smaily has no global list-all-subscribers endpoint - segment_subscribers is the only route to subscriber rows, so that is not a gap.
 
