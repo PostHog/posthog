@@ -297,13 +297,13 @@ class ExperimentQueryBuilder:
     def _cuped_query_builder(self) -> CupedQueryBuilder:
         return CupedQueryBuilder(self)
 
-    def get_exposure_timeseries_query(self, top_libraries: int | None = None) -> ast.SelectQuery:
+    def get_exposure_timeseries_query(self, with_library: bool = False) -> ast.SelectQuery:
         """
         Daily exposure counts per variant. Each entity counts once, on the day of
-        its first exposure. Columns: day, variant, exposed_count, and with `top_libraries`
+        its first exposure. Columns: day, variant, exposed_count, and with `with_library`
         exposed_by_library (see ExposureQueryBuilder.timeseries_query).
         """
-        return self._exposure_query_builder().timeseries_query(top_libraries)
+        return self._exposure_query_builder().timeseries_query(with_library)
 
     def get_exposure_segments_query(self, top_values: int, first_exposed_after: date | None = None) -> ast.SelectQuery:
         """

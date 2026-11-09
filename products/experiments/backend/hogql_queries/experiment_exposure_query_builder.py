@@ -19,6 +19,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     exposure_event_name_filter,
 )
+from products.growth.backend.facade.sdks import sdk_library_names
 
 
 class ExposureSegmentDimension(StrEnum):
@@ -28,9 +29,6 @@ class ExposureSegmentDimension(StrEnum):
     PAGE = "page"
     SCREEN = "screen"
 
-
-# The longest SDK library name the exposure counts keep. PostHog's own SDK names are far shorter.
-MAX_LIBRARY_NAME_LENGTH = 64
 
 # `segments_query` reads them as the columns breakdown_value_1 to breakdown_value_4, in this order.
 _SEGMENT_BREAKDOWNS = (
@@ -104,84 +102,42 @@ class ExposureQueryBuilder:
             return None
         return self.maturity.condition(first_exposure_time, self.maturity_window_seconds)
 
-    def timeseries_query(self, top_libraries: int | None = None) -> ast.SelectQuery:
+    def timeseries_query(self, with_library: bool = False) -> ast.SelectQuery:
         """Daily exposure counts per variant. Each entity counts once, on its first exposure day.
 
-        With `top_libraries` and without an activation, the `exposed_by_library` column counts the entities of each row
-        by the SDK library (`$lib`) of their first exposure, as a (libraries, counts) pair of arrays. The libraries
-        outside the `top_libraries` with the most entities share the BREAKDOWN_OTHER_STRING_LABEL key, and each name
-        is cut to MAX_LIBRARY_NAME_LENGTH characters. `$lib` is a value any sender can set, so both bounds keep the
-        result small however many and however long the values are.
+        With `with_library` and without an activation, the `exposed_by_library` column counts the entities of each row
+        by the SDK library (`$lib`) of their first exposure, as a (libraries, counts) pair of arrays. A library outside
+        PostHog's own SDKs counts under BREAKDOWN_OTHER_STRING_LABEL, and a missing one under
+        BREAKDOWN_NULL_STRING_LABEL.
         """
-        if top_libraries is None or self.context.activation_config is not None:
-            query = parse_select(
-                """
-                WITH first_exposures AS ({first_exposures_select})
-
-                SELECT
-                    first_exposures.day AS day,
-                    first_exposures.variant AS variant,
-                    count(first_exposures.entity_id) AS exposed_count
-                FROM first_exposures
-                WHERE notEmpty(variant)
-                GROUP BY first_exposures.day, first_exposures.variant
-                ORDER BY first_exposures.day ASC
-                """,
-                placeholders={"first_exposures_select": self._build_first_exposures_day_select()},
-            )
-            assert isinstance(query, ast.SelectQuery)
-            return query
-
-        # The window functions rank the libraries on the grouped rows, so the events are scanned once, as in
-        # segments_query.
+        with_library = with_library and self.context.activation_config is None
         query = parse_select(
             """
             WITH first_exposures AS ({first_exposures_select})
 
             SELECT
-                day,
-                variant,
-                sum(entities) AS exposed_count,
-                sumMap([ranked_library], [entities]) AS exposed_by_library
-            FROM (
-                SELECT
-                    day,
-                    variant,
-                    entities,
-                    if(
-                        dense_rank() OVER (ORDER BY library_total DESC, library ASC) <= {top_libraries},
-                        library,
-                        {other_libraries}
-                    ) AS ranked_library
-                FROM (
-                    SELECT
-                        day,
-                        variant,
-                        library,
-                        entities,
-                        sum(entities) OVER (PARTITION BY library) AS library_total
-                    FROM (
-                        SELECT
-                            first_exposures.day AS day,
-                            first_exposures.variant AS variant,
-                            first_exposures.library AS library,
-                            count(first_exposures.entity_id) AS entities
-                        FROM first_exposures
-                        WHERE notEmpty(first_exposures.variant)
-                        GROUP BY day, variant, library
-                    )
-                )
-            )
-            GROUP BY day, variant
-            ORDER BY day ASC
+                first_exposures.day AS day,
+                first_exposures.variant AS variant,
+                count(first_exposures.entity_id) AS exposed_count
+            FROM first_exposures
+            WHERE notEmpty(variant)
+            GROUP BY first_exposures.day, first_exposures.variant
+            ORDER BY first_exposures.day ASC
             """,
             placeholders={
-                "first_exposures_select": self._build_first_exposures_day_select(with_library=True),
-                "top_libraries": ast.Constant(value=top_libraries),
-                "other_libraries": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                "first_exposures_select": self._build_first_exposures_day_select(with_library=with_library),
             },
         )
+
         assert isinstance(query, ast.SelectQuery)
+        if with_library:
+            # The library is a column of the same scan, so it costs no second read of the events.
+            query.select.append(
+                ast.Alias(
+                    alias="exposed_by_library",
+                    expr=parse_expr("sumMap([first_exposures.library], [1])"),
+                )
+            )
         return query
 
     def segments_query(self, top_values: int, first_exposed_after: date | None = None) -> ast.SelectQuery:
@@ -343,14 +299,20 @@ class ExposureQueryBuilder:
             [(_, library_expr)] = BreakdownInjector(
                 [Breakdown(property="$lib", type=MultipleBreakdownType.EVENT)]
             ).build_breakdown_exprs()
+            # Any sender can set `$lib`, so the column keeps only the names of PostHog's own SDKs. That bounds the
+            # distinct values before any grouping, however many values the events carry.
             query.select.append(
                 ast.Alias(
                     alias="library",
                     expr=parse_expr(
-                        "argMin(left({library}, {max_length}), timestamp)",
+                        "argMin(multiIf({library} IN {sdk_libraries}, {library}, {library} = {no_library}, {library}, {other_library}), timestamp)",
                         placeholders={
                             "library": library_expr,
-                            "max_length": ast.Constant(value=MAX_LIBRARY_NAME_LENGTH),
+                            "sdk_libraries": ast.Tuple(
+                                exprs=[ast.Constant(value=name) for name in sdk_library_names()]
+                            ),
+                            "no_library": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                            "other_library": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
                         },
                     ),
                 )

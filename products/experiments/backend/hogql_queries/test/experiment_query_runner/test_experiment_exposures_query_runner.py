@@ -44,7 +44,6 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
-from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import MAX_LIBRARY_NAME_LENGTH
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
@@ -1840,8 +1839,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.experiment.exposure_criteria = {"multiple_variant_handling": multiple_variant_handling}
         self._save_experiment_with_precomputation(self.experiment, use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
-        long_library = "custom-sdk-" + "x" * 200
-        libraries = ["web", "posthog-node", "posthog-python", "posthog-ios", "posthog-android", long_library, None]
+        libraries = ["web", "posthog-node", "posthog-python", "posthog-ios", "posthog-android", "custom-sdk", None]
 
         def exposure(unit: int, variant: str, timestamp: str, library: str | None) -> dict[str, Any]:
             return {
@@ -1902,17 +1900,17 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             (
                 response.total_exposures,
                 True,
-                # The precomputed exposures carry no library. Every library has 15 units, so the five kept follow the
-                # name order, and the last two share the other key.
+                # The precomputed exposures carry no library. A library outside PostHog's own SDKs counts as other.
                 None
                 if use_precomputation
                 else {
-                    BREAKDOWN_NULL_STRING_LABEL: 15,
-                    long_library[:MAX_LIBRARY_NAME_LENGTH]: 15,
-                    "posthog-android": 15,
-                    "posthog-ios": 15,
+                    "web": 15,
                     "posthog-node": 15,
-                    BREAKDOWN_OTHER_STRING_LABEL: 30,
+                    "posthog-python": 15,
+                    "posthog-ios": 15,
+                    "posthog-android": 15,
+                    BREAKDOWN_OTHER_STRING_LABEL: 15,
+                    BREAKDOWN_NULL_STRING_LABEL: 15,
                 },
             ),
         )

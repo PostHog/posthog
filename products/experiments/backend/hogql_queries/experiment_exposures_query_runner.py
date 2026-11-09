@@ -258,7 +258,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
         tag_queries(experiment_exposures_path="direct_scan")
-        return builder.get_exposure_timeseries_query(top_libraries=TOP_SEGMENT_VALUES)
+        return builder.get_exposure_timeseries_query(with_library=True)
 
     def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:
         """Chi-squared goodness-of-fit test of the observed variant counts against the rollout
