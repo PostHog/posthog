@@ -103,6 +103,11 @@ def test_non_ascii_path_names_compile_like_javascript() -> None:
             "Unknown emit key 'colour'",
         ),
         ("a bad type name", {"id": "t", "rules": [{"on": {"f": {"is": "text"}}, "emit": {}}]}, "'is:' must be a type"),
+        (
+            "a YAML !!pairs literal",
+            {"id": "t", "rules": [{"on": {}, "emit": {"content": {"literal": [("k", "v")]}}}]},
+            "unsupported YAML collection 'tuple'",
+        ),
     ]
 )
 def test_rejects_invalid_recipes(_name: str, raw: object, message: str) -> None:
@@ -139,6 +144,12 @@ def aliased_content(text: str, times: int) -> str:
         ),
         ("interpolated paths", aliased_content(" ".join(["$.a"] * 1_000), 201)),
         ("path segments", aliased_content("$." + ".".join(["a"] * 6_000), 600)),
+        ("interpolated text", aliased_content("x" * 50_000 + " $.a", 201)),
+        (
+            "type names",
+            f"s: &s string\nt: &t {repeated('s', 1_000)}\n"
+            f"r: &r {{on: {{f: {{is: *t}}}}, emit: {{}}}}\nrules: {repeated('r', 600)}\n",
+        ),
     ]
 )
 def test_rejects_an_alias_bomb_quickly(_name: str, source: str) -> None:
