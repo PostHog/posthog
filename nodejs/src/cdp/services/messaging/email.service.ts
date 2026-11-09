@@ -20,17 +20,11 @@ import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
-import type { DecodedAttachment } from '../hogflows/transactional-email'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import {
-    EMAIL_ATTACHMENTS_MISSING,
-    EmailAttachmentsMissingError,
-    EmailAttachmentsService,
-} from './email-attachments.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
@@ -72,6 +66,7 @@ const sesThrottleResponsesTotal = new Counter({
 const AUTO_SUBMITTED_HEADER_NAME = 'Auto-Submitted'
 const AUTO_SUBMITTED_HEADER_VALUE = 'auto-generated'
 const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME, Value: AUTO_SUBMITTED_HEADER_VALUE }
+const SES_HEADER_VALUE_MAX_LENGTH = 870
 
 /**
  * SES error codes that signal a transient rate-limit shape — safe to retry
@@ -163,16 +158,7 @@ export class SESThrottleError extends Error {
     }
 }
 
-class EmailAttachmentsUnavailableError extends Error {
-    constructor(cause: unknown) {
-        super('Could not load the attachment files of this email', { cause })
-        this.name = 'EmailAttachmentsUnavailableError'
-    }
-}
-
-function pickAttachmentLoadRetryDelayMs(tries: number): number {
-    return Math.min(1_000 * tries + Math.floor(Math.random() * 1_000), 60_000)
-}
+const EMAIL_ATTACHMENTS_MISSING = 'attachments_missing'
 
 class UnverifiedEmailDomainError extends Error {
     constructor() {
@@ -456,8 +442,7 @@ export class EmailService {
         private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
-        private teamEmailRateLimiter: RateLimiterService | null = null,
-        private emailAttachmentsService: EmailAttachmentsService | null = null
+        private teamEmailRateLimiter: RateLimiterService | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -601,6 +586,15 @@ export class EmailService {
 
             const from = this.resolveFromSender(integration, params.from, addLog)
             sendingDomain = from.email.split('@').pop()?.toLowerCase() ?? ''
+
+            // Runs before the suppression check and the rate limits, so a job that can only fail claims no
+            // rate-limit token and is never rescheduled to wait for one.
+            if (params.attachments?.length) {
+                failureReason = EMAIL_ATTACHMENTS_MISSING
+                throw new Error(
+                    `${EMAIL_ATTACHMENTS_MISSING}: the attachment files of this email are no longer stored, so it was not sent without them.`
+                )
+            }
 
             // An empty `to` comes from the customer's data (a person without an email property, or no
             // person at all), not from a fault in the send path. SES rejects it as an invalid address,
@@ -805,11 +799,9 @@ export class EmailService {
                       }
                     : utmTaggedParams
 
-            const files = await this.loadAttachments(invocation.id, invocation.teamId, params.attachments)
-
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
+                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
                     messageId = await this.sendEmailWithSES(
@@ -818,8 +810,7 @@ export class EmailService {
                         from,
                         trackingEnabled,
                         isTest,
-                        queueWait,
-                        files
+                        queueWait
                     )
                     break
 
@@ -849,24 +840,7 @@ export class EmailService {
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
-            } else if (error instanceof EmailAttachmentsUnavailableError) {
-                const tries = (invocation.queueMetadata?.attachmentLoadTries ?? 0) + 1
-                const retryDelayMs = pickAttachmentLoadRetryDelayMs(tries)
-                rescheduled = true
-                result.finished = false
-                result.invocation.queueParameters = params
-                result.invocation.queueMetadata = { ...invocation.queueMetadata, attachmentLoadTries: tries }
-                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
-                addLog('warn', `${error.message}; rescheduling email in ${retryDelayMs}ms`)
-                logger.warn('⚠️', 'Failed to load email attachment rows', {
-                    job_id: invocation.id,
-                    tries,
-                    error: error.cause instanceof Error ? error.cause.message : String(error.cause),
-                })
             } else {
-                if (error instanceof EmailAttachmentsMissingError) {
-                    failureReason = EMAIL_ATTACHMENTS_MISSING
-                }
                 addLog('error', error.message)
                 result.error = error.message
                 result.emailSendResult = { status: 'failed', reason: error.message }
@@ -1217,35 +1191,13 @@ export class EmailService {
         return overrideEmail
     }
 
-    private async loadAttachments(
-        jobId: string,
-        teamId: number,
-        expected: CyclotronInvocationQueueParametersEmailType['attachments']
-    ): Promise<DecodedAttachment[]> {
-        if (!expected?.length) {
-            return []
-        }
-        if (!this.emailAttachmentsService) {
-            throw new EmailAttachmentsMissingError()
-        }
-        try {
-            return await this.emailAttachmentsService.load(jobId, teamId, expected)
-        } catch (error) {
-            if (error instanceof EmailAttachmentsMissingError) {
-                throw error
-            }
-            throw new EmailAttachmentsUnavailableError(error)
-        }
-    }
-
     // Send email to local maildev instance for testing (DEBUG=1 only)
     private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
         trackingEnabled: boolean,
-        isTest = false,
-        files: DecodedAttachment[] = []
+        isTest = false
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
@@ -1276,15 +1228,6 @@ export class EmailService {
         if (replyToAddresses) {
             mailOptions.replyTo = replyToAddresses
         }
-        if (files.length) {
-            mailOptions.attachments = files.map((file) => ({
-                filename: file.filename,
-                content: file.content,
-                contentType: file.contentType,
-                cid: file.contentId,
-                contentDisposition: file.contentId ? 'inline' : 'attachment',
-            }))
-        }
 
         const response = await mailDevTransport!.sendMail(mailOptions)
 
@@ -1301,8 +1244,7 @@ export class EmailService {
         from: { email: string; name: string },
         trackingEnabled: boolean,
         isTest = false,
-        queueWait?: EmailQueueWait,
-        files: DecodedAttachment[] = []
+        queueWait?: EmailQueueWait
     ): Promise<string> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
@@ -1397,16 +1339,6 @@ export class EmailService {
                   )
                 : []
             sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
-            if (files.length) {
-                sendEmailParams.Content.Simple.Attachments = files.map((file) => ({
-                    RawContent: file.content,
-                    FileName: file.filename,
-                    ContentType: file.contentType,
-                    ContentId: file.contentId,
-                    ContentDisposition: file.contentId ? 'INLINE' : 'ATTACHMENT',
-                    ContentTransferEncoding: 'BASE64',
-                }))
-            }
         }
 
         const replyToAddresses = parseAddressList(params.replyTo)
@@ -1458,10 +1390,16 @@ export class EmailService {
         recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>,
         source: PreferencesTokenSource | undefined
     ): MessageHeader[] {
+        const listUnsubscribe = (tokenSource: PreferencesTokenSource | undefined): string =>
+            `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient, tokenSource)}>`
+        let listUnsubscribeValue = listUnsubscribe(source)
+        if (source && listUnsubscribeValue.length > SES_HEADER_VALUE_MAX_LENGTH) {
+            listUnsubscribeValue = listUnsubscribe({ appSourceId: source.appSourceId, instanceId: source.instanceId })
+        }
         return [
             {
                 Name: 'List-Unsubscribe',
-                Value: `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient, source)}>`,
+                Value: listUnsubscribeValue,
             },
             {
                 Name: 'List-Unsubscribe-Post',
