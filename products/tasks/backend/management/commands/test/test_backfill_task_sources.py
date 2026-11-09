@@ -96,6 +96,10 @@ class TestBackfillTaskSources(TestCase):
     def test_fills_the_source_of_a_legacy_loop_task(self) -> None:
         task = self._task()
         with connection.cursor() as cursor:
+            # Production keeps the untracked loop_id column, but a database built from the squashed
+            # migrations never creates it, so add it here to reproduce a production table.
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            cursor.execute("ALTER TABLE posthog_task ADD COLUMN IF NOT EXISTS loop_id uuid")
             cursor.execute("UPDATE posthog_task SET loop_id = %s WHERE id = %s", [LOOP_ID, task.id])
 
         list(backfill_task_sources())
