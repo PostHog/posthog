@@ -10,6 +10,7 @@ import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFlowExecutorService } from '../../hogflows/hogflow-executor.service'
 import { RecipientTokensService } from '../recipient-tokens.service'
+import { SandboxAuthorization } from './sandbox-authorization'
 import { MAX_SANDBOX_RETRIES, SandboxEmailSendStep } from './sandbox-email-step'
 import { SandboxEmailService, SandboxEmailServiceDeps } from './sandbox-email.service'
 
@@ -62,6 +63,14 @@ describe('SandboxEmailSendStep', () => {
         hogFlow.version = 3
     })
 
+    const member: SandboxAuthorization = {
+        ok: true,
+        organizationId: 'org-1',
+        organizationName: 'Acme',
+        storedAddress: 'member@example.com',
+        tenant: { sendingStatus: 'ENABLED', syncedAt: now.toJSDate() },
+    }
+
     const buildExecutor = (): HogFlowExecutorService => {
         const service = new SandboxEmailService({
             enabled: true,
@@ -69,14 +78,7 @@ describe('SandboxEmailSendStep', () => {
             tenantName: 'sandbox-tenant',
             isProvisioned: () => Promise.resolve(true),
             checkRecipient: () => Promise.resolve({ ok: true }),
-            authorize: () =>
-                Promise.resolve({
-                    ok: true,
-                    organizationId: 'org-1',
-                    organizationName: 'Acme',
-                    storedAddress: 'member@example.com',
-                    tenant: { sendingStatus: 'ENABLED', syncedAt: now.toJSDate() },
-                }),
+            authorize: () => Promise.resolve(member),
             claimCaps: () => Promise.resolve({ ok: true }),
             ses,
             now: () => now.toJSDate(),
@@ -214,6 +216,21 @@ describe('SandboxEmailSendStep', () => {
                 let tokens = 1
                 serviceOverrides.claimCaps = () =>
                     Promise.resolve(tokens-- > 0 ? { ok: true } : { ok: false, reason: 'daily_cap_reached' })
+                ses.send.mockResolvedValueOnce({ status: 'retry', reason: 'ses_throttled' })
+            },
+            { status: 'accepted', message_id: 'ses-1' },
+            'email_sandbox_sent',
+            2,
+        ],
+        [
+            'SES throttles, then the membership read fails once, with one daily cap token left',
+            (): void => {
+                let tokens = 1
+                let reads = 0
+                serviceOverrides.claimCaps = () =>
+                    Promise.resolve(tokens-- > 0 ? { ok: true } : { ok: false, reason: 'daily_cap_reached' })
+                serviceOverrides.authorize = () =>
+                    Promise.resolve(reads++ === 1 ? { ok: false, reason: 'authorization_unavailable' } : member)
                 ses.send.mockResolvedValueOnce({ status: 'retry', reason: 'ses_throttled' })
             },
             { status: 'accepted', message_id: 'ses-1' },

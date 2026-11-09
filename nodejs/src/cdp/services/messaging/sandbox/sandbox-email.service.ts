@@ -97,7 +97,7 @@ export class SandboxEmailService {
         }
         const provisioned = await this.deps.isProvisioned(request.teamId).catch(() => null)
         if (provisioned === null) {
-            return { status: 'retry', reason: 'authorization_unavailable' }
+            return refusal('authorization_unavailable', request.capsClaimedFor)
         }
         if (!provisioned) {
             return { status: 'skipped', reason: 'sandbox_not_provisioned' }
@@ -108,7 +108,7 @@ export class SandboxEmailService {
         }
         const recipientCheck = await this.checkRecipient(request, address, email.data.to.email)
         if (!recipientCheck.ok) {
-            return refusal(recipientCheck.reason)
+            return refusal(recipientCheck.reason, request.capsClaimedFor)
         }
         const authorization = await this.deps.authorize({
             teamId: request.teamId,
@@ -116,11 +116,11 @@ export class SandboxEmailService {
             tenantName: this.deps.tenantName,
         })
         if (!authorization.ok) {
-            return refusal(authorization.reason)
+            return refusal(authorization.reason, request.capsClaimedFor)
         }
         const tenant = admitTenant(authorization.tenant, this.deps.now?.() ?? new Date())
         if (!tenant.ok) {
-            return refusal(tenant.reason)
+            return refusal(tenant.reason, request.capsClaimedFor)
         }
         const capsClaimedFor = capClaimHolder(authorization.organizationId, authorization.storedAddress)
         if (request.capsClaimedFor !== capsClaimedFor) {
@@ -130,7 +130,7 @@ export class SandboxEmailService {
                 storedAddress: authorization.storedAddress,
             })
             if (!caps.ok) {
-                return refusal(caps.reason)
+                return refusal(caps.reason, request.capsClaimedFor)
             }
         }
         const message = buildSandboxMessage({
@@ -192,8 +192,12 @@ function capClaimHolder(organizationId: string, storedAddress: string): string {
     return createHash('sha256').update(`${organizationId}/${storedAddress.toLowerCase()}`).digest('hex')
 }
 
-function refusal(reason: string): SandboxSendOutcome {
-    return RETRYABLE_REFUSALS.has(reason) ? { status: 'retry', reason } : { status: 'skipped', reason }
+/** A refusal before SES leaves any cap claim an earlier attempt holds untouched, so its retry carries it on. */
+function refusal(reason: string, capsClaimedFor: string | undefined): SandboxSendOutcome {
+    if (!RETRYABLE_REFUSALS.has(reason)) {
+        return { status: 'skipped', reason }
+    }
+    return capsClaimedFor ? { status: 'retry', reason, capsClaimedFor } : { status: 'retry', reason }
 }
 
 function parseSingleAddress(raw: string): string | null {
