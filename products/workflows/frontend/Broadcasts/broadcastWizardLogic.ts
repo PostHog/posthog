@@ -970,7 +970,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     }
                     return await hogFlowsUserBlastRadiusCreate(
                         String(values.currentProjectId),
-                        audiencePreviewRequest(values.audienceProperties, values.channel)
+                        audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit)
                     )
                 },
             },
@@ -1647,6 +1647,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (scheduleMode === 'recurring' && !recurringStartsAt) {
                     errors.schedule.push('Pick a start date and time')
                 }
+                const rateLimitNeeded = channel === 'email' ? rateLimitNeededForAudience(blastRadius) : null
+                if (rateLimitNeeded) {
+                    errors.schedule.push(rateLimitNeededMessage(rateLimitNeeded))
+                }
 
                 errors.review = [...errors.recipients, ...errors.goal, ...errors.content, ...errors.schedule]
                 const senderError =
@@ -1872,6 +1876,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
         setAudienceProperties: async (_, breakpoint) => {
             // Debounce so each filter keystroke doesn't fire a preview query.
+            await breakpoint(500)
+            actions.loadBlastRadius()
+        },
+        setEmailRateLimit: async (_, breakpoint) => {
+            // The rate limit can raise the audience limit, so the preview has to follow it.
             await breakpoint(500)
             actions.loadBlastRadius()
         },
@@ -2297,22 +2306,28 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     // A fresh audience preview mints the confirm token the batch dispatch expects.
                     const blastRadius = await hogFlowsUserBlastRadiusCreate(
                         projectId,
-                        audiencePreviewRequest(values.audienceProperties, values.channel)
+                        audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit)
                     )
 
                     // The resolver silently caps the batch at this limit, so dispatching an audience over
                     // it would confirm N recipients and deliver to the first slice. Stop at the step that
                     // can fix it. Mirrors the guard on the workflow editor's manual trigger.
                     if (blastRadius.limit != null && blastRadius.affected > blastRadius.limit) {
+                        const rateLimitNeeded =
+                            values.channel === 'email' ? rateLimitNeededForAudience(blastRadius) : null
                         captureLaunchFailed(broadcastId, 'audience_over_limit')
                         actions.launchBroadcastFinished()
-                        actions.setStep('recipients')
+                        actions.setStep(rateLimitNeeded ? 'schedule' : 'recipients')
                         actions.showSavedDraftUrl()
+                        if (rateLimitNeeded) {
+                            lemonToast.error(rateLimitNeededMessage(rateLimitNeeded))
+                            return
+                        }
                         lemonToast.error(
                             `This project can send a broadcast to up to ${humanFriendlyNumber(
                                 blastRadius.limit
                             )} people right now.${
-                                values.channel === 'email' ? ' A slower sending rate does not raise this limit.' : ''
+                                values.channel === 'email' ? rateLimitedReachSentence(blastRadius.rate_limited) : ''
                             } Add filters to narrow the audience, then launch again.`,
                             {
                                 button: {
@@ -2601,10 +2616,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 // What the agent drafted, so the launch can report which fields the person changed.
                 saveComposerDraft(broadcast.id, { agentDraft: snapshotBroadcast(broadcast), agentEdits: 0 })
             }
-            if (BROADCAST_WIZARD_STEPS.includes(step)) {
-                actions.setStep(step)
-            } else {
-                actions.setStep(values.firstInvalidStep ?? 'review')
+            const landingStep: BroadcastWizardStep = BROADCAST_WIZARD_STEPS.includes(step)
+                ? step
+                : (values.firstInvalidStep ?? 'review')
+            actions.setStep(landingStep)
+            if (landingStep !== 'review') {
+                // Only the review step previews the audience on its own, and the recipients size and the
+                // schedule step's rate limit check both need it.
+                actions.loadBlastRadius()
             }
             if (step !== undefined || from !== undefined) {
                 router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
@@ -2632,7 +2651,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 try {
                     refreshed = await hogFlowsUserBlastRadiusCreate(
                         String(values.currentProjectId),
-                        audiencePreviewRequest(values.audienceProperties, values.channel)
+                        audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit)
                     )
                 } catch {
                     // A failed check tries again on the next interval.
@@ -2868,11 +2887,53 @@ export const DELETED_PUSH_CHANNEL_ERROR = 'A chosen push channel was deleted. Ch
 /** The email channel counts each address once and is held to the email sending limit. Push is not. */
 function audiencePreviewRequest(
     audienceProperties: AnyPropertyFilter[],
-    channel: BroadcastChannel
+    channel: BroadcastChannel,
+    emailRateLimit: HogFlowEmailSendingRateLimitApi | null
 ): BlastRadiusRequestApi {
     return channel === 'push'
         ? { filters: { properties: audienceProperties }, sends_email: false }
-        : { filters: { properties: audienceProperties }, dedupe_key: 'email', sends_email: true }
+        : {
+              filters: { properties: audienceProperties },
+              dedupe_key: 'email',
+              sends_email: true,
+              email_sending_rate_limit: emailRateLimit,
+          }
+}
+
+/**
+ * The hourly sending rate limits that let an audience over the normal limit go out, or null when the
+ * audience fits already or is too large for any rate. A slower rate takes too many days to reach everyone,
+ * and a faster one uses too much of the project's daily email allowance.
+ */
+export function rateLimitNeededForAudience(
+    blastRadius: BlastRadiusApi | null
+): { minPerHour: number; maxPerHour: number } | null {
+    const rateLimited = blastRadius?.rate_limited
+    if (!blastRadius || !rateLimited || blastRadius.affected <= blastRadius.limit) {
+        return null
+    }
+    if (blastRadius.affected > rateLimited.limit) {
+        return null
+    }
+    return {
+        minPerHour: Math.ceil(blastRadius.affected / (24 * rateLimited.max_days)),
+        maxPerHour: rateLimited.max_emails_per_hour,
+    }
+}
+
+/** What a sending rate limit can do for an email audience that is too large even for it. */
+export function rateLimitedReachSentence(rateLimited: BlastRadiusApi['rate_limited']): string {
+    return rateLimited
+        ? ` With a sending rate limit, a broadcast can reach up to ${humanFriendlyNumber(rateLimited.limit)} people over ${rateLimited.max_days} days.`
+        : ' A slower sending rate does not raise this limit.'
+}
+
+export function rateLimitNeededMessage({ minPerHour, maxPerHour }: { minPerHour: number; maxPerHour: number }): string {
+    return minPerHour === maxPerHour
+        ? `To reach this many people, limit the sending rate to ${humanFriendlyNumber(maxPerHour)} emails per hour.`
+        : `To reach this many people, limit the sending rate to between ${humanFriendlyNumber(
+              minPerHour
+          )} and ${humanFriendlyNumber(maxPerHour)} emails per hour.`
 }
 
 /**

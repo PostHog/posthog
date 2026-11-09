@@ -1196,6 +1196,13 @@ WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS: list[int] = [
         get_from_env("WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS", "100,1000,3000,10000,30000,100000,300000,1000000")
     )
 ]
+# A batch email with a sending rate limit may go to more people than its tier's batch cap, because the
+# rate limit spreads the send over several days. The rate may use at most this share of the daily cap,
+# so the project's other workflows keep the rest of it, and the send may last at most this many days.
+WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE = float(get_from_env("WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE", 0.5))
+if not 0 <= WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE <= 1:
+    raise ImproperlyConfigured("WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE must be between 0 and 1")
+WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS = int(get_from_env("WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS", 7))
 
 # Promotion bar. A team must sit at its tier for this long, actually use the tier, and keep its
 # rates under the thresholds below before it moves up one step. Indexed by the tier the team is

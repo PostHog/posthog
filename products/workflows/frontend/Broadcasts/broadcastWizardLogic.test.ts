@@ -23,6 +23,7 @@ import {
     DELETED_SENDER_ERROR,
     broadcastWizardLogic,
     getBroadcastTemplatingErrors,
+    rateLimitNeededForAudience,
 } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
@@ -701,11 +702,30 @@ describe('broadcastWizardLogic', () => {
     })
 
     it.each([
-        { stop: 'the audience is over the batch limit', affected: 60000, editedElsewhere: false, step: 'recipients' },
-        { stop: 'the draft was edited elsewhere', affected: 10, editedElsewhere: true, step: 'review' },
+        {
+            stop: 'the audience is over the batch limit',
+            affected: 60000,
+            rateLimited: null,
+            editedElsewhere: false,
+            step: 'recipients',
+        },
+        {
+            stop: 'the audience needs a sending rate limit',
+            affected: 60000,
+            rateLimited: { max_emails_per_hour: 1000, max_days: 7, limit: 168000 },
+            editedElsewhere: false,
+            step: 'schedule',
+        },
+        {
+            stop: 'the draft was edited elsewhere',
+            affected: 10,
+            rateLimited: null,
+            editedElsewhere: true,
+            step: 'review',
+        },
     ])(
         'moves to the draft URL when a launch from /broadcasts/new stops because $stop',
-        async ({ affected, editedElsewhere, step }) => {
+        async ({ affected, rateLimited, editedElsewhere, step }) => {
             latest = savedBroadcast({
                 name: '',
                 subject: 'Edited by the assistant',
@@ -715,7 +735,14 @@ describe('broadcastWizardLogic', () => {
                 post: {
                     '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
                         200,
-                        { affected, total: affected, limit: 50000, dedupe_key: 'email', confirm_token: 'token' },
+                        {
+                            affected,
+                            total: affected,
+                            limit: 50000,
+                            dedupe_key: 'email',
+                            confirm_token: 'token',
+                            rate_limited: rateLimited,
+                        },
                     ],
                 },
             })
@@ -962,6 +989,27 @@ describe('broadcastWizardLogic', () => {
             body: undefined,
             to: undefined,
         })
+    })
+
+    it.each([
+        { case: 'an audience under the limit', affected: 3000, expected: null },
+        {
+            case: 'an audience a sending rate limit can reach',
+            affected: 10000,
+            expected: { minPerHour: 60, maxPerHour: 62 },
+        },
+        { case: 'an audience too large for any sending rate', affected: 10417, expected: null },
+    ])('asks for a sending rate limit for $case', ({ affected, expected }) => {
+        // The slowest rate has to reach everyone in max_days, or the server keeps the normal limit.
+        const blastRadius: BlastRadiusApi = {
+            affected,
+            total: affected,
+            limit: 3000,
+            dedupe_key: 'email',
+            confirm_token: 'token',
+            rate_limited: { max_emails_per_hour: 62, max_days: 7, limit: 62 * 24 * 7 },
+        }
+        expect(rateLimitNeededForAudience(blastRadius)).toEqual(expected)
     })
 
     it('leaves push text saved as Hog unparsed', () => {

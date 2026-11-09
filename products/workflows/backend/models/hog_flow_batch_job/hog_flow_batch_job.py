@@ -91,6 +91,7 @@ def dispatch_batch_job(
             # gap is bounded by the send-time buckets, which cap every email at execution
             # regardless of the audience size dispatched here.
             sends_email=hog_flow_sends_email(job.hog_flow.actions),
+            email_rate_limit=job.hog_flow.email_sending_rate_limit,
         ),
         # The audience snapshot the confirm check validated - the resolver dispatches from
         # this, not the live trigger, so a trigger edit racing the dispatch can't widen it.

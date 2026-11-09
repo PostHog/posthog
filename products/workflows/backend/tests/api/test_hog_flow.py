@@ -69,6 +69,7 @@ from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
@@ -5095,6 +5096,32 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json()["limit"] == 5000
+
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_hog_flow_user_blast_radius_raises_the_limit_for_a_qualifying_rate_limit(self):
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+        ) as mock_get_person_audience_count:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_get_person_audience_count.return_value = BlastRadiusResult(affected=0, total=0)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "email_sending_rate_limit": {"count": 60, "period": "hour"}},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["limit"] == 60 * 24 * 7
+        assert response.json()["rate_limited"] == {"max_emails_per_hour": 62, "max_days": 7, "limit": 62 * 24 * 7}
 
     def test_hog_flow_user_blast_radius_returns_elevated_limit_for_listed_team(self):
         with (

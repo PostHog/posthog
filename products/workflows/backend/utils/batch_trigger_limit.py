@@ -1,5 +1,8 @@
 from django.conf import settings
 
+from posthog.dataclasses import frozen
+
+from products.workflows.backend.facade.contracts import EmailSendingTierLimits, RateLimitedAudienceAllowance
 from products.workflows.backend.utils.email_sending_tiers import (
     email_sending_tier_mode,
     resolve_team_email_sending_tier,
@@ -30,9 +33,42 @@ def hog_flow_sends_email(actions: object) -> bool:
     return any(_action_sends_email(action) for action in actions)
 
 
-def get_hogflow_batch_trigger_limit(team_id: int, *, sends_email: bool = True) -> int:
+@frozen
+class BatchAudienceLimit:
+    limit: int
+    rate_limited: RateLimitedAudienceAllowance | None
+
+
+_PERIODS_PER_DAY = {"minute": 24 * 60, "hour": 24}
+
+
+def email_rate_limit_per_day(email_rate_limit: object) -> int | None:
+    """Emails per day a workflow's sending rate limit allows, or None when it sets no usable limit.
+    Typed `object` because the value comes from a JSONField."""
+    if not isinstance(email_rate_limit, dict):
+        return None
+    count = email_rate_limit.get("count")
+    period = email_rate_limit.get("period")
+    periods_per_day = _PERIODS_PER_DAY.get(period) if isinstance(period, str) else None
+    if not isinstance(count, int) or isinstance(count, bool) or count < 1 or periods_per_day is None:
+        return None
+    return count * periods_per_day
+
+
+def _rate_limited_allowance(limits: EmailSendingTierLimits) -> RateLimitedAudienceAllowance | None:
+    max_emails_per_hour = int(limits.per_day * settings.WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE) // 24
+    max_days = settings.WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS
+    limit = max_emails_per_hour * 24 * max_days
+    if limit <= limits.max_batch_audience:
+        return None
+    return RateLimitedAudienceAllowance(max_emails_per_hour=max_emails_per_hour, max_days=max_days, limit=limit)
+
+
+def resolve_batch_audience_limit(
+    team_id: int, *, sends_email: bool = True, email_rate_limit: object = None
+) -> BatchAudienceLimit:
     """
-    Maximum audience size for this team's batch triggers.
+    Maximum audience size for this team's batch triggers, and how far a sending rate limit can raise it.
 
     Once the trust tiers are enforced the limit comes from the team's tier, so a team that has not
     sent cleanly yet cannot queue a blast large enough to hurt the shared SES account. The tier
@@ -41,13 +77,29 @@ def get_hogflow_batch_trigger_limit(team_id: int, *, sends_email: bool = True) -
     that cannot see the workflow fails toward the capped side. Teams on the pre-tier allowlist
     keep the elevated ceiling, and while the rollout mode is not "enforce" every team keeps the
     flat ceiling it had before tiers existed.
+
+    The tier's daily cap is one allowance that all of the team's workflows share. A batch with a
+    slow enough sending rate limit leaves part of each day's allowance to the other workflows, so it
+    may reach as many people as its rate sends to in WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS. The send-time
+    bucket still applies, so a rate limit loosened after dispatch cannot exceed the daily cap.
     """
     if team_id in settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS:
-        return settings.HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED
+        return BatchAudienceLimit(limit=settings.HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED, rate_limited=None)
     if not sends_email or email_sending_tier_mode() != "enforce":
-        return settings.HOGFLOW_BATCH_TRIGGER_LIMIT
+        return BatchAudienceLimit(limit=settings.HOGFLOW_BATCH_TRIGGER_LIMIT, rate_limited=None)
 
     resolved = resolve_team_email_sending_tier(team_id)
     if not resolved.enforced:
-        return settings.HOGFLOW_BATCH_TRIGGER_LIMIT
-    return resolved.limits.max_batch_audience
+        return BatchAudienceLimit(limit=settings.HOGFLOW_BATCH_TRIGGER_LIMIT, rate_limited=None)
+
+    limit = resolved.limits.max_batch_audience
+    allowance = _rate_limited_allowance(resolved.limits)
+    per_day = email_rate_limit_per_day(email_rate_limit)
+    if allowance is not None and per_day is not None and per_day <= allowance.max_emails_per_hour * 24:
+        limit = max(limit, per_day * allowance.max_days)
+    return BatchAudienceLimit(limit=limit, rate_limited=allowance)
+
+
+def get_hogflow_batch_trigger_limit(team_id: int, *, sends_email: bool = True, email_rate_limit: object = None) -> int:
+    """Maximum audience size for this team's batch triggers. See resolve_batch_audience_limit."""
+    return resolve_batch_audience_limit(team_id, sends_email=sends_email, email_rate_limit=email_rate_limit).limit

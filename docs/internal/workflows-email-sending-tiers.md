@@ -11,6 +11,7 @@ Transactional email is never delayed by the send-time caps, but it is still char
 - Tier state: `email_sending_tier`, `email_sending_tier_updated_at` (dwell anchor), `email_sending_tier_demoted_at` (demotion cooldown anchor), and `email_sending_tier_pinned` on `TeamWorkflowsConfig`.
 - Tier movement: a daily Celery sweep (07:15 UTC, after the SES tenant-state reconcile at 07:00) in `products/workflows/backend/services/email_sending_tier.py`.
 - Batch audience cap: `get_hogflow_batch_trigger_limit` in `products/workflows/backend/utils/batch_trigger_limit.py`, applied at batch dispatch and shown in the blast radius preview.
+- Rate-limited batches: a batch email whose workflow sets a sending rate limit may exceed the tier's batch cap (see Rate-limited batches below). The same function applies it.
 - Send-time cap: one Valkey token bucket per team in the CDP email worker (`claimTeamSendingBudget` in `nodejs/src/cdp/services/messaging/email.service.ts`).
 - Staff controls: the team's Django admin page (view state, set/pin a tier, recompute now).
 - Audit trail: every tier or pin change writes an `email_sending_tier_changed` row to the team's activity log, with the before and after values and the decision reason (`staff_set` for a tier staff set by hand). Staff rows name the acting user. Sweep and backfill rows carry a trigger with the job type and a per-run id. The rows are staff-only in the activity log (`products/workflows/backend/services/email_sending_tier_audit.py`).
@@ -34,6 +35,7 @@ Django (`posthog/settings/web.py`):
 - `WORKFLOWS_EMAIL_TIER_DAILY_CAPS`, `WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS`: comma-separated tables indexed by tier. The shorter table decides the tier count.
 - `WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER`: per-tier dwell before promotion, comma-separated, clamped to the last entry.
 - Promotion and demotion knobs: `WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS` (promotion window), `WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS`, `WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS` (keep at least as long as the demotion window), `WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS` (0 disables decay), `WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS`, `WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO`, `WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE`, `WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE`, `WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS`, `WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP`, `WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS`.
+- `WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE` (default `0.5`) and `WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS` (default `7`): which sending rates raise the batch cap, and by how much. Django only, because the worker applies the rate limit and the daily bucket, not the audience cap.
 - `HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS`: the pre-tier allowlist. It overrides the tier entirely, so a saved tier does nothing for a listed team.
 
 Worker (`nodejs/src/cdp/config.ts`):
@@ -43,6 +45,20 @@ Worker (`nodejs/src/cdp/config.ts`):
 
 All of these reach production as environment variables through `posthog/charts` (with any secret values via `posthog/secrets`).
 Charts sets both modes to `enforce` in every environment, so the rollout order below is complete there. The cap tables are not set there, so each side runs on its code defaults, and a change to a default table takes effect on deploy.
+
+## Rate-limited batches
+
+The daily cap is one allowance that all of a project's workflows share.
+The batch cap equals the daily cap by default, so one batch cannot hold the project's other workflows up for days.
+A sending rate limit removes that risk when it is slow enough, so it raises the batch cap:
+
+- The rate qualifies when it sends at most `WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE` of the daily cap per day, counted in whole emails per hour.
+- A qualifying rate raises the cap to what it sends in `WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS` days, when that is more than the tier's batch cap.
+- A faster rate, or no rate limit, keeps the tier's batch cap.
+
+The blast radius preview takes the rate limit as `email_sending_rate_limit` and returns `rate_limited`: the fastest qualifying hourly rate, the day limit, and the cap at that rate.
+The broadcast wizard uses it to ask for a rate limit on the schedule step.
+Batch dispatch reads the rate limit stored on the workflow.
 
 ## Decision rules the sweep applies
 
@@ -89,6 +105,7 @@ A project appearing there often is spending more on transactional than its tier 
 ## Known limits
 
 - The batch audience cap is decided when the batch is dispatched. Adding an email step to the workflow while a batch is queued does not re-cap it; the send-time bucket still caps every email at execution. This is why enforcement requires the worker caps to be deployed (see the rollout order).
+- A rate-limited batch is capped at dispatch from the rate limit at that time. Loosening or removing the rate limit while the batch sends does not re-cap it. The send-time bucket still holds the batch to the daily cap, so the project's other workflows can then wait until it finishes.
 - Test-panel sends bypass the team bucket on purpose, matching the per-workflow rate limit.
 - Rescheduled emails keep their email queue priority while waiting. After a team-cap, workflow-pacing, or SES-throttle retry, the workflow restores its origin queue and priority when it next leaves the email queue. A push notification retried while the workflow is on the email queue behaves the same way and waits at the priority of its own message category.
 - Transactional sends are charged but never delayed, so a team whose transactional volume alone exceeds its tier can hold its own marketing at zero (see Transactional email below).

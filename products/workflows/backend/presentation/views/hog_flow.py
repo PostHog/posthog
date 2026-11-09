@@ -1268,6 +1268,32 @@ class ApplyUtmDefaultsResponseSerializer(serializers.Serializer):
     )
 
 
+class HogFlowEmailSendingRateLimitSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        min_value=1,
+        max_value=1_000_000,
+        help_text="Maximum number of emails this workflow sends per period.",
+    )
+    period = serializers.ChoiceField(
+        choices=["minute", "hour"],
+        help_text="Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.",
+    )
+
+    def validate(self, data):
+        # A PATCH propagates partial=True into nested serializers, which would let a lone
+        # {"period": ...} skip the required count and store a shape the worker can't enforce.
+        # The value is atomic: replace it whole or clear it with null.
+        missing = [field for field in ("count", "period") if field not in data]
+        if missing:
+            raise serializers.ValidationError(f"Both count and period are required, missing: {', '.join(missing)}.")
+        return data
+
+    def to_representation(self, value):
+        # Pass stored JSON through untouched so a legacy or hand-written row that doesn't match
+        # the declared fields can still render (and be fixed) instead of crashing the read.
+        return value
+
+
 class BlastRadiusRequestSerializer(serializers.Serializer):
     filters = serializers.DictField(help_text="Property filters to apply")
     group_type_index = serializers.IntegerField(
@@ -1283,6 +1309,12 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
         default=True,
         help_text="Whether the workflow contains an email step. The tiered audience limit only applies to "
         "email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.",
+    )
+    email_sending_rate_limit = HogFlowEmailSendingRateLimitSerializer(
+        required=False,
+        allow_null=True,
+        help_text="The workflow's email sending rate limit. A slow enough rate raises the email audience limit. "
+        "The response's rate_limited field says which rates qualify.",
     )
 
 
@@ -1304,6 +1336,16 @@ class RealtimeCohortStatusSerializer(serializers.Serializer):
 class RealtimeCohortRefSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="ID of the realtime cohort.")
     name = serializers.CharField(help_text="Name of the realtime cohort.")
+
+
+class RateLimitedAudienceSerializer(serializers.Serializer):
+    max_emails_per_hour = serializers.IntegerField(
+        help_text="The fastest email sending rate limit that raises the audience limit. A faster rate keeps the normal limit."
+    )
+    max_days = serializers.IntegerField(help_text="The most days a rate-limited send may take to reach everyone.")
+    limit = serializers.IntegerField(
+        help_text="The audience limit with a rate limit of max_emails_per_hour. A slower rate allows fewer people."
+    )
 
 
 class BlastRadiusSerializer(serializers.Serializer):
@@ -1335,6 +1377,14 @@ class BlastRadiusSerializer(serializers.Serializer):
         help_text=(
             "Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: "
             "a realtime cohort has to be the only condition."
+        ),
+    )
+    rate_limited = RateLimitedAudienceSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Set when an email sending rate limit can raise 'limit'. A send at a slow enough rate leaves part of the "
+            "project's daily email allowance to its other workflows, so it may reach more people over several days."
         ),
     )
 
@@ -2600,32 +2650,6 @@ class HogFlowConversionSerializer(serializers.Serializer):
     def to_representation(self, value):
         # Pass stored JSON through untouched — rows written before the 'events' slot existed may hold
         # legacy shapes (object in 'filters') that field-level coercion would mangle on read.
-        return value
-
-
-class HogFlowEmailSendingRateLimitSerializer(serializers.Serializer):
-    count = serializers.IntegerField(
-        min_value=1,
-        max_value=1_000_000,
-        help_text="Maximum number of emails this workflow sends per period.",
-    )
-    period = serializers.ChoiceField(
-        choices=["minute", "hour"],
-        help_text="Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.",
-    )
-
-    def validate(self, data):
-        # A PATCH propagates partial=True into nested serializers, which would let a lone
-        # {"period": ...} skip the required count and store a shape the worker can't enforce.
-        # The value is atomic: replace it whole or clear it with null.
-        missing = [field for field in ("count", "period") if field not in data]
-        if missing:
-            raise serializers.ValidationError(f"Both count and period are required, missing: {', '.join(missing)}.")
-        return data
-
-    def to_representation(self, value):
-        # Pass stored JSON through untouched so a legacy or hand-written row that doesn't match
-        # the declared fields can still render (and be fixed) instead of crashing the read.
         return value
 
 
@@ -6895,7 +6919,12 @@ class HogFlowViewSet(
             # data, so it requires the same access the audience editor requires.
             if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
                 raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
-            size = get_account_audience_size(team_id=self.team_id, filters=filters, sends_email=params["sends_email"])
+            size = get_account_audience_size(
+                team_id=self.team_id,
+                filters=filters,
+                sends_email=params["sends_email"],
+                email_rate_limit=params.get("email_sending_rate_limit"),
+            )
             return Response(
                 BlastRadiusSerializer(
                     {
@@ -6904,6 +6933,7 @@ class HogFlowViewSet(
                         "limit": size.limit,
                         "dedupe_key": None,
                         "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
+                        "rate_limited": size.rate_limited,
                     }
                 ).data
             )
@@ -6916,6 +6946,7 @@ class HogFlowViewSet(
             group_type_index=group_type_index,
             dedupe_key=dedupe_key,
             sends_email=params["sends_email"],
+            email_rate_limit=params.get("email_sending_rate_limit"),
         )
         # The cohort API denies a scoped token without cohort:read, so this response withholds the
         # cohort's name and build state from it too.
@@ -6950,6 +6981,7 @@ class HogFlowViewSet(
                         if size.realtime_cohort_with_other_conditions
                         else None
                     ),
+                    "rate_limited": size.rate_limited,
                 }
             ).data
         )
