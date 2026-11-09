@@ -1,13 +1,19 @@
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db.models import Q
 from django.utils import timezone
 
-from posthog.models.activity_logging.activity_log import ActivityLog, common_field_exclusions, field_exclusions
+from rest_framework.exceptions import ValidationError
 
-from products.feature_flags.backend.facade.config import is_v1_config
+from posthog.models.activity_logging.activity_log import ActivityLog, Trigger, common_field_exclusions, field_exclusions
+
+from products.feature_flags.backend.facade.config import detect_config_format, is_v1_config
+from products.feature_flags.backend.facade.enums import VERSION_RESTORE_JOB_TYPE
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
 
 
 class VersionNotFound(Exception):
@@ -310,3 +316,64 @@ def restore_payload(flag: FeatureFlag, reconstructed: dict[str, Any]) -> dict[st
         for field in sorted(RESTORABLE_FIELDS)
         if field in reconstructed and reconstructed[field] != current.get(field)
     }
+
+
+def restore_flag_version(
+    flag: FeatureFlag,
+    target_version: int,
+    *,
+    team: "Team",
+    user: Any,
+    request: Any | None = None,
+    extra_data: dict | None = None,
+) -> FeatureFlag:
+    """Set a flag's configuration back to a past version through the gated serializer path.
+
+    Only the fields in ``RESTORABLE_FIELDS`` are written, so the flag keeps its key, its
+    enabled state and its archived and deleted state. Tags, evaluation contexts and the
+    definitions of the cohorts it targets are not part of a version and stay as they are.
+    ``extra_data`` is merged into the write, for a rollback reason the caller collected.
+
+    Returns the flag unchanged, with no write, when the past version matches the current
+    configuration. Raises ``VersionNotFound`` or ``VersionHistoryIncomplete`` when the version
+    cannot be rebuilt, ``ValidationError`` for a flag this cannot restore (archived, encrypted
+    payloads, or a config format other than 1) or for a version that no longer validates, and
+    ``ApprovalRequired`` when a policy gates the write.
+
+    The caller checks the caller's version against the flag first: this does not take the row
+    lock, so the version check under the lock belongs to the request the caller passes.
+    """
+    if flag.archived:
+        raise ValidationError("Unarchive this flag before restoring a past version.", code="flag_archived")
+    if flag.has_encrypted_payloads:
+        raise ValidationError(
+            "Past versions of a flag with encrypted payloads cannot be restored.", code="encrypted_payloads"
+        )
+    if detect_config_format(flag.filters).kind != "v1":
+        raise ValidationError(
+            "This flag uses a configuration format that cannot be restored from history yet.",
+            code="unsupported_config_version",
+        )
+
+    # The activity log is written under the flag's own team, which is the project's root team.
+    reconstructed = reconstruct_flag_at_version(flag=flag, target_version=target_version, team_id=flag.team_id)
+    # The live flag can have been downgraded from encrypted payloads, which strips the ciphertext
+    # from the row but not from the activity log the rebuild reads.
+    if reconstructed["has_encrypted_payloads"]:
+        raise ValidationError(
+            "Past versions of a flag with encrypted payloads cannot be restored.", code="encrypted_payloads"
+        )
+
+    payload = restore_payload(flag, reconstructed)
+    if not payload:
+        return flag
+
+    flag._activity_trigger = Trigger(
+        job_type=VERSION_RESTORE_JOB_TYPE,
+        job_id=str(target_version),
+        payload={"restored_from_version": target_version},
+    )
+    # facade.api imports the flag viewset module, which imports this one.
+    from products.feature_flags.backend.facade.api import update_flag  # noqa: PLC0415
+
+    return update_flag(flag, {**(extra_data or {}), **payload}, team=team, user=user, request=request)

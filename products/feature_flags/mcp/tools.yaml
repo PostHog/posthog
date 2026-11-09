@@ -1072,8 +1072,6 @@ tools:
     feature-flag-restore-version:
         operation: feature_flags_versions_restore_create
         enabled: true
-        # The restore route ships in the same change, so the tool stays hidden until the flag is turned on
-        # after the route is serving.
         feature_flag: mcp-feature-flag-restore-version
         annotations:
             readOnly: false

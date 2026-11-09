@@ -87,6 +87,16 @@ class TestFeatureFlagVersionHistoryAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertNotIn(ciphertext, response.content.decode())
 
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/versions/1/restore/",
+            {"version": flag.version},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        flag.refresh_from_db()
+        self.assertNotIn(ciphertext, str(flag.filters))
+
 
 ORIGINAL_FILTERS: dict[str, Any] = {
     "groups": [
@@ -160,9 +170,12 @@ class TestFeatureFlagRestoreVersionAPI(APIBaseTest):
 
     def test_restore_sets_configuration_back_and_keeps_key_and_enabled_state(self):
         flag = self._flag_with_a_bad_edit()
-        FeatureFlag.objects.filter(pk=flag.pk).update(active=False)
+        disable = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"active": False}, format="json"
+        )
+        assert disable.status_code == status.HTTP_200_OK, disable.content
 
-        response = self._restore(flag, 1, {"version": 2})
+        response = self._restore(flag, 1, {"version": 3})
 
         assert response.status_code == status.HTTP_200_OK, response.content
         flag.refresh_from_db()
@@ -171,8 +184,9 @@ class TestFeatureFlagRestoreVersionAPI(APIBaseTest):
         # The old key may be taken by another flag, and SDKs call the flag by its current one.
         assert flag.key == "checkout-redesign-v2"
         assert flag.active is False
-        assert flag.version == 3
+        assert flag.version == 4
         entry = ActivityLog.objects.filter(scope="FeatureFlag", item_id=str(flag.id)).latest("created_at")
+        assert entry.detail is not None
         assert entry.detail["trigger"]["job_type"] == "version_restore"
         assert entry.detail["trigger"]["payload"] == {"restored_from_version": 1}
 
@@ -187,12 +201,15 @@ class TestFeatureFlagRestoreVersionAPI(APIBaseTest):
         assert targeting(flag.filters) == targeting(BAD_EDIT_FILTERS)
         assert flag.version == 4
 
-    def test_stale_version_is_refused_and_writes_nothing(self):
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_stale_version_is_refused_and_writes_nothing(self, _mock_enabled):
         flag = self._flag_with_a_bad_edit()
+        self._gate_flag_updates_on_approval()
 
         response = self._restore(flag, 1, {"version": 1})
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
         flag.refresh_from_db()
         assert flag.version == 2
         assert targeting(flag.filters) == targeting(BAD_EDIT_FILTERS)

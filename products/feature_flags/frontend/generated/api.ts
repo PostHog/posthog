@@ -1191,7 +1191,7 @@ export const getFeatureFlagsVersionsRestoreCreateUrl = (projectId: string, id: n
  * Sets the flag's release conditions, variants, payloads, name and evaluation options back to
  * what they were at `version_number`. Read that version first with the versions endpoint to see
  * what will change. The flag's key, its enabled state, and its archived state stay as they are,
- * as do tags, evaluation contexts and the cohorts it targets. The restore is saved as a new
+ * as do tags, evaluation contexts and how its cohorts are defined. The restore is saved as a new
  * version, so it can be undone by restoring the version before it.
  *
  * Send the flag's current `version`. A change after that version is refused with 409. An

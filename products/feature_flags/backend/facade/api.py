@@ -34,7 +34,6 @@ import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
-from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -46,7 +45,6 @@ from products.feature_flags.backend.api.feature_flag import (
 )
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.config import detect_config_format
-from products.feature_flags.backend.facade.enums import VERSION_RESTORE_JOB_TYPE
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import MINTED_OWNER_CONTEXT_KEY, flag_owner_kind
@@ -55,7 +53,6 @@ from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestUsage as FeatureFlagRequestUsage,
     query_feature_flag_request_usage,
 )
-from products.feature_flags.backend.version_history import reconstruct_flag_at_version, restore_payload
 
 logger = structlog.get_logger(__name__)
 
@@ -227,64 +224,6 @@ def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | N
     deleted cohort.
     """
     return update_flag(flag, {"archived": False}, team=team, user=user, request=request)
-
-
-def restore_flag_version(
-    flag: FeatureFlag,
-    target_version: int,
-    *,
-    team: Team,
-    user: Any,
-    request: Any | None = None,
-    extra_data: dict | None = None,
-) -> FeatureFlag:
-    """Set a flag's configuration back to a past version through the gated serializer path.
-
-    Only the fields in ``RESTORABLE_FIELDS`` are written, so the flag keeps its key, its
-    enabled state and its archived and deleted state. Tags, evaluation contexts and the
-    definitions of the cohorts it targets are not part of a version and stay as they are.
-    ``extra_data`` is merged into the write, for a rollback reason the caller collected.
-
-    Returns the flag unchanged, with no write, when the past version matches the current
-    configuration. Raises ``VersionNotFound`` or ``VersionHistoryIncomplete`` when the version
-    cannot be rebuilt, ``ValidationError`` for a flag this cannot restore (archived, encrypted
-    payloads, or a config format other than 1) or for a version that no longer validates, and
-    ``ApprovalRequired`` when a policy gates the write.
-
-    The caller checks the caller's version against the flag first: this does not take the row
-    lock, so the version check under the lock belongs to the request the caller passes.
-    """
-    if flag.archived:
-        raise ValidationError("Unarchive this flag before restoring a past version.", code="flag_archived")
-    if flag.has_encrypted_payloads:
-        raise ValidationError(
-            "Past versions of a flag with encrypted payloads cannot be restored.", code="encrypted_payloads"
-        )
-    if detect_config_format(flag.filters).kind != "v1":
-        raise ValidationError(
-            "This flag uses a configuration format that cannot be restored from history yet.",
-            code="unsupported_config_version",
-        )
-
-    # The activity log is written under the flag's own team, which is the project's root team.
-    reconstructed = reconstruct_flag_at_version(flag=flag, target_version=target_version, team_id=flag.team_id)
-    # The live flag can have been downgraded from encrypted payloads, which strips the ciphertext
-    # from the row but not from the activity log the rebuild reads.
-    if reconstructed["has_encrypted_payloads"]:
-        raise ValidationError(
-            "Past versions of a flag with encrypted payloads cannot be restored.", code="encrypted_payloads"
-        )
-
-    payload = restore_payload(flag, reconstructed)
-    if not payload:
-        return flag
-
-    flag._activity_trigger = Trigger(
-        job_type=VERSION_RESTORE_JOB_TYPE,
-        job_id=str(target_version),
-        payload={"restored_from_version": target_version},
-    )
-    return update_flag(flag, {**(extra_data or {}), **payload}, team=team, user=user, request=request)
 
 
 def validate_flag_restorable(flag_id: int, *, team_id: int) -> None:

@@ -17,7 +17,10 @@ export function flagVersionOfActivity(logItem: ActivityLogItem | undefined): num
     return typeof versionChange?.after === 'number' ? versionChange.after : null
 }
 
-type RestorableFlag = Pick<FeatureFlagType, 'version' | 'archived' | 'has_encrypted_payloads' | 'can_edit' | 'filters'>
+type RestorableFlag = Pick<
+    FeatureFlagType,
+    'version' | 'deleted' | 'archived' | 'has_encrypted_payloads' | 'can_edit' | 'filters'
+>
 
 /** Why a past version of this flag cannot be restored, or null when it can. Mirrors the server's refusals. */
 export function restoreVersionDisabledReason(flag: RestorableFlag, version: number): string | null {
@@ -26,6 +29,9 @@ export function restoreVersionDisabledReason(flag: RestorableFlag, version: numb
     }
     if (version === (flag.version ?? 0)) {
         return 'This is the current version.'
+    }
+    if (flag.deleted) {
+        return 'Restore this flag to restore a past version.'
     }
     if (flag.archived) {
         return 'Unarchive this flag to restore a past version.'

@@ -388,7 +388,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 id={featureFlag.id}
                                 renderRowActions={(logItem) => (
                                     <FeatureFlagRestoreVersionButton
-                                        flag={{ ...featureFlag, id: featureFlag.id as number }}
+                                        flagId={featureFlag.id as number}
                                         logItem={logItem}
                                     />
                                 )}

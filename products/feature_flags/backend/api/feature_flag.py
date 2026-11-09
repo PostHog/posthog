@@ -185,6 +185,7 @@ from products.feature_flags.backend.version_history import (
     VersionNotFound,
     reconstruct_flag_at_timestamp,
     reconstruct_flag_at_version,
+    restore_flag_version,
 )
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -5106,15 +5107,13 @@ class FeatureFlagViewSet(
         Sets the flag's release conditions, variants, payloads, name and evaluation options back to
         what they were at `version_number`. Read that version first with the versions endpoint to see
         what will change. The flag's key, its enabled state, and its archived state stay as they are,
-        as do tags, evaluation contexts and the cohorts it targets. The restore is saved as a new
+        as do tags, evaluation contexts and how its cohorts are defined. The restore is saved as a new
         version, so it can be undone by restoring the version before it.
 
         Send the flag's current `version`. A change after that version is refused with 409. An
         approval policy that gates the change opens a change request instead. A restore to a version
         that matches the current configuration writes nothing and returns the flag.
         """
-        from products.feature_flags.backend.facade.api import restore_flag_version
-
         feature_flag: FeatureFlag = self.get_object()
         rejection = self._deleted_flag_rejection(feature_flag, "restoring a past version")
         if rejection is not None:

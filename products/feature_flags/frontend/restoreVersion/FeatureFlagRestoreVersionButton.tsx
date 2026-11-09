@@ -5,22 +5,20 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import type { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 
-import { FeatureFlagType } from '~/types'
-
 import { featureFlagRestoreVersionLogic } from './featureFlagRestoreVersionLogic'
 import { flagVersionOfActivity, restoreVersionDisabledReason } from './flagVersionRestore'
 
 export interface FeatureFlagRestoreVersionButtonProps {
-    flag: FeatureFlagType & { id: number }
+    flagId: number
     logItem: HumanizedActivityLogItem
 }
 
 export function FeatureFlagRestoreVersionButton({
-    flag,
+    flagId,
     logItem,
 }: FeatureFlagRestoreVersionButtonProps): JSX.Element | null {
-    const logic = featureFlagRestoreVersionLogic({ flagId: flag.id })
-    const { busyVersion } = useValues(logic)
+    const logic = featureFlagRestoreVersionLogic({ flagId })
+    const { busyVersion, featureFlag } = useValues(logic)
     const { restoreVersion } = useActions(logic)
 
     const version = flagVersionOfActivity(logItem.unprocessed)
@@ -35,7 +33,7 @@ export function FeatureFlagRestoreVersionButton({
             onClick={() => restoreVersion(version)}
             loading={busyVersion === version}
             disabledReason={
-                restoreVersionDisabledReason(flag, version) ??
+                restoreVersionDisabledReason(featureFlag, version) ??
                 (busyVersion !== null && busyVersion !== version ? 'Another restore is in progress.' : null)
             }
             tooltip={`Restore version ${version}`}

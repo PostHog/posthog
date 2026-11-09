@@ -1,5 +1,7 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { objectsEqual } from 'lib/utils/objects'
+
 import { FeatureFlagFilters, FeatureFlagType } from '~/types'
 
 import { FeatureFlagReleaseConditionsChange } from '../FeatureFlagReleaseConditionsChange'
@@ -10,9 +12,24 @@ export interface FeatureFlagRestoreVersionPreviewProps {
     target: FeatureFlagVersionResponseApi
 }
 
+// Restored settings that the release conditions diff below does not show.
+const OTHER_RESTORED_SETTINGS = [
+    ['is_remote_configuration', 'Flag type'],
+    ['ensure_experience_continuity', 'Persist flag across authentication steps'],
+    ['bucketing_identifier', 'Bucketing identifier'],
+    ['evaluation_runtime', 'Evaluation runtime'],
+    ['has_enriched_analytics', 'Enriched analytics'],
+] as const
+
 export function FeatureFlagRestoreVersionPreview({ flag, target }: FeatureFlagRestoreVersionPreviewProps): JSX.Element {
     const hasRunningExperiment = (flag.experiment_set_metadata ?? []).some((experiment) => experiment.is_running)
     const nameChanges = (target.name ?? '') !== (flag.name ?? '')
+    const otherChanges = [
+        ...(objectsEqual(target.filters?.multivariate ?? null, flag.filters.multivariate ?? null) ? [] : ['Variants']),
+        ...OTHER_RESTORED_SETTINGS.filter(([field]) => (target[field] || null) !== (flag[field] || null)).map(
+            ([, label]) => label
+        ),
+    ]
 
     return (
         <div className="flex flex-col gap-3">
@@ -41,6 +58,12 @@ export function FeatureFlagRestoreVersionPreview({ flag, target }: FeatureFlagRe
                     after={target.filters as unknown as FeatureFlagFilters}
                 />
             </div>
+            {otherChanges.length > 0 && (
+                <div>
+                    <div className="font-semibold">Also changes</div>
+                    <div className="text-secondary">{otherChanges.join(', ')}</div>
+                </div>
+            )}
             <LemonBanner type="info">
                 These stay as they are now: whether the flag is enabled, its key, tags, evaluation contexts, schedules,
                 and how the cohorts it targets are defined.

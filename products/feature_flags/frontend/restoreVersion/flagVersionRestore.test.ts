@@ -15,6 +15,7 @@ const entry = (overrides: Partial<ActivityLogItem>): ActivityLogItem => ({
 
 const restorableFlag = {
     version: 4,
+    deleted: false,
     archived: false,
     has_encrypted_payloads: false,
     can_edit: true,
@@ -55,6 +56,7 @@ describe('flagVersionRestore', () => {
         ['a past version of an editable flag', {}, 2, null],
         ['the current version', {}, 4, 'This is the current version.'],
         ['without edit access', { can_edit: false }, 2, "You don't have permission to edit this flag."],
+        ['a deleted flag', { deleted: true }, 2, 'Restore this flag to restore a past version.'],
         ['an archived flag', { archived: true }, 2, 'Unarchive this flag to restore a past version.'],
         [
             'encrypted payloads',
