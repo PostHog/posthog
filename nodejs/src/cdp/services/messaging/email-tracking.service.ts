@@ -779,17 +779,21 @@ export class EmailTrackingService {
         })
         let timer: NodeJS.Timeout | undefined
         const grew = await Promise.race([
-            this.engagementRedis.useClient(
-                { name: 'email-engagement-people', failOpen: true },
-                (client) =>
-                    client.eval(
-                        ENGAGEMENT_PEOPLE_SCRIPT,
-                        keys.length,
-                        ...keys,
-                        invocationId,
-                        ENGAGEMENT_PEOPLE_TTL_SECONDS
-                    ) as Promise<number[]>
-            ),
+            this.engagementRedis
+                .useClient(
+                    { name: 'email-engagement-people', failOpen: true },
+                    (client) =>
+                        client.eval(
+                            ENGAGEMENT_PEOPLE_SCRIPT,
+                            keys.length,
+                            ...keys,
+                            invocationId,
+                            ENGAGEMENT_PEOPLE_TTL_SECONDS
+                        ) as Promise<number[]>
+                )
+                // useClient rethrows a pool failure even with failOpen. The engagement event is already captured,
+                // so a throw here would make SNS retry the notification and capture that event twice.
+                .catch(() => null),
             new Promise<null>((resolve) => {
                 timer = setTimeout(() => resolve(null), ENGAGEMENT_REDIS_TIMEOUT_MS)
             }),
