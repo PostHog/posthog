@@ -4321,6 +4321,25 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["ai_overage_mb_in_period"] == 3
         assert org_1_report["teams"]["3"]["ai_overage_mb_in_period"] == 3
 
+    @patch("retry.api.time.sleep")
+    @patch("posthog.tasks.usage_report.capture_exception")
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_failing_query_reports_no_overage_instead_of_failing_the_run(
+        self, mock_execute: MagicMock, mock_capture: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import QUERY_RETRIES, get_teams_with_ai_overage_bytes_in_period
+
+        error = RuntimeError("clickhouse unavailable")
+        mock_execute.side_effect = error
+
+        result = get_teams_with_ai_overage_bytes_in_period(
+            datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
+        )
+
+        assert result == []
+        assert mock_execute.call_count == QUERY_RETRIES
+        mock_capture.assert_called_once_with(error)
+
     @parameterized.expand([("posthog_ai",), ("workflows",)])
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_with_billable_tools(self, ai_product: str, mock_region: MagicMock) -> None:
@@ -5660,27 +5679,6 @@ class TestPostHogCodeComputeUsageReport(SimpleTestCase):
 
         assert mock_compute.call_count == QUERY_RETRIES
         mock_capture.assert_not_called()
-
-
-class TestAIOverageBytesQuery(TestCase):
-    @patch("retry.api.time.sleep")
-    @patch("posthog.tasks.usage_report.capture_exception")
-    @patch("posthog.tasks.usage_report.sync_execute")
-    def test_failing_query_reports_no_overage_instead_of_failing_the_run(
-        self, mock_execute: MagicMock, mock_capture: MagicMock, _mock_sleep: MagicMock
-    ) -> None:
-        from posthog.tasks.usage_report import QUERY_RETRIES, get_teams_with_ai_overage_bytes_in_period
-
-        error = RuntimeError("clickhouse unavailable")
-        mock_execute.side_effect = error
-
-        result = get_teams_with_ai_overage_bytes_in_period(
-            datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
-        )
-
-        assert result == []
-        assert mock_execute.call_count == QUERY_RETRIES
-        mock_capture.assert_called_once_with(error)
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
