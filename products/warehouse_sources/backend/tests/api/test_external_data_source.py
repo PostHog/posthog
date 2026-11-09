@@ -12065,6 +12065,14 @@ class TestDisableCDC(APIBaseTest):
             sync_type_config={"cdc_table_mode": "both", INCREMENTAL_HISTORY_KEY: True},
             should_sync=True,
         )
+        history_off_schema = ExternalDataSchema.objects.create(
+            name="incremental_history_off",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"cdc_table_mode": "both", INCREMENTAL_HISTORY_KEY: True},
+            should_sync=True,
+        )
         history_tables = {
             schema.name: DataWarehouseTable.objects.create(
                 team_id=self.team.pk,
@@ -12072,10 +12080,13 @@ class TestDisableCDC(APIBaseTest):
                 format="DeltaS3Wrapper",
                 url_pattern="s3://bucket/history",
                 external_data_source=source,
-                options={"history_table": True},
+                options={"history_table": True, "history_naming": "ph_validity"},
             )
-            for schema in (history_schema, non_cdc_schema)
+            for schema in (history_schema, non_cdc_schema, history_off_schema)
         }
+        # History turned off later keeps the table it wrote, with the only copy of its past versions.
+        history_off_schema.sync_type_config = {"cdc_table_mode": "consolidated"}
+        history_off_schema.save()
 
         with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
             response = self.client.post(
@@ -12103,12 +12114,13 @@ class TestDisableCDC(APIBaseTest):
         assert cdc_schema.sync_type is None
         assert cdc_schema.should_sync is False
 
-        # The CDC history table goes; the incremental one keeps syncing.
+        # The CDC history table goes; the incremental ones stay, also one that stopped writing its table.
         assert {
             name: DataWarehouseTable.objects.get(id=table.id).deleted for name, table in history_tables.items()
         } == {
             "cdc_history_table": True,
             "incremental_table": False,
+            "incremental_history_off": False,
         }
 
         # Non-CDC schema must NOT be touched.

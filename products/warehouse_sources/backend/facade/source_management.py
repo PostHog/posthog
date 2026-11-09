@@ -51,6 +51,7 @@ _LAZY = {
     "request_access_rules_copy": "history_access_rules",
     "assert_history_table_droppable": "cdc.history_table",
     "drop_history_table": "cdc.history_table",
+    "purge_history_staging": "cdc.history_table",
     "registered_history_table": "cdc.history_table",
     "reserved_column_names": "cdc.batcher",
     "history_columns": "cdc.batcher",

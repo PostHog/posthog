@@ -975,11 +975,21 @@ function ColumnsAndRowFiltersSection({
                         )}
                         {masksDropHistory && (
                             <span>
-                                Masking also deletes everything in the history table{' '}
-                                <code>{schema.registered_history_table_name}</code>, because its past versions keep the
-                                unmasked values. Its history is lost and can't be restored. The table and its access
-                                rules stay, and if the table keeps history, the rebuild fills it again with the column
-                                masked.
+                                {writesHistoryTable(schema.sync_type, schema.cdc_table_mode) ? (
+                                    <>
+                                        Masking also deletes everything in the history table{' '}
+                                        <code>{schema.registered_history_table_name}</code>, because its past versions
+                                        keep the unmasked values. Its history is lost and can't be restored. The table
+                                        and its access rules stay, and the rebuild fills it again with the column
+                                        masked.
+                                    </>
+                                ) : (
+                                    <>
+                                        Masking also deletes the history table{' '}
+                                        <code>{schema.registered_history_table_name}</code>, because its past versions
+                                        keep the unmasked values. Its history is lost and can't be restored.
+                                    </>
+                                )}
                             </span>
                         )}
                         {newlyMasked.length > 0 && newlyMasked.length <= 6 && (

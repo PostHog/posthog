@@ -395,12 +395,14 @@ def assert_history_table_droppable(schema: ExternalDataSchema, *, keeps_history:
         raise HistoryTableDropRefusedError(HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR)
 
 
-def drop_history_table(schema: ExternalDataSchema, *, rebuilding: bool = False) -> DataWarehouseTable | None:
+def drop_history_table(
+    schema: ExternalDataSchema, *, rebuilding: bool = False, keep_record: bool | None = None
+) -> DataWarehouseTable | None:
     """Delete the schema's registered history table: its files, its record and the schema's state for it.
 
-    `rebuilding` is for a schema that keeps history through a rebuild, such as a new mask, so the mode alone
-    does not refuse the delete. A sync in flight still does. It deletes the files but keeps the record, so the
-    rebuild registers the same table again and the access rules set on it stay in force.
+    `rebuilding` is for a delete a new mask asks for, so the mode alone does not refuse it. A sync in flight
+    still does. `keep_record` (default: `rebuilding`) deletes the files but keeps the record, for a schema that
+    keeps history: the rebuild registers the same table again, and the access rules set on it stay in force.
 
     Returns the dropped table, or None when the schema has no history table. Raises
     `HistoryTableDropRefusedError` while the schema's mode writes the table, or while a sync could still
@@ -412,6 +414,7 @@ def drop_history_table(schema: ExternalDataSchema, *, rebuilding: bool = False) 
     if registered is None:
         return None
     table, naming = registered
+    keep = rebuilding if keep_record is None else keep_record
     folder_name = NamingConvention.normalize_identifier(companion_resource_name(schema.name, naming))
     staging_folder_name = NamingConvention.normalize_identifier(
         companion_resource_name(schema.name, naming) + HISTORY_STAGING_SUFFIX
@@ -425,7 +428,7 @@ def drop_history_table(schema: ExternalDataSchema, *, rebuilding: bool = False) 
         assert_history_table_droppable(locked, keeps_history=locked.keeps_history and not rebuilding)
         _delete_history_files(schema, folder_name, staging_folder_name)
         config = locked.sync_type_config or {}
-        if not rebuilding:
+        if not keep:
             config.pop(HISTORY_NAMING_OPTION, None)
         states = config.get(QUERY_FOLDER_STATE_KEY)
         if isinstance(states, dict):
@@ -433,11 +436,11 @@ def drop_history_table(schema: ExternalDataSchema, *, rebuilding: bool = False) 
         locked.sync_type_config = config
         update_fields = ["sync_type_config", "updated_at"]
         # cdc_only links the schema to its history table.
-        if locked.table_id == table.id and not rebuilding:
+        if locked.table_id == table.id and not keep:
             locked.table = None
             update_fields.append("table")
         locked.save(update_fields=update_fields, skip_activity_log=True)
-        if not rebuilding:
+        if not keep:
             table.soft_delete()
             # As the table view logs a deleted table: the name only, because a reader may be denied the table.
             log_activity(
@@ -453,6 +456,34 @@ def drop_history_table(schema: ExternalDataSchema, *, rebuilding: bool = False) 
     schema.sync_type_config = locked.sync_type_config
     schema.table = locked.table
     return table
+
+
+def purge_history_staging(schema: ExternalDataSchema) -> bool:
+    """Delete the rows an incremental history lane staged, whether or not a history table is registered yet.
+
+    Finalize publishes every staged row, so rows staged before a mask would reach a later history table with
+    the values it hides. Raises `HistoryTableDropRefusedError` while a sync could still write to the staging
+    table. Returns whether there was one.
+    """
+    from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
+
+    staging_folder_name = NamingConvention.normalize_identifier(
+        companion_resource_name(schema.name, HISTORY_NAMING) + HISTORY_STAGING_SUFFIX
+    )
+    s3 = get_s3_client()
+    s3.invalidate_cache()
+    try:
+        entries = s3.ls(f"{settings.BUCKET_URL}/{schema.folder_path()}", detail=False)
+    except FileNotFoundError:
+        return False
+    targets = [entry for entry in entries if entry.rstrip("/").rsplit("/", 1)[-1] == staging_folder_name]
+    if not targets:
+        return False
+    with transaction.atomic():
+        locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
+        assert_history_table_droppable(locked, keeps_history=False)
+        s3.rm(targets, recursive=True)
+    return True
 
 
 def _delete_history_files(schema: ExternalDataSchema, folder_name: str, staging_folder_name: str) -> None:

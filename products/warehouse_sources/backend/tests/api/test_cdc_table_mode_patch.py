@@ -772,18 +772,21 @@ def test_a_switch_off_history_drops_the_history_table_only_when_asked(
 
 
 @pytest.mark.parametrize(
-    ("sync_type", "mode", "drop", "expected_status"),
+    ("sync_type", "mode", "extra", "drop", "expected_status", "record_kept"),
     [
-        # A table that stopped writing history keeps it, and a new mask can't reach its past values.
-        (ExternalDataSchema.SyncType.CDC, "consolidated", False, 400),
-        (ExternalDataSchema.SyncType.CDC, "consolidated", True, 200),
+        # A table that stopped writing history keeps it, and a new mask can't reach its past values. Nothing
+        # refills it, so the confirmed delete removes the record too.
+        (ExternalDataSchema.SyncType.CDC, "consolidated", {}, False, 400, True),
+        (ExternalDataSchema.SyncType.CDC, "consolidated", {}, True, 200, False),
         # An incremental table that keeps history fills the same table again from the masking rebuild.
-        (ExternalDataSchema.SyncType.INCREMENTAL, "both", False, 400),
-        (ExternalDataSchema.SyncType.INCREMENTAL, "both", True, 200),
+        (ExternalDataSchema.SyncType.INCREMENTAL, "both", {}, False, 400, True),
+        (ExternalDataSchema.SyncType.INCREMENTAL, "both", {}, True, 200, True),
+        # The same request turns history off, so nothing refills the table.
+        (ExternalDataSchema.SyncType.INCREMENTAL, "both", {"cdc_table_mode": "consolidated"}, True, 200, False),
     ],
 )
 def test_masking_a_table_with_a_history_table_empties_it_only_when_asked(
-    team, user, client: HttpClient, sync_type, mode, drop, expected_status
+    team, user, client: HttpClient, sync_type, mode, extra, drop, expected_status, record_kept
 ):
     _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=mode)
     config = {
@@ -822,15 +825,15 @@ def test_masking_a_table_with_a_history_table_empties_it_only_when_asked(
         stack.enter_context(mock.patch(_GET_S3_CLIENT, return_value=s3))
         response = client.patch(
             f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
-            data={"masked_columns": ["email"], "drop_history_table": drop},
+            data={"masked_columns": ["email"], "drop_history_table": drop, **extra},
             content_type="application/json",
         )
 
     assert response.status_code == expected_status, response.content
     history.refresh_from_db()
     schema.refresh_from_db()
-    # The record stays, so the rebuild registers the same table and its access rules stay in force.
-    assert not history.deleted
+    # A kept record lets the rebuild register the same table, so its access rules stay in force.
+    assert history.deleted is not record_kept
     deleted = sorted(s3.rm.call_args.args[0]) if s3.rm.called else []
     assert deleted == ([folder, f"{folder}_ph_staging"] if expected_status == 200 else [])
     assert (schema.masked_columns or []) == (["email"] if expected_status == 200 else [])
@@ -870,6 +873,54 @@ def test_a_mask_whose_history_delete_is_refused_is_not_saved(team, user, client:
     assert not schema.masked_columns
     assert not history.deleted
     s3.rm.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("sync_running", "expected_status"),
+    [
+        (False, 200),
+        # The rows can't be deleted while a sync could still stage more, so the mask isn't saved.
+        (True, 400),
+    ],
+)
+def test_a_mask_deletes_staged_history_rows_before_any_history_table_exists(
+    team, user, client: HttpClient, sync_running, expected_status
+):
+    # A first history sync staged rows and failed before it registered its history table.
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+    config = {
+        **schema.sync_type_config,
+        "incremental_field": "updated_at",
+        "incremental_field_type": "datetime",
+        INCREMENTAL_HISTORY_KEY: True,
+        "schema_metadata": {
+            "columns": [
+                {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
+            ]
+        },
+    }
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL, sync_type_config=config
+    )
+    client.force_login(user)
+    staging = f"bucket/{schema.folder_path()}/orders_history_ph_staging"
+    s3 = mock.MagicMock(**{"ls.return_value": [f"bucket/{schema.folder_path()}/orders", staging]})
+
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks(queued=sync_running):
+            stack.enter_context(patcher)
+        stack.enter_context(mock.patch(_GET_S3_CLIENT, return_value=s3))
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"masked_columns": ["email"]},
+            content_type="application/json",
+        )
+
+    assert response.status_code == expected_status, response.content
+    schema.refresh_from_db()
+    assert (schema.masked_columns or []) == (["email"] if expected_status == 200 else [])
+    deleted = s3.rm.call_args.args[0] if s3.rm.called else []
+    assert deleted == ([staging] if expected_status == 200 else [])
 
 
 @pytest.mark.parametrize(("mode", "expected_status"), [("consolidated", 204), ("both", 400)])

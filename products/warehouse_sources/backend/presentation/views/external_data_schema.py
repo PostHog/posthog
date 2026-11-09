@@ -116,6 +116,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     pin_history_naming,
     pinned_history_naming,
     purge_buffer_prefix,
+    purge_history_staging,
     registered_history_columns,
     registered_history_table,
     repair_is_running,
@@ -2221,7 +2222,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             stage_access_rules_copy(instance, None, keeps_history=resulting_keeps_history)
 
         if history_table_to_drop is not None and masks_rebuild_history:
-            self._empty_history_table_for_mask(instance)
+            self._empty_history_table_for_mask(instance, keep_record=resulting_keeps_history)
+        elif adds_a_mask:
+            self._purge_history_staging_for_mask(instance)
 
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
@@ -2404,16 +2407,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             raise ValidationError({"drop_history_table": str(e)})
         return table
 
-    def _empty_history_table_for_mask(self, instance: ExternalDataSchema) -> None:
-        """Empty the history table before the mask saves, so a refused delete fails the save.
+    def _empty_history_table_for_mask(self, instance: ExternalDataSchema, *, keep_record: bool) -> None:
+        """Delete the history table's contents before the mask saves, so a refused delete fails the save.
 
-        After the save the record stays either way, so nothing could tell the requester that the unmasked
-        values are still there. A fresh copy of the schema keeps the delete off this request's unsaved config.
+        A schema that keeps history after this request keeps the record, so the rebuild refills the same table
+        and its access rules stay. Otherwise nothing refills it, so the record goes too. The delete runs on a
+        fresh copy, and only its own changes are mirrored onto this request's unsaved schema.
         """
+        fresh = ExternalDataSchema.objects.get(id=instance.id, team_id=instance.team_id)
+        config_before = dict(fresh.sync_type_config or {})
         try:
-            drop_history_table(
-                ExternalDataSchema.objects.get(id=instance.id, team_id=instance.team_id), rebuilding=True
-            )
+            dropped = drop_history_table(fresh, rebuilding=True, keep_record=keep_record)
         except HistoryTableDropRefusedError as e:
             raise ValidationError({"drop_history_table": str(e)})
         except Exception as e:
@@ -2423,9 +2427,32 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     "drop_history_table": "Couldn't delete the history table's contents, so the mask wasn't saved. Try again."
                 }
             )
+        if not keep_record and dropped is not None:
+            for key in config_before.keys() - (fresh.sync_type_config or {}).keys():
+                (instance.sync_type_config or {}).pop(key, None)
+            if instance.table_id == dropped.id:
+                instance.table = None
         request = self.context.get("request")
         if request is not None:
             report_history_table_deleted(request.user, instance, trigger="mask", request=request)
+
+    def _purge_history_staging_for_mask(self, instance: ExternalDataSchema) -> None:
+        """Delete rows a history lane staged before the mask, also when no history table exists yet.
+
+        A first history sync can stage rows and fail before it registers its table, so the delete above has
+        nothing to remove, and a reset that fails before it clears staging would leave them for finalize.
+        """
+        try:
+            purge_history_staging(instance)
+        except HistoryTableDropRefusedError as e:
+            raise ValidationError({"masked_columns": str(e)})
+        except Exception as e:
+            capture_exception(e)
+            raise ValidationError(
+                {
+                    "masked_columns": "Couldn't delete the rows staged for the history table, so the mask wasn't saved. Try again."
+                }
+            )
 
     def _drop_history_table_after_mode_change(self, schema: ExternalDataSchema) -> None:
         try:
