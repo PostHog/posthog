@@ -41,6 +41,7 @@ export function PropertyFilterBetween({ logicKey, value, onSet, size }: Property
                     value={localMin}
                     onValueChange={(next: number | null) => setLocalMin(next)}
                     format={RAW_NUMBER_FORMAT}
+                    allowOutOfRange
                 >
                     <NumberFieldGroup>
                         <NumberFieldInput data-attr="prop-val-min" aria-label="Minimum value" placeholder="min" />
@@ -52,6 +53,7 @@ export function PropertyFilterBetween({ logicKey, value, onSet, size }: Property
                     value={localMax}
                     onValueChange={(next: number | null) => setLocalMax(next)}
                     format={RAW_NUMBER_FORMAT}
+                    allowOutOfRange
                 >
                     <NumberFieldGroup>
                         <NumberFieldInput data-attr="prop-val-max" aria-label="Maximum value" placeholder="max" />

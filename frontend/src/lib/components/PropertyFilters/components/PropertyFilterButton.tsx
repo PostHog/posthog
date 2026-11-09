@@ -119,7 +119,10 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                     icon={<PropertyFilterIcon type={item.type} />}
                     displayLabel={displayLabel}
                     wraps={wraps}
-                    tooltip={groupCard ?? (displayLabel !== label ? label : undefined)}
+                    tooltip={
+                        groupCard ??
+                        (displayLabel !== label ? <span className="ph-no-capture">{label}</span> : undefined)
+                    }
                     onClick={onClick}
                     onClose={onClose}
                     disabledReason={disabledReason}
