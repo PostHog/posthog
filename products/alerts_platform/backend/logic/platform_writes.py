@@ -239,7 +239,6 @@ def create_configuration(
                 destinations_owner=PlatformAlertOwner.PLATFORM
                 if spec.native.platform_destinations
                 else PlatformAlertOwner.SOURCE,
-                created_by_id=created_by_id,
                 now=django_timezone.now(),
             )
     else:

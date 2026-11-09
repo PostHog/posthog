@@ -1,11 +1,11 @@
 from typing import Any
 
-from posthog.test.base import NonAtomicTestMigrations
+from posthog.test.base import TestMigrations
 
 FILTERS = {"serviceNames": ["api"], "severityLevels": ["error"]}
 
 
-class TestThresholdIntoSourceConfig(NonAtomicTestMigrations):
+class TestThresholdIntoSourceConfig(TestMigrations):
     app = "alerts_platform"
     migrate_from = "0004_threshold_fields_nullable"
     migrate_to = "0005_threshold_into_source_config"
