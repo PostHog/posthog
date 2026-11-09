@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense, lazy, useMemo } from 'react'
+import { Suspense, useMemo } from 'react'
 
 import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -9,6 +9,7 @@ import { Button, Spinner } from '@posthog/quill'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -27,7 +28,7 @@ import { CertificationsTab } from './tabs/CertificationsTab'
 import { MetricsTab } from './tabs/MetricsTab'
 import { RelationshipsTab } from './tabs/RelationshipsTab'
 
-const DataCatalogSections = lazy(() =>
+const DataCatalogSections = lazyWithRetry(() =>
     import('./DataCatalogSections').then((module) => ({ default: module.DataCatalogSections }))
 )
 
