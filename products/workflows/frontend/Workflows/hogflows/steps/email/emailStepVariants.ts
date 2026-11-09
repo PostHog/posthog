@@ -36,6 +36,11 @@ export function hasOwnSender(integrations: IntegrationType[] | null | undefined)
         : null
 }
 
+/** The API saves a sandbox draft without a To, so a missing recipient reads as empty. */
+export function sandboxRecipient(action: SandboxEmailAction): string {
+    return action.config.inputs.email.value.to?.email ?? ''
+}
+
 /** The step's own To can be a literal address, so changing only the test person's email would still send to it. */
 export function withSandboxRecipient(workflow: HogFlow, actionId: string | null, email: string | undefined): HogFlow {
     const tested = workflow.actions?.find((action) => action.id === actionId)

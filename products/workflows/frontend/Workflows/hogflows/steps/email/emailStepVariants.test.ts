@@ -2,6 +2,7 @@ import {
     OwnEmailAction,
     SandboxEmailAction,
     ownOnlySettings,
+    sandboxRecipient,
     toOwnEmailAction,
     toSandboxAction,
     withSandboxEmail,
@@ -106,6 +107,18 @@ describe('email step variants', () => {
 
         expect(edited.config.inputs.email.value).toEqual({ ...content, subject: 'Updated' })
         expect(edited.config.message_category_id).toEqual('category-1')
+    })
+
+    it('reads and sets the recipient of a sandbox draft saved without one', () => {
+        const draft = {
+            ...toSandboxAction(ownAction()),
+            config: { inputs: { email: { value: {} } } },
+        } as SandboxEmailAction
+
+        const edited = withSandboxEmail(draft, { to: { email: 'member@example.com' } })
+
+        expect(sandboxRecipient(draft)).toEqual('')
+        expect(sandboxRecipient(edited)).toEqual('member@example.com')
     })
 
     it.each([

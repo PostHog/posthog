@@ -296,6 +296,12 @@ describe('workflowLogic email step "from" validation', () => {
             false,
             { to: 'Add a recipient', subject: 'Add a subject line', body: 'Add some content to the email body' },
         ],
+        [
+            'a draft saved without a recipient',
+            { subject: 'Hello', html: '<p>Hello</p>' },
+            false,
+            { to: 'Add a recipient' },
+        ],
     ])('checks the content of a sandbox email step, never its sender: %s', async (_name, value, valid, errors) => {
         useMocks({
             get: {

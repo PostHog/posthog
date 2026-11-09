@@ -28,6 +28,7 @@ import { HogFunctionTemplateType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
+import { sandboxRecipient } from './email/emailStepVariants'
 import { StepEmailSandboxConfiguration } from './email/StepEmailSandboxConfiguration'
 import { StepConditionalBranchConfiguration } from './StepConditionalBranch'
 import { StepDelayConfiguration } from './StepDelay'
@@ -211,9 +212,7 @@ const HogFlowStepConfigs: Partial<{
         color: () => '#2F80FA',
         getPreviews: (action) => [
             {
-                label: action.config.inputs.email.value.to?.email
-                    ? `To ${action.config.inputs.email.value.to.email}`
-                    : 'Email',
+                label: sandboxRecipient(action) ? `To ${sandboxRecipient(action)}` : 'Email',
             },
         ],
         renderConfiguration: (node) => <StepEmailSandboxConfiguration key={node.id} node={node} />,

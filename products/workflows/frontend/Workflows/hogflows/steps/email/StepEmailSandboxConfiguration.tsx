@@ -12,7 +12,7 @@ import { workflowLogic } from '../../../workflowLogic'
 import { StepSchemaErrors } from '../components/StepSchemaErrors'
 import { WorkflowAutoSaveIndicator } from '../components/WorkflowAutoSaveIndicator'
 import { EmailSenderControl } from './EmailSenderControl'
-import { SandboxEmailAction, withSandboxEmail } from './emailStepVariants'
+import { SandboxEmailAction, sandboxRecipient, withSandboxEmail } from './emailStepVariants'
 
 export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmailAction> }): JSX.Element {
     const { actionValidationErrorsById } = useValues(workflowLogic)
@@ -55,7 +55,7 @@ export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmai
                 error={emailErrors?.to}
             >
                 <LemonInput
-                    value={email.value.to?.email ?? ''}
+                    value={sandboxRecipient(action)}
                     onChange={(value) => editEmail({ to: { ...email.value.to, email: value } })}
                     placeholder="{{ person.properties.email }}"
                     data-attr="workflow-sandbox-email-to"
@@ -67,7 +67,7 @@ export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmai
                 value={
                     {
                         ...email.value,
-                        to: email.value.to?.email ?? '',
+                        to: sandboxRecipient(action),
                         from: '',
                     } as Partial<EmailTemplate> as EmailTemplate
                 }
