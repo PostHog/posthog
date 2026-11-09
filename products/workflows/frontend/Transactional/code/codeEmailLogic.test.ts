@@ -262,6 +262,24 @@ describe('codeEmailLogic', () => {
         expect(logic.values.sourceFormOpen).toBe(false)
     })
 
+    it('keeps the source form open on the stored link when the link fails to save and to read back', async () => {
+        let gets = 0
+        useMocks({
+            get: { [EMAIL_URL]: () => (++gets === 1 ? [200, stored()] : [500, {}]) },
+            patch: { [EMAIL_URL]: () => [500, {}] },
+        })
+        logic = codeEmailLogic({ id: 'email-id' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSourceFormOpen(true)
+        logic.actions.linkSourceFile('https://github.com/acme/web/blob/main/src/emails/receipt.tsx')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.sourceFormOpen).toBe(true)
+        expect(logic.values.codeEmail?.source_url).toBeNull()
+    })
+
     describe('copying the agent prompt', () => {
         let writeText: jest.Mock
         let capture: jest.SpyInstance
