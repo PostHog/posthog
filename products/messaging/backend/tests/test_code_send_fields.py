@@ -1,6 +1,7 @@
 import base64
 from typing import Any
 
+from django.http import QueryDict
 from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
@@ -8,7 +9,11 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.exceptions import exception_handler
 
-from products.messaging.backend.presentation.views.code_send_fields import with_code_send_reason
+from products.messaging.backend.presentation.views.code_send_fields import (
+    AttachmentSize,
+    attachment_size,
+    with_code_send_reason,
+)
 from products.messaging.backend.presentation.views.message_templates import SendEmailSerializer
 
 ADDRESS_VERDICTS = [
@@ -166,3 +171,52 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
             assert serializer.validated_data[field] == [address]
         else:
             assert _refusal({field: [address]})["attr"] == f"{field}__0"
+
+
+class TestAttachmentSize(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_attachments_field", {}, AttachmentSize(count=0, bytes=0)),
+            ("null_attachments", {"attachments": None}, AttachmentSize(count=0, bytes=0)),
+            ("empty_attachments", {"attachments": []}, AttachmentSize(count=0, bytes=0)),
+            (
+                "files_with_and_without_padding",
+                {
+                    "attachments": [
+                        _attachment(content="YSxi"),
+                        _attachment(content="aGk="),
+                        _attachment(content="aQ=="),
+                    ]
+                },
+                AttachmentSize(count=3, bytes=6),
+            ),
+            (
+                "a_file_over_the_inline_limit",
+                {"attachments": [_attachment(content=base64.b64encode(b"x" * 600_001).decode())]},
+                AttachmentSize(count=1, bytes=600_001),
+            ),
+            (
+                "one_file_that_is_not_base64",
+                {"attachments": [_attachment(content="YSxi"), _attachment(content="not base64!")]},
+                AttachmentSize(count=2, bytes=None),
+            ),
+            (
+                "base64_without_its_padding",
+                {"attachments": [_attachment(content="aGk")]},
+                AttachmentSize(count=1, bytes=None),
+            ),
+            ("a_file_without_content", {"attachments": [{"filename": "a.pdf"}]}, AttachmentSize(count=1, bytes=None)),
+            ("a_file_that_is_not_an_object", {"attachments": ["invoice.pdf"]}, AttachmentSize(count=1, bytes=None)),
+            ("attachments_that_are_not_a_list", {"attachments": "invoice.pdf"}, AttachmentSize(count=None, bytes=None)),
+            ("a_body_that_is_not_an_object", ["invoice.pdf"], AttachmentSize(count=None, bytes=None)),
+            (
+                "a_form_body",
+                QueryDict("attachments[0]filename=a.pdf&attachments[0]content=aGk%3D"),
+                AttachmentSize(count=None, bytes=None),
+            ),
+        ]
+    )
+    def test_counts_the_decoded_bytes_only_when_every_file_is_base64(
+        self, _name: str, body: Any, expected: AttachmentSize
+    ) -> None:
+        assert attachment_size(body) == expected

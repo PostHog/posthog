@@ -7,6 +7,7 @@ output probabilistic results including chance to win and credible intervals.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -20,6 +21,9 @@ from .utils import (
     credible_interval,
     validate_inputs,
 )
+
+if TYPE_CHECKING:
+    from ..shared.statistics import RelativeEffectBaseline
 
 
 @dataclass(frozen=False)  # BayesianMeanTest and BayesianProportionTest rewrite difference_type
@@ -91,7 +95,8 @@ class BayesianTest(ABC):
         control_stat: AnyStatistic,
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
-        **kwargs,
+        *,
+        relative_effect_baseline: RelativeEffectBaseline | None = None,
     ) -> BayesianResult:
         """
         Run the Bayesian statistical test.
@@ -101,7 +106,7 @@ class BayesianTest(ABC):
             control_stat: Control group statistic
             prior: Prior distribution for effect size
             difference_type: Type of difference to calculate
-            **kwargs: Additional test-specific parameters
+            relative_effect_baseline: Raw baseline moments for CUPED relative effects (default: the control)
 
         Returns:
             BayesianResult object
@@ -130,7 +135,8 @@ class BayesianGaussianTest(BayesianTest):
         control_stat: AnyStatistic,
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
-        **kwargs,
+        *,
+        relative_effect_baseline: RelativeEffectBaseline | None = None,
     ) -> BayesianResult:
         """
         Run Bayesian t-test comparing treatment vs control.
@@ -140,7 +146,7 @@ class BayesianGaussianTest(BayesianTest):
             control_stat: Control group statistic
             prior: Gaussian prior for effect size
             difference_type: Type of difference to calculate (relative/absolute)
-            **kwargs: Additional parameters (currently unused)
+            relative_effect_baseline: Raw baseline moments for CUPED relative effects (default: the control)
 
         Returns:
             BayesianResult with all probabilistic outputs
@@ -159,9 +165,8 @@ class BayesianGaussianTest(BayesianTest):
 
         try:
             # Calculate effect size and variance
-            unadjusted_mean = kwargs.get("unadjusted_mean")
             effect_size, effect_variance = calculate_effect_size_and_variance(
-                treatment_stat, control_stat, difference_type, unadjusted_mean
+                treatment_stat, control_stat, difference_type, relative_effect_baseline
             )
 
             # Bayesian posterior update
@@ -217,7 +222,8 @@ class BayesianProportionTest(BayesianTest):
         control_stat: AnyStatistic,
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
-        **kwargs,
+        *,
+        relative_effect_baseline: RelativeEffectBaseline | None = None,
     ) -> BayesianResult:
         """
         Run Bayesian test for proportion data using Normal approximation.
@@ -227,7 +233,7 @@ class BayesianProportionTest(BayesianTest):
             control_stat: Control group proportion statistic
             prior: Gaussian prior for effect size
             difference_type: Type of difference to calculate
-            **kwargs: Additional parameters
+            relative_effect_baseline: Raw baseline moments for CUPED relative effects (default: the control)
 
         Returns:
             BayesianResult with proportion-specific interpretations
@@ -247,7 +253,9 @@ class BayesianProportionTest(BayesianTest):
 
         # Use the general Bayesian Gaussian test implementation
         gaussian_test = BayesianGaussianTest(ci_level=self.ci_level, inverse=self.inverse)
-        result = gaussian_test.run_test(treatment_stat, control_stat, prior, difference_type, **kwargs)
+        result = gaussian_test.run_test(
+            treatment_stat, control_stat, prior, difference_type, relative_effect_baseline=relative_effect_baseline
+        )
 
         # Update test type for result tracking
         result.difference_type = f"proportion_{difference_type.value}"
@@ -299,7 +307,8 @@ class BayesianMeanTest(BayesianTest):
         control_stat: AnyStatistic,
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
-        **kwargs,
+        *,
+        relative_effect_baseline: RelativeEffectBaseline | None = None,
     ) -> BayesianResult:
         """
         Run Bayesian test for continuous mean data.
@@ -309,7 +318,7 @@ class BayesianMeanTest(BayesianTest):
             control_stat: Control group mean statistic
             prior: Gaussian prior for effect size
             difference_type: Type of difference to calculate
-            **kwargs: Additional parameters
+            relative_effect_baseline: Raw baseline moments for CUPED relative effects (default: the control)
 
         Returns:
             BayesianResult with mean-specific interpretations
@@ -323,7 +332,9 @@ class BayesianMeanTest(BayesianTest):
 
         # Use the general Bayesian Gaussian test implementation
         gaussian_test = BayesianGaussianTest(ci_level=self.ci_level, inverse=self.inverse)
-        result = gaussian_test.run_test(treatment_stat, control_stat, prior, difference_type, **kwargs)
+        result = gaussian_test.run_test(
+            treatment_stat, control_stat, prior, difference_type, relative_effect_baseline=relative_effect_baseline
+        )
 
         # Update test type for result tracking
         result.difference_type = f"mean_{difference_type.value}"

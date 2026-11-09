@@ -638,12 +638,12 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ready", "immediately_actionable", True),
-            ("pending input", "requires_human_input", False),
+            ("ready", "immediately_actionable"),
+            ("pending input", "requires_human_input"),
         ]
     )
-    def test_source_issues_are_recorded_once_and_start_the_writeback_for_a_ready_report(
-        self, _name: str, actionability: str, writes_back: bool
+    def test_source_issues_are_recorded_once_and_start_the_writeback_for_a_visible_report(
+        self, _name: str, actionability: str
     ) -> None:
         run = _make_run(self.team)
         issue_42 = "https://github.com/Acme/Widgets/issues/42"
@@ -661,7 +661,7 @@ class TestScoutReportAPI(APIBaseTest):
                 )
             assert created.status_code == status.HTTP_200_OK, created.json()
             report_id = created.json()["report_id"]
-            assert writeback.delay.call_count == (1 if writes_back else 0)
+            assert writeback.delay.call_count == 1
 
             # Naming the held issue again writes nothing and comments on nothing; only #43 is new.
             with self.captureOnCommitCallbacks(execute=True):
@@ -672,7 +672,7 @@ class TestScoutReportAPI(APIBaseTest):
                 )
             assert edited.status_code == status.HTTP_200_OK, edited.json()
             assert edited.json()["source_issues_appended"] == 1
-            assert writeback.delay.call_count == (2 if writes_back else 0)
+            assert writeback.delay.call_count == 2
 
         stored = SignalReportArtefact.objects.filter(
             report_id=report_id, type=SignalReportArtefact.ArtefactType.SOURCE_ISSUE
