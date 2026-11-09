@@ -9,7 +9,7 @@ Events are sent to the customer's PostHog project via their team's API token.
 import uuid
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from django.utils import timezone
 
@@ -621,16 +621,15 @@ def capture_ticket_assigned(
     )
 
 
-def capture_ticket_tag_added(
+def build_ticket_tag_added_event(
     ticket: Ticket,
     tag_id: str,
     tag_name: str,
     actor: User | None = None,
     actor_type: ActorType = "system",
     workflow_id: str | None = None,
-    event_uuid: str | None = None,
-    timestamp: str | None = None,
-) -> CaptureInternalResult:
+) -> dict[str, Any]:
+    """The token, distinct_id, and properties of `$conversation_ticket_tag_added`, as JSON."""
     properties = _get_ticket_base_properties(ticket)
     properties["tag"] = tag_name
     properties["tag_id"] = tag_id
@@ -639,14 +638,21 @@ def capture_ticket_tag_added(
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
     if ticket.organization_id:
         properties["organization_id"] = ticket.organization_id
+    return {
+        "token": ticket.team.api_token,
+        "distinct_id": _get_actor_distinct_id(ticket, actor, actor_type),
+        "properties": properties,
+    }
 
+
+def capture_ticket_tag_added(event: Mapping[str, Any], event_uuid: str, timestamp: str) -> CaptureInternalResult:
     return capture_internal(
-        token=ticket.team.api_token,
+        token=event["token"],
         event_name="$conversation_ticket_tag_added",
         event_source=EVENT_SOURCE,
-        distinct_id=_get_actor_distinct_id(ticket, actor, actor_type),
+        distinct_id=event["distinct_id"],
         timestamp=timestamp,
-        properties=properties,
+        properties=event["properties"],
         event_uuid=event_uuid,
     )
 

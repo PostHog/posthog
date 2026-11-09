@@ -18,6 +18,7 @@ from products.conversations.backend.events import (
     EVENT_SOURCE,
     _get_customer_properties,
     _resolve_groups_from_analytics,
+    build_ticket_tag_added_event,
     capture_message_received,
     capture_message_sent,
     capture_private_message_sent,
@@ -30,6 +31,11 @@ from products.conversations.backend.events import (
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import OrganizationIdSource
 from products.customer_analytics.backend.facade import contracts as ca_contracts
+
+
+def _capture_ticket_tag_added(ticket: Ticket, tag_id: str, tag_name: str) -> None:
+    event = build_ticket_tag_added_event(ticket, tag_id, tag_name)
+    capture_ticket_tag_added(event, event_uuid=str(uuid.uuid4()), timestamp="2026-11-09T12:00:00+00:00")
 
 
 class TestConversationEvents(BaseTest):
@@ -140,12 +146,14 @@ class TestConversationEvents(BaseTest):
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_tag_added(self, _name, organization_id, mock_capture):
         self.ticket.organization_id = organization_id
-        tag_id = str(uuid.uuid4())
+        tag_id, event_uuid = str(uuid.uuid4()), str(uuid.uuid4())
 
-        capture_ticket_tag_added(self.ticket, tag_id=tag_id, tag_name="sf-lead", actor=self.user, actor_type="user")
+        event = build_ticket_tag_added_event(self.ticket, tag_id, "sf-lead", actor=self.user, actor_type="user")
+        capture_ticket_tag_added(event, event_uuid=event_uuid, timestamp="2026-11-09T12:00:00+00:00")
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args.kwargs
+        assert (call_kwargs["event_uuid"], call_kwargs["timestamp"]) == (event_uuid, "2026-11-09T12:00:00+00:00")
         assert call_kwargs["token"] == self.team.api_token
         assert call_kwargs["event_name"] == "$conversation_ticket_tag_added"
         assert call_kwargs["distinct_id"] == self.user.distinct_id
@@ -271,7 +279,7 @@ class TestConversationEvents(BaseTest):
             ("capture_ticket_status_changed", capture_ticket_status_changed, ["new", "pending"]),
             ("capture_ticket_priority_changed", capture_ticket_priority_changed, [None, "high"]),
             ("capture_ticket_assigned", capture_ticket_assigned, ["user", "123"]),
-            ("capture_ticket_tag_added", capture_ticket_tag_added, ["tag-id", "sf-lead"]),
+            ("capture_ticket_tag_added", _capture_ticket_tag_added, ["tag-id", "sf-lead"]),
         ]
     )
     @patch("products.conversations.backend.events.capture_internal")
@@ -392,7 +400,7 @@ class TestConversationEvents(BaseTest):
             ("capture_ticket_assigned", capture_ticket_assigned, "$conversation_ticket_assigned", ["user", "123"]),
             (
                 "capture_ticket_tag_added",
-                capture_ticket_tag_added,
+                _capture_ticket_tag_added,
                 "$conversation_ticket_tag_added",
                 ["tag-id", "sf-lead"],
             ),

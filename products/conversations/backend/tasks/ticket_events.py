@@ -6,11 +6,8 @@ from celery import shared_task
 
 from posthog.api.capture import CaptureInternalError, CaptureInternalResult
 from posthog.exceptions_capture import capture_exception
-from posthog.models.user import User
-from posthog.scoping_audit import skip_team_scope_audit
 
 from products.conversations.backend.events import capture_ticket_tag_added
-from products.conversations.backend.models.ticket import Ticket
 
 logger = structlog.get_logger(__name__)
 
@@ -27,46 +24,24 @@ def _fails_on_every_attempt(result: CaptureInternalResult) -> bool:
     name="products.conversations.backend.tasks.emit_ticket_tag_added",
     ignore_result=True,
     max_retries=5,
+    acks_late=True,
+    reject_on_worker_lost=True,
 )
-@skip_team_scope_audit
-def emit_ticket_tag_added(
-    tagged_item_id: str,
-    ticket_id: str,
-    tag_id: str,
-    tag_name: str,
-    actor_id: int | None,
-    workflow_id: str | None,
-    timestamp: str,
-) -> None:
-    """Capture `$conversation_ticket_tag_added` for one new ticket tag.
+def emit_ticket_tag_added(event: dict[str, Any], event_uuid: str, timestamp: str) -> None:
+    """Capture one `$conversation_ticket_tag_added` that the tag receiver built.
 
     A workflow can trigger on this event, and a tag that is added again emits nothing, so a
-    capture that can succeed later retries with backoff. The receiver fixes the tag's name,
-    the timestamp, and the event's uuid (the tag row's id), so every attempt sends them unchanged.
+    capture that can succeed later retries with backoff, and a worker that dies mid-task hands
+    the task back to the queue. Every attempt sends the same event, uuid, and timestamp.
     """
     task = cast(Any, emit_ticket_tag_added)
-    # No team filter: a tag row holds the project's root team, but a ticket in a child
-    # environment keeps the environment's team. The UUID alone identifies the ticket.
-    ticket = Ticket.objects.select_related("team").filter(id=ticket_id).first()
-    if ticket is None:
-        return
-    actor = User.objects.filter(id=actor_id).first() if actor_id is not None else None
-
-    result = capture_ticket_tag_added(
-        ticket,
-        tag_id=tag_id,
-        tag_name=tag_name,
-        actor=actor,
-        actor_type="user" if actor else "system",
-        workflow_id=workflow_id,
-        event_uuid=tagged_item_id,
-        timestamp=timestamp,
-    )
+    result = capture_ticket_tag_added(event, event_uuid=event_uuid, timestamp=timestamp)
     try:
         result.raise_for_status()
     except CaptureInternalError as e:
+        ticket_id = event["properties"]["ticket_id"]
         if e.is_billing_limit_exceeded:
-            logger.info("conversations_tag_added_event_billing_limited", team_id=ticket.team_id)
+            logger.info("conversations_tag_added_event_billing_limited", ticket_id=ticket_id)
             return
         if _fails_on_every_attempt(result) or task.request.retries >= task.max_retries:
             capture_exception(e, {"ticket_id": ticket_id, "capture_verdicts": result.verdict_summary()})

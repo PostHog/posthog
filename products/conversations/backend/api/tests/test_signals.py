@@ -23,6 +23,7 @@ from posthog.models.team import Team
 
 from products.conversations.backend.ai.human_outcome import record_human_outcome
 from products.conversations.backend.api.internal import CONVERSATIONS_TICKETS_PURPOSE
+from products.conversations.backend.events import build_ticket_tag_added_event
 from products.conversations.backend.models import (
     ConversationDeliveryPart,
     EmailChannel,
@@ -30,7 +31,7 @@ from products.conversations.backend.models import (
     TeamConversationsSlackConfig,
     Ticket,
 )
-from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.models.constants import Channel, Status
 from products.conversations.backend.tasks.ticket_events import emit_ticket_tag_added
 
 
@@ -704,14 +705,10 @@ class TestTicketTagAddedEventSignal(APIBaseTest):
             channel_source=Channel.WIDGET,
         )
 
-    def _task_kwargs(self, item: TaggedItem) -> dict[str, Any]:
+    def _task_kwargs(self) -> dict[str, Any]:
         return {
-            "tagged_item_id": str(item.id),
-            "ticket_id": str(self.ticket.id),
-            "tag_id": str(item.tag_id),
-            "tag_name": "sf-lead",
-            "actor_id": None,
-            "workflow_id": None,
+            "event": build_ticket_tag_added_event(self.ticket, str(uuid.uuid4()), "sf-lead"),
+            "event_uuid": str(uuid.uuid4()),
             "timestamp": "2026-11-09T12:00:00+00:00",
         }
 
@@ -821,14 +818,22 @@ class TestTicketTagAddedEventSignal(APIBaseTest):
 
         mock_capture.assert_not_called()
         mock_task.delay.assert_called_once_with(
-            tagged_item_id=str(item.id),
-            ticket_id=str(self.ticket.id),
-            tag_id=str(tag.id),
-            tag_name="sf-lead",
-            actor_id=None,
-            workflow_id=None,
+            event=build_ticket_tag_added_event(self.ticket, str(tag.id), "sf-lead"),
+            event_uuid=str(item.id),
             timestamp=ANY,
         )
+
+    def test_queued_event_keeps_the_ticket_as_it_was_when_tagged(self, mock_capture):
+        with patch("products.conversations.backend.signals.emit_ticket_tag_added") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.ticket.tagged_items.get_or_create(tag=Tag.objects.create(name="sf-lead", team=self.team))
+        self.ticket.status = Status.RESOLVED
+        self.ticket.save(update_fields=["status"])
+
+        emit_ticket_tag_added(**mock_task.delay.call_args.kwargs)
+
+        [event] = self._tag_added_events(mock_capture)
+        assert event["properties"]["status"] == Status.NEW
 
     @parameterized.expand(
         [
@@ -844,8 +849,7 @@ class TestTicketTagAddedEventSignal(APIBaseTest):
     )
     def test_task_retries_only_a_capture_that_can_succeed_later(self, mock_capture, _name, result, retries, outcome):
         mock_capture.return_value = result
-        item, _ = self.ticket.tagged_items.get_or_create(tag=Tag.objects.create(name="sf-lead", team=self.team))
-        task_kwargs = self._task_kwargs(item)
+        task_kwargs = self._task_kwargs()
 
         with patch("products.conversations.backend.tasks.ticket_events.capture_exception") as mock_report:
             with pytest.raises(Retry) if outcome == "retry" else nullcontext():
@@ -853,15 +857,14 @@ class TestTicketTagAddedEventSignal(APIBaseTest):
 
         assert mock_report.called == (outcome == "report")
         sent = mock_capture.call_args.kwargs
-        assert (sent["event_uuid"], sent["timestamp"]) == (str(item.id), task_kwargs["timestamp"])
+        assert (sent["event_uuid"], sent["timestamp"]) == (task_kwargs["event_uuid"], task_kwargs["timestamp"])
 
     @parameterized.expand([("first_retry", 0, 60), ("third_retry", 2, 240)])
     def test_task_waits_longer_before_each_retry(self, mock_capture, _name, retries, wait_seconds):
         mock_capture.return_value = CaptureInternalResult(status_code=503, error={"error": "unavailable"})
-        item, _ = self.ticket.tagged_items.get_or_create(tag=Tag.objects.create(name="sf-lead", team=self.team))
 
         with pytest.raises(Retry) as retry:
-            cast(Any, emit_ticket_tag_added).apply(kwargs=self._task_kwargs(item), retries=retries)
+            cast(Any, emit_ticket_tag_added).apply(kwargs=self._task_kwargs(), retries=retries)
 
         assert retry.value.when == wait_seconds
 
