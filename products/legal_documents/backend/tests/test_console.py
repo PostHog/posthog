@@ -170,12 +170,19 @@ class TestLegalDocumentsConsolePanel(BaseTest):
         assert response.status_code == 400
         assert LegalDocument.objects.filter(id=document.id).exists()
 
-    def test_the_old_refetch_url_lands_on_the_panel_of_the_document_organization(self) -> None:
+    @parameterized.expand(
+        [
+            ("refetch", "refetch-pdf", "?from=bookmark#panel-legal-documents"),
+            ("delete", "delete", "legal-documents/delete/?from=bookmark"),
+        ]
+    )
+    def test_the_old_document_url_lands_in_the_console_of_the_document_organization(
+        self, _name: str, old_path: str, target: str
+    ) -> None:
         document = self._document()
 
-        response = self.client.get(f"/admin/legal_documents/legaldocument/{document.id}/refetch-pdf/?from=bookmark")
+        response = self.client.get(f"/admin/legal_documents/legaldocument/{document.id}/{old_path}/?from=bookmark")
 
         assert response.status_code == 302
-        assert response["Location"] == (
-            f"/admin/console/organizations/{self.organization.pk}/?from=bookmark#panel-legal-documents"
-        )
+        assert response["Location"] == f"/admin/console/organizations/{self.organization.pk}/{target}"
+        assert LegalDocument.objects.filter(id=document.id).exists()

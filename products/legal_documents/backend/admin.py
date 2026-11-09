@@ -2,6 +2,7 @@ from typing import IO, Any, cast
 
 from django import forms
 from django.contrib import admin
+from django.contrib.admin import ActionLocation
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.core.validators import FileExtensionValidator
@@ -18,7 +19,6 @@ from posthog.admin.inline_registry import register_admin_inline
 from posthog.models.organization import Organization
 from posthog.storage import object_storage
 
-from . import logic
 from .models import LegalDocument
 from .storage import signed_pdf_storage_key
 
@@ -198,10 +198,17 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         return bool(request.user and request.user.is_staff)
 
     def has_delete_permission(self, request: HttpRequest, obj: LegalDocument | None = None) -> bool:
-        # Needed so admins can clear an existing row (the unique-per-org-per-type
-        # constraint blocks re-uploads otherwise). Best-effort S3 cleanup runs
-        # alongside the row delete.
+        # Kept so that a Django admin delete of an organization can cascade to its documents. A delete of one
+        # document goes to the Delete document operation in PostHog Admin: posthog/admin/console/urls.py routes
+        # the <id>/delete/ URL there, and get_actions removes the bulk delete.
         return bool(request.user and request.user.is_staff)
+
+    def get_actions(
+        self, request: HttpRequest, action_location: ActionLocation = ActionLocation.CHANGE_LIST
+    ) -> dict[str, Any]:
+        actions = super().get_actions(request, action_location=action_location)
+        actions.pop("delete_selected", None)
+        return actions
 
     def save_model(self, request: HttpRequest, obj: LegalDocument, form: Any, change: bool) -> None:
         if change:
@@ -235,28 +242,13 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             # Surface the unique-per-org-per-type constraint as a form error
             # instead of a 500.
             raise ValidationError(
-                f"This organization already has a {obj.document_type}. Delete the existing row first."
+                f"This organization already has a {obj.document_type}. Delete the existing one in PostHog Admin first."
             ) from exc
-
-    def delete_model(self, request: HttpRequest, obj: LegalDocument) -> None:
-        # Shared helper voids the PandaDoc envelope, removes the S3 object,
-        # and deletes the row (firing the activity-log entry via
-        # ModelActivityMixin). The same helper backs the public DELETE
-        # endpoint — admin keeps the privilege of deleting signed rows by
-        # calling the helper directly rather than going through the facade.
-        logic.delete_document(obj)
-
-    def delete_queryset(self, request: HttpRequest, queryset: Any) -> None:
-        # Per-row delete (rather than queryset.delete()) so each row fires its
-        # own activity-log delete and so the shared helper can run its
-        # PandaDoc + S3 cleanup against each envelope individually.
-        for obj in queryset:
-            logic.delete_document(obj)
 
     @admin.display(description="Staff operations")
     def staff_operations(self, document: LegalDocument) -> SafeString:
         return MovedToConsole.action(
-            "organization", document.organization, "legal-documents", "Refetch PDF, re-send signing email"
+            "organization", document.organization, "legal-documents", "Refetch PDF, re-send signing email, delete"
         )
 
     @admin.display(description="Organization", ordering="organization__name")

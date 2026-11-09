@@ -44,12 +44,12 @@ MOVED_DELETION_REQUEST_ACTIONS = {
 }
 
 
-def legal_document_refetch_redirect(request: HttpRequest, pk: UUID) -> HttpResponse:
-    # The old refetch URL carries only the document ID, so the organization is looked up to find the panel.
+def legal_document_redirect(request: HttpRequest, pk: UUID, target: str) -> HttpResponse:
+    # The old document URLs carry only the document ID, so the organization is looked up to find the panel.
     organization_id = get_organization_id_for_staff(pk)
     if organization_id is None:
         raise Http404("Unknown legal document")
-    return MovedToConsole.record_redirect("organizations", "#panel-legal-documents")(request, organization_id)
+    return MovedToConsole.record_redirect("organizations", target)(request, organization_id)
 
 
 # Every route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up, and admin_view
@@ -144,7 +144,15 @@ urlpatterns = [
     ),
     path(
         "admin/legal_documents/legaldocument/<uuid:pk>/refetch-pdf/",
-        admin.site.admin_view(legal_document_refetch_redirect),
+        admin.site.admin_view(legal_document_redirect),
+        {"target": "#panel-legal-documents"},
+    ),
+    # The Delete button of the Django admin change page leads to the console operation, which says what a delete
+    # leaves behind: PandaDoc's copy of a signed document, and the AI opt-outs of a BAA.
+    path(
+        "admin/legal_documents/legaldocument/<uuid:pk>/delete/",
+        admin.site.admin_view(legal_document_redirect),
+        {"target": "legal-documents/delete/"},
     ),
     path(
         "admin/posthog/organization/send-usage-report/",
