@@ -336,8 +336,8 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 - Name the flag variable `todayRailNav`. The flag-off branch keeps the Lemon code, and its behavior, unchanged
 - A short quill branch stays inline. A longer one, or one that needs its own hooks, goes in a `Quill<Name>.tsx` file next to the Lemon component
 - Behavior is shared, never copied. A handler, dialog or menu item list that both branches need lives in one function or kea action that both call. Only the view forks
-- A shared Lemon component gets a `Quill<Name>.tsx` sibling, and returns it after its last hook. A return before a hook changes the hook order and crashes, because flags load after the first render
-- A migrated area wraps its content in `QuillSurfaceContext.Provider`. Inside it, components read `useQuillSurface()`, never the flag, so a shared component renders quill there and Lemon everywhere else. Only code above the provider reads the flag, to pick the quill layout
+- A shared Lemon component gets a `Quill<Name>.tsx` sibling, and returns it after its last hook when the flag is on. Flags load after the first render, so a return before a hook changes the hook order and crashes. If the component also renders on surfaces outside the migration, leave it alone and let the migrated caller pick the quill sibling
+- When the shared component sits too many shared layers below the caller to pick, the migrated area can wrap itself in `QuillSurfaceContext.Provider` instead. Components inside a provider read `useQuillSurface()`, not the flag. Only add a provider where a caller cannot pick
 - Keep every `data-attr`, handler and string. `data-attr` values are frozen
 - A product that imports quill declares `"@posthog/quill": "workspace:*"` in its `package.json`, or Vite cannot resolve it
 - Lemon to quill mapping:
