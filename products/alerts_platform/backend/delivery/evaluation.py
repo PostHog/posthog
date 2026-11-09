@@ -39,7 +39,12 @@ from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy, ThreadKey
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport, RootImageEditor
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DeliveryTransport,
+    DestinationMisconfigured,
+    RootImageEditor,
+)
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
     NO_LATE_IMAGE,
@@ -431,11 +436,14 @@ def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -
                 transitions=transitions,
                 image=image,
             )
-        # One channel that refuses the edit, such as one the app left, must not cost the others theirs.
+        # One channel that refuses the edit must not cost the others theirs. A refusal that only the
+        # destination's owner can fix gets no retry. Any other, such as a rate limit, waits for one.
         except DeliveryError as error:
             logger.warning(
                 "alerts_platform_late_image_refused", destination_id=subscribed_destination.id, error=str(error)
             )
+            if not isinstance(error, DestinationMisconfigured):
+                result += LateImageResult(edited=0, waiting=1)
     return result
 
 

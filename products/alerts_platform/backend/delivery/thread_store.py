@@ -160,6 +160,9 @@ class DatabaseThreadStore:
         if not taken:
             raise ThreadBusy(f"thread {thread.id} is being posted to by another send")
 
+        # Read again under the claim: a holder that released between the first read and the update
+        # can have changed the opening message, and an edit from the stale copy would undo that change.
+        thread.refresh_from_db(fields=["external_ref", "root_message"])
         handle = (
             MessageHandle(external_ref=thread.external_ref, root_content=thread.root_message)
             if thread.external_ref

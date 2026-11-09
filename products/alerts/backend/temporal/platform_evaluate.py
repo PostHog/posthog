@@ -115,7 +115,17 @@ LATE_CHART_RENDER_RETRY_POLICY = RetryPolicy(
 )
 # The firing's delivery can still be sending until its own deadline, so the edit waits for it as long.
 LATE_CHART_EDIT_WINDOW = DELIVERY_EXECUTION_TIMEOUT
-LATE_CHART_EXECUTION_TIMEOUT = LATE_CHART_RENDER_WINDOW + LATE_CHART_EDIT_WINDOW + dt.timedelta(minutes=1)
+
+
+def late_chart_edit_window(late: LateChartInputs) -> dt.timedelta:
+    # A split delivery sends its parts in turn, so its deadline grows with the part count.
+    return LATE_CHART_EDIT_WINDOW * max((delivery.parts for delivery in late.deliveries), default=1)
+
+
+def late_chart_execution_timeout(late: LateChartInputs) -> dt.timedelta:
+    return LATE_CHART_RENDER_WINDOW + late_chart_edit_window(late) + dt.timedelta(minutes=1)
+
+
 FAIL_START_TO_CLOSE = dt.timedelta(seconds=10)
 FAIL_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
 # Stopping a query can wait on a slow ClickHouse, so it runs apart from the failed check's record
@@ -936,7 +946,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                 late,
                 id=f"{LATE_CHART_WORKFLOW}-{late.deliveries[0].configuration_id}-{late.deliveries[0].evaluation_key}",
                 parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=LATE_CHART_EXECUTION_TIMEOUT,
+                execution_timeout=late_chart_execution_timeout(late),
             )
         except WorkflowAlreadyStartedError:
             pass

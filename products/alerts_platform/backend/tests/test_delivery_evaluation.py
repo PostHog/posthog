@@ -21,7 +21,7 @@ from products.alerts_platform.backend.delivery.legacy_webhook import (
 )
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.api import create_alert_destinations
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -230,7 +230,24 @@ class TestDeliverEvaluation(APIBaseTest):
             )
             return deliver_evaluation(replace(request, source_alert_url=source_alert_url))
 
-    def test_a_late_image_is_drawn_from_the_late_detail_and_goes_to_slack_only(self) -> None:
+    @parameterized.expand(
+        [
+            ("edited", None, LateImageResult(edited=1, waiting=0)),
+            (
+                "rate_limited",
+                DeliveryError("Slack refused the edit: ratelimited"),
+                LateImageResult(edited=0, waiting=1),
+            ),
+            (
+                "bot_left_the_channel",
+                DestinationMisconfigured("Slack refused the edit: not_in_channel"),
+                LateImageResult(edited=0, waiting=0),
+            ),
+        ]
+    )
+    def test_a_late_image_is_drawn_from_the_late_detail_and_goes_to_slack_only(
+        self, _name: str, refusal: DeliveryError | None, expected: LateImageResult
+    ) -> None:
         drawn: list[dict[str, Any]] = []
 
         def resolver(*, team_id: int, transition: AnnouncedTransition) -> MessageImage | None:
@@ -245,11 +262,15 @@ class TestDeliverEvaluation(APIBaseTest):
             patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
             patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK), _group(WEBHOOK)]),
             patch.dict(describers._image_resolvers, {SourceKind.LOGS: resolver}),
-            patch(f"{_MODULE}.add_late_image_to_target", return_value=LateImageResult(edited=1, waiting=0)) as edit,
+            patch(
+                f"{_MODULE}.add_late_image_to_target",
+                return_value=LateImageResult(edited=1, waiting=0),
+                side_effect=refusal,
+            ) as edit,
         ):
             result = add_late_image(_request(self.team.id), {"chart": 7})
 
-        assert result == LateImageResult(edited=1, waiting=0)
+        assert result == expected
         assert drawn == [{"chart": 7}]
         assert [(call.kwargs["target"], call.kwargs["image"].url) for call in edit.call_args_list] == [
             (SLACK, "https://example.com/chart.png")

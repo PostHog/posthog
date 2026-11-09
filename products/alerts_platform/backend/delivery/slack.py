@@ -367,7 +367,9 @@ class SlackTransport:
                     raise
                 update(_without_image_content(content))
         except SlackApiError as error:
-            raise DeliveryError(f"Slack refused the edit: {error.response.get('error')}") from error
+            code = error.response.get("error")
+            refusal = DestinationMisconfigured if code in _MISCONFIGURED_ERRORS else DeliveryError
+            raise refusal(f"Slack refused the edit: {code}") from error
 
     def _integration(self, *, team_id: int, workspace_id: int) -> IntegrationRecord:
         # Scoped by team as well as by id. The destination names an integration, and nothing

@@ -27,10 +27,10 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.alerts.backend.temporal.platform_evaluate import (
         CHART_START_TO_CLOSE,
-        LATE_CHART_EDIT_WINDOW,
         LATE_CHART_RENDER_RETRY_POLICY,
         LATE_CHART_RENDER_WINDOW,
         InsightChartInputs,
+        late_chart_edit_window,
         render_platform_insight_chart_activity,
     )
     from products.alerts_platform.backend.facade.contracts import NO_LATE_IMAGE, AlertDeliveryRequest, SourceKind
@@ -65,11 +65,10 @@ def add_late_platform_insight_chart_activity(inputs: AddLateChartInputs) -> int:
     # The evaluation's request names every part, and the delivery workflow sends each part on its own.
     parts = [replace(request, part=part) for request in inputs.deliveries for part in range(max(request.parts, 1))]
     result = sum((add_late_image(part, chart_detail(inputs.chart)) for part in parts), NO_LATE_IMAGE)
-    edited, waiting = result.edited, result.waiting
-    # Wait only while nothing is edited, so one destination that never gets a message cannot hold back the rest.
-    if not edited and waiting:
-        raise ApplicationError(f"{waiting} Slack message(s) not sent yet", type=LATE_CHART_MESSAGE_PENDING)
-    return edited
+    # An edit already made is a no-op on retry, so every message still waiting gets another attempt.
+    if result.waiting:
+        raise ApplicationError(f"{result.waiting} Slack message(s) not edited yet", type=LATE_CHART_MESSAGE_PENDING)
+    return result.edited
 
 
 @workflow.defn(name=LATE_CHART_WORKFLOW)
@@ -96,7 +95,7 @@ class InsightAlertPlatformLateChartWorkflow(PostHogWorkflow):
                 add_late_platform_insight_chart_activity,
                 AddLateChartInputs(deliveries=inputs.deliveries, chart=chart),
                 start_to_close_timeout=ADD_LATE_CHART_START_TO_CLOSE,
-                schedule_to_close_timeout=LATE_CHART_EDIT_WINDOW,
+                schedule_to_close_timeout=late_chart_edit_window(inputs),
                 retry_policy=ADD_LATE_CHART_RETRY_POLICY,
             )
         except ActivityError:
