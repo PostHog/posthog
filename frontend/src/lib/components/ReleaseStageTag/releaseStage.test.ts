@@ -15,7 +15,6 @@ describe('releaseStage', () => {
 
     test.each<[string | null, string | null | undefined, ReleaseStage | null]>([
         ['Pulse', 'Pulse', 'internal'],
-        ['Inbox', 'Self-driving inbox', 'beta'],
         ['CustomerAnalytics', 'Customer analytics', 'beta'],
         ['CustomerAnalyticsAccount', 'Acme Inc', null],
         ['Dashboard', 'Dashboard', null],

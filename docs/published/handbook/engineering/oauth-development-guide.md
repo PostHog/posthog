@@ -270,7 +270,13 @@ When authorizing an application, users can scope access to:
 
 This is configured during the authorization step, not in the application settings.
 
-OAuth bearer requests, including provisioning requests, must satisfy the IP restrictions of every organization the user belongs to. Token access scopes do not narrow this policy. Staff impersonation retains its existing exemption.
+OAuth bearer requests, including provisioning requests, must satisfy the IP policy of the organization targeted by the request. Credential scopes still limit which organizations and projects a token can reach. OAuth consent, automatic approval, and first-party approval check every organization reachable by the grant before issuing an authorization code. Declining consent remains available. Device and CLI approvals check the selected project before issuing scoped credentials. Setup runs and account-linking actions check the resolved project or organization before starting work. Staff impersonation retains its existing exemption.
+
+Personal API key creation, scope changes, expiry changes, and rotation check the organizations named by both organization and project scopes. Unscoped keys check all of the owner's current organizations. A denied request leaves the credential unchanged. New GitHub team integrations require project membership; updating an existing integration requires management access. Both paths check the target organization's IP policy before consuming authorization state.
+
+Organization listing and account recovery remain available from a blocked IP. Blocked organizations expose only their ID, name, slug, and membership level in these responses; their team and project lists are empty, and their credentials and settings are omitted. The selected team is null when its organization blocks the request. Plain app and toolbar requests enforce the current team's organization policy even when the selected organization differs. Creating a project or environment updates both selections together. Updating an allowlist rechecks the resulting policy under its configuration-row lock before saving. GitHub team OAuth returns recheck project access and the target organization's policy before consuming authorization state. MCP OAuth callbacks check the installation's organization before consuming state or exchanging the authorization code, including development callbacks.
+
+The blocked-organization decision is reused only within the same request, principal, authentication context, and client IP.
 
 The native `/oauth/userinfo/` endpoint verifies the access token and `openid` scope before applying the same IP policy to the token's user. This applies to both GET and POST requests. A policy denial returns HTTP 403 with `error: access_denied` and `code: ip_not_allowed`; invalid or expired tokens retain the OAuth provider's error responses.
 

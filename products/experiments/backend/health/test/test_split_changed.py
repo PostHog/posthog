@@ -37,6 +37,7 @@ from products.experiments.backend.health.skips import (
     NEEDS_VARIANTS,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
+    SPLIT_CHANGED_AFTER_END,
     CheckSkip,
     not_applicable,
 )
@@ -746,8 +747,23 @@ class TestSrmAfterSplitChange(TestCase):
         self.assertEqual((outcome.subcode, reads_segments(ctx), segments_first_exposed_after(ctx)), expected)
         self.assertIn(text, outcome.detail)
 
-    def test_names_the_cause_the_evidence_and_the_next_step(self) -> None:
-        outcome = srm(replace(_context(EVEN, UNEVEN, exposed_units=5), exposures=_totals(MATCHES_THE_NEW_SPLIT)))
+    @parameterized.expand(
+        [
+            (
+                "running",
+                RUNNING,
+                None,
+                ' Follow the steps in "The variant split changed after launch" to fix the results.',
+            ),
+            ("ended_after_the_change", ENDED, FIRST_CHANGE_AT + timedelta(days=3), ""),
+        ]
+    )
+    def test_names_the_cause_the_evidence_and_the_next_step(
+        self, _name: str, status: Status, ended_at: datetime | None, next_step: str
+    ) -> None:
+        ctx = replace(_context(EVEN, UNEVEN, status=status, exposed_units=5), ended_at=ended_at)
+
+        outcome = srm(replace(ctx, exposures=_totals(MATCHES_THE_NEW_SPLIT)))
 
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(outcome.title, "Users are not split as configured after a split change")
@@ -756,5 +772,14 @@ class TestSrmAfterSplitChange(TestCase):
             "The distribution of users across variants doesn't match your current rollout percentages (p < 0.001). "
             "The variant split changed after launch while users were exposed, and some of them got their variants "
             "from another split, which can cause this. The users first exposed after the day of the change match the "
-            'current split (p = 1). Follow the steps in "The variant split changed after launch" to fix the results.',
+            f"current split (p = 1).{next_step}",
         )
+
+    def test_leaves_out_a_split_that_changed_after_the_end(self) -> None:
+        ctx = replace(
+            _context(EVEN, UNEVEN, status=ENDED, exposed_units=5), ended_at=FIRST_CHANGE_AT - timedelta(hours=1)
+        )
+
+        outcome = srm(replace(ctx, exposures=_totals(MATCHES_THE_NEW_SPLIT)))
+
+        self.assertEqual(outcome, not_applicable(SPLIT_CHANGED_AFTER_END))

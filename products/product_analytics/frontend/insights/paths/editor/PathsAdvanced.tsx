@@ -5,8 +5,8 @@ import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -26,7 +26,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = useQuillSurface()
 
     const { edgeLimit, minEdgeWeight, maxEdgeWeight, showFullUrls, stripQueryString } = pathsFilter || {}
 
@@ -130,7 +130,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
             </PayGateMini>
 
             {/* Show full URLs toggle - outside paywall */}
-            {todayRailNav ? (
+            {quillSurface ? (
                 <QuillChartOptionSwitch
                     label="Show full URLs"
                     info={SHOW_FULL_URLS_INFO}
@@ -151,7 +151,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
             )}
 
             {(featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_STRIP_QUERY_STRING] || stripQueryString) &&
-                (todayRailNav ? (
+                (quillSurface ? (
                     <QuillChartOptionSwitch
                         label="Ignore URL query strings"
                         info={STRIP_QUERY_STRING_INFO}
