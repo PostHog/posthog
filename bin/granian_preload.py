@@ -32,9 +32,13 @@ import granian.cli
 TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
 
 
+def env(name: str) -> str:
+    # Granian parses these values without regard to case or surrounding spaces.
+    return os.environ.get(name, "").strip().lower()
+
+
 def can_preload() -> bool:
-    reload = os.environ.get("GRANIAN_RELOAD", "").lower() in TRUE_VALUES
-    return os.environ.get("GRANIAN_INTERFACE") == "asgi" and not reload
+    return env("GRANIAN_INTERFACE") == "asgi" and env("GRANIAN_RELOAD") not in TRUE_VALUES
 
 
 def main() -> None:
