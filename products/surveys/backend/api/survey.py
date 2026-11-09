@@ -3047,7 +3047,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
     @action(
         methods=["GET"],
         detail=True,
-        required_scopes=["survey:read", "session_recording:read"],
+        # The image is served by the exports content endpoint, so a caller who cannot read exports gets no snapshot.
+        required_scopes=["survey:read", "session_recording:read", "export:read"],
         pagination_class=None,
     )
     def site_snapshot(self, request: ValidatedRequest, **kwargs: Any) -> Response:

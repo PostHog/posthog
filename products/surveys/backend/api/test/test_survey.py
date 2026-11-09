@@ -5900,7 +5900,15 @@ class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):
         data = response.json()
         self.assertEqual(data, survey_counts)
 
-    def test_site_snapshot_needs_session_recording_read(self):
+    @parameterized.expand(
+        [
+            ("survey_only", ["survey:read"]),
+            ("without_export_read", ["survey:read", "session_recording:read"]),
+        ]
+    )
+    def test_site_snapshot_needs_every_scope_its_image_needs(self, _name: str, scopes: list[str]):
+        self.key.scopes = scopes
+        self.key.save()
         survey = Survey.objects.create(team=self.team, name="Draft", type="popover")
 
         response = self._do_request(f"/api/projects/{self.team.id}/surveys/{survey.id}/site_snapshot/?device=desktop")
