@@ -36,6 +36,7 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     SandboxSession,
     Task,
+    TaskClientProvenance,
     TaskRun,
 )
 from products.tasks.backend.redis import get_tasks_cache
@@ -815,7 +816,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         )
         return task, run
 
-    def _create(self, **data):
+    def _create(self, client_provenance: TaskClientProvenance | None = None, **data):
         validated = {
             "description": "fix the bug",
             "repository": "posthog/posthog",
@@ -823,7 +824,9 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             "branch": "main",
         }
         validated.update(data)
-        return facade.create_task(self.team.id, self.user.id, validated_data=validated)
+        return facade.create_task(
+            self.team.id, self.user.id, validated_data=validated, client_provenance=client_provenance
+        )
 
     def _report_warm_run(self, report, *, github_integration: Integration | None = None) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
@@ -1046,6 +1049,16 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
         assert str(dto.id) == str(warm_task.id)
         assert Task.objects.filter(team=self.team, deleted=False).count() == 1
+
+    def test_claiming_a_warm_task_records_the_client(self):
+        warm_task, _run = self._warm_run()
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(client_provenance=TaskClientProvenance.POSTHOG_WEB)
+
+        assert str(dto.id) == str(warm_task.id)
+        warm_task.refresh_from_db()
+        assert warm_task.last_client == TaskClientProvenance.POSTHOG_WEB
+        assert warm_task.last_client_at is not None
 
     def test_reuses_matching_posthog_ai_warm_task(self):
         warm_task, run = self._warm_run(
