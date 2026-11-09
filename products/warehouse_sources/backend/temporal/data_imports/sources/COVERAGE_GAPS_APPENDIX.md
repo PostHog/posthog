@@ -11482,10 +11482,10 @@ Today (5): `issues`, `metrics`, `projects`, `rules`, `users`
 
 Diffed against: <https://next.sonarqube.com/sonarqube/api/webservices/list>
 
-- [ ] `measures/component_tree` — actual metric values per component - today only metric definitions are synced, so no measurements reach the warehouse (high)
-- [ ] `measures/search_history` — metric history over time; needed for coverage, duplication and tech-debt trends (high)
-- [ ] `qualitygates/list + qualitygates/project_status` — quality gate status per project is the headline pass/fail metric and is missing entirely (the SonarCloud source already has it) (high)
-- [ ] `hotspots/search` — security hotspots are a distinct finding class not covered by issues (high)
+- [x] `measures/component_tree` — actual metric values per component - today only metric definitions are synced, so no measurements reach the warehouse (high)
+- [x] `measures/search_history` — metric history over time; needed for coverage, duplication and tech-debt trends (high)
+- [x] `qualitygates/list + qualitygates/project_status` — quality gate status per project is the headline pass/fail metric and is missing entirely (the SonarCloud source already has it) (high)
+- [x] `hotspots/search` — security hotspots are a distinct finding class not covered by issues (high)
 - [ ] `issues/changelog` — issue transition history for time-to-remediate and reopen analysis (high)
 - [ ] `project_analyses/search` — analysis records with version/event markers; join key for measures history and release comparison (medium)
 - [ ] `project_branches/list` — branch-level gate status and last analysis date (medium)
