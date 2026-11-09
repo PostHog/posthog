@@ -26,6 +26,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     CampaignStats,
+    KeywordTracking,
     OrganicQueryStats,
     RankingPage,
     RecommendationInputs,
@@ -118,6 +119,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         days=self._days_with_data(source) or days,
                         term_keywords=tuple(self._term_keywords(source)),
                         ranking_pages=ranking_pages,
+                        keyword_tracking=self._keyword_tracking(source),
                     )
                 )
             )
@@ -193,7 +195,8 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 SELECT toString(campaign_id), any(campaign_name), any(campaign_advertising_channel_type),
                     any({primary_status}), any(toString({status_reasons})),
                     any(campaign_budget_amount_micros) / 1000000, any({recommended_budget}) / 1000000,
-                    any(toString({budget_id})), any(toString({serving_status})), any({target_cpa}) / 1000000
+                    any(toString({budget_id})), any(toString({serving_status})), any({target_cpa}) / 1000000,
+                    any(toString({tracking_url_template}))
                 FROM {table} GROUP BY campaign_id
                 """,
                 source.campaignTable,
@@ -205,6 +208,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 budget_id=self._field(source.campaignTable, "campaign_campaign_budget"),
                 serving_status=self._field(source.campaignTable, "campaign_status"),
                 target_cpa=self._field(source.campaignTable, "campaign_target_cpa_target_cpa_micros"),
+                tracking_url_template=self._field(source.campaignTable, "campaign_tracking_url_template"),
             )
         }
         spend = {
@@ -249,9 +253,56 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                     budget_id=definition[7] or None,
                     # Google Ads bids to the target with primary actions, so it is no benchmark for selected ones.
                     target_cpa=(definition[9] or None) if selected is None else None,
+                    tracking_url_template=definition[10] or None,
                 )
             )
         return campaigns
+
+    @cached_property
+    def _google_ads_sessions(self) -> tuple[int, int]:
+        # gclid is the one parameter every auto-tagged Google Ads click carries, so it finds paid sessions without
+        # relying on the UTMs this rule checks. It cannot tell ad accounts apart, so every account shares the count.
+        rows = self._select(
+            """
+            SELECT count(), countIf(notEmpty(coalesce($entry_utm_term, '')))
+            FROM {table}
+            WHERE $start_timestamp >= {date_from} AND $start_timestamp <= {date_to}
+                AND notEmpty(coalesce($entry_gclid, ''))
+            """,
+            "sessions",
+        )
+        return (int(rows[0][0] or 0), int(rows[0][1] or 0)) if rows else (0, 0)
+
+    def _keyword_tracking(self, source: MarketingAnalyticsRecommendationsSource) -> KeywordTracking | None:
+        sessions, with_keyword = self._google_ads_sessions
+        if not sessions:
+            return None
+        name, template, suffix = None, None, None
+        table = source.customerTable
+        if self._readable(table):
+            assert table
+            rows = self._select(
+                "SELECT any(toString({name})), any(toString({template})), any(toString({suffix})) FROM {table}",
+                table,
+                name=self._field(table, "customer_descriptive_name"),
+                template=self._field(table, "customer_tracking_url_template"),
+                suffix=self._field(table, "customer_final_url_suffix"),
+            )
+            if rows:
+                name, template, suffix = rows[0]
+        return KeywordTracking(
+            account_name=name or self._account_label(source),
+            sessions=sessions,
+            sessions_with_keyword=with_keyword,
+            account_tracking_url_template=template or None,
+            account_final_url_suffix=suffix or None,
+        )
+
+    def _account_label(self, source: MarketingAnalyticsRecommendationsSource) -> str:
+        customer_id = self._customer_id(source)
+        if customer_id and len(customer_id) == 10:
+            customer_id = f"{customer_id[:3]}-{customer_id[3:6]}-{customer_id[6:]}"
+        return f"Google Ads account {customer_id}" if customer_id else "Google Ads account"
 
     def _impression_shares(self, table: str | None) -> dict[str, tuple[float | None, ...]]:
         if not table or not self._readable(table):

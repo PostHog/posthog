@@ -227,6 +227,14 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         action: 'Check the affected ads in Policy manager',
         reason: 'Some asset groups are limited by policy, so they show less often.',
     }),
+    recommendation({
+        rule: 'keyword_tracking',
+        level: 'account',
+        subject: 'Acme Ads',
+        action: "Add utm_term={keyword} to the account's Final URL suffix",
+        reason: "98% of the project's 4,310 Google Ads sessions in the selected dates have no utm_term, so PostHog conversion goals cannot be tied to the keyword that brought each visitor.",
+        impactDirection: 'gain',
+    }),
 ]
 
 const MOCKS: Mocks = {
@@ -311,6 +319,15 @@ export const ModalInstructions: Story = {
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
         await userEvent.click(await modal.findByText('View instructions'))
+    },
+}
+
+export const ModalKeywordTracking: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Keyword tracking', { selector: 'button *' }))
     },
 }
 

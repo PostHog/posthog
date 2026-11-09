@@ -2190,6 +2190,7 @@ class MarketingAnalyticsRecommendationImpactType(StrEnum):
 
 
 class MarketingAnalyticsRecommendationLevel(StrEnum):
+    ACCOUNT = "account"
     CAMPAIGN = "campaign"
     SEARCH_TERM = "search_term"
 
@@ -2205,6 +2206,7 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
     KEYWORD_GAP = "keyword_gap"
     SPEND_WITHOUT_CONVERSIONS = "spend_without_conversions"
     STRIKING_DISTANCE = "striking_distance"
+    KEYWORD_TRACKING = "keyword_tracking"
 
 
 class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):

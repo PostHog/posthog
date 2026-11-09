@@ -45,6 +45,7 @@ const DIRECTION_TAG: Record<MarketingAnalyticsRecommendation['impactDirection'],
 }
 
 const SUBJECT_NOUNS: Record<MarketingAnalyticsRecommendation['level'], [string, string]> = {
+    account: ['account', 'accounts'],
     campaign: ['campaign', 'campaigns'],
     search_term: ['search term', 'search terms'],
 }
