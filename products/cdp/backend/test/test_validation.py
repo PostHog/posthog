@@ -327,7 +327,14 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         }
 
     # New tests for ordering
-    def test_validate_inputs_with_dependencies_simple_chain(self):
+    @parameterized.expand(
+        [
+            ("field", "inputs.{}"),
+            ("constant_key", "inputs['{}']"),
+            ("nullish_field", "inputs?.{}"),
+        ]
+    )
+    def test_validate_inputs_with_dependencies_simple_chain(self, _name: str, reference: str):
         # Schema: A->B->C
         # A has no deps, B uses A, C uses B
         inputs_schema = [
@@ -339,8 +346,8 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         # We'll use templates referencing inputs.A, inputs.B
         inputs = {
             "A": {"value": "A value"},
-            "C": {"value": "{inputs.B} + C value"},
-            "B": {"value": "{inputs.A} + B value"},
+            "C": {"value": "{" + reference.format("B") + "} + C value"},
+            "B": {"value": "{" + reference.format("A") + "} + B value"},
         }
 
         validated = validate_inputs(inputs_schema, inputs)

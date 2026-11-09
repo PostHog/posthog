@@ -398,7 +398,9 @@ class _Analysis:
         fresh = self._fresh_container_names() - bound_elsewhere
         self.fresh_containers = fresh
         self.host_write_bases = {
-            base for base, keys, _ in self.member_writes if keys[-1] is None or keys[-1].lower() in _HOST_HEADERS
+            base
+            for base, keys, _ in self.member_writes
+            if keys[-1] is None or keys[-1].lower() in _HOST_HEADERS or keys[-1] == "headers"
         }
         self.shared_assignments = [
             expr for base, depth, expr in self.member_assignments if depth > 1 or base not in fresh

@@ -394,6 +394,16 @@ class InputCollector(TraversingVisitor):
             if len(node.chain) > 1:
                 self.inputs.add(str(node.chain[1]))
 
+    def visit_array_access(self, node: ast.ArrayAccess):
+        super().visit_array_access(node)
+        if (
+            isinstance(node.array, ast.Field)
+            and node.array.chain == ["inputs"]
+            and isinstance(node.property, ast.Constant)
+            and isinstance(node.property.value, str)
+        ):
+            self.inputs.add(node.property.value)
+
 
 class TemplateGlobalsValidator(TraversingVisitor):
     """Reject input templates that reference globals the runtime will not have.

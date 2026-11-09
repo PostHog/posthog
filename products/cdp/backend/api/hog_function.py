@@ -337,10 +337,14 @@ def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
 
 def _comparable_inputs(items: Any, inputs_schema: Any = None) -> dict:
     # The worker runs an input as a template unless its schema turns templating off, and an item saved
-    # without templating carries no flag of its own.
+    # without templating carries no flag of its own. Values compare as JSON text because Python equates
+    # `True` with `1`, which the worker prints differently.
     untemplated = {schema.get("key") for schema in inputs_schema or [] if schema.get("templating") is False}
     return {
-        key: (item.get("value"), item.get("templating") or (None if key in untemplated else "hog"))
+        key: (
+            json.dumps(item.get("value"), sort_keys=True, default=str),
+            item.get("templating") or (None if key in untemplated else "hog"),
+        )
         for key, item in (items or {}).items()
         if isinstance(item, dict)
     }
@@ -1083,8 +1087,24 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         secret_keys = {key for key in declared if key in inputs or isinstance(stored_secrets.get(key), dict)}
         # A worker can resolve a stored secret by name in a test run even when the tested schema leaves it
         # out or declares it public, so every stored secret is checked here, whatever the worker version.
+        # A secret saved before inputs were encrypted is still in plaintext `inputs`, and the serializer
+        # copies it into a test run that leaves `inputs` out.
+        plaintext_inputs = (instance.inputs or {}) if instance else {}
+        stored_plaintext = {
+            schema["key"]: plaintext_inputs[schema["key"]]
+            for schema in (instance.inputs_schema or [] if instance else [])
+            if schema.get("secret") and isinstance(plaintext_inputs.get(schema["key"]), dict)
+        }
+        undeclared_secrets = {
+            **{
+                key: value
+                for key, value in stored_plaintext.items()
+                if isinstance(inputs.get(key), dict) and inputs[key].get("value") == value.get("value")
+            },
+            **{key: value for key, value in stored_secrets.items() if isinstance(value, dict)},
+        }
         undeclared = (
-            {key for key, value in stored_secrets.items() if key not in declared and isinstance(value, dict)}
+            {key for key in undeclared_secrets if key not in declared}
             if getattr(self.context.get("view"), "action", None) == "invocations"
             else set()
         )
@@ -1094,7 +1114,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         for key in secret_keys - inputs.keys():
             inputs[key] = dict(stored_secrets[key])
         attrs["inputs"] = inputs
-        checked_inputs = {**inputs, **{key: dict(stored_secrets[key]) for key in undeclared}}
+        checked_inputs = {**inputs, **{key: dict(undeclared_secrets[key]) for key in undeclared}}
         checked_keys = secret_keys | undeclared
 
         hog = attrs.get("hog", instance.hog if instance else "") or ""

