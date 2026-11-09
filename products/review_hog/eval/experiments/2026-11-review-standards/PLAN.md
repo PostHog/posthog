@@ -30,7 +30,7 @@ Score verified defects, required versus advisory standards, false positives on s
 Record the repository or vendor evidence for every platform-specific conclusion; unsupported assumptions count as false positives.
 Record input and output tokens, cache use, elapsed time, and cost per useful finding using the same accounting in both arms.
 Compare ordinary-defect recall separately so added standards coverage cannot conceal lost defect coverage.
-Keep this change in draft until model calibration confirms useful standards coverage without noise on the counterexamples.
+Before merging, run model calibration to confirm useful standards coverage without noise on the counterexamples.
 
 ## Review grounding
 
