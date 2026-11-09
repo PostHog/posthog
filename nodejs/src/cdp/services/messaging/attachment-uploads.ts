@@ -38,6 +38,10 @@ const uploadRequestsTotal = new Counter({
     labelNames: ['outcome'],
 })
 
+export function countUploadRequest(outcome: string): void {
+    uploadRequestsTotal.inc({ outcome })
+}
+
 const DELIVERY_UNAVAILABLE: UploadsAnswer = { status: 503, body: { error: 'delivery_unavailable' } }
 
 export class AttachmentUploads {
@@ -47,15 +51,14 @@ export class AttachmentUploads {
         private readonly store: AttachmentStore | null,
         // The idempotency Valkey of transactional email. Its pool bounds every wait, so an outage answers 503.
         private readonly counter: RedisV2 | null,
-        private readonly settings: AttachmentUploadsSettings,
-        private readonly now: () => Date = () => new Date()
+        private readonly settings: AttachmentUploadsSettings
     ) {
         this.isAllowed = buildIntegerMatcher(settings.teams, true)
     }
 
     public async prepare(teamId: number, body: unknown): Promise<UploadsAnswer> {
         const answer = await this.answer(teamId, body)
-        uploadRequestsTotal.inc({ outcome: String(answer.body.error ?? 'answered') })
+        countUploadRequest(String(answer.body.error ?? 'answered'))
         return answer
     }
 
@@ -122,7 +125,7 @@ export class AttachmentUploads {
     }
 
     private async chargeDailyUploadBytes(counter: RedisV2, teamId: number, bytes: number): Promise<boolean> {
-        const key = `${ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX}:${teamId}:${this.now().toISOString().slice(0, 10)}`
+        const key = `${ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX}:${teamId}:${new Date().toISOString().slice(0, 10)}`
         const charged = await counter.useClient({ name: 'email-attachments-upload-quota' }, (client) =>
             client.eval(CHARGE_SCRIPT, 1, key, bytes, this.settings.maxBytesPerTeamDay, QUOTA_KEY_TTL_SECONDS)
         )

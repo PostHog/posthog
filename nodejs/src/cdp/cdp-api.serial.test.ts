@@ -5,6 +5,7 @@ import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
 import { createHash, randomBytes } from 'node:crypto'
+import { Counter, register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -3668,10 +3669,17 @@ describe('CDP API', () => {
             ['a template send token', () => mintUploadToken(team.id, {})],
             ["another team's token", () => mintUploadToken(otherTeamId)],
             ['a token signed with another key', () => mintUploadToken(team.id, undefined, 'wrong-key')],
-        ])('refuses %s', async (_name, token) => {
+        ])('refuses %s, and counts it as unauthorized', async (_name, token) => {
+            const unauthorizedCount = async (): Promise<number> =>
+                (
+                    await (register.getSingleMetric('cdp_email_attachments_upload_requests_total') as Counter).get()
+                ).values.find((v) => v.labels.outcome === 'unauthorized')?.value ?? 0
+            const before = await unauthorizedCount()
+
             const res = await requestUploads(team.id, asked(pdf()), token())
 
             expect(res.status).toBe(401)
+            expect(await unauthorizedCount()).toBe(before + 1)
         })
 
         it.each([

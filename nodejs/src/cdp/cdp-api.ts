@@ -72,7 +72,7 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
-import { AttachmentUploads } from './services/messaging/attachment-uploads'
+import { AttachmentUploads, countUploadRequest } from './services/messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
@@ -1469,6 +1469,7 @@ export class CdpApi {
 
     private postAttachmentUploads = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         if (!this.transactionalEmailJwt.enabled) {
+            countUploadRequest('not_configured')
             return res.status(503).json({
                 error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
             })
@@ -1482,6 +1483,7 @@ export class CdpApi {
                 ATTACHMENT_UPLOAD_TOKEN_CLAIMS
             )
         ) {
+            countUploadRequest('unauthorized')
             return
         }
         const { status, body } = await this.attachmentUploads.prepare(parseInt(req.params.team_id), req.body)
