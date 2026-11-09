@@ -18,6 +18,7 @@ sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 import gates  # noqa: E402
 import review_pr  # noqa: E402
 import review_local  # noqa: E402
+import migration_risk  # noqa: E402
 import openai_reviewer  # noqa: E402
 from github import CommitProvenance  # noqa: E402
 from policy import DenyException  # noqa: E402
@@ -898,6 +899,7 @@ def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
         [
             {
                 "name": "Migration risk",
+                "app": {"id": migration_risk.PUBLISHER_APP_ID},
                 "status": "completed",
                 "conclusion": "success",
                 "output": {"summary": f"<!-- stamphog:v1 {json.dumps(safe_migrations)} -->"},
