@@ -1363,42 +1363,6 @@ async def test_withheld_research_emits_skipped_event(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_bucket_reached_under_suppression_is_claimed_by_the_next_signal(ateam):
-    """A daily-limit-suppressed crossing must not cost the report that bucket. Promotion compares the
-    count the report has reached against its next bucket, so the bucket stays claimable until a
-    pass actually covers it — where testing the crossing itself would hand bucket 2 to the
-    suppressed signal and leave every later signal measuring against bucket 4."""
-    report = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam,
-        status=SignalReport.Status.READY,
-        total_weight=2.0,
-        signal_count=1,
-        run_count=1,
-        signals_researched=1,
-    )
-
-    with patch(
-        f"{GROUPING_MODULE_PATH}.daily_report_limit_gate",
-        return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
-    ):
-        suppressed = await assign_and_emit_signal_activity(
-            _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
-        )
-
-    assert suppressed.promoted is False
-    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
-    assert refreshed.status == SignalReport.Status.READY
-    assert refreshed.signal_count == 2
-
-    claimed = await assign_and_emit_signal_activity(_build_input(ateam.id, _existing_match(str(report.id)), weight=0.5))
-
-    assert claimed.promoted is True
-    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
-    assert refreshed.status == SignalReport.Status.CANDIDATE
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
 async def test_promotion_on_a_bucket_does_not_emit_skipped_event(ateam, patch_side_effects):
     """A report that reaches its next bucket re-promotes normally and fires only the assign event."""
     report = await database_sync_to_async(SignalReport.objects.create)(
@@ -1681,66 +1645,23 @@ async def test_grouping_leaves_trial_admission_to_report_pass(ateam, kind):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_grouping_does_not_recheck_billing_limit(ateam, patch_side_effects):
-    with patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=True) as gate:
+async def test_grouping_does_not_recheck_limits(ateam, patch_side_effects):
+    with (
+        patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=True) as billing,
+        patch(
+            "products.signals.backend.daily_limit.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
+        ) as daily,
+    ):
         result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
 
-    gate.assert_not_called()
+    billing.assert_not_called()
+    daily.assert_not_called()
     assert result.promoted is True
     report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
     assert report.status == SignalReport.Status.CANDIDATE
     assert report.signal_count == 1
     assert report.total_weight == pytest.approx(WEIGHT_THRESHOLD)
-
-
-# ---------------------------------------------------------------------------
-# Daily report limit gate: promotion withheld once the team's day is spent
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_daily_limit_gate_withholds_promotion(ateam, patch_side_effects):
-    with patch(
-        f"{GROUPING_MODULE_PATH}.daily_report_limit_gate",
-        return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
-    ):
-        result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
-
-    # The signal is still assigned, weighted, and emitted; only the summary spawn is withheld,
-    # with the status untouched so the first post-limit signal re-evaluates promotion.
-    assert result.promoted is False
-    report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
-    assert report.status == SignalReport.Status.POTENTIAL
-    assert report.signal_count == 1
-    assert report.total_weight == pytest.approx(WEIGHT_THRESHOLD)
-
-    daily_events = [
-        call
-        for call in patch_side_effects["capture"].call_args_list
-        if call.kwargs.get("event") == "signal_report_daily_limit_paused"
-    ]
-    assert len(daily_events) == 1
-    properties = daily_events[0].kwargs["properties"]
-    assert properties["stage"] == "promotion"
-    assert properties["limit"] == 2
-    assert properties["reports_today"] == 2
-    # The org's billing quota is clear, so its event stream must stay silent.
-    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
-    assert "signal_report_quota_paused" not in events
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_daily_limit_gate_emits_no_event_when_signal_would_not_promote(ateam, patch_side_effects):
-    with patch(
-        f"{GROUPING_MODULE_PATH}.daily_report_limit_gate",
-        return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
-    ):
-        await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5))
-
-    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
-    assert "signal_report_daily_limit_paused" not in events
 
 
 @pytest.mark.asyncio

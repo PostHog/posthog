@@ -9,6 +9,7 @@ from django.db import transaction
 
 from posthog.models import Team
 
+from products.signals.backend.daily_limit import check_daily_report_admission
 from products.signals.backend.quota import SelfDrivingAdmission, prepare_self_driving_admission
 from products.signals.backend.trial.funding import TrialFunding, direct_report_funding, signal_funding
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
@@ -148,6 +149,8 @@ def report_pass_admission(
                 parent = TrialFunding(
                     funding="existing", implementation_allowed=not self_driving_free_trial_enabled(team)
                 )
+    if parent is None:
+        check_daily_report_admission(team, report_id=report_id)
     return prepare_self_driving_admission(team, parent=parent)
 
 

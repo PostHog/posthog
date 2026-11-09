@@ -6,6 +6,7 @@ from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import close_old_connections
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -15,7 +16,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.facade.trial import task_trial_admission
 from products.signals.backend.llm_spend import generate_with_spend
-from products.signals.backend.models import SignalReport, SignalSpend
+from products.signals.backend.models import SignalReport, SignalSpend, SignalTeamConfig
 from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
 from products.signals.backend.task_run_artefacts import record_report_task
 from products.signals.backend.trial.funding import TrialFunding, direct_report_funding, signal_funding
@@ -42,9 +43,18 @@ class TestSignalAdmission(NonAtomicBaseTest):
             )
         )
 
-    @parameterized.expand([(False,), (True,)])
-    def test_limited_direct_signal_is_dropped_before_steering_or_dispatch(self, steering: bool) -> None:
-        self.quota.return_value = True
+    def _reach_limit(self, limit: str) -> None:
+        if limit == "billing":
+            self.quota.return_value = True
+        else:
+            SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"max_reports_per_day": 1})
+            SignalReport.objects.create(
+                team=self.team, status=SignalReport.Status.READY, first_visible_at=timezone.now()
+            )
+
+    @parameterized.expand([(steering, limit) for steering in (False, True) for limit in ("billing", "daily")])
+    def test_limited_direct_signal_is_dropped_before_steering_or_dispatch(self, steering: bool, limit: str) -> None:
+        self._reach_limit(limit)
         signal_id = str(uuid4())
         with (
             patch("products.signals.backend.facade.api.SignalSourceConfig.is_source_enabled", return_value=True),
@@ -70,15 +80,16 @@ class TestSignalAdmission(NonAtomicBaseTest):
         connect.assert_not_awaited()
         assert not SignalSpend.objects.for_team(self.team.id).filter(signal_id=signal_id).exists()
 
-    def test_admitted_signal_retries_and_starts_report_after_limit_changes(self) -> None:
+    @parameterized.expand([("billing",), ("daily",)])
+    def test_admitted_signal_retries_and_starts_report_after_limit_changes(self, limit: str) -> None:
         signal_id = str(uuid4())
         admit_signal(team=self.team, signal_id=signal_id)
         funding = signal_funding(self.team.id, signal_id)
         assert funding is not None and funding.implementation_allowed
-        self.quota.return_value = True
+        self._reach_limit(limit)
         admit_signal(team=self.team, signal_id=signal_id)
         assert signal_funding(self.team.id, signal_id) == funding
-        with self.assertRaises(QuotaLimitExceeded):
+        with self.assertRaises((QuotaLimitExceeded, TrialRefused)):
             admit_signal(team=self.team, signal_id=str(uuid4()))
 
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=signal_id)
@@ -99,8 +110,11 @@ class TestSignalAdmission(NonAtomicBaseTest):
             run = task.create_run(environment=TaskRun.Environment.CLOUD)
         assert run.state["self_driving_funding"]["funding"] == funding.funding
         finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=signal_id)
-        with self.assertRaises(QuotaLimitExceeded):
+        with self.assertRaises((QuotaLimitExceeded, TrialRefused)):
             prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="later", signal_id=signal_id)
+
+        with self.assertRaises((QuotaLimitExceeded, TrialRefused)):
+            prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="manual")
 
     @parameterized.expand([(legacy, existing) for legacy in (False, True) for existing in (False, True)])
     def test_admitted_signal_starts_report_after_limit_changes(self, legacy_trial: bool, existing_report: bool) -> None:
@@ -159,6 +173,7 @@ class TestSignalAdmission(NonAtomicBaseTest):
 
     def test_operator_continuation_remains_exempt(self) -> None:
         self.quota.return_value = True
+        self._reach_limit("daily")
         signal_id = str(uuid4())
         token = direct_report_funding.set((self.team.id, TrialFunding(funding="operator")))
         try:
@@ -197,6 +212,10 @@ class TestSignalAdmission(NonAtomicBaseTest):
         admit_signal(team=self.team, signal_id=signal_id, billing_exempt=True)
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
         assert spend.billing_exempt
+        self._reach_limit("daily")
+        admit_signal(team=self.team, signal_id=signal_id, billing_exempt=True)
+        with self.assertRaises(TrialRefused):
+            admit_signal(team=self.team, signal_id=str(uuid4()), billing_exempt=True)
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=signal_id)
         if previous_operator_run:
             prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="operator", operator_rerun=True)

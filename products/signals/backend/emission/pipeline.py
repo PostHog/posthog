@@ -684,10 +684,9 @@ async def filter_admitted(
             await database_sync_to_async(admit_signal)(
                 team=team, signal_id=output.signal_id, billing_exempt=system_source_exempt(output.source_product)
             )
-        except (QuotaLimitExceeded, TrialRefused):
-            capture_pipeline_stage(
-                "signal_data_source_filtered", team, organization, output, {"filter_reason": "quota_limited"}
-            )
+        except (QuotaLimitExceeded, TrialRefused) as error:
+            reason = error.reason if isinstance(error, TrialRefused) else "quota_limited"
+            capture_pipeline_stage("signal_data_source_filtered", team, organization, output, {"filter_reason": reason})
         else:
             admitted_outputs.append(output)
     return admitted_outputs

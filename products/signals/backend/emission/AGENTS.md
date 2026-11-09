@@ -33,8 +33,8 @@ The core signal pipeline (`products/signals/backend/emission/pipeline.py`) is so
 
 Error tracking and health checks never enter the shared pipeline: they build a description themselves and call `emit_signal` directly.
 `emit_signal` admits them before steering, including sources without steering text.
-Billing or trial refusal drops new work normally; model failures alone may fail open.
-An open spend receipt means accepted work, regardless of source or billing exemption. It protects the signal through buffering and the report pass it triggers. Funding and exemption fields control accounting, not permission to continue. Finalization ends that admission. Explicit later report reruns still check current limits.
+Billing, trial, or daily report limit refusal drops new work normally; model failures alone may fail open.
+An open spend receipt means accepted work, regardless of source or billing exemption. It protects the signal through buffering and the report pass it triggers, even if a billing or daily report limit is reached meanwhile. Funding and exemption fields control accounting, not permission to continue. Finalization ends that admission. Explicit later report reruns still check current limits.
 They still honor steering, through the gate in `direct_gate.py` that `emit_signal` applies to the `(source_product, source_type)` pairs in `contracts.DIRECT_STEERABLE_SOURCES`.
 Two rules keep that gate predictable.
 A team that wrote no steering gets no LLM call and no change in behavior.

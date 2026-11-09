@@ -48,7 +48,13 @@ from products.signals.backend.emission.pipeline import (
 )
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact, SignalSpend
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalReport,
+    SignalReportArtefact,
+    SignalSpend,
+    SignalTeamConfig,
+)
 from products.signals.backend.spend import signal_id_for
 from products.signals.backend.trial.policy import TrialRefused
 
@@ -400,7 +406,8 @@ class TestRunSignalPipelineEmitterFailures:
 @pytest.mark.django_db(transaction=True)
 class TestEmissionRetryIdentity:
     @pytest.mark.asyncio
-    async def test_pipeline_refuses_new_records_but_retries_admitted_records(self, team):
+    @pytest.mark.parametrize("limit", ["billing", "daily"])
+    async def test_pipeline_refuses_new_records_but_retries_admitted_records(self, team, limit: str):
         config = _make_config(record_processed_outputs=True)
         with (
             patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=False) as quota,
@@ -416,7 +423,13 @@ class TestEmissionRetryIdentity:
             with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
                 await run_signal_pipeline(team=team, config=config, records=[{"id": "accepted"}], extra={})
             accepted_id = emit.call_args.kwargs["signal_id"]
-            quota.return_value = True
+            if limit == "billing":
+                quota.return_value = True
+            else:
+                await SignalTeamConfig.objects.aupdate_or_create(team=team, defaults={"max_reports_per_day": 1})
+                await SignalReport.objects.acreate(
+                    team=team, status=SignalReport.Status.READY, first_visible_at=timezone.now()
+                )
             emit.side_effect = None
             emit.reset_mock()
             result = await run_signal_pipeline(

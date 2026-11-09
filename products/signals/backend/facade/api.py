@@ -1034,8 +1034,9 @@ async def emit_signal(
         await database_sync_to_async(admit_signal)(
             team=team, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
         )
-    except (QuotaLimitExceeded, TrialRefused):
-        capture_emission_event("signal_data_source_filtered", {"filter_reason": "quota_limited"})
+    except (QuotaLimitExceeded, TrialRefused) as error:
+        reason = error.reason if isinstance(error, TrialRefused) else "quota_limited"
+        capture_emission_event("signal_data_source_filtered", {"filter_reason": reason})
         return False
 
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
