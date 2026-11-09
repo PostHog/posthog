@@ -11,17 +11,28 @@ import type { SurveysSiteSnapshotRetrieveDevice } from 'products/surveys/fronten
 import { SurveyPreviewArea } from './surveyReview'
 import { surveySiteSnapshotLogic } from './surveySiteSnapshotLogic'
 
-const POSITION_CLASSES: Record<SurveyPosition, string> = {
-    [SurveyPosition.TopLeft]: 'top-4 left-4',
-    [SurveyPosition.TopCenter]: 'top-4 left-1/2 -translate-x-1/2',
-    [SurveyPosition.TopRight]: 'top-4 right-4',
-    [SurveyPosition.MiddleLeft]: 'top-1/2 left-4 -translate-y-1/2',
-    [SurveyPosition.MiddleCenter]: 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
-    [SurveyPosition.MiddleRight]: 'top-1/2 right-4 -translate-y-1/2',
-    [SurveyPosition.Left]: 'bottom-4 left-4',
-    [SurveyPosition.Center]: 'bottom-4 left-1/2 -translate-x-1/2',
-    [SurveyPosition.Right]: 'bottom-4 right-4',
-    [SurveyPosition.NextToTrigger]: 'bottom-4 right-4',
+// The page is drawn at its real size and anchored to the survey's corner, so the frame crops the page around
+// the survey instead of shrinking the page under a full-size survey.
+const PLACEMENTS: Record<SurveyPosition, { survey: string; page: string }> = {
+    [SurveyPosition.TopLeft]: { survey: 'top-4 left-4', page: 'top-0 left-0' },
+    [SurveyPosition.TopCenter]: { survey: 'top-4 left-1/2 -translate-x-1/2', page: 'top-0 left-1/2 -translate-x-1/2' },
+    [SurveyPosition.TopRight]: { survey: 'top-4 right-4', page: 'top-0 right-0' },
+    [SurveyPosition.MiddleLeft]: { survey: 'top-1/2 left-4 -translate-y-1/2', page: 'top-1/2 left-0 -translate-y-1/2' },
+    [SurveyPosition.MiddleCenter]: {
+        survey: 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
+        page: 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
+    },
+    [SurveyPosition.MiddleRight]: {
+        survey: 'top-1/2 right-4 -translate-y-1/2',
+        page: 'top-1/2 right-0 -translate-y-1/2',
+    },
+    [SurveyPosition.Left]: { survey: 'bottom-4 left-4', page: 'bottom-0 left-0' },
+    [SurveyPosition.Center]: {
+        survey: 'bottom-4 left-1/2 -translate-x-1/2',
+        page: 'bottom-0 left-1/2 -translate-x-1/2',
+    },
+    [SurveyPosition.Right]: { survey: 'bottom-4 right-4', page: 'bottom-0 right-0' },
+    [SurveyPosition.NextToTrigger]: { survey: 'bottom-4 right-4', page: 'bottom-0 right-0' },
 }
 
 const highlightClasses = (active: boolean): string =>
@@ -44,6 +55,7 @@ export function SurveyPreviewBrowserFrame({
     const { readySnapshot } = useValues(surveySiteSnapshotLogic({ surveyId: survey.id, device, urlCondition }))
     const isMobile = device === 'mobile'
     const pageHighlight = highlightClasses(highlightedArea === 'page')
+    const placement = PLACEMENTS[survey.appearance?.position ?? SurveyPosition.Right]
 
     return (
         <div
@@ -67,11 +79,12 @@ export function SurveyPreviewBrowserFrame({
             </div>
             <div className="relative flex min-h-[26rem] flex-1">
                 {readySnapshot ? (
-                    <div className="absolute inset-0 p-1" aria-hidden>
+                    <div className={cn('absolute inset-1 overflow-hidden rounded', pageHighlight)} aria-hidden>
                         <img
                             src={readySnapshot.imageUrl}
                             alt=""
-                            className={cn('size-full rounded object-cover object-top', pageHighlight)}
+                            className={cn('absolute max-w-none', placement.page)}
+                            style={{ width: readySnapshot.viewportWidth }}
                         />
                     </div>
                 ) : (
@@ -102,7 +115,7 @@ export function SurveyPreviewBrowserFrame({
                 <div
                     className={cn(
                         'absolute flex max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col rounded',
-                        POSITION_CLASSES[survey.appearance?.position ?? SurveyPosition.Right],
+                        placement.survey,
                         highlightClasses(highlightedArea === 'survey')
                     )}
                 >

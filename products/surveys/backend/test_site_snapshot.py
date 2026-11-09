@@ -167,7 +167,12 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         ) == ("docs", 1440, 900)
         assert "page_url" not in asset.export_context
         assert str(survey.id) not in json.dumps(asset.export_context)
-        assert (first.status, first.exported_asset_id, first.page_url) == (SnapshotStatus.RENDERING, asset.id, DOCS)
+        assert (first.status, first.exported_asset_id, first.page_url, first.viewport_width) == (
+            SnapshotStatus.RENDERING,
+            asset.id,
+            DOCS,
+            1440,
+        )
 
         asset.content = b"png"
         asset.save()
