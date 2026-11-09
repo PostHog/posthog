@@ -1570,7 +1570,7 @@ export class CdpApi {
         const renderContext = await this.workerRenderContext(hogFlow, invocation)
         deadline.throwIfAborted()
         try {
-            return { bodyBytes: await this.emailStepBodyBytes(hogFlow, invocation, emailStep, renderContext) }
+            return { bodyBytes: await this.emailStepBodyBytes(hogFlow, invocation, emailStep, renderContext, deadline) }
         } catch (error) {
             if (isHogLimitError(error)) {
                 return { refused: emailRenderLimitExceeded(emailStep) }
@@ -1614,9 +1614,11 @@ export class CdpApi {
         hogFlow: HogFlow,
         invocation: CyclotronJobInvocationHogFlow,
         step: EmailStep,
-        { person, groups }: WorkerRenderContext
+        { person, groups }: WorkerRenderContext,
+        deadline: AbortSignal
     ): Promise<number[]> {
         const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, step.config, step.name)
+        deadline.throwIfAborted()
         const atEmailStep = {
             ...invocation,
             state: { ...invocation.state, currentAction: { id: step.id, startedAtTimestamp: Date.now() } },
@@ -1627,6 +1629,7 @@ export class CdpApi {
             groups,
             variables: invocation.state.variables,
         })
+        deadline.throwIfAborted()
         const email = { ...rendered.state.globals.inputs?.email, ...acceptedSendEmailFields(invocation.state.send) }
         return [
             typeof email.html === 'string' && email.html

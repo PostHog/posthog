@@ -3190,6 +3190,55 @@ describe('CDP API', () => {
                     },
                 ],
                 [
+                    'the template lookup of the email step outlasts the deadline',
+                    async () => {
+                        const options = await storedTemplateRendering({ html: '<p>{{ variables.chunk }}</p>' }, 'x')
+                        const templates = api['hogFlowFunctionsService']['hogFunctionTemplateManager']
+                        const loadTemplate = templates.getHogFunctionTemplate.bind(templates)
+                        const { held, release } = heldUntilReleased<void>()
+                        const lookup = jest
+                            .spyOn(templates, 'getHogFunctionTemplate')
+                            .mockImplementation(async (templateId: string) => {
+                                expireTheVerificationDeadline()
+                                await held
+                                return loadTemplate(templateId)
+                            })
+                        return {
+                            options,
+                            fix: async () => {
+                                release()
+                                await abandonedWorkRan()
+                                lookup.mockRestore()
+                            },
+                        }
+                    },
+                ],
+                [
+                    'rendering the email step outlasts the deadline',
+                    async () => {
+                        const options = await storedTemplateRendering({ html: '<p>{{ variables.chunk }}</p>' }, 'x')
+                        const functions = api['hogFlowFunctionsService']
+                        const buildEmailStep = functions.buildHogFunctionInvocation.bind(functions)
+                        const { held, release } = heldUntilReleased<void>()
+                        const rendering = jest
+                            .spyOn(functions, 'buildHogFunctionInvocation')
+                            .mockImplementation(async (...args: Parameters<typeof buildEmailStep>) => {
+                                const rendered = await buildEmailStep(...args)
+                                expireTheVerificationDeadline()
+                                await held
+                                return rendered
+                            })
+                        return {
+                            options,
+                            fix: async () => {
+                                release()
+                                await abandonedWorkRan()
+                                rendering.mockRestore()
+                            },
+                        }
+                    },
+                ],
+                [
                     'the person lookup fails',
                     () => {
                         const lookup = personLookups().mockRejectedValue(
@@ -3232,11 +3281,18 @@ describe('CDP API', () => {
                     const refused = await sendWithFiles(key, [reference(invoice)], options)
                     const bodiesLoadedAfterTheAnswer = jest.spyOn(api as any, 'messageBodyBytes')
                     const emailStepsRenderedAfterTheAnswer = jest.spyOn(api as any, 'emailStepBodyBytes')
+                    const emailStepsBuiltAfterTheAnswer = jest.spyOn(
+                        api['hogFlowFunctionsService']['hogFunctionExecutor']['hogExecutor'],
+                        'buildInputsWithGlobals'
+                    )
+                    const htmlSizedAfterTheAnswer = jest.spyOn(api as any, 'sesHtmlMaxBytes')
                     const warningsAtTheAnswer = warn.mock.calls.length
                     await fix()
                     const warningsFromAbandonedWork = warn.mock.calls.slice(warningsAtTheAnswer)
                     const bodiesLoadedBeforeTheRetry = bodiesLoadedAfterTheAnswer.mock.calls.length
                     const emailStepsRenderedBeforeTheRetry = emailStepsRenderedAfterTheAnswer.mock.calls.length
+                    const emailStepsBuiltBeforeTheRetry = emailStepsBuiltAfterTheAnswer.mock.calls.length
+                    const htmlSizedBeforeTheRetry = htmlSizedAfterTheAnswer.mock.calls.length
                     const retried = await sendWithFiles(key, [reference(invoice)], options)
                     deadlines.mockRestore()
 
@@ -3245,6 +3301,8 @@ describe('CDP API', () => {
                     expect(storeCallsAfterTheDeadline).toEqual([])
                     expect(bodiesLoadedBeforeTheRetry).toBe(0)
                     expect(emailStepsRenderedBeforeTheRetry).toBe(0)
+                    expect(emailStepsBuiltBeforeTheRetry).toBe(0)
+                    expect(htmlSizedBeforeTheRetry).toBe(0)
                     expect(warningsFromAbandonedWork).toEqual([])
                     expect(warn).toHaveBeenCalledWith(
                         '⚠️',
