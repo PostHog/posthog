@@ -523,8 +523,8 @@ importers:
         specifier: ^3.0.5
         version: 3.0.5
       posthog-js-lite:
-        specifier: 4.13.2
-        version: 4.13.2
+        specifier: 4.13.3
+        version: 4.13.3
       sass:
         specifier: ^1.26.2
         version: 1.56.0
@@ -6211,8 +6211,8 @@ importers:
         specifier: ^0.577.0
         version: 0.577.0(react@18.3.1)
       posthog-js-lite:
-        specifier: 4.13.2
-        version: 4.13.2
+        specifier: 4.13.3
+        version: 4.13.3
       posthog-node:
         specifier: ^5.63.2
         version: 5.63.2(@opentelemetry/api@1.9.1)(rxjs@7.8.1)
@@ -21631,8 +21631,8 @@ packages:
   postgres-range@1.1.4:
     resolution: {integrity: sha512-i/hbxIE9803Alj/6ytL7UHQxRvZkI9O4Sy+J3HGc4F4oo/2eQAjTSNJ0bfxyse3bH0nuVesCk+3IRLaMtG3H6w==}
 
-  posthog-js-lite@4.13.2:
-    resolution: {integrity: sha512-kNyqth3RrdJxPRQ+FURu1LbQ48QNeV+BIxwkQXRUMZcE7tBms8VWP/91N0j5edEmdi6kIL64IW+pun3IrauIWQ==}
+  posthog-js-lite@4.13.3:
+    resolution: {integrity: sha512-OlHDEIxJdnlkjlWyaoT6Yt84YKLrpP0PqTqeWGOZ/2y7jwMUMfG6iLecjr4fetiOR4zsWJETHGDal9iX+MDm1w==}
 
   posthog-js@1.447.1:
     resolution: {integrity: sha512-GRxRdwB/d2aq9l2ocF9HuMosV3JXIvv19YGIQhDbjfkG9Uw2JJ6vOOrFSng93k3qg8VvSnqNVw0aJDzow52vTw==}
@@ -21906,7 +21906,6 @@ packages:
     engines: {node: '>=0.6.0', teleport: '>=0.2.0'}
     deprecated: |-
       You or someone you depend on is using Q, the JavaScript Promise library that gave JavaScript developers strong feelings about promises. They can almost certainly migrate to the native JavaScript promise now. Thank you literally everyone for joining me in this bet against the odds. Be excellent to each other.
-
       (For a CapTP with native promises, see @endo/eventual-send and @endo/captp)
 
   qs@6.15.2:
@@ -44136,7 +44135,7 @@ snapshots:
 
   postgres-range@1.1.4: {}
 
-  posthog-js-lite@4.13.2:
+  posthog-js-lite@4.13.3:
     dependencies:
       '@posthog/core': 1.64.1
 
