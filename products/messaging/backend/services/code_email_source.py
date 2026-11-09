@@ -72,12 +72,14 @@ _SKIPPED_FILE_NAME_PREFIXES = ("test_",)
 _SKIPPED_FILE_NAME_SUFFIXES = ("_spec.rb",)
 # The send calls of PostHog's SDKs, and the raw API route. A matched line's context holds up to five lines on
 # either side, so a key passed a few lines below the call still counts.
-_SDK_SEND_CALL = re.compile(r"emails\.send|emails\(\)(?:\.|->)send|Emails\(\)\.Send|Emails\.SendAsync|Emails\.send")
-_SEND_URL = re.compile(r"send/email")
-_CODE, _STRING, _COMMENT = "c", "s", "#"
-# Longest first, so a triple quote is not read as an empty string.
-_OPENING_QUOTES = ('"""', "'''", '"', "'", "`")
-_MULTILINE_QUOTES = frozenset({'"""', "'''", "`"})
+_SEND_CALL = re.compile(
+    r"emails\.send|emails\(\)(?:\.|->)send|Emails\(\)\.Send|Emails\.SendAsync|Emails\.send|send/email"
+)
+_COMMENT_LINE = re.compile(r"^\s*(?:#|//|/?\*)")
+# The template key as an argument name, in each SDK's spelling. The lookbehind skips names that end in it, such as
+# fallback_template_key.
+_TEMPLATE_KEY_NAME = r"""(?<![\w-])(?i:template[_-]?key)['"]?\s*(?::|=>|=)"""
+_TEMPLATE_KEY_ARGUMENT = re.compile(_TEMPLATE_KEY_NAME)
 
 
 _UNTOUCHED = Q(source_url__isnull=True, source_origin__isnull=True)
@@ -109,7 +111,7 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], key: str, *, shed:
     """
     # The matched line must pass the key as the template key's value. Without this, a key used for something else
     # near or inside a send call, such as the subject of a send of another key, links that other email's file.
-    key_argument = re.compile(rf"""(?<![\w-])(?i:template[_-]?key)['"]?\s*(?::|=>|=)\s*['"`]{re.escape(key)}['"`]""")
+    key_argument = re.compile(rf"""{_TEMPLATE_KEY_NAME}\s*['"`]{re.escape(key)}['"`]""")
     candidates = [match for result in results for match in result.matches if not _is_skipped_path(match.path)]
     call_sites = [
         CallSite(repository=match.repository, path=match.path, line=line.number)
@@ -134,83 +136,21 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], key: str, *, shed:
 
 
 def _sends_key(line: MatchedLine, key_argument: re.Pattern[str]) -> bool:
+    """Whether the key is the template key of the nearest send call above it.
+
+    A template key argument between that call and the key belongs to that send, so the key belongs to something
+    after it, such as an event. Nothing here reads parentheses or quotes, which a few lines of context can't parse.
+    """
     argument = key_argument.search(line.text)
     context = line.context.split("\n")
     # By position, not text: an identical line above it, such as the key in a tags object, would shadow it.
     position = min(line.number - 1, CONTEXT_LINES)
-    if argument is None or position >= len(context) or context[position] != line.text:
+    if argument is None or position >= len(context) or context[position] != line.text or _COMMENT_LINE.match(line.text):
         return False
-    before_key = "\n".join([*context[:position], line.text[: argument.start()]])
-    kinds = _char_kinds(before_key)
-    code = "".join(char if kind == _CODE else " " for char, kind in zip(before_key, kinds))
-    sdk_calls = (call for call in _SDK_SEND_CALL.finditer(before_key) if kinds[call.start()] == _CODE)
-    url_calls = (call for call in _SEND_URL.finditer(before_key) if kinds[call.start()] != _COMMENT)
-    return any(_still_open(code[call.end() :]) for call in (*sdk_calls, *url_calls))
-
-
-def _still_open(after_call: str) -> bool:
-    """Whether the send call is still open at the end of ``after_call``, which holds code only.
-
-    ``emails.send(`` opens its own call. A raw ``send/email`` URL sits inside a call that opened before it. Either
-    way, a ``)`` that closes more than ``after_call`` opened ends the send.
-    """
-    rest = after_call.lstrip()
-    depth = 0
-    for char in rest[1:] if rest.startswith("(") else rest:
-        if char == "(":
-            depth += 1
-        elif char == ")":
-            depth -= 1
-            if depth < 0:
-                return False
-    return True
-
-
-def _char_kinds(code: str) -> str:
-    """Whether each character of ``code`` is code, inside a string literal, or in a whole-line comment.
-
-    A parenthesis in a subject such as ``'Hi :)'`` is text, and a commented-out send is not a send.
-    """
-    kinds: list[str] = []
-    quote: str | None = None
-    comment = False
-    index = 0
-    while index < len(code):
-        token = code[index]
-        if token == "\n":
-            quote = quote if quote in _MULTILINE_QUOTES else None
-            comment = False
-            kinds.append(_CODE)
-        elif comment:
-            kinds.append(_COMMENT)
-        elif quote is not None:
-            token = _quoted_token(code, index, quote)
-            quote = None if token == quote else quote
-            kinds.append(_STRING * len(token))
-        elif token := _opening_quote(code, index):
-            quote = token
-            kinds.append(_STRING * len(token))
-        else:
-            token = code[index]
-            comment = _starts_line_comment(code, index)
-            kinds.append(_COMMENT if comment else _CODE)
-        index += len(token)
-    return "".join(kinds)
-
-
-def _opening_quote(code: str, index: int) -> str:
-    return next((quote for quote in _OPENING_QUOTES if code.startswith(quote, index)), "")
-
-
-def _quoted_token(code: str, index: int, quote: str) -> str:
-    if code[index] == "\\":
-        return code[index : index + 2]
-    return quote if code.startswith(quote, index) else code[index]
-
-
-def _starts_line_comment(code: str, index: int) -> bool:
-    line_start = code.rfind("\n", 0, index) + 1
-    return code.startswith(("#", "//"), index) and not code[line_start:index].strip()
+    code_above = [text for text in context[:position] if not _COMMENT_LINE.match(text)]
+    before_key = "\n".join([*code_above, line.text[: argument.start()]])
+    calls = list(_SEND_CALL.finditer(before_key))
+    return bool(calls) and _TEMPLATE_KEY_ARGUMENT.search(before_key, calls[-1].end()) is None
 
 
 def _is_skipped_path(path: str) -> bool:
@@ -269,12 +209,12 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
     return detection
 
 
-def source_detection_enabled(team_id: int) -> bool:
+def source_detection_enabled(team_id: int, *, only_locally: bool = False) -> bool:
     team = Team.objects.filter(id=team_id).first()
-    return team is not None and _detection_enabled(team)
+    return team is not None and _detection_enabled(team, only_locally=only_locally)
 
 
-def _detection_enabled(team: Team) -> bool:
+def _detection_enabled(team: Team, *, only_locally: bool = False) -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             SOURCE_DETECTION_FLAG,
@@ -282,6 +222,7 @@ def _detection_enabled(team: Team) -> bool:
             groups={"organization": str(team.organization_id)},
             group_properties={"organization": {"id": str(team.organization_id)}},
             send_feature_flag_events=False,
+            only_evaluate_locally=only_locally,
         )
     )
 

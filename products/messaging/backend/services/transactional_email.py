@@ -444,13 +444,16 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
             )
         hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)
         key_id = str(keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id).id)
-        # Publishing only while detection is on keeps the task off the queue until workers that know it are live.
-        # retry=False makes a broker failure raise at once instead of retrying inside the send, and robust=True logs it.
-        if source_detection_enabled(team_id):
-            transaction.on_commit(
-                lambda: detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False), robust=True
-            )
+        transaction.on_commit(lambda: _queue_source_detection(team_id, key_id), robust=True)
         return hog_flow_id
+
+
+def _queue_source_detection(team_id: int, key_id: str) -> None:
+    # Runs after commit, so the flag check never holds the team's key lock, and evaluates locally so the send never
+    # waits on the flag service. Publishing only while detection is on keeps the task off the queue until workers
+    # that know it are live. retry=False makes a broker failure raise at once instead of retrying inside the send.
+    if source_detection_enabled(team_id, only_locally=True):
+        detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False)
 
 
 def _lock_team_keys(team_id: int) -> None:
