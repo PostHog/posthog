@@ -13,7 +13,8 @@
                 "!backend/temporal/tests/**",
                 "backend/hogql_queries/trends/**",
                 "!backend/hogql_queries/trends/test/**",
-                "backend/scopes.py"
+                "backend/scopes.py",
+                "backend/apps.py"
             ],
             "outputs": [],
             "cache": true

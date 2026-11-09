@@ -14,7 +14,12 @@
                 "backend/signals.py",
                 "backend/models/**",
                 "backend/migrations/**",
-                "backend/scopes.py"
+                "backend/scopes.py",
+                "backend/activity_logging.py",
+                "backend/apps.py",
+                "backend/logic/account_property_projection.py",
+                "backend/logic/person_property_projection.py",
+                "backend/logic/person_property_runs.py"
             ],
             "outputs": [],
             "cache": true
