@@ -14,6 +14,7 @@ import {
     IconToggle,
 } from '@posthog/icons'
 
+import { useNavSwitch } from 'lib/components/NavSwitch/NavSwitch'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
@@ -83,6 +84,7 @@ export function NewAccountMenu({
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const projectSubmenu = useSubmenuSafeTriangle()
     const organizationSubmenu = useSubmenuSafeTriangle()
+    const navSwitch = useNavSwitch()
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -454,6 +456,18 @@ export function NewAccountMenu({
                                             )}
                                         />
                                     </>
+                                )}
+
+                                {navSwitch.available && (
+                                    <Menu.Item
+                                        onClick={() => navSwitch.switchNav('account_menu')}
+                                        render={
+                                            <ButtonPrimitive menuItem data-attr="new-account-menu-nav-switch">
+                                                <IconToggle />
+                                                {navSwitch.newNavOn ? 'Use old navigation' : 'Use new navigation'}
+                                            </ButtonPrimitive>
+                                        }
+                                    />
                                 )}
 
                                 <Label intent="menu" className="px-2 mt-2">

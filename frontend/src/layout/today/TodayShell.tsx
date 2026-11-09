@@ -6,7 +6,7 @@ import { Suspense, useEffect, useRef } from 'react'
 import { Skeleton, ToastProvider } from '@posthog/quill'
 
 import 'scenes/project-homepage/today/Today.scss'
-import { NavSwitchToggle } from 'lib/components/NavSwitchToggle/NavSwitchToggle'
+import { NavSwitchButtons } from 'lib/components/NavSwitch/NavSwitch'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
@@ -193,7 +193,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         >
                             {pane}
                             <div className="mt-auto flex-none border-t border-[var(--border)] px-2 py-2">
-                                <NavSwitchToggle surface="today_sidebar" />
+                                <NavSwitchButtons surface="today_sidebar" />
                             </div>
                         </aside>
                     </>
@@ -208,7 +208,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         >
                             {pane}
                             <div className="mt-auto flex-none border-t border-[var(--border)] px-2 py-2">
-                                <NavSwitchToggle surface="today_sidebar" />
+                                <NavSwitchButtons surface="today_sidebar" />
                             </div>
                             {/* The frame already draws the seam, so the handle's own line shows only on hover. */}
                             <Resizer {...resizerLogicProps} visible={false} className="z-2" offset={0} />

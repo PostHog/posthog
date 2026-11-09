@@ -7,7 +7,7 @@ import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/qu
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
-import { NavSwitchToggle } from 'lib/components/NavSwitchToggle/NavSwitchToggle'
+import { NavSwitchButtons } from 'lib/components/NavSwitch/NavSwitch'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -44,9 +44,9 @@ export function TodaySidebarFooter(): JSX.Element {
 
     return (
         <div className="flex-none border-t border-[var(--border)]">
-            {/* The old navigation's sidebar footer holds the same toggle, so it sits in the same place either way. */}
+            {/* The old navigation's sidebar footer holds the same buttons, so they sit in the same place either way. */}
             <div className="px-2 pt-2">
-                <NavSwitchToggle surface="today_sidebar" />
+                <NavSwitchButtons surface="today_sidebar" />
             </div>
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-2 pt-2 pb-2">
                 {sidebarVisible ? (
