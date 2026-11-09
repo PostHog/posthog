@@ -24,6 +24,8 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 
 from products.customer_analytics.backend.facade.testing import create_account
 from products.experiments.backend.facade.testing import create_experiment
+from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
+from products.signals.backend.anomaly_scores.queue import SCORE_EVENT
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
@@ -349,6 +351,8 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
 
 
 ANOMALY_SKILL = "signals-scout-anomaly-detection"
+TEAM = SignalScoutConfig.ManagedBy.TEAM
+BACKGROUND = SignalScoutConfig.ManagedBy.BACKGROUND
 # Two quiet weeks with a weekly rhythm, then one bucket far off both medians.
 QUIET_SERIES = [(day, 100.0 if day % 7 else 80.0, 0) for day in range(29, 1, -1)]
 
@@ -366,8 +370,8 @@ class TestAnomalyDetectionDefaultPrecheck(ClickhouseTestMixin, BaseTest):
         bucket = (NOW - timedelta(days=days_ago)).replace(hour=0, minute=0, second=0, microsecond=0)
         _create_event(
             team=self.team,
-            event="$anomaly_score",
-            distinct_id="anomaly-scoring",
+            event=SCORE_EVENT,
+            distinct_id=SCORER_DISTINCT_ID,
             timestamp=bucket,
             properties={
                 "$anomaly_source": "insight",
@@ -389,7 +393,7 @@ class TestAnomalyDetectionDefaultPrecheck(ClickhouseTestMixin, BaseTest):
                 "flagged_episode_start",
                 [*QUIET_SERIES, (1, 400.0, 1)],
                 30,
-                SignalScoutConfig.ManagedBy.TEAM,
+                TEAM,
                 "run",
                 "scored",
             ),
@@ -398,16 +402,16 @@ class TestAnomalyDetectionDefaultPrecheck(ClickhouseTestMixin, BaseTest):
                 "flagged_episode_continues",
                 [*QUIET_SERIES[:-1], (2, 400.0, 1), (1, 400.0, 1)],
                 30,
-                SignalScoutConfig.ManagedBy.TEAM,
+                TEAM,
                 "skip",
                 None,
             ),
             # Flagged, but within 30% of its baselines.
-            ("flagged_small_move", [*QUIET_SERIES, (1, 110.0, 1)], 30, SignalScoutConfig.ManagedBy.TEAM, "skip", None),
-            ("scored_quiet", [*QUIET_SERIES, (1, 100.0, 0)], 30, SignalScoutConfig.ManagedBy.TEAM, "skip", None),
-            ("no_scores_team_due", [], 30, SignalScoutConfig.ManagedBy.TEAM, "run", "legacy"),
-            ("no_scores_team_ran_recently", [], 2, SignalScoutConfig.ManagedBy.TEAM, "skip", None),
-            ("no_scores_background", [], 30, SignalScoutConfig.ManagedBy.BACKGROUND, "skip", None),
+            ("flagged_small_move", [*QUIET_SERIES, (1, 110.0, 1)], 30, TEAM, "skip", None),
+            ("scored_quiet", [*QUIET_SERIES, (1, 100.0, 0)], 30, TEAM, "skip", None),
+            ("no_scores_team_due", [], 30, TEAM, "run", "legacy"),
+            ("no_scores_team_ran_recently", [], 2, TEAM, "skip", None),
+            ("no_scores_background", [], 30, BACKGROUND, "skip", None),
         ]
     )
     def test_default_picks_the_mode(self, _name, scores, quiet_hours, managed_by, outcome, mode) -> None:

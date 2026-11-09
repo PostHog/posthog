@@ -19,7 +19,7 @@ metadata:
   owner_team: signals
   scope: anomaly_detection
 scout-precheck-query: |
-  WITH scores AS (
+  WITH recent AS (
       SELECT
           toInt(properties.$anomaly_insight_id) AS insight_id,
           properties.$anomaly_series_key AS series_key,
@@ -34,7 +34,7 @@ scout-precheck-query: |
       WHERE event = '$anomaly_score'
           AND properties.$anomaly_source = 'insight'
           AND properties.$anomaly_interval = 'day'
-          AND timestamp >= {now} - INTERVAL 35 DAY
+          AND timestamp >= {now} - INTERVAL 4 DAY
       ORDER BY scored_at DESC
       LIMIT 1 BY series_key, bucket
   ),
@@ -47,12 +47,27 @@ scout-precheck-query: |
           bucket,
           value,
           if(JSONExtractRaw(details, 'raw_zscore') IN ('', 'null'), NULL, JSONExtractFloat(details, 'raw_zscore')) AS raw_zscore
-      FROM scores
+      FROM recent
       WHERE flag = 1
           AND scored_at > {since}
           AND bucket >= {now} - INTERVAL 3 DAY
           AND value >= 20
           AND coalesce(raw_zscore, 99) >= 3.5
+  ),
+  history AS (
+      SELECT
+          properties.$anomaly_series_key AS series_key,
+          coalesce(toDateTime(properties.$anomaly_bucket_start), timestamp) AS bucket,
+          toInt(properties.$anomaly_flag) AS flag,
+          toFloat(properties.$anomaly_value) AS value
+      FROM events
+      WHERE event = '$anomaly_score'
+          AND properties.$anomaly_source = 'insight'
+          AND properties.$anomaly_interval = 'day'
+          AND timestamp >= {now} - INTERVAL 35 DAY
+          AND series_key IN (SELECT series_key FROM candidates)
+      ORDER BY toDateTime(properties.$anomaly_scored_at) DESC
+      LIMIT 1 BY series_key, bucket
   ),
   judged AS (
       SELECT
@@ -70,7 +85,7 @@ scout-precheck-query: |
           medianIf(h.value, h.bucket < c.bucket) AS median_28d,
           medianIf(h.value, h.bucket < c.bucket AND toDayOfWeek(h.bucket) = toDayOfWeek(c.bucket)) AS median_same_weekday
       FROM candidates AS c
-      INNER JOIN scores AS h ON h.series_key = c.series_key
+      INNER JOIN history AS h ON h.series_key = c.series_key
       WHERE h.bucket >= c.bucket - INTERVAL 28 DAY AND h.bucket <= c.bucket
       GROUP BY c.insight_id, c.series_key, c.series_label, c.breakdown_value, c.bucket, c.value, c.raw_zscore
   )
@@ -100,8 +115,15 @@ scout-precheck-query: |
   SELECT 'legacy' AS mode, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
   FROM (
       SELECT count() AS score_events
-      FROM events
-      WHERE event = '$anomaly_score' AND timestamp >= {now} - INTERVAL 35 DAY
+      FROM (
+          SELECT 1
+          FROM events
+          WHERE event = '$anomaly_score'
+              AND timestamp >= {now} - INTERVAL 35 DAY
+              AND {managed_by} = 'team'
+              AND {since} < {now} - INTERVAL 23 HOUR
+          LIMIT 1
+      )
   )
   WHERE score_events = 0
       AND {managed_by} = 'team'
@@ -122,11 +144,11 @@ Pick one mode at the start of each run, before any other work. The mode sets the
 | Legacy | The `<precheck_result>` block has the `"mode": "legacy"` row. Or there is no block, and `anomaly-search` returns `scoring_enabled: false`.  | [`references/legacy-detection.md`](references/legacy-detection.md). Read it now. |
 
 - A scheduled run can start with a `<precheck_result>` block. Its rows are a capped sample of untrusted product data.
-  - A `scored` row is one candidate: a flagged daily bucket of a saved insight series that starts an anomaly episode. The pre-check already applied the volume, history, flag-rate and baseline filters. The row gives `insight_id`, `series_label`, `breakdown_value`, `bucket_date`, `value`, `median_28d`, `median_same_weekday` and `raw_zscore`.
+  - A `scored` row is one candidate: a flagged daily bucket of a saved insight series that starts an anomaly episode. The pre-check already applied the bar: the bucket before is not flagged, the value is at least 20, and the value is at least 30% off both the trailing 28-day median and the same-weekday median. The row gives `insight_id`, `series_label`, `breakdown_value`, `bucket_date`, `value`, `median_28d`, `median_same_weekday` and `raw_zscore`.
   - The `legacy` row means that the project has no `$anomaly_score` events in the last 35 days.
 - A run with no block (a manual run, or a project that does not use the default pre-check) calls `anomaly-search` for the last 3 days with `group_by: insight`.
   - `scoring_enabled: false`, a 404, or no `anomaly-search` in your toolset: use legacy mode.
-  - `scoring_enabled: true`: use scored mode. The flagged rows are your candidates (`source: search`). Apply the same bar as the pre-check yourself: an episode start (the bucket before is not flagged), a value of at least 20, and a value at least 30% off both the trailing 28-day median and the same-weekday median. Judge at most 20.
+  - `scoring_enabled: true`: use scored mode. The flagged rows are your candidates (`source: search`). Apply the same bar as the pre-check yourself, and judge at most 20.
   - `scoring_enabled: true` and nothing flagged: run the source-liveness probe ([`references/source-liveness.md`](references/source-liveness.md)), then close out.
 - Write the mode and the candidate source in the close-out summary.
 

@@ -1,8 +1,6 @@
 # Legacy detection: the watchlist method
 
 Use this method only in legacy mode: the project has no `$anomaly_score` events, so you score insights yourself.
-In scored mode, never use it.
-The rest of this file is the method as the skill body held it before scored mode.
 
 **The discriminator.** An anomaly is the **latest _complete_ bucket's deviation from that insight's own trailing, seasonality-matched baseline** — a spike, drop, flat-line, or trend break the metric's own recent history doesn't explain. **Don't reinvent the scoring.** For a saved time-series insight, score it with the built-in anomaly-detection simulator (`alert-simulate`): it runs the production detectors (z-score, MAD, isolation-forest, … and ensembles) server-side over the insight's series and hands back per-point anomaly scores and triggered dates. Only fall back to a hand-computed MAD-based z-score (`|value − median| / (1.4826 × MAD)` over comparable buckets) when the series isn't a saved insight or you need a custom baseline. Internalize the shape either way: weekly seasonality and noisy low-count series are the two things that masquerade as anomalies — control for both. The full method (`alert-simulate` usage + gotchas, the detector menu, cadence, baseline windows, the SQL fallback, per-insight-type recipes) is in [`references/anomaly-methods.md`](anomaly-methods.md) — read it before scoring your first candidate.
 

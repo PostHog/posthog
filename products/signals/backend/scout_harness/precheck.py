@@ -155,8 +155,7 @@ def _placeholders(*, since: datetime, now: datetime, interval_minutes: int, mana
         "since": ast.Constant(value=since),
         "now": ast.Constant(value=now),
         "interval_minutes": ast.Constant(value=interval_minutes),
-        # Who manages the config the query runs for (`team` or `background`), so one default can
-        # treat a scout a person enabled apart from one a background lane runs.
+        # "" when no config runs the query, as in the profile's `surfaces`.
         "managed_by": ast.Constant(value=str(managed_by)),
     }
 
@@ -378,7 +377,6 @@ def run_precheck_query(
 ) -> PrecheckResult:
     """Run a pre-check query as `user` and classify its rows like a scheduled run does.
 
-    `managed_by` is empty when no config runs the query, such as the project profile's `surfaces`.
     Raises on a query error, so the caller decides what an error means.
     """
     return _result_from_rows(
