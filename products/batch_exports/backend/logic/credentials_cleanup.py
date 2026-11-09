@@ -13,10 +13,12 @@ from typing import TYPE_CHECKING
 from django.db import transaction
 
 import structlog
+from google.oauth2 import service_account
 
 from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX
 from posthog.integrations import IntegrationConflict, IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 
 from products.batch_exports.backend.facade.enums import BatchExportDestinationType
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
@@ -82,6 +84,11 @@ class _CopyIntegration:
     keys: _AwsKeyPair = field(repr=False)
     external_id: str
     existing_id: int | None = None
+
+    @property
+    def key(self) -> int | str:
+        """Identifies the Integration: a reused row by its id, since its external id can be empty."""
+        return self.existing_id if self.existing_id is not None else self.external_id
 
     @property
     def outcome(self) -> str:
@@ -178,7 +185,25 @@ def _destination_integration(destination: BatchExportDestination, team_id: int) 
         return "skipped_integration_missing"
     if row.kind != _INTEGRATION_KINDS[destination.type]:
         return "skipped_integration_wrong_kind"
+    if destination.type == BatchExportDestinationType.BIGQUERY and not _bigquery_key_is_usable(row):
+        return "skipped_integration_invalid"
     return row
+
+
+def _bigquery_key_is_usable(row: IntegrationRecord) -> bool:
+    """Whether the worker can build credentials from the Integration's key without the inline fallback.
+
+    The worker uses the inline keys when building credentials from a keyed Integration fails, so
+    those keys must stay until the Integration's key works. Impersonated accounts have no key to check.
+    """
+    integration = GoogleCloudServiceAccountIntegration(row)
+    if not integration.has_key():
+        return True
+    try:
+        service_account.Credentials.from_service_account_info(integration.service_account_info)
+    except Exception:
+        return False
+    return True
 
 
 def _plan(destination: BatchExportDestination, export: BatchExport, *, include_without_integration: bool) -> _Plan:
@@ -201,6 +226,9 @@ def _plan(destination: BatchExportDestination, export: BatchExport, *, include_w
     remove_fields = frozenset(fields & config.keys())
 
     copy_inputs = _copy_inputs(config) if destination.type == BatchExportDestinationType.REDSHIFT else None
+    if destination.type == BatchExportDestinationType.REDSHIFT and copy_inputs is None and config.get("copy_inputs"):
+        # A payload that cannot be read may still hold inline keys, so it is not treated as absent.
+        return _Plan(outcome="skipped_unreadable")
     try:
         copy_keys = _inline_copy_keys(copy_inputs) if copy_inputs is not None else {}
     except _Unreadable:
@@ -236,22 +264,22 @@ def _plan(destination: BatchExportDestination, export: BatchExport, *, include_w
 
 
 def _copy_outcomes(plan: _Plan) -> Iterator[str]:
-    seen: set[str] = set()
+    seen: set[int | str] = set()
     for copy_integration in plan.copy_integrations.values():
-        if copy_integration.external_id not in seen:
-            seen.add(copy_integration.external_id)
+        if copy_integration.key not in seen:
+            seen.add(copy_integration.key)
             yield copy_integration.outcome
 
 
 def _apply(destination: BatchExportDestination, export: BatchExport, plan: _Plan) -> None:
     config = {key: value for key, value in destination.config.items() if key not in plan.remove_fields}
     if plan.copy_inputs is not None:
-        integration_ids: dict[str, int] = {}
+        integration_ids: dict[int | str, int] = {}
         copy_inputs = dict(plan.copy_inputs)
         for name, copy_integration in plan.copy_integrations.items():
-            if copy_integration.external_id not in integration_ids:
+            if copy_integration.key not in integration_ids:
                 if copy_integration.existing_id is not None:
-                    integration_ids[copy_integration.external_id] = copy_integration.existing_id
+                    integration_ids[copy_integration.key] = copy_integration.existing_id
                 else:
                     row = IntegrationManager.aws_s3.credentials.create(
                         export.team_id,
@@ -259,8 +287,8 @@ def _apply(destination: BatchExportDestination, export: BatchExport, plan: _Plan
                         config={"name": copy_integration.external_id},
                         sensitive_config=copy_integration.keys.sensitive_config(),
                     )
-                    integration_ids[copy_integration.external_id] = row.id
-            copy_inputs[name] = integration_ids[copy_integration.external_id]
+                    integration_ids[copy_integration.key] = row.id
+            copy_inputs[name] = integration_ids[copy_integration.key]
         config["copy_inputs"] = copy_inputs
     destination.config = config
     destination.save(update_fields=["config", "last_updated_at"])
