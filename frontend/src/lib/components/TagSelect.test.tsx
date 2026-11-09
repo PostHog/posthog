@@ -16,7 +16,7 @@ describe('TagSelect', () => {
         const onChange = jest.fn()
         const options = [
             { tag: 'revenue', count: 1 },
-            ...Array.from({ length: 75 }, (_, index) => ({ tag: `topic-${index + 1}`, count: 75 - index })),
+            ...Array.from({ length: 150 }, (_, index) => ({ tag: `topic-${index + 1}`, count: 150 - index })),
         ]
         render(
             <Provider>
@@ -25,15 +25,15 @@ describe('TagSelect', () => {
         )
 
         await userEvent.click(screen.getByText('revenue'))
-        await waitFor(() => expect(screen.getByLabelText('topic-1 (75)')).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByLabelText('topic-1 (150)')).toBeInTheDocument())
         expect(screen.getByText('Clear selection')).toBeInTheDocument()
-        expect(screen.queryByLabelText('topic-75 (1)')).not.toBeInTheDocument()
-        await userEvent.type(screen.getByPlaceholderText('Search tags'), 'topic-75')
-        await waitFor(() => expect(screen.getByLabelText('topic-75 (1)')).toBeInTheDocument())
+        expect(screen.queryByLabelText('topic-150 (1)')).not.toBeInTheDocument()
+        await userEvent.type(screen.getByPlaceholderText('Search tags'), 'topic-150')
+        await waitFor(() => expect(screen.getByLabelText('topic-150 (1)')).toBeInTheDocument())
         expect(screen.queryByLabelText('revenue (1)')).not.toBeInTheDocument()
         expect(screen.queryByText('Clear selection')).not.toBeInTheDocument()
-        await userEvent.click(screen.getByLabelText('topic-75 (1)'))
-        expect(onChange).toHaveBeenCalledWith(['revenue', 'topic-75'])
+        await userEvent.click(screen.getByLabelText('topic-150 (1)'))
+        expect(onChange).toHaveBeenCalledWith(['revenue', 'topic-150'])
     })
 
     it('shows a retry when a tag page fails to load', async () => {

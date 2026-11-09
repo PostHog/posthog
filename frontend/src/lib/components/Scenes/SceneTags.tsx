@@ -1,4 +1,3 @@
-import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -6,9 +5,9 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
-import { tagsModel } from '~/models/tagsModel'
 
 import { ObjectTags } from '../ObjectTags/ObjectTags'
+import { TagsInputSelect } from '../TagsInputSelect'
 import { SceneCanEditProps, SceneDataAttrKeyProps } from './utils'
 
 type SceneTagsProps = SceneCanEditProps &
@@ -29,9 +28,6 @@ export const SceneTags = ({
 }: SceneTagsProps): JSX.Element => {
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(false)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
-    const { tags: modelTags, tagsLoading } = useValues(tagsModel)
-    const availableTags = tagsAvailable ?? modelTags
 
     const handleTagsChange = (newTags: string[]): void => {
         setLocalTags(newTags)
@@ -48,27 +44,39 @@ export const SceneTags = ({
     const label = (
         <span className="flex items-center gap-1.5">
             Tags
-            {loading || tagsLoading ? <Spinner className="text-sm" /> : null}
+            {loading ? <Spinner className="text-sm" /> : null}
         </span>
     )
 
     return localIsEditing ? (
         <div className="flex flex-col gap-1">
             <ScenePanelLabel htmlFor="new-tag-input" title={label}>
-                <LemonInputSelect
-                    mode="multiple"
-                    allowCustomValues
-                    value={localTags}
-                    options={availableTags.map((t) => ({ key: t, label: t }))}
-                    onChange={handleTagsChange}
-                    onBlur={() => setLocalIsEditing(false)}
-                    loading={tagsLoading}
-                    data-attr={`${dataAttrKey}-new-tag-input`}
-                    placeholder='try "official"'
-                    size="xsmall"
-                    autoFocus
-                    className="max-w-full"
-                />
+                {tagsAvailable ? (
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        value={localTags}
+                        options={tagsAvailable.map((t) => ({ key: t, label: t }))}
+                        onChange={handleTagsChange}
+                        onBlur={() => setLocalIsEditing(false)}
+                        data-attr={`${dataAttrKey}-new-tag-input`}
+                        placeholder='try "official"'
+                        size="xsmall"
+                        autoFocus
+                        className="max-w-full"
+                    />
+                ) : (
+                    <TagsInputSelect
+                        value={localTags ?? []}
+                        onChange={handleTagsChange}
+                        onBlur={() => setLocalIsEditing(false)}
+                        data-attr={`${dataAttrKey}-new-tag-input`}
+                        placeholder='try "official"'
+                        size="xsmall"
+                        autoFocus
+                        className="max-w-full"
+                    />
+                )}
             </ScenePanelLabel>
         </div>
     ) : (
@@ -78,7 +86,6 @@ export const SceneTags = ({
                 lang="en"
                 onClick={() => {
                     if (onSave && canEdit) {
-                        loadTagsIfNeeded()
                         setLocalIsEditing(true)
                     }
                 }}

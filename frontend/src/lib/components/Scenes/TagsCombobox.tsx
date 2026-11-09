@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import {
+    Button,
     Combobox,
     ComboboxChip,
     ComboboxChips,
@@ -18,7 +19,11 @@ type TagsComboboxProps = {
     value: string[]
     onChange: (next: string[]) => void
     onOpen?: () => void
+    onClose?: () => void
+    onInputChange?: (input: string) => void
     loading?: boolean
+    error?: string
+    onRetry?: () => void
     options?: string[]
     placeholder?: string
     autoFocus?: boolean
@@ -45,7 +50,11 @@ function TagsComboboxInner({
     value,
     onChange,
     onOpen,
+    onClose,
+    onInputChange,
     loading,
+    error,
+    onRetry,
     options = [],
     placeholder,
     autoFocus,
@@ -57,8 +66,9 @@ function TagsComboboxInner({
 }: TagsComboboxProps): JSX.Element {
     const [inputValue, setInputValue] = useState('')
     const trimmed = inputValue.trim()
+    // While matches load, Enter would pick "Create" over an existing tag that hasn't arrived yet.
     const showCreateItem =
-        allowCustomValues && trimmed.length > 0 && !value.includes(trimmed) && !options.includes(trimmed)
+        allowCustomValues && !loading && trimmed.length > 0 && !value.includes(trimmed) && !options.includes(trimmed)
 
     // Synthetic items list: existing options + (optionally) the "Create X" sentinel at the bottom.
     const items: string[] = [...options]
@@ -86,10 +96,15 @@ function TagsComboboxInner({
                 setInputValue('')
             }}
             inputValue={inputValue}
-            onInputValueChange={(v: string) => setInputValue(v)}
+            onInputValueChange={(v: string) => {
+                setInputValue(v)
+                onInputChange?.(v)
+            }}
             onOpenChange={(open) => {
                 if (open) {
                     onOpen?.()
+                } else {
+                    onClose?.()
                 }
             }}
         >
@@ -103,6 +118,8 @@ function TagsComboboxInner({
                 customValueNoun={customValueNoun}
                 trimmed={trimmed}
                 loading={loading}
+                error={error}
+                onRetry={onRetry}
             />
         </Combobox>
     )
@@ -118,6 +135,8 @@ function TagsComboboxBody({
     customValueNoun,
     trimmed,
     loading,
+    error,
+    onRetry,
 }: {
     placeholder?: string
     autoFocus?: boolean
@@ -128,6 +147,8 @@ function TagsComboboxBody({
     customValueNoun: string
     trimmed: string
     loading?: boolean
+    error?: string
+    onRetry?: () => void
 }): JSX.Element {
     const anchor = useComboboxAnchor()
     return (
@@ -155,13 +176,22 @@ function TagsComboboxBody({
             </ComboboxChips>
             <ComboboxContent anchor={anchor}>
                 <ComboboxEmpty>
-                    {loading ? (
+                    {error ? (
+                        <span className="flex items-center justify-between gap-2">
+                            {error}
+                            {onRetry && (
+                                <Button size="sm" variant="outline" onClick={onRetry}>
+                                    Try again
+                                </Button>
+                            )}
+                        </span>
+                    ) : loading ? (
                         <span className="flex items-center gap-2">
                             <Spinner />
                             Loading {customValueNoun}s...
                         </span>
                     ) : trimmed ? (
-                        `No matching ${customValueNoun}`
+                        `No matching ${customValueNoun}s`
                     ) : (
                         `No ${customValueNoun}s yet`
                     )}
