@@ -27,6 +27,7 @@ from posthog.plugins.plugin_server_api import (
 )
 
 from products.messaging.backend.facade.contracts import (
+    AttachmentNotUploaded,
     AttachmentUploadRequest,
     AttachmentUploadSlot,
     AttachmentUploadTarget,
@@ -583,8 +584,8 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
 def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
     return _without_empty(
         {
+            "sha256": attachment.sha256,
             "filename": attachment.filename,
-            "content": attachment.content,
             "contentType": attachment.content_type,
             "contentId": attachment.content_id,
         }
@@ -649,6 +650,8 @@ def _queue(
                 field=unknown_field,
             )
             raise FieldNotAccepted(unknown_field)
+        if attachment_refusal := _attachment_refusal(response, refusal_code):
+            raise attachment_refusal
         refusal = PIPELINE_REFUSALS.get(refusal_code or "")
         if refusal is None and response.status_code == 400:
             refusal = PIPELINE_REFUSALS["invalid_request"]
@@ -663,10 +666,42 @@ def _queue(
         if refusal is None:
             raise DeliveryUnavailable()
         error_class, message = refusal
-        raise error_class(message)
+        error = error_class(message)
+        error.attachment_bytes = _attachment_bytes(response)
+        raise error
 
     body = response.json()
-    return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+    return QueuedEmail(
+        message_id=str(body["invocation_id"]),
+        replayed=bool(body.get("replayed", False)),
+        attachment_bytes=_attachment_bytes(response),
+    )
+
+
+def _attachment_refusal(response: requests.Response, refusal_code: str | None) -> TransactionalEmailError | None:
+    if response.status_code != 400 or refusal_code not in {"attachment_not_uploaded", "message_too_large"}:
+        return None
+    sha256 = _answer_field(response, "sha256")
+    error = (
+        AttachmentNotUploaded(sha256 if isinstance(sha256, str) else None)
+        if refusal_code == "attachment_not_uploaded"
+        else MessageTooLarge(sha256 if isinstance(sha256, str) else None)
+    )
+    error.attachment_bytes = _attachment_bytes(response)
+    return error
+
+
+def _attachment_bytes(response: requests.Response) -> int | None:
+    total = _answer_field(response, "attachment_bytes")
+    return total if isinstance(total, int) and not isinstance(total, bool) and total >= 0 else None
+
+
+def _answer_field(response: requests.Response, name: str) -> Any:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return body.get(name) if isinstance(body, dict) else None
 
 
 def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:

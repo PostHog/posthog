@@ -70,10 +70,12 @@ from products.messaging.backend.facade.templates import (
 from products.messaging.backend.facade.transactional_email import (
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
+    AttachmentNotUploaded,
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
     FieldNotAccepted,
+    MessageTooLarge,
     QueuedEmail,
     TransactionalEmailError,
     TransactionalEmailStage,
@@ -91,10 +93,13 @@ from products.messaging.backend.facade.transactional_email import (
 )
 from products.messaging.backend.presentation.views.code_send_fields import (
     CODE_SEND_EXTRA_FIELDS,
+    MESSAGE_LIMIT,
+    UPLOAD_ROUTE,
     AddressListField,
     AttachmentListField,
     attachment_size,
     field_not_accepted_refusal,
+    refused_attachment,
     template_send_refusal,
     validate_pipeline_address,
     with_code_send_reason,
@@ -543,9 +548,10 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     attachments = AttachmentListField(
         required=False,
         allow_null=True,
-        help_text="Files attached to the email your code rendered: up to 10, and at most 512 KB in total after "
-        "decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with "
-        "`template_id`, which refuses any file here.",
+        help_text="Files attached to the email your code rendered: up to 10, each uploaded first through "
+        f"`{UPLOAD_ROUTE}` and named here by its SHA-256. The whole email can be at most {MESSAGE_LIMIT}. File "
+        "types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, "
+        "which refuses any file here.",
     )
     capture_engagement = serializers.BooleanField(
         required=False,
@@ -901,15 +907,22 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         unavailable: type[TransactionalEmailUnavailable] = TransactionalEmailUnavailable,
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
+        attachments = request.validated_data.get("attachments") or []
         outcome: dict[str, Any] = {"outcome": "error"}
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
+            if attachments:
+                outcome["attachment_bytes"] = queued.attachment_bytes
         except FieldNotAccepted as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
             raise field_not_accepted_refusal(e.field) from None
         except TransactionalEmailError as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
+            if attachments:
+                outcome["attachment_bytes"] = e.attachment_bytes
+            if isinstance(e, AttachmentNotUploaded | MessageTooLarge):
+                raise refused_attachment(e, attachments) from None
             raise TransactionalEmailRejected(e)
         except DeliveryUnavailable:
             outcome["outcome"] = "unavailable"

@@ -31,7 +31,14 @@ from products.messaging.backend.facade.transactional_email import (
     UploadQuotaExceeded,
     prepare_attachment_uploads,
 )
-from products.messaging.backend.presentation.views.code_send_fields import MAX_ATTACHMENTS, Reason
+from products.messaging.backend.presentation.views.code_send_fields import (
+    MAX_ATTACHMENTS,
+    MESSAGE_LIMIT,
+    MESSAGE_TOO_LARGE_REASON,
+    SHA256_HEX,
+    TOO_MANY_FILES_REASON,
+    Reason,
+)
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_SEND_SCOPE,
     require_email_from_code,
@@ -40,9 +47,6 @@ from products.messaging.backend.presentation.views.message_templates import (
 from products.messaging.backend.presentation.views.refusals import ExplainedRefusal, RequestBodyCapMixin, request_cap
 
 logger = structlog.get_logger(__name__)
-
-SHA256_HEX = r"^[0-9a-f]{64}$"
-MESSAGE_LIMIT = "40 MB after Base64 encoding, about 29 MB of files"
 
 
 class AttachmentUploadFileSerializer(serializers.Serializer):
@@ -124,10 +128,6 @@ _BODY_REASON = Reason(
     why="The request body is a JSON object with a `files` list.",
     fix='Send `{"files": [{"sha256": ..., "size": ...}]}`.',
 )
-_TOO_MANY_FILES_REASON = Reason(
-    why=f"An email carries at most {MAX_ATTACHMENTS} files.",
-    fix=f"Ask for at most {MAX_ATTACHMENTS} files, or link to the others from the email body.",
-)
 
 
 def with_upload_reason(body: dict[str, Any]) -> dict[str, Any]:
@@ -140,7 +140,7 @@ def with_upload_reason(body: dict[str, Any]) -> dict[str, Any]:
     if not path:
         reason = _BODY_REASON
     elif len(path) == 1 and body.get("code") == "max_length":
-        code, reason = "too_many_attachments", _TOO_MANY_FILES_REASON
+        code, reason = "too_many_attachments", TOO_MANY_FILES_REASON
     elif len(path) == 3:
         reason = _FILE_FIELD_REASONS.get(path[2], _UNKNOWN_FILE_FIELD_REASON)
     else:
@@ -170,8 +170,8 @@ def _message_too_large(attr: str | None) -> ExplainedRefusal:
         "These files are too large for one email, so PostHog didn't prepare the uploads.",
         code="message_too_large",
         attr=attr,
-        why=f"An email can be at most {MESSAGE_LIMIT}.",
-        fix="Send fewer or smaller files, or link to large files from the email body.",
+        why=MESSAGE_TOO_LARGE_REASON.why,
+        fix=MESSAGE_TOO_LARGE_REASON.fix,
     )
 
 
