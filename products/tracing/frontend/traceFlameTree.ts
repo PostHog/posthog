@@ -167,6 +167,9 @@ export function toFlameNodes(
     const field = sizeBy === 'total' ? 'total_duration_nano' : 'p50_duration_nano'
     // The chart reads a value of 0 as a missing span, so a zero-duration span that exists gets 1 ns.
     const size = (node: SpanTreeNode | null): number => (node ? Math.max(node[field], 1) : 0)
+    // A zero baseline has no ratio, so like the compare table it reads as unchanged rather than infinitely slower.
+    const baselineSize = (node: FlameTreeNode): number =>
+        node.node && node.previousNode?.[field] === 0 ? size(node.node) : size(node.previousNode)
     const convert = (node: FlameTreeNode, parentId: string): FlameNode<TraceFlameMeta> => {
         const id = flameId(parentId, node)
         const current = node.node
@@ -178,7 +181,7 @@ export function toFlameNodes(
                     : node.name,
             group: node.serviceName,
             value: size(current),
-            baselineValue: hasBaseline ? size(node.previousNode) : undefined,
+            baselineValue: hasBaseline ? baselineSize(node) : undefined,
             count: current?.count,
             baselineCount: hasBaseline ? (node.previousNode?.count ?? 0) : undefined,
             color: !hasBaseline && (current?.error_count ?? 0) > 0 ? errorColor : undefined,

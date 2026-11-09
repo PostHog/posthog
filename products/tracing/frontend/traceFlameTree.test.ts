@@ -36,12 +36,14 @@ describe('traceFlameTree', () => {
             edge('root', 'kept', 40),
             edge('root', 'new', 10),
             edge('root', 'instant', 0),
+            edge('root', 'was-instant', 50),
         ]
         const previous = [
             edge(null, 'root', 80),
             edge('root', 'kept', 50),
             edge('root', 'gone', 20),
             edge('root', 'instant', 30),
+            edge('root', 'was-instant', 0),
         ]
         const [root] = toFlameNodes(buildTree(current, previous), COMPARE)
         const byName = Object.fromEntries((root.children ?? []).map((child) => [child.name, child]))
@@ -51,6 +53,7 @@ describe('traceFlameTree', () => {
         expect(byName.new).toMatchObject({ value: 10, baselineValue: 0 })
         expect(byName.gone).toMatchObject({ value: 0, baselineValue: 20, count: undefined })
         expect(byName.instant).toMatchObject({ value: 1, baselineValue: 30 })
+        expect(byName['was-instant']).toMatchObject({ value: 50, baselineValue: 50 })
     })
 
     it('draws a single trace by total time, with span counts and errors and no baseline', () => {

@@ -1,6 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
+
+import { getChart } from '@posthog/quill-charts/testing'
 
 import type { SpanTreeNode } from '~/queries/schema/schema-general'
 
@@ -51,7 +53,10 @@ describe('TraceCompareFlame', () => {
             />
         )
 
-        expect(screen.getByText(shown)).toBeInTheDocument()
-        expect(screen.queryByText(hidden)).toBeNull()
+        const labels = getChart()
+            .legendItems()
+            .map((item) => item.label)
+        expect(labels).toContain(shown)
+        expect(labels).not.toContain(hidden)
     })
 })

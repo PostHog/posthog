@@ -37,7 +37,12 @@ function focusDepth(focused: FlameHit<TraceFlameMeta> | null): number {
     if (!focused) {
         return 0
     }
-    return focused.kind === 'node' ? focused.node.depth + 1 : (focused.bundle.parent?.depth ?? -1) + 2
+    // A "+N more" bundle counts as its parent, so that the click into one of its nodes counts as the drill.
+    return focused.kind === 'node'
+        ? focused.node.depth + 1
+        : focused.bundle.parent
+          ? focused.bundle.parent.depth + 1
+          : 0
 }
 
 interface DeltaPctProps {
@@ -224,14 +229,21 @@ export function TraceCompareFlame({
     }, [tree, initialSpanName, initialFocusKey])
     // The chart reads its focus on mount only. A highlight that clears on the same tree keeps the drill-down,
     // because the trace view clears it on an inspector tab switch.
-    const [mounted, setMounted] = useState({ tree, focus: initialFocus, version: 0 })
-    if (mounted.tree !== tree || (initialFocus !== null && initialFocus.id !== mounted.focus?.id)) {
-        setMounted({ tree, focus: initialFocus, version: mounted.version + 1 })
+    const initialFocusId = initialFocus?.id ?? null
+    const [mounted, setMounted] = useState({ tree, focus: initialFocus, seenFocusId: initialFocusId, version: 0 })
+    if (mounted.tree !== tree || initialFocusId !== mounted.seenFocusId) {
+        const remount = mounted.tree !== tree || initialFocusId !== null
+        setMounted({
+            tree,
+            focus: remount ? initialFocus : mounted.focus,
+            seenFocusId: initialFocusId,
+            version: remount ? mounted.version + 1 : mounted.version,
+        })
     }
     const depthRef = useRef(0)
     useEffect(() => {
         depthRef.current = mounted.focus?.depth ?? 0
-    }, [mounted])
+    }, [mounted.version, mounted.focus])
 
     const onFocusChange = useCallback(
         (focused: FlameHit<TraceFlameMeta> | null): void => {
