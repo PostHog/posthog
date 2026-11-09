@@ -225,6 +225,41 @@ const rejectOnAbort = (signal: AbortSignal): Promise<never> =>
         )
     )
 
+const sesClientWith = (overrides: Partial<ConstructorParameters<typeof SESv2Client>[0]>): SESv2Client =>
+    new SESv2Client({
+        region: 'us-east-1',
+        credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' },
+        ...overrides,
+    })
+
+const sesRequestHandler = (handle: (options?: { abortSignal?: AbortSignal }) => Promise<unknown>): any => ({
+    handle: (_request: unknown, options?: { abortSignal?: AbortSignal }) => handle(options),
+    updateHttpClientConfig: () => {},
+    httpHandlerConfigs: () => ({}),
+})
+
+const sesThrottleAnswer = (): Promise<unknown> =>
+    Promise.resolve({
+        response: {
+            statusCode: 429,
+            headers: { 'x-amzn-errortype': 'TooManyRequestsException' },
+            body: new Uint8Array(),
+        },
+    })
+
+const oneRetryAfter = (delayMs: number): any => {
+    const token = (retries: number): { getRetryCount: () => number; getRetryDelay: () => number } => ({
+        getRetryCount: () => retries,
+        getRetryDelay: () => delayMs,
+    })
+    return {
+        acquireInitialRetryToken: () => Promise.resolve(token(0)),
+        refreshRetryTokenForRetry: (previous: ReturnType<typeof token>) =>
+            previous.getRetryCount() > 0 ? Promise.reject(new Error('no retries left')) : Promise.resolve(token(1)),
+        recordSuccess: () => {},
+    }
+}
+
 describe('EmailService', () => {
     let service: EmailService
     let hub: Hub
@@ -1648,18 +1683,41 @@ describe('EmailService', () => {
             it.each([
                 ['was never uploaded', () => Promise.resolve(attachmentFile())],
                 ['belongs to another team', async () => await uploadAttachment(team.id + 1, { filename: 'a.pdf' })],
-            ])('fails as attachments_missing and sends nothing when a file %s', async (_name, otherFile) => {
-                sesAccepts()
-                send(pdf, await otherFile())
+            ])(
+                'fails as attachments_missing, sends nothing and stops the other downloads when a file %s',
+                async (_name, otherFile) => {
+                    sesAccepts()
+                    send(pdf, await otherFile())
+                    const download = attachmentStore.s3.send.bind(attachmentStore.s3) as (...args: any[]) => any
+                    let pdfDownload: AbortSignal | undefined
+                    jest.spyOn(attachmentStore.s3, 'send').mockImplementation(((
+                        command: { input: { Key?: string } },
+                        options?: { abortSignal?: AbortSignal }
+                    ) => {
+                        if (command.input.Key?.endsWith(pdf.metadata.sha256)) {
+                            pdfDownload = options!.abortSignal!
+                            return rejectOnAbort(pdfDownload)
+                        }
+                        return download(command, options)
+                    }) as any)
 
-                const result = await service.executeSendEmail(invocation)
+                    const result = await service.executeSendEmail(invocation)
 
-                expect(sendEmailSpy).not.toHaveBeenCalled()
-                expect(result.finished).toBe(true)
-                expect(result.error).toMatch(/^attachments_missing: /)
-            })
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toMatch(/^attachments_missing: /)
+                    expect(pdfDownload?.aborted).toBe(true)
+                }
+            )
 
             const loadRetry = { finished: false, error: undefined, loadRetries: 1, rescheduled: true, failed: false }
+            const sesMayHaveSent = {
+                finished: true,
+                error: expect.stringMatching(/^Failed to send email via SES: /),
+                loadRetries: undefined,
+                rescheduled: false,
+                failed: true,
+            }
 
             it.each([
                 [
@@ -1685,27 +1743,38 @@ describe('EmailService', () => {
                     loadRetry,
                 ],
                 [
+                    'SES answers a throttle and the SDK is still backing off',
+                    'reschedules the send as a load retry, because SES refused every attempt',
+                    () => {
+                        service.sesV2Client = sesClientWith({
+                            requestHandler: sesRequestHandler(sesThrottleAnswer),
+                            retryStrategy: oneRetryAfter(2_000),
+                        })
+                    },
+                    loadRetry,
+                ],
+                [
                     'SES receives the request and does not answer',
                     'fails the send without a retry, because SES may have sent it',
                     () => {
-                        service.sesV2Client = new SESv2Client({
-                            region: 'us-east-1',
-                            credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' },
-                            requestHandler: {
-                                handle: (_request: unknown, options?: { abortSignal?: AbortSignal }) =>
-                                    rejectOnAbort(options!.abortSignal!),
-                                updateHttpClientConfig: () => {},
-                                httpHandlerConfigs: () => ({}),
-                            },
+                        service.sesV2Client = sesClientWith({
+                            requestHandler: sesRequestHandler((options) => rejectOnAbort(options!.abortSignal!)),
                         })
                     },
-                    {
-                        finished: true,
-                        error: expect.stringMatching(/^Failed to send email via SES: /),
-                        loadRetries: undefined,
-                        rescheduled: false,
-                        failed: true,
+                    sesMayHaveSent,
+                ],
+                [
+                    'the connection drops after the request went out and the SDK is still backing off',
+                    'fails the send without a retry, because SES may have sent it',
+                    () => {
+                        service.sesV2Client = sesClientWith({
+                            requestHandler: sesRequestHandler(() =>
+                                Promise.reject(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }))
+                            ),
+                            retryStrategy: oneRetryAfter(2_000),
+                        })
                     },
+                    sesMayHaveSent,
                 ],
             ])('when %s past the deadline, %s', async (_name, _outcome, hang, expected) => {
                 service['sesConfig'].attachmentSendDeadlineMs = 1000
