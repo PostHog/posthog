@@ -117,6 +117,8 @@ class TestOverrideSurfacesThroughRefresh:
             ("claude-fable-5", "anthropic", 200_000),
             ("claude-fable-5-1", "anthropic", 200_000),
             ("claude-fable-5-2", "anthropic", 1_000_000),
+            ("us.anthropic.claude-fable-5-2", "bedrock_converse", 1_000_000),
+            ("global.anthropic.claude-fable-5-2", "bedrock_converse", 1_000_000),
             ("claude-opus-5-5", "anthropic", 200_000),
             ("claude-sonnet-5-5", "anthropic", 1_000_000),
             ("gpt-6.1-sol", "openai", 1_050_000),
