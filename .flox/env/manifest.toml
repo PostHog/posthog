@@ -23,6 +23,7 @@ uv = { pkg-path = "flox/uv", pkg-group = "uv", version = "^0.13.4" }
 nodejs = { pkg-path = "nodejs_26", pkg-group = "nodejs", version = "26.13.0" } # Same version as .nvmrc
 # Node 25 and later no longer bundle corepack, so it comes from its own package, pinned like the Dockerfiles.
 # A lower priority keeps its pnpm shim ahead of any pnpm on the nodejs path.
+# The shim's shebang names nixpkgs' default Node, so on-activate.sh starts it with this env's node.
 # https://flox.dev/docs/man/manifest.toml/#catalog-descriptors
 corepack = { pkg-path = "corepack", pkg-group = "nodejs", version = "0.36.0", priority = 4 }
 brotli = { pkg-path = "brotli", pkg-group = "nodejs" }

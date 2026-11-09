@@ -345,18 +345,24 @@ if [[ "$(uname -s)" == "Darwin" && -x "$FLOX_ENV_PROJECT/bin/dev-sandbox" ]]; th
   fi
 fi
 
+# nixpkgs builds the corepack package against its default Node, not the nodejs that
+# manifest.toml pins, and writes that Node into the shebang of the pnpm shim. pnpm then
+# checks package engines against that Node and passes it to scripts as NODE. Starting
+# the shim with the env's own node keeps pnpm on the pinned version.
+_PNPM=("$FLOX_ENV/bin/node" "$FLOX_ENV/bin/pnpm")
+
 if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _BG_PNPM_LOG=$(mktemp)
   _ACTIVATION_TMPFILES+=("$_BG_PNPM_LOG")
   if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
-    ( "$FLOX_ENV_PROJECT/bin/dev-sandbox" "pnpm install" ) >"$_BG_PNPM_LOG" 2>&1 &
+    ( "$FLOX_ENV_PROJECT/bin/dev-sandbox" "$(printf '%q ' "${_PNPM[@]}")install" ) >"$_BG_PNPM_LOG" 2>&1 &
   elif [[ "$(uname -s)" == "Linux" ]]; then
     # LDFLAGS links against flox's libs, which need the nix glibc. On a host with an
     # older glibc, the host linker then rejects librdkafka's example programs, which
     # node-rdkafka builds but never uses. Scoped to this install so other builds keep strict linking.
-    ( LDFLAGS="${LDFLAGS:-} -Wl,--allow-shlib-undefined" pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
+    ( LDFLAGS="${LDFLAGS:-} -Wl,--allow-shlib-undefined" "${_PNPM[@]}" install ) >"$_BG_PNPM_LOG" 2>&1 &
   else
-    ( pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
+    ( "${_PNPM[@]}" install ) >"$_BG_PNPM_LOG" 2>&1 &
   fi
   _BG_PNPM_PID=$!
   _BG_PNPM_START=$(date +%s)
@@ -377,9 +383,12 @@ else
   run_step "Python packages" uv sync
 fi
 
-# Expose hogli on PATH via the uv-managed venv
+# Expose hogli on PATH via the uv-managed venv. The venv bin comes before $FLOX_ENV/bin
+# on PATH, so the pnpm wrapper here replaces the corepack shim for every pnpm call.
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+  printf '#!/usr/bin/env bash\nexec %q %q "$@"\n' "${_PNPM[@]}" >"$UV_PROJECT_ENVIRONMENT/bin/pnpm"
+  chmod +x "$UV_PROJECT_ENVIRONMENT/bin/pnpm"
 fi
 
 # ── Stale worktree cleanup ──────────────────────────────────────────
