@@ -12,7 +12,7 @@ import { getItemId } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { workflowSuggestionsAvailabilityLogic } from '../suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowFolderPath } from './WorkflowFolderPath'
-import { WorkflowFolderRowIcon } from './WorkflowFolderRowIcon'
+import { WorkflowFolderRow } from './WorkflowFolderRow'
 import { WorkflowListRow } from './workflowListRows'
 
 export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Element {
@@ -68,15 +68,12 @@ export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Ele
         )
     }
     return (
-        <div
-            className="flex gap-2 items-center min-w-0"
+        <WorkflowFolderRow
+            icon={<IconDecisionTree />}
+            drag={entry && canMove ? { id: getItemId(entry), label: `Drag workflow ${row.name}` } : undefined}
             onMouseEnter={() => !entry && canMove && syncTypeAndRef('hog_flow', row.id)}
             onFocus={() => !entry && canMove && syncTypeAndRef('hog_flow', row.id)}
         >
-            <WorkflowFolderRowIcon
-                icon={<IconDecisionTree />}
-                drag={entry && canMove ? { id: getItemId(entry), label: `Drag workflow ${row.name}` } : undefined}
-            />
             {entry && <WorkflowFolderPath path={entry.path} />}
             <LemonTableLink
                 to={archived ? undefined : workflowUrl}
@@ -84,6 +81,6 @@ export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Ele
                 description={description}
                 truncateTitle
             />
-        </div>
+        </WorkflowFolderRow>
     )
 }
