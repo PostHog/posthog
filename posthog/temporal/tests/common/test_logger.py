@@ -1026,3 +1026,46 @@ def test_internal_logs_sink_sends_rendered_messages_with_a_source(
                 ],
             )
         ]
+
+
+class _ImmediateKafkaProducer:
+    async def produce(self, **kwargs: typing.Any) -> "asyncio.Future[None]":
+        delivered: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        delivered.set_result(None)
+        return delivered
+
+    async def flush(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
+
+class _RecordingSink:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def offer(self, message: bytes) -> None:
+        self.events.append(f"offer {message.decode()}")
+
+    async def drain(self) -> None:
+        self.events.append("drain")
+
+
+async def test_log_producer_drains_internal_logs_after_the_last_queued_message_when_it_stops() -> None:
+    from posthog.temporal.common.logger import KafkaLogProducerFromQueueAsync
+
+    queue: asyncio.Queue[bytes] = asyncio.Queue()
+    sink = _RecordingSink()
+    log_producer = KafkaLogProducerFromQueueAsync(
+        queue=queue, producer=cast(typing.Any, _ImmediateKafkaProducer()), internal_logs=cast(typing.Any, sink)
+    )
+    listen_task = asyncio.create_task(log_producer.listen())
+    for message in (b"first", b"second"):
+        queue.put_nowait(message)
+
+    await queue.join()
+    listen_task.cancel()
+    await asyncio.wait([listen_task])
+
+    assert sink.events == ["offer first", "offer second", "drain"]

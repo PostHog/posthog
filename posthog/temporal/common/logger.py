@@ -497,7 +497,7 @@ def configure_logger(
     raise_on_producer_error: bool = False,
     otel_log_mirror: structlog.types.Processor | None = None,
     internal_logs: "InternalLogsSink | None" = None,
-) -> None:
+) -> collections.abc.Callable[[], collections.abc.Awaitable[None]] | None:
     """Configure a structlog for Temporal workflows.
 
     Configuring the logger involves:
@@ -530,6 +530,10 @@ def configure_logger(
             records to the Logs product over OTLP.
         internal_logs: Optionally, also send each produced `log_entries` message to the
             team's logs product as a signed internal log.
+
+    Returns:
+        A coroutine function that sends every queued log and stops the producer, or `None`
+        when no producer runs.
     """
     base_processors: list[structlog.types.Processor] = [
         structlog.stdlib.add_log_level,
@@ -610,31 +614,29 @@ def configure_logger(
 
             logger = structlog.get_logger()
             logger.error("Failed to initialize log producer", exc_info=log_producer_error)
-        return
+        return None
 
     listen_task = create_background_task(
         log_producer.listen(), loop or asyncio.get_running_loop(), name="log_producer_listen"
     )
 
-    async def handle_worker_shutdown():
-        """Gracefully handle a Temporal Worker shutting down.
-
-        Graceful handling means:
-        * Waiting until the queue is fully processed to avoid missing log messages.
-        * Cancel task listening on queue.
-        """
-        await temporalio.activity.wait_for_worker_shutdown()
-
+    async def stop_log_producer() -> None:
+        """Waits until the queue is fully processed, then cancels the task listening on it."""
         await log_queue.join()
 
         listen_task.cancel()
 
         await asyncio.wait([listen_task])
 
-        if internal_logs is not None:
-            await internal_logs.drain()
+    async def handle_worker_shutdown():
+        """Gracefully handle a Temporal Worker shutting down."""
+        await temporalio.activity.wait_for_worker_shutdown()
+
+        await stop_log_producer()
 
     create_background_task(handle_worker_shutdown(), loop or asyncio.get_running_loop(), name="handle_worker_shutdown")
+
+    return stop_log_producer
 
 
 CoroRetType = typing.TypeVar("CoroRetType")
@@ -724,8 +726,12 @@ class KafkaLogProducerFromQueueAsync:
                     self._internal_logs.offer(msg)
 
         finally:
-            await self.flush()
-            await self.producer.close()
+            try:
+                await self.flush()
+                await self.producer.close()
+            finally:
+                if self._internal_logs is not None:
+                    await self._internal_logs.drain()
 
     async def produce(self, msg: bytes):
         """Produce messages to configured topic and key.

@@ -104,8 +104,9 @@ async def _run_consumer(
     pools = LoaderThreadPools(pool_sizes)
     pools.install(loop)
     internal_logs = InternalLogsSink.from_settings()
+    stop_log_producer = None
     try:
-        configure_logger(loop=loop, internal_logs=internal_logs)
+        stop_log_producer = configure_logger(loop=loop, internal_logs=internal_logs)
         consumer = BatchConsumer(
             config=config,
             process_batch=partial(process_batch, executor=pools.group_executor),
@@ -116,8 +117,8 @@ async def _run_consumer(
         )
         await consumer.run()
     finally:
-        if internal_logs is not None:
-            await internal_logs.drain()
+        if internal_logs is not None and stop_log_producer is not None:
+            await stop_log_producer()
         pools.shutdown()
 
 

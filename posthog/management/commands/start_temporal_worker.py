@@ -1016,7 +1016,10 @@ class Command(BaseCommand):
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
             otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
-            configure_logger(loop=loop, otel_log_mirror=otel_log_mirror, internal_logs=InternalLogsSink.from_settings())
+            internal_logs = InternalLogsSink.from_settings()
+            stop_log_producer = configure_logger(
+                loop=loop, otel_log_mirror=otel_log_mirror, internal_logs=internal_logs
+            )
 
             logger = LOGGER.bind(
                 host=temporal_host,
@@ -1127,6 +1130,11 @@ class Command(BaseCommand):
                 logger.info("Waiting on shutdown_task")
                 _ = runner.run(asyncio.wait([shutdown_task]))
                 logger.info("Finished Temporal worker shutdown")
+
+                # The logger's own shutdown hook waits on an activity context, which this loop never has.
+                # Only workers that send internal logs run this, so other workers shut down as before.
+                if internal_logs is not None and stop_log_producer is not None:
+                    runner.run(stop_log_producer())
 
                 logger.info("Listing active threads at shutdown:")
                 for t in threading.enumerate():
