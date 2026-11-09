@@ -7232,6 +7232,8 @@ function captureClientRequestFailure(properties: {
     status: number
     is_shared_view: boolean
     failure_reason?: ClientRequestFailureReason
+    /** DRF error `code` from the response body, which separates failures that share a status. */
+    code?: string | null
 }): void {
     // when used inside the posthog toolbar, `posthog.capture` isn't loaded
     // check if the function is available before calling it.
@@ -7397,12 +7399,14 @@ async function handleFetch(
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
         const inSharedView = isSharedView()
+        const failure = await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
         captureClientRequestFailure({
             pathname,
             method,
             duration,
             status: response.status,
             is_shared_view: inSharedView,
+            code: failure.code,
         })
         if (inSharedView && (response.status === 401 || response.status === 403)) {
             const leakKey = `${method} ${pathname}`
@@ -7412,7 +7416,7 @@ async function handleFetch(
             }
         }
 
-        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
+        throw failure
     }
 
     return response

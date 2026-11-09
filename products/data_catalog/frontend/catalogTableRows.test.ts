@@ -235,7 +235,7 @@ describe('catalogTableRows', () => {
     })
 
     it('offers Sync now on every materialized view and review actions only on settled trust', () => {
-        expect(Object.fromEntries(buildRows().map((row) => [row.name, rowMenuActions(row)]))).toEqual({
+        expect(Object.fromEntries(buildRows().map((row) => [row.name, rowMenuActions(row, true)]))).toEqual({
             revenue: ['sync_now', 'certify'],
             events: [],
             deleted_view: [],
@@ -244,6 +244,10 @@ describe('catalogTableRows', () => {
             sessions: [],
             'stripe.charges': ['deprecate', 'remove_trust'],
         })
+    })
+
+    it('offers no trust actions while certifications failed to load', () => {
+        expect(new Set(buildRows().flatMap((row) => rowMenuActions(row, false)))).toEqual(new Set(['sync_now']))
     })
 
     it.each<[Partial<TablesFilters>, string[]]>([

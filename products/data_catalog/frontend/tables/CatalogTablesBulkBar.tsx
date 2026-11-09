@@ -22,10 +22,11 @@ function disabledReasonFor(
 }
 
 export function CatalogTablesBulkBar(): JSX.Element {
-    const { selectedRows, selectedProposalRows, bulkActionInFlight } = useValues(catalogTablesLogic)
+    const { selectedRows, selectedProposalRows, bulkActionInFlight, certificationsLoadFailed } =
+        useValues(catalogTablesLogic)
     const { reviewProposals, certifyRows, clearSelection } = useActions(catalogTablesLogic)
     const proposalKeys = selectedProposalRows.map((row) => row.key)
-    const certifiableKeys = selectedRows.filter(canCertify).map((row) => row.key)
+    const certifiableKeys = certificationsLoadFailed ? [] : selectedRows.filter(canCertify).map((row) => row.key)
 
     return (
         <CatalogBulkBar
@@ -74,7 +75,9 @@ export function CatalogTablesBulkBar(): JSX.Element {
                     loading={bulkActionInFlight === 'certify'}
                     disabledReason={disabledReasonFor(
                         certifiableKeys.length,
-                        'Every selected table is already certified or cannot be certified',
+                        certificationsLoadFailed
+                            ? 'Certifications could not be loaded'
+                            : 'Every selected table is already certified or cannot be certified',
                         bulkActionInFlight,
                         'certify'
                     )}

@@ -8,7 +8,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 import { QuillSubjectRunBanners } from 'products/data_quality/frontend/overview/QuillSubjectRunBanners'
 
-import { CatalogTableRow } from '../catalogTableRows'
+import { ChecksSubject } from '../catalogTableRows'
 import { CatalogChecksSummary } from '../components/CatalogChecksSummary'
 import { MutedCellText } from '../tables/MutedCellText'
 import { catalogDataQualityLogic } from './catalogDataQualityLogic'
@@ -16,11 +16,11 @@ import { TableChecksPanel } from './TableChecksPanel'
 
 const CHECKS_RUNNING_REASON = 'Checks are already running'
 
-function checksRegionId(row: CatalogTableRow): string {
+function checksRegionId(row: ChecksSubject): string {
     return `data-catalog-quality-checks-${row.key}`
 }
 
-function RunChecksButton({ row }: { row: CatalogTableRow }): JSX.Element | null {
+function RunChecksButton({ row }: { row: ChecksSubject }): JSX.Element | null {
     const { startingRun, isRunning, runningSubjectKey } = useValues(dataQualityOverviewLogic)
     const { runTableChecks } = useActions(catalogDataQualityLogic)
     if (!row.checkGroup) {
@@ -46,7 +46,7 @@ export function CatalogTableChecksGroup({
     expanded,
     collapsible,
 }: {
-    row: CatalogTableRow
+    row: ChecksSubject
     expanded: boolean
     collapsible: boolean
 }): JSX.Element {

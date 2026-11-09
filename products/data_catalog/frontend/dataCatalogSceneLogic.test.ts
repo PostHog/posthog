@@ -22,12 +22,12 @@ describe('dataCatalogSceneLogic', () => {
                 '/api/projects/:team_id/data_quality_checks/schedules/': [],
                 '/api/projects/:team_id/data_quality_checks/subjects/': [],
                 '/api/projects/:team_id/data_catalog/certifications/': { results: [], count: 0 },
-                '/api/environments/:team_id/data_modeling_nodes/': { results: [], count: 0 },
-                '/api/environments/:team_id/data_modeling_edges/': { results: [], count: 0 },
-                '/api/environments/:team_id/warehouse_saved_queries/': { results: [], count: 0 },
+                '/api/projects/:team_id/data_modeling_nodes/': { results: [], count: 0 },
+                '/api/projects/:team_id/data_modeling_edges/': { results: [], count: 0 },
+                '/api/projects/:team_id/warehouse_saved_queries/': { results: [], count: 0 },
             },
             post: {
-                '/api/environments/:team_id/query/:query_kind/': { tables: {}, joins: [] },
+                '/api/projects/:team_id/query/:query_kind/': { tables: {}, joins: [] },
             },
         })
         initKeaTests()
