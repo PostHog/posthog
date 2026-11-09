@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 
 import { BillingInvoiceItemRow, BillingProductV2AddonType } from '~/types'

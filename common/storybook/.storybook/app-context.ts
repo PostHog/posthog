@@ -43,6 +43,7 @@ export const getStorybookAppContext = (): AppContext => ({
         early_access_feature: 'manager',
         external_data_source: 'manager',
         web_analytics: 'manager',
+        marketing_analytics: 'manager',
         activity_log: 'viewer',
         customer_analytics: 'manager',
         llm_analytics: 'manager',

@@ -22,6 +22,7 @@ from posthog.integrations.contracts import (
     UnsupportedIntegrationFilter,
 )
 from posthog.integrations.enums import AuthType, IntegrationAuthType
+from posthog.integrations.references import IntegrationReference
 
 if TYPE_CHECKING:
     from posthog.integrations.kinds_generated import IntegrationKind
@@ -79,6 +80,7 @@ __all__ = [
     "IntegrationPatch",
     "IntegrationReader",
     "IntegrationRecord",
+    "IntegrationReference",
     "IntegrationUsage",
     "KindSpec",
     "OAuthAccessor",

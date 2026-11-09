@@ -20,6 +20,7 @@ from posthoganalytics.ai.openai import (
 )
 from pydantic import BaseModel, ValidationError
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart, convert_attachment_parts
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContentFilteredError,
@@ -30,7 +31,7 @@ from products.ai_observability.backend.llm.errors import (
     OutputTokenLimitError,
     ProviderConnectionError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
     is_output_limit_error_message,
@@ -271,7 +272,7 @@ class OpenAIAdapter:
             error_code = error_body.get("code", "") or error_body.get("error", {}).get("code", "")
             if error_code == "insufficient_quota":
                 return QuotaExceededError(str(error))
-            return RateLimitError(str(error))
+            return RetryableRateLimitError(str(error), error.response.headers.get("Retry-After"))
         if isinstance(error, openai.APIConnectionError):
             # Transient transport failure (connection reset, read timeout). Map to a quiet
             # retryable error so the caller retries silently instead of spamming error tracking.
@@ -310,7 +311,7 @@ You must respond with valid JSON that matches this schema:
 Return ONLY the JSON object, no other text or markdown formatting."""
 
         enhanced_messages = [{"role": "system", "content": enhanced_system}]
-        enhanced_messages.extend(request.messages)
+        enhanced_messages.extend(convert_attachment_parts(request.messages, self._attachment_block))
 
         create_response = client.chat.completions.create(
             model=request.model,
@@ -515,11 +516,14 @@ Return ONLY the JSON object, no other text or markdown formatting."""
     def _get_default_headers(self) -> dict[str, str]:
         return {}
 
+    def _attachment_block(self, part: AttachmentPart) -> dict[str, Any]:
+        return _openai_attachment_block(part)
+
     def _build_messages(self, request: CompletionRequest) -> list[dict]:
         messages = []
         if request.system:
             messages.append({"role": "system", "content": request.system})
-        messages.extend(request.messages)
+        messages.extend(convert_attachment_parts(request.messages, self._attachment_block))
         return messages
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
@@ -570,3 +574,12 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         result = handler.convert_to(ToolFormat.OPENAI)
         assert result is not None, "tools must be non-empty when calling _convert_tools"
         return result
+
+
+def _openai_attachment_block(part: AttachmentPart) -> dict[str, Any]:
+    if part.audio_format is not None:
+        return {"type": "input_audio", "input_audio": {"data": part.base64(), "format": part.audio_format}}
+    if part.is_pdf:
+        # The chat API takes a PDF only as inline data, and requires a file name with it.
+        return {"type": "file", "file": {"filename": "attachment.pdf", "file_data": part.data_uri()}}
+    return {"type": "image_url", "image_url": {"url": part.url or part.data_uri()}}

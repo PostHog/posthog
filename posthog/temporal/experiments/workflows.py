@@ -7,6 +7,7 @@ import temporalio.workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
@@ -34,6 +35,22 @@ MAX_CONCURRENT_METRICS = 10
 # One helper serves both workflows, so its metric type is whichever pair the caller passes.
 type MetricInput = ExperimentRegularMetricInput | ExperimentSavedMetricInput
 type MetricResult = ExperimentRegularMetricResult | ExperimentSavedMetricResult
+
+
+@frozen
+class _MetricOutcomes:
+    succeeded: int
+    failed: int
+    # Metrics whose settings changed after discovery. The next scheduled run computes them, so they are no failure.
+    skipped: int
+
+    @classmethod
+    def count(cls, results: Sequence[MetricResult | BaseException]) -> "_MetricOutcomes":
+        succeeded = sum(1 for result in results if not isinstance(result, BaseException) and result.success)
+        skipped = sum(
+            1 for result in results if not isinstance(result, BaseException) and not result.success and result.skipped
+        )
+        return cls(succeeded=succeeded, failed=len(results) - succeeded - skipped, skipped=skipped)
 
 
 def _record_publish_outcome(succeeded: int, recalculations_synced: int) -> None:
@@ -200,6 +217,7 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
                 "total": 0,
                 "succeeded": 0,
                 "failed": 0,
+                "skipped": 0,
             }
 
         # Step 2: Calculate every metric, bounded by one shared concurrency limit.
@@ -227,25 +245,17 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
                 )
 
         # Step 3: Summarize
-        succeeded = 0
-        failed = 0
-
-        for result in results:
-            if isinstance(result, BaseException):
-                failed += 1
-            elif result.success:
-                succeeded += 1
-            else:
-                failed += 1
+        outcomes = _MetricOutcomes.count(results)
 
         if published is not None:
-            _record_publish_outcome(succeeded, published)
+            _record_publish_outcome(outcomes.succeeded, published)
 
         return {
             "hour": inputs.hour,
             "total": len(experiment_metrics),
-            "succeeded": succeeded,
-            "failed": failed,
+            "succeeded": outcomes.succeeded,
+            "failed": outcomes.failed,
+            "skipped": outcomes.skipped,
         }
 
 
@@ -280,6 +290,7 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
                 "total": 0,
                 "succeeded": 0,
                 "failed": 0,
+                "skipped": 0,
             }
 
         # Step 2: Calculate every metric, bounded by one shared concurrency limit.
@@ -307,25 +318,17 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
                 )
 
         # Step 3: Summarize
-        succeeded = 0
-        failed = 0
-
-        for result in results:
-            if isinstance(result, BaseException):
-                failed += 1
-            elif result.success:
-                succeeded += 1
-            else:
-                failed += 1
+        outcomes = _MetricOutcomes.count(results)
 
         if published is not None:
-            _record_publish_outcome(succeeded, published)
+            _record_publish_outcome(outcomes.succeeded, published)
 
         return {
             "hour": inputs.hour,
             "total": len(experiment_metrics),
-            "succeeded": succeeded,
-            "failed": failed,
+            "succeeded": outcomes.succeeded,
+            "failed": outcomes.failed,
+            "skipped": outcomes.skipped,
         }
 
 

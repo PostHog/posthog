@@ -29,6 +29,10 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 # Add to .env as OIDC_RSA_PRIVATE_KEY="<generated_key>"
 ```
 
+Without this key, PostHog cannot create OAuth applications.
+Django's system checks print warning `posthog.oauth.W001` at startup.
+Client ID metadata document clients, dynamic client registration and toolbar sign-in get an OAuth `server_error` that names the missing setting.
+
 ### 2. Set Up Your Environment
 
 First, generate demo data which includes a test OAuth application:
@@ -228,7 +232,7 @@ See [Client Types](#client-types) section for detailed explanation.
    {
      "access_token": "...",
      "token_type": "Bearer",
-     "expires_in": 36000,
+     "expires_in": 3600,
      "refresh_token": "...",
      "id_token": "...",
      "scope": "openid experiment:read query:read",
@@ -236,6 +240,9 @@ See [Client Types](#client-types) section for detailed explanation.
      "scoped_organizations": ["org-uuid"]
    }
    ```
+
+   An access token expires after 1 hour.
+   Before it expires, use the refresh token to get a new one.
 
 ## Available Scopes
 
@@ -262,6 +269,10 @@ When authorizing an application, users can scope access to:
 3. **Team**: Access limited to specific teams/projects
 
 This is configured during the authorization step, not in the application settings.
+
+OAuth bearer requests, including provisioning requests, must satisfy the IP restrictions of every organization the user belongs to. Token access scopes do not narrow this policy. Staff impersonation retains its existing exemption.
+
+The native `/oauth/userinfo/` endpoint verifies the access token and `openid` scope before applying the same IP policy to the token's user. This applies to both GET and POST requests. A policy denial returns HTTP 403 with `error: access_denied` and `code: ip_not_allowed`; invalid or expired tokens retain the OAuth provider's error responses.
 
 If you would like to force the user to pick a single team or an organization you can use the `required_access_level=project` or `required_access_level=organization` query parameter in the authorization url.
 
@@ -328,7 +339,7 @@ print(tokens)
 
 PostHog's own public clients (hogli, the Visual Review Chrome extension, and internal tools) authenticate with client ID metadata documents (CIMD) rather than a registered application or dynamic client registration. Their documents live in the [posthog.com repo](https://github.com/PostHog/posthog.com) at `static/.well-known/oauth/<app>/client-metadata.json`, served at `https://posthog.com/.well-known/oauth/<app>/client-metadata.json`. That URL is the `client_id`, so one ID works on US, EU, and self-hosted.
 
-To add one, create a JSON file there with `client_id` set to its own URL. The CIMD fetcher follows no redirects, so the URL has to answer with a 200 directly. Put the scope ceiling in `com.posthog.scopes`. A new document is an unverified, not-first-party client until someone sets `is_verified` or `is_first_party` on its application in Django admin, in each region.
+To add one, create a JSON file there with `client_id` set to its own URL. The CIMD fetcher follows no redirects, so the URL has to answer with a 200 directly. Put the scope ceiling in `com.posthog.scopes`. A client that only signs people in can list only `openid`, `profile`, and `email`, and gets no resource scope. A new document is an unverified, not-first-party client until someone sets `is_verified` or `is_first_party` on its application in Django admin, in each region.
 
 ## Self-registered client logos
 

@@ -14,7 +14,7 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
-import { UseMaxToolOptions } from 'scenes/max/useMaxTool'
+import type { UseMaxToolOptions } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -75,6 +75,8 @@ export type SceneMainTitleProps = {
      * If true, the description is always rendered and the show/hide toggle is omitted
      */
     descriptionAlwaysVisible?: boolean
+    /** Only the rail navigation honours it. */
+    descriptionIgnoresForceEdit?: boolean
     /**
      * The number of milliseconds to debounce the name and description changes
      * useful for renaming resources that update too fast

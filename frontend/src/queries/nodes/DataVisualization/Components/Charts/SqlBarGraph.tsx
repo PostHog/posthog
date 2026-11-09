@@ -10,11 +10,10 @@ import {
     type ValueLabelContext,
 } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 
 import { ChartDisplayType } from '~/types'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
 import { SqlChartTooltip } from './SqlChartTooltip'
@@ -119,7 +118,11 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                     >
                         {props.children}
                         {props.showAnnotations && props.insightNumericId && (
-                            <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
+                            <AnnotationsLayer
+                                insightNumericId={props.insightNumericId}
+                                dates={model.labels}
+                                annotationsScope={props.chartSettings.annotationsScope}
+                            />
                         )}
                     </TimeSeriesBarChart>
                 ))}

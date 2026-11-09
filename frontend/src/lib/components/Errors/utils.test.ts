@@ -17,8 +17,11 @@ import {
 } from './utils'
 
 describe('Error Display', () => {
-    it('recognizes the Kotlin Multiplatform SDK runtime', () => {
-        expect(getRuntimeFromLib('posthog-kmp')).toBe('kotlin')
+    it.each([
+        ['posthog-kmp', 'kotlin'],
+        ['posthog-laravel', 'php'],
+    ])('recognizes the %s SDK runtime', (lib, runtime) => {
+        expect(getRuntimeFromLib(lib)).toBe(runtime)
     })
 
     it('can read sentry stack trace when $exception_list is not present', () => {

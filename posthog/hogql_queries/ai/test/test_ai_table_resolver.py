@@ -1,7 +1,11 @@
 import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, materialized
 from unittest.mock import Mock, patch
 
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
+
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.ai.ai_table_resolver import (
     AIEventsExpiredError,
@@ -9,6 +13,7 @@ from posthog.hogql_queries.ai.ai_table_resolver import (
     is_ai_events_enabled,
     query_ai_events,
 )
+from posthog.models.ai_events.test_util import bulk_create_ai_events
 
 
 class TestIsAiEventsEnabled:
@@ -195,7 +200,7 @@ class TestQueryAiEvents:
 
         team = Mock(id=1, organization_id="org")
         timings = Mock()
-        modifiers = Mock()
+        modifiers = HogQLQueryModifiers(debug=True)
         limit_context = Mock()
         settings = Mock()
         workload = Mock()
@@ -216,7 +221,7 @@ class TestQueryAiEvents:
 
         kwargs = mock_execute.call_args.kwargs
         assert kwargs["timings"] is timings
-        assert kwargs["modifiers"] is modifiers
+        assert kwargs["modifiers"] == HogQLQueryModifiers(debug=True, materializationMode=MaterializationMode.DISABLED)
         assert kwargs["limit_context"] is limit_context
         assert kwargs["settings"] is settings
         assert kwargs["workload"] is workload
@@ -238,8 +243,34 @@ class TestQueryAiEvents:
 
         kwargs = mock_execute.call_args.kwargs
         assert "timings" not in kwargs
-        assert "modifiers" not in kwargs
+        assert kwargs["modifiers"].model_dump(exclude_none=True) == {"materializationMode": "disabled"}
         assert "limit_context" not in kwargs
         assert "settings" not in kwargs
         assert "workload" not in kwargs
         assert kwargs["user"] is None
+
+
+class TestQueryAiEventsPersonJoin(ClickhouseTestMixin, BaseTest):
+    def test_reads_person_properties_without_materialized_columns(self):
+        with materialized("person", "email"):
+            _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "user@example.com"})
+            bulk_create_ai_events(
+                [
+                    {
+                        "event": "$ai_generation",
+                        "team": self.team,
+                        "distinct_id": "person1",
+                        "properties": {"$ai_trace_id": "trace-1"},
+                    }
+                ]
+            )
+
+            result = query_ai_events(
+                query=parse_select("SELECT person.properties.email FROM posthog.ai_events"),
+                placeholders={},
+                team=self.team,
+                query_type="TestQuery",
+            )
+
+        assert result.results == [("user@example.com",)]
+        assert "pmat_email" not in result.clickhouse

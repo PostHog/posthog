@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "engine": {
+            "description": "Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). Omit it to resume every engine the query is suspended on.\n\n* `clickhouse` - ClickHouse\n* `trino` - Trino",
+            "enum": ["clickhouse", "trino"],
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this data warehouse saved query.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
