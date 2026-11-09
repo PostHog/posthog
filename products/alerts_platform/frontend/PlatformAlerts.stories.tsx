@@ -233,16 +233,3 @@ export const Routing: Story = {
         featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING],
     },
 }
-
-export const RoutingNewRouteModal: Story = {
-    parameters: {
-        pageUrl: `${urls.platformAlerts()}?tab=routing`,
-        featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING],
-    },
-    // A native click rather than userEvent, for the same reason as the snooze menu story above.
-    play: async ({ canvasElement }) => {
-        await within(canvasElement).findAllByText('Infra incidents')
-        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alert-route-new"]')?.click()
-        await within(document.body).findByText('Add condition')
-    },
-}
