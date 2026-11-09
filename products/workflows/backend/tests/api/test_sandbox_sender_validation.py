@@ -651,6 +651,7 @@ class TestSandboxSenderValidation(APIBaseTest):
             ("duplicated_step", "add_step", "function_email"),
             ("other_step_switched_to_it", "switch_other_step", "function_email"),
             ("step_type_switched", "switch_type", "function"),
+            ("inert_generic_step_switched_to_the_email_template", "switch_template", "function"),
             ("reply_to_changed", "change_reply_to", "function_email"),
         ]
     )
@@ -679,6 +680,12 @@ class TestSandboxSenderValidation(APIBaseTest):
             actions[1]["config"]["template_id"] = "template-email"
         elif change == "change_reply_to":
             actions[1]["config"]["inputs"]["email"]["value"]["replyTo"] = "new-reply@example.com"
+        elif change == "switch_template":
+            stored.actions[1]["type"] = action_type
+            stored.actions[1]["config"]["template_id"] = "missing-template"
+            stored.save()
+            actions[1]["type"] = action_type
+            actions[1]["config"]["template_id"] = "template-email"
         else:
             raise AssertionError(change)
 
