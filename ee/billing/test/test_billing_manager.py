@@ -604,6 +604,7 @@ class TestBillingManager(BaseTest):
                 {
                     "customer": {"billing_plan": "scale", "never_drop_data": False},
                     "computed_at": "2026-11-01T00:00:00+00:00",
+                    "latest_usage_report_date": "2026-10-31",
                 },
             ),
         )
@@ -612,6 +613,7 @@ class TestBillingManager(BaseTest):
         assert organization.billing_package_label() == "paid"
         assert organization.usage["events"] == {"usage": 5, "limit": None, "quota_limited_until": 1}
         assert organization.usage["billing_status_computed_at"] == "2026-11-01T00:00:00+00:00"
+        assert "billing_latest_usage_report_date" not in organization.usage
 
     def test_older_billing_status_does_not_reverse_a_package_change(self):
         organization = self.organization
