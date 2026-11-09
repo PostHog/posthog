@@ -626,8 +626,7 @@ class _SourceState:
 
     source: PersonPropertySyncSource
     result: PerSourceResult
-    # The snapshot as read at the start, plus every hash this run delivered since, so a distinct_id
-    # repeated in a later chunk is skipped when unchanged and sent again when its value changed.
+    # The snapshot plus every hash delivered since, so a later repeat is diffed against what was sent.
     prior: dict[str, str]
     group_type_name: str | None
     # Snapshot chunk files get a name unique to this attempt. A Temporal retry reuses ``run_token``, and
@@ -742,8 +741,7 @@ async def _sync_bundles(run: _RunContext, state: _SourceState, bundles: list[tup
 async def _close_source(run: _RunContext, state: _SourceState) -> PerSourceResult:
     ps = state.result
     if not state.group_type_missing:
-        # The chunk files already hold this run's deliveries, so the compaction merges the folder alone.
-        # Drop the in-memory copy first so only one full set of hashes is alive at a time.
+        # Free the in-memory copy so only one full set of hashes is alive during compaction.
         state.prior = {}
         # Fold this run's chunk files, and any left by an earlier run that was stopped part way, into
         # one ``{run_token}.parquet`` so the folder stays at about one file per source.
@@ -1026,8 +1024,6 @@ async def run_person_property_backfill(
     if active:
         repeated = await asyncio.to_thread(_last_row_of_repeated_keys, delta, active)
     states = [await _open_source(run, source) for source in active]
-    # Each batch is diffed, produced and snapshotted before the next is read, so memory holds one batch
-    # rather than the table, and a run stopped part way keeps what it delivered.
     batches = await asyncio.to_thread(delta.open_batches, delta.columns)
     while (batch := await asyncio.to_thread(next, batches, None)) is not None:
         offset = result.rows_read
