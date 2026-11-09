@@ -4,9 +4,9 @@ import { Spinner } from '@posthog/quill'
 
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { CatalogTableRow, passingChecks } from '../catalogTableRows'
+import { ChecksSubject, passingChecks } from '../catalogTableRows'
 
-export function CatalogChecksSummary({ row }: { row: CatalogTableRow }): JSX.Element | null {
+export function CatalogChecksSummary({ row }: { row: ChecksSubject }): JSX.Element | null {
     const { runningSubjectKey } = useValues(dataQualityOverviewLogic)
     const counts = passingChecks(row)
     if (row.checkGroup && runningSubjectKey === row.checkGroup.subjectKey) {

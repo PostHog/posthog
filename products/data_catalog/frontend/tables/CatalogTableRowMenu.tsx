@@ -101,7 +101,8 @@ function TrustItems({ row, menuActions }: { row: CatalogTableRow; menuActions: R
 }
 
 export function CatalogTableRowMenu({ row }: { row: CatalogTableRow }): JSX.Element | null {
-    const menuActions = rowMenuActions(row)
+    const { certificationsLoadFailed } = useValues(catalogTablesLogic)
+    const menuActions = rowMenuActions(row, !certificationsLoadFailed)
     if (menuActions.length === 0) {
         return null
     }
