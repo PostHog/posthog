@@ -35581,6 +35581,10 @@
             "additionalProperties": false,
             "description": "One row of the per-tool \"Failures\" table: a failure bucket (error type/status) for a tool.",
             "properties": {
+                "cause": {
+                    "description": "$mcp_error_message with ids and numbers masked; the grouping key within a type. Empty when no message was captured.",
+                    "type": "string"
+                },
                 "error_status": {
                     "description": "Raw $mcp_error_status as a string; empty when the bucket has no HTTP status.",
                     "type": "string"
@@ -35605,9 +35609,22 @@
                 },
                 "occurrences": {
                     "$ref": "#/definitions/integer"
+                },
+                "sample_message": {
+                    "description": "Newest raw error message in this group.",
+                    "type": "string"
                 }
             },
-            "required": ["message", "error_type", "error_status", "occurrences", "last_seen", "harnesses"],
+            "required": [
+                "message",
+                "error_type",
+                "error_status",
+                "occurrences",
+                "last_seen",
+                "harnesses",
+                "cause",
+                "sample_message"
+            ],
             "type": "object"
         },
         "MCPToolFailureOccurrenceItem": {
@@ -35656,6 +35673,10 @@
             "additionalProperties": false,
             "description": "Individual errored calls of a single MCP tool within one failure bucket, newest first.",
             "properties": {
+                "cause": {
+                    "description": "When set, only events whose masked message equals this failures-table `cause` match; \"\" selects events without a message.",
+                    "type": "string"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },

@@ -58187,6 +58187,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolFailureItem {
+      /** $mcp_error_message with ids and numbers masked; the grouping key within a type. Empty when no message was captured. */
+      cause: string;
       /** Raw $mcp_error_status as a string; empty when the bucket has no HTTP status. */
       error_status: string;
       /** Raw $mcp_error_type bucket ("unknown" when the event carries none) — pass to MCPToolFailureOccurrencesQuery. */
@@ -58197,6 +58199,8 @@ export namespace Schemas {
       /** Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP 500)"). */
       message: string;
       occurrences: number;
+      /** Newest raw error message in this group. */
+      sample_message: string;
     }
 
     export interface MCPToolFailuresQueryResponse {
@@ -58274,6 +58278,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolFailureOccurrencesQuery {
+      /** When set, only events whose masked message equals this failures-table `cause` match; "" selects events without a message. */
+      cause?: string | null;
       dateRange?: DateRange | null;
       /** When set, only events with this HTTP status match; when unset, only events without a status match. */
       errorStatus?: string | null;
