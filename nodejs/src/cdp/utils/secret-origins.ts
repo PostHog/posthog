@@ -215,6 +215,13 @@ function withoutSecrets(origin: string, secrets: string[]): string {
     return patterns.length ? origin.replace(new RegExp(patterns.join('|'), 'gi'), REDACTED) : origin
 }
 
+type SecretInput = NonNullable<HogFunctionType['inputs']>[string]
+
+// Reads only own entries, because `inputs['__proto__']` on an object without that key returns `Object.prototype`.
+function ownEntry(inputs: unknown, key: string): SecretInput | undefined {
+    return isRecord(inputs) && Object.hasOwn(inputs, key) ? (inputs[key] as SecretInput) : undefined
+}
+
 /**
  * The secret inputs a test of an unsaved configuration sends, picked as `HogFunction.move_secret_inputs` picks them on
  * save. Django restores each secret the configuration keeps into its inputs and binds it to the origins of the tested
@@ -224,13 +231,12 @@ function withoutSecrets(origin: string, secrets: string[]): string {
 export function testedSecretInputs(
     configuration: Pick<HogFunctionType, 'inputs' | 'inputs_schema' | 'encrypted_inputs'>
 ): NonNullable<HogFunctionType['encrypted_inputs']> {
-    const stored: unknown = configuration.encrypted_inputs
-    const storedInputs = isRecord(stored) ? (stored as NonNullable<HogFunctionType['encrypted_inputs']>) : {}
     const tested: NonNullable<HogFunctionType['encrypted_inputs']> = {}
     for (const { key, secret } of configuration.inputs_schema ?? []) {
-        const input = configuration.inputs?.[key] ?? storedInputs[key]
+        const input = ownEntry(configuration.inputs, key) ?? ownEntry(configuration.encrypted_inputs, key)
         if (secret && input) {
-            tested[key] = input
+            // An assignment to `__proto__` sets the prototype and adds no entry, so the guard would not see the secret.
+            Object.defineProperty(tested, key, { value: input, enumerable: true, writable: true, configurable: true })
         }
     }
     return tested

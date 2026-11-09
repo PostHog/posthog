@@ -4,7 +4,7 @@ import path from 'path'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { HogFunctionType } from '../types'
-import { SecretOriginGuard, SecretOriginRefusal, requestOrigin } from './secret-origins'
+import { SecretOriginGuard, SecretOriginRefusal, requestOrigin, testedSecretInputs } from './secret-origins'
 
 const ORIGIN_CASES: { url: string; origin: string | null }[] = parseJSON(
     readFileSync(path.resolve(__dirname, '../../../../products/cdp/shared/crosslang/secret_origin_cases.json'), 'utf8')
@@ -71,6 +71,35 @@ describe('secret origins', () => {
         )
 
         expect(check.refusal).toEqual(expected)
+    })
+
+    // JSON.parse, like the API body and the decrypted inputs, keeps `__proto__` as an own key.
+    const protoKeyed = (input: object): Record<string, any> => parseJSON(JSON.stringify({ ['__proto__']: input }))
+
+    it.each<{ case: string; inputs: Record<string, any>; encryptedInputs: Record<string, any> }>([
+        {
+            case: 'the tested configuration',
+            inputs: protoKeyed({ value: SECRET, allowed_origins: ['https://good.example'] }),
+            encryptedInputs: {},
+        },
+        {
+            case: 'the stored function',
+            inputs: {},
+            encryptedInputs: protoKeyed({ value: SECRET, allowed_origins: ['https://good.example'] }),
+        },
+    ])('refuses a test send of a secret keyed __proto__ from $case', ({ inputs, encryptedInputs }) => {
+        const tested = testedSecretInputs({
+            inputs_schema: [{ type: 'string', key: '__proto__', secret: true }],
+            inputs,
+            encrypted_inputs: encryptedInputs,
+        })
+
+        const check = guard.check(
+            { id: 'fn', team_id: 1, bytecode: [], encrypted_inputs: tested },
+            { url: 'https://evil.example/', headers: {}, body: JSON.stringify({ key: SECRET }), params: {} }
+        )
+
+        expect(check.refusal).toEqual({ inputKey: '__proto__', origin: 'https://evil.example' })
     })
 
     it.each(ORIGIN_CASES.filter((c) => c.origin !== null))(
