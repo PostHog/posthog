@@ -124,6 +124,17 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert f"CPA is ${value:.0f}" in rec.reason
         assert reason_benchmark in rec.reason
 
+    def test_conversions_without_cost_leave_no_benchmark(self) -> None:
+        campaigns = (
+            _campaign(id="c1", cost=0, conversions=20),
+            _campaign(id="c2", name="Other", cost=500, conversions=0, channel_type="PERFORMANCE_MAX"),
+        )
+        terms = (_term("free", "c1", cost=0, conversions=20), _term("waste", "c2", cost=500, conversions=0))
+
+        recs = recommend(_inputs(campaigns, terms))
+
+        assert all(rec.cpa is None or rec.cpa.benchmark is None for rec in recs)
+
     @parameterized.expand(
         [
             ("few_conversions_use_the_account", 10, None, 100.0, "account", "3.0x the account's non-brand CPA"),

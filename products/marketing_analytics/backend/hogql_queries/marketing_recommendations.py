@@ -1163,7 +1163,8 @@ class _Recommender:
     def _campaign_benchmark(self, campaign: CampaignStats | None) -> _Benchmark | None:
         if campaign is not None and campaign.target_cpa:
             return _Benchmark(cpa=campaign.target_cpa, source=BenchmarkSource.TARGET_CPA)
-        if self.account_cpa is not None:
+        # A zero CPA comes from conversions without cost, and nothing can be measured against it.
+        if self.account_cpa:
             return _Benchmark(cpa=self.account_cpa, source=BenchmarkSource.ACCOUNT)
         return None
 
@@ -1174,7 +1175,7 @@ class _Recommender:
             campaign is not None
             and not campaign.target_cpa
             and self.nonbrand[campaign.id].conversions >= MIN_CAMPAIGN_BENCHMARK_CONVERSIONS
-            and (own := self._nonbrand_cpa(campaign)) is not None
+            and (own := self._nonbrand_cpa(campaign))
         ):
             return _Benchmark(cpa=own, source=BenchmarkSource.CAMPAIGN)
         return self._campaign_benchmark(campaign)
