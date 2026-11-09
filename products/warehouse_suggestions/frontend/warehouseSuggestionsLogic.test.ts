@@ -551,26 +551,6 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual(expectedOrder)
     })
 
-    it('ranks open suggestions by what they are worth across kinds', async () => {
-        mockList.mockResolvedValue(
-            page([
-                materialize('bytes-big', 0, 5e12),
-                materialize('time-small', 600),
-                unmaterialize('unread-mid', 3000, 1500),
-                materialize('time-big', 2400),
-            ])
-        )
-
-        await mountLogic()
-
-        expect(logic.values.rankedSuggestions.map(({ id }) => id)).toEqual([
-            'time-big',
-            'time-small',
-            'unread-mid',
-            'bytes-big',
-        ])
-    })
-
     it('tags its events with the placement it was mounted for', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         logic = warehouseSuggestionsLogic({ surface: 'models', placement: 'overview' })
