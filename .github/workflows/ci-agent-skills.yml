@@ -319,30 +319,11 @@ jobs:
         timeout-minutes: 10
         needs: [lint-skills, check-skills]
         if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master'
-        # One release at a time, so the staleness check below cannot pass for an older
-        # SHA while a newer run uploads, and then overwrite the newer zip.
-        concurrency:
-            group: ${{ github.workflow }}-release
-            cancel-in-progress: false
         permissions:
             contents: write
 
         steps:
-            - name: Check current master
-              id: current-master
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  GH_REPO: ${{ github.repository }}
-                  GIT_SHA: ${{ github.sha }}
-              run: |
-                  if [ "$(gh api "repos/$GH_REPO/commits/master" --jq .sha)" = "$GIT_SHA" ]; then
-                      echo "is_current=true" >> "$GITHUB_OUTPUT"
-                  else
-                      echo "Skipping agent skills release for stale master SHA $GIT_SHA"
-                  fi
-
             - name: Download skills ZIP built by check-skills
-              if: steps.current-master.outputs.is_current == 'true'
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: agent-skills-zip
@@ -352,12 +333,20 @@ jobs:
             # each one leaves a tag that every clone of this repo fetches on every pull.
             # No workflow triggers off this release, so the job's own GITHUB_TOKEN suffices.
             - name: Update latest release
-              if: steps.current-master.outputs.is_current == 'true'
               env:
                   GH_TOKEN: ${{ github.token }}
                   GH_REPO: ${{ github.repository }}
                   GIT_SHA: ${{ github.sha }}
+              # The master check sits directly before the upload. A newer master commit
+              # needs its own skills build first, which takes minutes, so an older run
+              # cannot pass this check and then overwrite the newer zip. A job-level
+              # concurrency group would not help: it drops a pending newer release when
+              # an older one queues behind it.
               run: |
+                  if [ "$(gh api "repos/$GH_REPO/commits/master" --jq .sha)" != "$GIT_SHA" ]; then
+                      echo "Skipping agent skills release for stale master SHA $GIT_SHA"
+                      exit 0
+                  fi
                   gh release view agent-skills-latest >/dev/null 2>&1 ||
                       gh release create agent-skills-latest \
                           --title "Agent skills (Latest)" \
