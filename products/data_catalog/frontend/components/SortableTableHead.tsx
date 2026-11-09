@@ -3,7 +3,7 @@ import { Button, TableHead, cn } from '@posthog/quill'
 
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
-import { SortDirection } from '../catalogSort'
+import type { SortDirection } from '../catalogTableRows'
 
 const ARIA_SORT: Record<SortDirection, 'ascending' | 'descending'> = { asc: 'ascending', desc: 'descending' }
 

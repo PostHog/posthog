@@ -8,8 +8,8 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 import { SubjectRunBanners } from 'products/data_quality/frontend/overview/SubjectRunBanners'
 
-import { CatalogTableRow, passingChecks } from '../catalogTableRows'
-import { CheckGroupSummary } from '../components/CheckGroupSummary'
+import { CatalogTableRow } from '../catalogTableRows'
+import { CatalogChecksSummary } from '../components/CatalogChecksSummary'
 import { MutedCellText } from '../tables/MutedCellText'
 import { catalogDataQualityLogic } from './catalogDataQualityLogic'
 import { TableChecksPanel } from './TableChecksPanel'
@@ -86,13 +86,7 @@ export function CatalogTableChecksGroup({
                     ) : (
                         <span className="font-medium">{row.name}</span>
                     )}
-                    <MutedCellText>
-                        {row.checkGroup ? (
-                            <CheckGroupSummary counts={passingChecks(row)} subjectKey={row.checkGroup.subjectKey} />
-                        ) : (
-                            'No checks'
-                        )}
-                    </MutedCellText>
+                    <MutedCellText>{row.checkGroup ? <CatalogChecksSummary row={row} /> : 'No checks'}</MutedCellText>
                 </div>
                 <RunChecksButton row={row} />
             </div>

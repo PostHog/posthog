@@ -436,6 +436,7 @@ export function rowMatchesSearch(row: CatalogTableRow, search: string): boolean 
 }
 
 export type TablesSortColumn = 'name' | 'status' | 'checks' | 'trust' | 'freshness'
+export type SortDirection = 'asc' | 'desc'
 
 export type TablesSort = ColumnSort<TablesSortColumn>
 

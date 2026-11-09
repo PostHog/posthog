@@ -4,15 +4,16 @@ import { Spinner } from '@posthog/quill'
 
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { CheckCounts } from '../catalogTableRows'
+import { CatalogTableRow, CheckCounts, passingChecks } from '../catalogTableRows'
 
-interface CheckGroupSummaryProps {
-    counts: CheckCounts | null
-    subjectKey: string | undefined
-}
+type CatalogChecksSummaryProps =
+    | { row: CatalogTableRow }
+    | { counts: CheckCounts | null; subjectKey: string | undefined }
 
-export function CheckGroupSummary({ counts, subjectKey }: CheckGroupSummaryProps): JSX.Element | null {
+export function CatalogChecksSummary(props: CatalogChecksSummaryProps): JSX.Element | null {
     const { runningSubjectKey } = useValues(dataQualityOverviewLogic)
+    const counts = 'row' in props ? passingChecks(props.row) : props.counts
+    const subjectKey = 'row' in props ? props.row.checkGroup?.subjectKey : props.subjectKey
     if (subjectKey && runningSubjectKey === subjectKey) {
         return (
             <span className="flex items-center gap-1 whitespace-nowrap">

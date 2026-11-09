@@ -26,21 +26,20 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { ModelsOverviewProblemBadges } from 'products/data_modeling/frontend/ModelsOverviewProblemBadges'
 
-import { sortDirectionFor } from '../catalogSort'
-import { CatalogTableRow, TablesSortColumn, dataQualityUrl, passingChecks } from '../catalogTableRows'
+import { CatalogTableRow, dataQualityUrl, passingChecks } from '../catalogTableRows'
 import { TABLES_PAGE_SIZE, catalogTablesLogic } from '../catalogTablesLogic'
-import { CheckGroupSummary } from '../components/CheckGroupSummary'
-import { isPlainRowClick } from '../components/isPlainRowClick'
+import { CatalogChecksSummary } from '../components/CatalogChecksSummary'
 import { PageSelectionCheckbox } from '../components/PageSelectionCheckbox'
-import { SortHeadProps, SortableTableHead } from '../components/SortableTableHead'
 import { CatalogTableFreshness } from './CatalogTableFreshness'
 import { CatalogTableRowMenu } from './CatalogTableRowMenu'
 import { CatalogTablesPagination } from './CatalogTablesPagination'
+import { CatalogTablesSortableHead } from './CatalogTablesSortableHead'
 import { CatalogTableTrust } from './CatalogTableTrust'
 import { MutedCellText } from './MutedCellText'
 
 const WIDE_ONLY_CELL = 'hidden @min-[40rem]/main-content:table-cell'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
+const INTERACTIVE_SELECTOR = 'a, button, input, label, [role="checkbox"]'
 
 function ChecksCell({ row }: { row: CatalogTableRow }): JSX.Element {
     if (!passingChecks(row)) {
@@ -54,7 +53,7 @@ function ChecksCell({ row }: { row: CatalogTableRow }): JSX.Element {
             render={<LinkPrimitive to={dataQualityUrl(row.name)} />}
             data-attr="data-catalog-tables-checks-link"
         >
-            <CheckGroupSummary counts={passingChecks(row)} subjectKey={row.checkGroup?.subjectKey} />
+            <CatalogChecksSummary row={row} />
         </Button>
     )
 }
@@ -101,6 +100,11 @@ function NameCell({ row }: { row: CatalogTableRow }): JSX.Element {
             </div>
         </div>
     )
+}
+
+function isPlainRowClick(event: MouseEvent<HTMLTableRowElement>): boolean {
+    const target = event.target
+    return target instanceof Element && event.currentTarget.contains(target) && !target.closest(INTERACTIVE_SELECTOR)
 }
 
 function CatalogTablesTableRow({ row, selected }: { row: CatalogTableRow; selected: boolean }): JSX.Element {
@@ -174,13 +178,8 @@ function NoMatches(): JSX.Element {
 }
 
 export function CatalogTablesTable(): JSX.Element {
-    const { visibleRows, filteredRows, currentPage, pageCount, selectedRowKeys, sort } = useValues(catalogTablesLogic)
-    const { setPage, setRowsSelected, toggleSort } = useActions(catalogTablesLogic)
-    const sortProps = (column: TablesSortColumn): SortHeadProps => ({
-        direction: sortDirectionFor(sort, column),
-        onToggle: () => toggleSort(column),
-        dataAttr: `data-catalog-tables-sort-${column}`,
-    })
+    const { visibleRows, filteredRows, currentPage, pageCount, selectedRowKeys } = useValues(catalogTablesLogic)
+    const { setPage, setRowsSelected } = useActions(catalogTablesLogic)
     return (
         <div data-attr="data-catalog-tables-table">
             <Table fullWidth size="sm">
@@ -194,11 +193,11 @@ export function CatalogTablesTable(): JSX.Element {
                                 onChange={setRowsSelected}
                             />
                         </TableHead>
-                        <SortableTableHead label="Name" expand {...sortProps('name')} />
-                        <SortableTableHead label="Status" className={WIDE_ONLY_CELL} {...sortProps('status')} />
-                        <SortableTableHead label="Checks" className={WIDE_ONLY_CELL} {...sortProps('checks')} />
-                        <SortableTableHead label="Trust" className={WIDE_ONLY_CELL} {...sortProps('trust')} />
-                        <SortableTableHead label="Freshness" className={WIDE_ONLY_CELL} {...sortProps('freshness')} />
+                        <CatalogTablesSortableHead column="name" label="Name" expand />
+                        <CatalogTablesSortableHead column="status" label="Status" className={WIDE_ONLY_CELL} />
+                        <CatalogTablesSortableHead column="checks" label="Checks" className={WIDE_ONLY_CELL} />
+                        <CatalogTablesSortableHead column="trust" label="Trust" className={WIDE_ONLY_CELL} />
+                        <CatalogTablesSortableHead column="freshness" label="Freshness" className={WIDE_ONLY_CELL} />
                         <TableHead className="w-0">
                             <span className="sr-only">Actions</span>
                         </TableHead>

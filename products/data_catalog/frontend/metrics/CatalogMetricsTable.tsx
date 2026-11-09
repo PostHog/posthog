@@ -37,7 +37,7 @@ import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overvie
 import { CATALOG_PAGE_SIZE } from '../catalogPagination'
 import { sortDirectionFor } from '../catalogSort'
 import { humanizeDefinitionKind, metricDisplayName } from '../common'
-import { CheckGroupSummary } from '../components/CheckGroupSummary'
+import { CatalogChecksSummary } from '../components/CatalogChecksSummary'
 import { isPlainRowClick } from '../components/isPlainRowClick'
 import { PageSelectionCheckbox } from '../components/PageSelectionCheckbox'
 import { SortHeadProps, SortableTableHead } from '../components/SortableTableHead'
@@ -171,7 +171,7 @@ function MetricChecksCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Ele
             render={<LinkPrimitive to={urls.dataCatalogMetric(metric.name, 'data-quality')} />}
             data-attr="data-catalog-metrics-checks-link"
         >
-            <CheckGroupSummary counts={counts} subjectKey={checkGroupByMetricId[metric.id]?.subjectKey} />
+            <CatalogChecksSummary counts={counts} subjectKey={checkGroupByMetricId[metric.id]?.subjectKey} />
         </Button>
     )
 }

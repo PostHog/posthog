@@ -1,4 +1,4 @@
-export type SortDirection = 'asc' | 'desc'
+import type { SortDirection } from './catalogTableRows'
 
 export interface ColumnSort<Column extends string> {
     column: Column
