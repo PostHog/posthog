@@ -53,6 +53,11 @@ FETCHER_MODULE_PATH = "products.signals.backend.emission.fetchers.data_warehouse
 ACTIVITY_MODULE_PATH = "products.signals.backend.emission.emit_signals"
 
 
+@pytest.fixture(autouse=True)
+def no_llm_retry_delay(monkeypatch):
+    monkeypatch.setattr(f"{PIPELINE_MODULE_PATH}.LLM_RETRY_INITIAL_DELAY_SECONDS", 0)
+
+
 def _make_config(**overrides: Any) -> SignalSourceTableConfig:
     defaults: dict[str, Any] = {
         "source_product": "test_product",

@@ -86,12 +86,22 @@ async def _drive(recorder: _Recorder) -> None:
         recorder.grouping_starts += 1
         recorder.flow_done.set()
 
+    # The test waits on its own events rather than on the workflow result, so the time-skipping
+    # server never skips the workflow's timers and they would run on the wall clock.
+    with (
+        patch(f"{BUFFER_MODULE}.BUFFER_FLUSH_TIMEOUT_SECONDS", 0.1),
+        patch(f"{BUFFER_MODULE}.SAFETY_FILTER_RETRY_DELAY_SECONDS", 0.1),
+    ):
+        await _run_buffer_workflow(recorder, [fake_quota, fake_safety, fake_flush, fake_grouping])
+
+
+async def _run_buffer_workflow(recorder: _Recorder, activities: list) -> None:
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=TASK_QUEUE,
             workflows=[BufferSignalsWorkflow],
-            activities=[fake_quota, fake_safety, fake_flush, fake_grouping],
+            activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             unsafe = _signal(1)
