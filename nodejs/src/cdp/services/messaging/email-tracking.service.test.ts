@@ -490,6 +490,13 @@ describe('EmailTrackingService', () => {
                         jest.spyOn(service.engagementRedis, 'useClient').mockReturnValue(new Promise(() => {})),
                 ],
                 [
+                    'Redis rejects',
+                    (service) =>
+                        jest
+                            .spyOn(service.engagementRedis, 'useClient')
+                            .mockRejectedValueOnce(new Error('pool exhausted')),
+                ],
+                [
                     'the team config read fails',
                     (service) =>
                         jest

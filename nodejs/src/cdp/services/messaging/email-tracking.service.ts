@@ -861,17 +861,20 @@ export class EmailTrackingService {
         })
         let timer: NodeJS.Timeout | undefined
         const grew = await Promise.race([
-            this.engagementRedis.useClient(
-                { name: 'email-engagement-people', failOpen: true },
-                (client) =>
-                    client.eval(
-                        ENGAGEMENT_PEOPLE_SCRIPT,
-                        keys.length,
-                        ...keys,
-                        invocationId,
-                        ENGAGEMENT_PEOPLE_TTL_SECONDS
-                    ) as Promise<number[]>
-            ),
+            this.engagementRedis
+                .useClient(
+                    { name: 'email-engagement-people', failOpen: true },
+                    (client) =>
+                        client.eval(
+                            ENGAGEMENT_PEOPLE_SCRIPT,
+                            keys.length,
+                            ...keys,
+                            invocationId,
+                            ENGAGEMENT_PEOPLE_TTL_SECONDS
+                        ) as Promise<number[]>
+                )
+                // useClient rethrows a pool failure despite failOpen, and a throw makes SNS capture the event again.
+                .catch(() => null),
             new Promise<null>((resolve) => {
                 timer = setTimeout(() => resolve(null), ENGAGEMENT_REDIS_TIMEOUT_MS)
             }),
