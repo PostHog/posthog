@@ -176,6 +176,7 @@ fn internal_verify_matches_node() {
                 InternalSourcePolicy {
                     billed: false,
                     team_rules: false,
+                    attributes: vec![],
                 },
             ),
             (
@@ -183,6 +184,7 @@ fn internal_verify_matches_node() {
                 InternalSourcePolicy {
                     billed: true,
                     team_rules: true,
+                    attributes: vec![],
                 },
             ),
         ]),

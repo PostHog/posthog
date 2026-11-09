@@ -31,6 +31,7 @@ import {
     recordLogsDropped,
     recordLogsReceived,
 } from './ingestion-otel-metrics'
+import { makeInternalAttributesStage } from './internal-attributes-stage'
 import {
     INTERNAL_LOGS_HEADER,
     INTERNAL_SOURCE_HEADER,
@@ -628,6 +629,10 @@ export class LogsIngestionConsumer {
         }
         if (recordsTransform) {
             stages.push(makeTransformStage(recordsTransform))
+        }
+        // After transformations, which can write the prefix too. Internal logs only reach the logs product.
+        if (this.appSource === 'logs') {
+            stages.push(makeInternalAttributesStage(message.verifiedAsInternalLogs))
         }
         let shortestRetentionDays =
             message.verifiedAsInternalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays

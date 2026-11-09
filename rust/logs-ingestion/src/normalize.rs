@@ -11,6 +11,7 @@ use serde::Deserialize;
 
 use crate::avro::{AvroMap, AvroValue};
 use crate::body_parse::{parse_log_body_for_ingestion, LogBodyParseResult};
+use crate::internal_logs::INTERNAL_ATTRIBUTE_PREFIX;
 use crate::js::object::hash_key;
 use crate::js::{
     is_array_index, json_parse, json_stringify, json_stringify_into, quote_js_string,
@@ -538,10 +539,12 @@ pub fn extract_json_attributes_from_body(body: Option<&str>) -> FlatAttributes {
 /// A key with a lone surrogate merges here with a U+FFFD key, where JavaScript keeps two keys. See PORTING.md.
 fn add_json_attributes(
     record: &mut LogRecord,
-    json_attributes: FlatAttributes,
+    mut json_attributes: FlatAttributes,
     mut record_bytes: usize,
     source: JsonEnrichmentSource,
 ) {
+    // A log body is not signed, so it never supplies a reserved key the internal attributes stage would keep.
+    json_attributes.retain(|(key, _)| !key.to_utf8_lossy().starts_with(INTERNAL_ATTRIBUTE_PREFIX));
     if json_attributes.is_empty() {
         return;
     }

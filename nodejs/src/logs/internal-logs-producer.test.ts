@@ -74,9 +74,17 @@ describe('InternalLogsProducer', () => {
     })
 
     it.each([
-        { source: 'hog_flow', serviceName: 'posthog-internal-workflows' },
-        { source: 'hog_function', serviceName: 'posthog-internal-hog-functions' },
-    ])('sends a $source batch the logs consumer verifies as internal', async ({ source, serviceName }) => {
+        {
+            source: 'hog_flow',
+            serviceName: 'posthog-internal-workflows',
+            attributes: ['source_id', 'instance_id', 'hog_flow.id'],
+        },
+        {
+            source: 'hog_function',
+            serviceName: 'posthog-internal-hog-functions',
+            attributes: ['source_id', 'instance_id', 'hog_function.id'],
+        },
+    ])('sends a $source batch the logs consumer verifies as internal', async ({ source, serviceName, attributes }) => {
         await send(new InternalLogsProducer(config(), teamManager), [entry()], source)
 
         expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -90,6 +98,7 @@ describe('InternalLogsProducer', () => {
             billed: false,
             teamRules: false,
             serviceName,
+            attributes,
         })
 
         const body = parseJSON(options!.body as string) as any
