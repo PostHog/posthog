@@ -95,7 +95,7 @@ def copied_chats_hidden_without_sandbox_mode(team_id: int, user_id: int | None) 
     if not copied_task_ids:
         return ()
     team = Team.objects.filter(id=team_id).only("id", "organization_id").first()
-    user = User.objects.filter(id=user_id).first()
+    user = User.objects.filter(id=user_id).only("id", "distinct_id", "email", "is_active").first()
     if team is None or user is None or _has_cached_posthog_ai_access(team, user):
         return ()
     return copied_task_ids
