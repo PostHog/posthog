@@ -474,7 +474,13 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
 
     if request.method not in ("GET", "POST"):
         return HttpResponseNotAllowed(["GET", "POST"])
-    audit = logger.bind(tool=tool.key, operation=operation.key, triggered_by=cast(User, request.user).email)
+    # A tool picks its record from the query, for example ?schema=<id>, so the audit log needs the query to name it.
+    audit = logger.bind(
+        tool=tool.key,
+        operation=operation.key,
+        query=request.GET.urlencode(),
+        triggered_by=cast(User, request.user).email,
+    )
     _require_gate(request, operation, tool.owner, audit)
     if request.method == "GET" and operation.form_class is None:
         return redirect(tool_url)

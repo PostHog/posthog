@@ -18,6 +18,7 @@ from django.test import Client, RequestFactory, SimpleTestCase, override_setting
 from django.utils.html import format_html
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
@@ -733,11 +734,15 @@ class TestAdminConsoleViews(BaseTest):
             "?token=phc_tophog&amp;distinct_ids=new-id&amp;pipelines=session_recordings"
         ) in content
 
-        response = self.client.post(
-            f"/admin/console/tools/tophog/extend-{restriction.pk}/?token=phc_tophog&distinct_id=new-id", data
-        )
+        with capture_logs() as logs:
+            response = self.client.post(
+                f"/admin/console/tools/tophog/extend-{restriction.pk}/?token=phc_tophog&distinct_id=new-id", data
+            )
 
         assert response.status_code == expected_status
+        if expected_status == 302:
+            started = next(log for log in logs if log["event"] == "admin_console_operation_started")
+            assert started["query"] == "token=phc_tophog&distinct_id=new-id"
         restriction.refresh_from_db()
         assert restriction.distinct_ids == expected_distinct_ids
 
