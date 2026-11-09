@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import (
     _CONNECTION_DROPPED_ERROR,
     _FIREWALL_BLOCKED_ERROR,
+    _LOCK_TIMEOUT_VALIDATION_ERROR,
     MSSQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -761,6 +762,26 @@ class TestMSSQLSourceValidateCredentials:
 
         assert valid is False
         assert error == _FIREWALL_BLOCKED_ERROR
+        capture.assert_not_called()
+
+    def test_lock_timeout_returns_actionable_message_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        # Real SQL Server error 1222: a metadata statement waited past `SET LOCK_TIMEOUT` for a lock
+        # held by the customer's own workload.
+        lock_timeout_error = pymssql.OperationalError(
+            1222,
+            b"Lock request time out period exceeded.DB-Lib error message 20018, severity 16:\n"
+            b"General SQL Server error: Check messages from the SQL Server\n",
+        )
+        mocker.patch.object(source, "get_schemas", side_effect=lock_timeout_error)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == _LOCK_TIMEOUT_VALIDATION_ERROR
         capture.assert_not_called()
 
     def test_adaptive_server_connection_failed_names_likely_causes_without_capturing(self, source, mocker):
