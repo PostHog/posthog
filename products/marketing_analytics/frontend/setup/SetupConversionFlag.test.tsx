@@ -69,18 +69,14 @@ describe('conversion setup feature flag', () => {
     })
 
     it.each([
-        [false, false, false, false],
-        [false, false, true, false],
-        [true, false, false, false],
-        [true, false, true, true],
-        [false, true, false, false],
-        [false, true, true, true],
-    ])('gates dashboard recommendations with setup=%s, new dashboard=%s, AI=%s', (setup, dashboard, ai, visible) => {
+        [false, false, false],
+        [false, true, false],
+        [true, false, false],
+        [true, true, true],
+    ])('gates dashboard recommendations with setup=%s, AI=%s', (setup, ai, visible) => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: setup,
-            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: dashboard,
             [FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI]: ai,
-            [FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]: true,
         })
         sourcesDataLogic.mount()
         sourcesDataLogic.actions.loadSourcesSuccess({ count: 0, next: null, previous: null, results: [] })

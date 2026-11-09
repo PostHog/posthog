@@ -1,3 +1,4 @@
-import { openPanelFromToolbarButton } from './extensionBrowser'
+import { listenForAppMessages, openPanelFromToolbarButton } from './browser/extensionBrowser'
 
 openPanelFromToolbarButton()
+listenForAppMessages()

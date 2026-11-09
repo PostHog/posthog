@@ -1,1 +1,1 @@
-0210_monitoring_scout_recovery_index
+0239_squash_2026_11_02_schema_addons

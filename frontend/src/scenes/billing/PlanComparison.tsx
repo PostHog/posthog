@@ -10,6 +10,8 @@ import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { isCompanionProduct } from 'lib/logic/billing/companionProducts'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
@@ -21,8 +23,7 @@ import {
     BillingProductV2Type,
 } from '~/types'
 
-import { convertLargeNumberToWords, getProration, isCompanionProduct } from './billing-utils'
-import { billingLogic } from './billingLogic'
+import { convertLargeNumberToWords, getProration } from './billing-utils'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
@@ -111,6 +112,14 @@ const PricingTiers = ({
     )
 }
 
+function featuresToCompare(plan?: BillingPlanType): BillingFeatureType[] {
+    return (
+        plan?.features?.filter(
+            (feature) => feature.key !== AvailableFeature.PRODUCT_ANALYTICS_STANDARD_DATA_RETENTION
+        ) ?? []
+    )
+}
+
 export const PlanComparison = ({
     product,
     includeAddons = false,
@@ -131,6 +140,7 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
+    const comparedFeatures = featuresToCompare(fullyFeaturedPlan)
 
     const productAnalyticsPlans = billing?.products?.find((product) => product.type === 'product_analytics')?.plans
     const eventsRetentionOf = (plan?: BillingPlanType): BillingFeatureType | undefined =>
@@ -281,11 +291,11 @@ export const PlanComparison = ({
                         </h3>
                     </th>
                 </tr>
-                {fullyFeaturedPlan?.features?.map((feature, i) => (
+                {comparedFeatures.map((feature, i) => (
                     <tr
                         key={`tr-${feature.key}`}
                         className={clsx(
-                            i == fullyFeaturedPlan?.features?.length - 1 &&
+                            i == comparedFeatures.length - 1 &&
                                 !showEventsRetention &&
                                 !billing?.has_active_subscription
                                 ? 'PlanTable__tr__border'
@@ -296,7 +306,7 @@ export const PlanComparison = ({
                             className={clsx(
                                 'PlanTable__th__feature',
                                 width && width < 600 && 'PlanTable__th__feature--reduced_padding',
-                                i == fullyFeaturedPlan?.features?.length - 1 &&
+                                i == comparedFeatures.length - 1 &&
                                     !showEventsRetention &&
                                     'PlanTable__th__last-feature'
                             )}

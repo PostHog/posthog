@@ -6,15 +6,26 @@ const commits = [
     { sha: "desktop", subject: "fix: desktop", files: ["products/desktop/app.ts"], pullRequestNumber: 1 },
     { sha: "backend", subject: "feat: backend", files: ["posthog/api.py"], pullRequestNumber: 2 },
     { sha: "other", subject: "feat: other", files: ["frontend/index.ts"], pullRequestNumber: 3 },
+    {
+        sha: "codegen",
+        subject: "feat: codegen",
+        files: [
+            "products/experiments/backend/api.py",
+            "products/desktop/packages/api-client/src/generated.ts",
+            "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
+        ],
+        pullRequestNumber: 4,
+    },
 ];
 const pullRequests = new Map([
     [1, { title: "fix: desktop", author: "one", url: "https://example.test/1", labels: [] }],
     [2, { title: "feat: backend", author: "two", url: "https://example.test/2", labels: ["feature/desktop"] }],
     [3, { title: "feat: other", author: "three", url: "https://example.test/3", labels: [] }],
+    [4, { title: "feat: codegen", author: "four", url: "https://example.test/4", labels: [] }],
 ]);
 
 describe("selectReleaseChanges", () => {
-    it("includes desktop paths and feature/desktop labels", () => {
+    it("includes desktop paths and feature/desktop labels but not generated desktop files", () => {
         assert.deepEqual(selectReleaseChanges(commits, pullRequests).map(({ sha }) => sha), ["desktop", "backend"]);
     });
 });
@@ -25,6 +36,7 @@ describe("renderReleaseNotes", () => {
         assert.match(notes, /fix: desktop by @one/);
         assert.match(notes, /feat: backend by @two/);
         assert.doesNotMatch(notes, /feat: other/);
+        assert.doesNotMatch(notes, /feat: codegen/);
         assert.match(notes, /PostHog\/posthog\/compare\/desktop-v1\.\.\.desktop-v2/);
     });
 });

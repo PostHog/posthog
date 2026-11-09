@@ -2,7 +2,7 @@
 //!
 //! Field names and shapes mirror the dataclasses at [`posthog/hogql/ast.py`]. The Python deserialiser at [`posthog/hogql/json_ast.py`] also builds these dataclasses from the JSON shape, so the two backends produce `__eq__`-equivalent objects.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::borrow::Cow;
 
 /// AST node + value constructor surface. Every construction site in the parser routes through this trait so the same parse logic can produce `serde_json::Value` (kept for WASM and tests) or Python dataclass instances directly via PyO3.
@@ -283,6 +283,13 @@ pub trait Emitter {
     // ===== Mutation =====
     /// Remove a named field from a node, returning the previous value (or None when absent). Used to drop sentinel keys before the node leaves the parser, e.g. `__rust_offset_liftable`.
     fn remove_field(&self, v: &mut Self::Value, name: &str) -> Option<Self::Value>;
+    /// Return a field that the caller does not read from `v` again. `JsonEmitter` moves the field out of `v` instead of deep-copying it, so `v` is left without that field. The default copies the field and leaves `v` unchanged, because a cloned `PyEmitter` value shares its Python object and removing the field would change every other reference to it.
+    fn take_field(&self, v: &mut Self::Value, name: &str) -> Option<Self::Value> {
+        self.get_field(v, name)
+    }
+    fn into_list(&self, v: Self::Value) -> Option<Vec<Self::Value>> {
+        self.as_list(&v)
+    }
     /// Set / overwrite a named field on a node. Used by AST-surgery sites that copy a node and tweak one field — primarily BETWEEN-split recursion, merge-select-decorators, and CTE injection. JSON inserts into the underlying `Map`; Py calls `obj.setattr(name, value)`.
     fn set_field(&self, v: &mut Self::Value, name: &str, value: Self::Value);
 }
@@ -290,6 +297,15 @@ pub trait Emitter {
 // ============================================================================
 // JsonEmitter — `serde_json::Value` impl, mirrors the previous free `emit::xxx` functions. Used by `parse_*_json` entry points and the future WASM build.
 // ============================================================================
+
+/// Build a JSON object from `"key": value` pairs. `json!` serializes interpolated variables by reference, so every child subtree passed to it is deep-copied and the original is dropped. This macro moves each value into the map instead, so the cost of building a node does not grow with the size of its children.
+macro_rules! json_object {
+    ({ $($key:literal : $value:expr),* $(,)? }) => {{
+        let mut map = serde_json::Map::new();
+        $( map.insert($key.to_string(), Value::from($value)); )*
+        Value::Object(map)
+    }};
+}
 
 #[derive(Default, Clone, Copy)]
 pub struct JsonEmitter;
@@ -329,72 +345,72 @@ impl Emitter for JsonEmitter {
     }
 
     fn constant(&self, value: Value) -> Value {
-        json!({"node": "Constant", "value": value})
+        json_object!({"node": "Constant", "value": value})
     }
     fn constant_special_number(&self, name: &'static str) -> Value {
-        json!({"node": "Constant", "value": name, "value_type": "number"})
+        json_object!({"node": "Constant", "value": name, "value_type": "number"})
     }
     fn constant_number_string(&self, text: String) -> Value {
-        json!({"node": "Constant", "value": text, "value_type": "number"})
+        json_object!({"node": "Constant", "value": text, "value_type": "number"})
     }
     fn field(&self, chain: Vec<Value>) -> Value {
-        json!({"node": "Field", "chain": chain})
+        json_object!({"node": "Field", "chain": chain})
     }
     fn arith(&self, left: Value, op: &str, right: Value) -> Value {
-        json!({"node": "ArithmeticOperation", "left": left, "right": right, "op": op})
+        json_object!({"node": "ArithmeticOperation", "left": left, "right": right, "op": op})
     }
     fn compare(&self, left: Value, op: &str, right: Value) -> Value {
-        json!({"node": "CompareOperation", "left": left, "right": right, "op": op})
+        json_object!({"node": "CompareOperation", "left": left, "right": right, "op": op})
     }
     fn compare_is_null(&self, left: Value, negated: bool) -> Value {
-        json!({
+        json_object!({
             "node": "CompareOperation",
             "left": left,
-            "right": json!({"node": "Constant", "value": Value::Null}),
+            "right": json_object!({"node": "Constant", "value": Value::Null}),
             "op": if negated { "!=" } else { "==" },
             "is_null_comparison_style": true,
         })
     }
     fn is_distinct_from(&self, left: Value, right: Value, negated: bool) -> Value {
-        json!({"node": "IsDistinctFrom", "left": left, "right": right, "negated": negated})
+        json_object!({"node": "IsDistinctFrom", "left": left, "right": right, "negated": negated})
     }
     fn between(&self, expr: Value, low: Value, high: Value, negated: bool) -> Value {
-        json!({"node": "BetweenExpr", "expr": expr, "low": low, "high": high, "negated": negated})
+        json_object!({"node": "BetweenExpr", "expr": expr, "low": low, "high": high, "negated": negated})
     }
     fn not_(&self, expr: Value) -> Value {
-        json!({"node": "Not", "expr": expr})
+        json_object!({"node": "Not", "expr": expr})
     }
     fn and_(&self, exprs: Vec<Value>) -> Value {
-        json!({"node": "And", "exprs": exprs})
+        json_object!({"node": "And", "exprs": exprs})
     }
     fn or_(&self, exprs: Vec<Value>) -> Value {
-        json!({"node": "Or", "exprs": exprs})
+        json_object!({"node": "Or", "exprs": exprs})
     }
     fn tuple_(&self, exprs: Vec<Value>) -> Value {
-        json!({"node": "Tuple", "exprs": exprs})
+        json_object!({"node": "Tuple", "exprs": exprs})
     }
     fn array_(&self, exprs: Vec<Value>) -> Value {
-        json!({"node": "Array", "exprs": exprs})
+        json_object!({"node": "Array", "exprs": exprs})
     }
     fn array_access(&self, array: Value, property: Value, nullish: bool) -> Value {
         if nullish {
-            json!({"node": "ArrayAccess", "array": array, "property": property, "nullish": true})
+            json_object!({"node": "ArrayAccess", "array": array, "property": property, "nullish": true})
         } else {
-            json!({"node": "ArrayAccess", "array": array, "property": property})
+            json_object!({"node": "ArrayAccess", "array": array, "property": property})
         }
     }
     fn tuple_access(&self, tuple_: Value, index: i64, nullish: bool) -> Value {
         if nullish {
-            json!({"node": "TupleAccess", "tuple": tuple_, "index": index, "nullish": true})
+            json_object!({"node": "TupleAccess", "tuple": tuple_, "index": index, "nullish": true})
         } else {
-            json!({"node": "TupleAccess", "tuple": tuple_, "index": index})
+            json_object!({"node": "TupleAccess", "tuple": tuple_, "index": index})
         }
     }
     fn alias(&self, expr: Value, name: &str) -> Value {
-        json!({"node": "Alias", "expr": expr, "alias": name})
+        json_object!({"node": "Alias", "expr": expr, "alias": name})
     }
     fn call(&self, name: &str, args: Vec<Value>) -> Value {
-        json!({"node": "Call", "name": name, "args": args})
+        json_object!({"node": "Call", "name": name, "args": args})
     }
     fn call_full(
         &self,
@@ -429,16 +445,16 @@ impl Emitter for JsonEmitter {
     }
     fn lambda(&self, args: Vec<String>, expr: Value) -> Value {
         let args_json: Vec<Value> = args.into_iter().map(Value::String).collect();
-        json!({"node": "Lambda", "args": args_json, "expr": expr})
+        json_object!({"node": "Lambda", "args": args_json, "expr": expr})
     }
     fn expr_call(&self, expr: Value, args: Vec<Value>) -> Value {
-        json!({"node": "ExprCall", "expr": expr, "args": args})
+        json_object!({"node": "ExprCall", "expr": expr, "args": args})
     }
     fn type_cast(&self, expr: Value, type_name: &str) -> Value {
-        json!({"node": "TypeCast", "expr": expr, "type_name": type_name})
+        json_object!({"node": "TypeCast", "expr": expr, "type_name": type_name})
     }
     fn try_cast(&self, expr: Value, type_name: &str) -> Value {
-        json!({"node": "TryCast", "expr": expr, "type_name": type_name})
+        json_object!({"node": "TryCast", "expr": expr, "type_name": type_name})
     }
     fn array_slice(&self, array: Value, start: Option<Value>, end: Option<Value>) -> Value {
         let mut obj = serde_json::Map::new();
@@ -457,13 +473,13 @@ impl Emitter for JsonEmitter {
             .into_iter()
             .map(|(k, v)| Value::Array(vec![k, v]))
             .collect();
-        json!({"node": "Dict", "items": items_json})
+        json_object!({"node": "Dict", "items": items_json})
     }
     fn placeholder(&self, expr: Value) -> Value {
-        json!({"node": "Placeholder", "expr": expr})
+        json_object!({"node": "Placeholder", "expr": expr})
     }
     fn named_argument(&self, name: &str, value: Value) -> Value {
-        self.no_pos(json!({"node": "NamedArgument", "name": name, "value": value}))
+        self.no_pos(json_object!({"node": "NamedArgument", "name": name, "value": value}))
     }
     fn order_expr(&self, expr: Value, order: &str, with_fill: Option<Value>) -> Value {
         let mut obj = serde_json::Map::new();
@@ -510,26 +526,26 @@ impl Emitter for JsonEmitter {
         Value::Object(obj)
     }
     fn spread_expr(&self, expr: Value) -> Value {
-        json!({"node": "SpreadExpr", "expr": expr})
+        json_object!({"node": "SpreadExpr", "expr": expr})
     }
     fn positional_ref(&self, index: i64) -> Value {
-        json!({"node": "PositionalRef", "index": index})
+        json_object!({"node": "PositionalRef", "index": index})
     }
 
     fn program(&self, declarations: Vec<Value>) -> Value {
-        json!({"node": "Program", "declarations": declarations})
+        json_object!({"node": "Program", "declarations": declarations})
     }
     fn block(&self, declarations: Vec<Value>) -> Value {
-        json!({"node": "Block", "declarations": declarations})
+        json_object!({"node": "Block", "declarations": declarations})
     }
     fn expr_statement(&self, expr: Value) -> Value {
-        json!({"node": "ExprStatement", "expr": expr})
+        json_object!({"node": "ExprStatement", "expr": expr})
     }
     fn if_statement(&self, cond: Value, then: Value, else_: Value) -> Value {
-        json!({"node": "IfStatement", "expr": cond, "then": then, "else_": else_})
+        json_object!({"node": "IfStatement", "expr": cond, "then": then, "else_": else_})
     }
     fn while_statement(&self, cond: Value, body: Value) -> Value {
-        json!({"node": "WhileStatement", "expr": cond, "body": body})
+        json_object!({"node": "WhileStatement", "expr": cond, "body": body})
     }
     fn for_in_statement(
         &self,
@@ -538,7 +554,7 @@ impl Emitter for JsonEmitter {
         expr: Value,
         body: Value,
     ) -> Value {
-        json!({
+        json_object!({
             "node": "ForInStatement",
             "keyVar": key_var,
             "valueVar": value_var,
@@ -553,7 +569,7 @@ impl Emitter for JsonEmitter {
         increment: Value,
         body: Value,
     ) -> Value {
-        json!({
+        json_object!({
             "node": "ForStatement",
             "initializer": initializer,
             "condition": condition,
@@ -562,10 +578,10 @@ impl Emitter for JsonEmitter {
         })
     }
     fn function_(&self, name: &str, params: Vec<Value>, body: Value) -> Value {
-        json!({"node": "Function", "name": name, "params": params, "body": body})
+        json_object!({"node": "Function", "name": name, "params": params, "body": body})
     }
     fn variable_assignment(&self, left: Value, right: Value) -> Value {
-        json!({"node": "VariableAssignment", "left": left, "right": right})
+        json_object!({"node": "VariableAssignment", "left": left, "right": right})
     }
     fn return_statement(&self, expr: Value) -> Value {
         let mut obj = serde_json::Map::new();
@@ -579,7 +595,7 @@ impl Emitter for JsonEmitter {
         catches: Vec<Value>,
         finally_stmt: Value,
     ) -> Value {
-        json!({
+        json_object!({
             "node": "TryCatchStatement",
             "try_stmt": try_stmt,
             "catches": catches,
@@ -587,16 +603,16 @@ impl Emitter for JsonEmitter {
         })
     }
     fn throw_statement(&self, expr: Value) -> Value {
-        json!({"node": "ThrowStatement", "expr": expr})
+        json_object!({"node": "ThrowStatement", "expr": expr})
     }
     fn variable_declaration(&self, name: &str, expr: Value) -> Value {
-        json!({"node": "VariableDeclaration", "name": name, "expr": expr})
+        json_object!({"node": "VariableDeclaration", "name": name, "expr": expr})
     }
     fn catch_clause(&self, var: Value, ty: Value, body: Value) -> Value {
-        json!([var, ty, body])
+        Value::Array(vec![var, ty, body])
     }
     fn cte(&self, name: &str, expr: Value, cte_type: &str) -> Value {
-        json!({"node": "CTE", "name": name, "expr": expr, "cte_type": cte_type})
+        json_object!({"node": "CTE", "name": name, "expr": expr, "cte_type": cte_type})
     }
     fn cte_subquery(
         &self,
@@ -629,13 +645,13 @@ impl Emitter for JsonEmitter {
         Value::Object(obj)
     }
     fn join_constraint(&self, expr: Value, constraint_type: &str) -> Value {
-        json!({"node": "JoinConstraint", "expr": expr, "constraint_type": constraint_type})
+        json_object!({"node": "JoinConstraint", "expr": expr, "constraint_type": constraint_type})
     }
     fn values_query(&self, rows: Vec<Value>) -> Value {
-        json!({"node": "ValuesQuery", "rows": rows})
+        json_object!({"node": "ValuesQuery", "rows": rows})
     }
     fn pivot_column(&self, column: Value, values: Vec<Value>) -> Value {
-        json!({"node": "PivotColumn", "column": column, "values": values})
+        json_object!({"node": "PivotColumn", "column": column, "values": values})
     }
     fn unpivot_column(
         &self,
@@ -643,7 +659,7 @@ impl Emitter for JsonEmitter {
         name_columns: Value,
         unpivot_values: Vec<Value>,
     ) -> Value {
-        json!({
+        json_object!({
             "node": "UnpivotColumn",
             "value_columns": value_columns,
             "name_columns": name_columns,
@@ -651,13 +667,13 @@ impl Emitter for JsonEmitter {
         })
     }
     fn grouping_set(&self, exprs: Vec<Value>) -> Value {
-        json!({"node": "GroupingSet", "exprs": exprs})
+        json_object!({"node": "GroupingSet", "exprs": exprs})
     }
     fn hogqlx_tag(&self, kind: &str, attributes: Vec<Value>) -> Value {
-        json!({"node": "HogQLXTag", "kind": kind, "attributes": attributes})
+        json_object!({"node": "HogQLXTag", "kind": kind, "attributes": attributes})
     }
     fn hogqlx_attribute(&self, name: &str, value: Value) -> Value {
-        json!({"node": "HogQLXAttribute", "name": name, "value": value})
+        json_object!({"node": "HogQLXAttribute", "name": name, "value": value})
     }
     fn window_function(
         &self,
@@ -775,17 +791,17 @@ impl Emitter for JsonEmitter {
         Value::Object(obj)
     }
     fn select_set_query(&self, initial: Value, subsequent: Vec<Value>) -> Value {
-        json!({
+        json_object!({
             "node": "SelectSetQuery",
             "initial_select_query": initial,
             "subsequent_select_queries": subsequent,
         })
     }
     fn window_expr_empty(&self) -> Value {
-        json!({"node": "WindowExpr"})
+        json_object!({"node": "WindowExpr"})
     }
     fn window_frame_bound(&self, frame_type: &str, frame_value: Value) -> Value {
-        json!({"node": "WindowFrameExpr", "frame_type": frame_type, "frame_value": frame_value})
+        json_object!({"node": "WindowFrameExpr", "frame_type": frame_type, "frame_value": frame_value})
     }
     fn interpolate_expr(&self, expr: Value, value: Option<Value>) -> Value {
         let mut obj = serde_json::Map::new();
@@ -807,7 +823,7 @@ impl Emitter for JsonEmitter {
         Value::Object(obj)
     }
     fn select_query_empty(&self) -> Value {
-        json!({"node": "SelectQuery"})
+        json_object!({"node": "SelectQuery"})
     }
     fn select_set_node(&self, select_query: Value, set_operator: Option<&str>) -> Value {
         let mut obj = serde_json::Map::new();
@@ -820,7 +836,7 @@ impl Emitter for JsonEmitter {
     }
 
     fn position(&self, line: u32, column: u32, offset: usize) -> Value {
-        json!({"line": line, "column": column, "offset": offset})
+        json_object!({"line": line, "column": column, "offset": offset})
     }
     fn with_pos(&self, mut value: Value, start: Value, end: Value) -> Value {
         if let Some(obj) = value.as_object_mut() {
@@ -872,6 +888,15 @@ impl Emitter for JsonEmitter {
     }
     fn remove_field(&self, v: &mut Value, name: &str) -> Option<Value> {
         v.as_object_mut().and_then(|obj| obj.remove(name))
+    }
+    fn take_field(&self, v: &mut Value, name: &str) -> Option<Value> {
+        self.remove_field(v, name)
+    }
+    fn into_list(&self, v: Value) -> Option<Vec<Value>> {
+        match v {
+            Value::Array(items) => Some(items),
+            _ => None,
+        }
     }
     fn set_field(&self, v: &mut Value, name: &str, value: Value) {
         if let Some(obj) = v.as_object_mut() {

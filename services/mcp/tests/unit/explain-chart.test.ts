@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import { ExplainChartInputSchema } from '@/schema/tool-inputs'
 import { explainChartHandler } from '@/tools/insights/explainChart'
+import { explainChartSaveHandler } from '@/tools/insights/explainChartSave'
 import { findStoryRange, lastBucketInProgress } from '@/tools/insights/storyRanges'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
+
+import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
 
 const DAYS = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05']
 const HOURS = ['2026-10-01 22:00:00', '2026-10-01 23:00:00', '2026-10-02 00:00:00', '2026-10-02 01:00:00']
@@ -12,7 +16,16 @@ const MONTHS = ['2025-12-01', '2026-01-01', '2026-02-01']
 const QUARTERS = ['2025-10-01', '2026-01-01', '2026-04-01']
 const YEARS = ['2024-01-01', '2025-01-01', '2026-01-01']
 
-function createContext(query: Record<string, unknown>, response: Record<string, unknown> = {}): Context {
+function apiError(status: number): PostHogApiError {
+    return new PostHogApiError({ status, statusText: '', body: '', url: '', method: 'PUT' })
+}
+
+function createContext(
+    query: Record<string, unknown>,
+    response: Record<string, unknown> = {},
+    saved: unknown = { success: true, data: { id: 'e1' } },
+    updated: unknown = { success: false, error: apiError(404) }
+): Context {
     return {
         api: {
             insights: vi.fn().mockReturnValue({
@@ -20,6 +33,8 @@ function createContext(query: Record<string, unknown>, response: Record<string, 
                     success: true,
                     data: { id: 7, short_id: 'abc12345', name: 'Sign-ups', query },
                 }),
+                saveExplanation: vi.fn().mockResolvedValue(saved),
+                updateExplanation: vi.fn().mockResolvedValue(updated),
             }),
             query: vi.fn().mockReturnValue({
                 runQuery: vi.fn().mockResolvedValue({
@@ -51,7 +66,7 @@ describe('explain-chart', () => {
         expect(findStoryRange([...days], interval, start, end)).toEqual(expected)
     })
 
-    it('shows the chapters and tells the agent which dates matched no point', async () => {
+    it('shows the chapters, tells the agent which dates matched no point, and saves nothing', async () => {
         const context = createContext({ kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } })
 
         const result = await explainChartHandler(context, {
@@ -67,6 +82,106 @@ describe('explain-chart', () => {
         expect(result.chapters.map((chapter) => chapter.range)).toEqual([[1, 1], null])
         expect(result._posthogUrl).toBe('https://us.posthog.com/project/1/insights/abc12345')
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"A gap in November"')
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('explain-chart-save')
+        const { saveExplanation, updateExplanation } = vi.mocked(context.api.insights).mock.results[0]!.value
+        expect(saveExplanation).not.toHaveBeenCalled()
+        expect(updateExplanation).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        [
+            'the explanation it saved',
+            { success: true, data: { id: 'e1' } },
+            { success: true, data: { id: 'e2' } },
+            'e1',
+        ],
+        [
+            'an id it cannot update',
+            { success: false, error: apiError(404) },
+            { success: true, data: { id: 'e2' } },
+            'e2',
+        ],
+        [
+            'an explanation the server failed to update',
+            { success: false, error: apiError(500) },
+            { success: true, data: { id: 'e2' } },
+            null,
+        ],
+        [
+            'an id it cannot update while saving is throttled',
+            { success: false, error: apiError(404) },
+            { success: false, error: new Error('Throttled') },
+            null,
+        ],
+    ])('keeps the link when the agent fixes %s', async (_, updated, saved, id) => {
+        const context = createContext(
+            { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
+            {},
+            saved,
+            updated
+        )
+
+        const result = await explainChartSaveHandler(context, {
+            insightId: 'abc12345',
+            series: 0,
+            headline: 'One day stands out.',
+            chapters: [{ title: 'A spike on October 2', start: '2026-10-02' }],
+            explanationId: '0190a3a4-0000-7000-8000-000000000001',
+        })
+
+        expect(result.explanationId).toBe(id)
+        expect(result._posthogUrl).toBe(
+            id ? `https://us.posthog.com/project/1/insights/abc12345?explanation=${id}` : undefined
+        )
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY].includes(`explanationId "${id}"`)).toBe(!!id)
+    })
+
+    it('links evidence to its query, insight or GitHub change, and saves no PostHog links', async () => {
+        const context = createContext({ kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } })
+        const github = 'https://github.com/example/app/pull/12'
+        const args = {
+            insightId: 'abc12345',
+            series: 0,
+            headline: 'One day stands out.',
+            chapters: [
+                {
+                    title: 'A spike on October 2',
+                    start: '2026-10-02',
+                    evidence: [
+                        { text: 'From one referrer.', query: { kind: 'TrendsQuery', series: [] } },
+                        { text: 'The signup funnel shows it.', insightShortId: 'xyz98765' },
+                        { text: 'A release went out.', url: github },
+                        { text: 'Raw events agree.', query: { kind: 'HogQLQuery', query: 'SELECT 1' } },
+                    ],
+                },
+            ],
+        }
+
+        const result = await explainChartHandler(context, args)
+
+        const shown = result.chapters[0]!.evidence.map((item) => item.url)
+        expect(shown[0]).toContain('/project/1/insights/new')
+        expect(shown.slice(1, 3)).toEqual(['https://us.posthog.com/project/1/insights/xyz98765', github])
+        expect(shown[3]).toContain('/project/1/sql?open_query=')
+        await explainChartSaveHandler(context, args)
+        const { saveExplanation } = vi.mocked(context.api.insights).mock.results[0]!.value
+        const stored = saveExplanation.mock.calls[0][0].data.chapters[0].evidence.map(
+            (item: { url: string | null }) => item.url
+        )
+        expect(stored).toEqual([null, null, github, null])
+    })
+
+    it.each([
+        ['a site other than GitHub', 'https://hackmycomputer.example/pull/1'],
+        ['a GitHub file', 'https://github.com/example/app/raw/main/setup.exe'],
+    ])('refuses evidence that links to %s', (_, url) => {
+        const parsed = ExplainChartInputSchema.safeParse({
+            insightId: 'abc12345',
+            headline: 'One day stands out.',
+            chapters: [{ title: 'A spike', start: '2026-10-02', evidence: [{ text: 'A release.', url }] }],
+        })
+
+        expect(parsed.success).toBe(false)
     })
 
     it.each([['a funnel', { kind: 'FunnelsQuery', series: [] }, 'only explains trends charts']])(
@@ -126,31 +241,47 @@ describe('explain-chart', () => {
             await expect(call).rejects.toThrow('one value over time')
             return
         }
-        await call
+        const result = await call
         expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({
             query: expect.objectContaining({ trendsFilter: { display: drawnAs } }),
         })
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY].includes('explain-chart-save')).toBe(
+            insightPageShowsStory(display)
+        )
     })
 
-    const hitRate = {
-        type: 'line' as const,
-        labels: ['20:00', '21:00'],
-        series: [{ name: 'hit rate', values: [0.9, 0.55] }],
-    }
-
-    it('keeps a chart only for evidence that query-trends can draw again', async () => {
+    it('draws each piece of evidence from the query behind it', async () => {
         const series = [{ kind: 'EventsNode', event: 'signed_up' }]
-        const drawable = {
-            kind: 'TrendsQuery',
-            series,
-            breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
-        }
-        const linkOnly = {
-            kind: 'TrendsQuery',
-            series,
-            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+        const sqlResults: Record<string, { columns: string[]; results: unknown[][] }> = {
+            by_hour: {
+                columns: ['hour', 'browser', 'failures'],
+                results: [
+                    ['2026-10-02 23:00:00', 'Safari', 4],
+                    ['2026-10-03 00:00:00', 'Safari', 9],
+                    ['2026-10-03 00:00:00', 'Chrome', 1],
+                ],
+            },
+            by_browser: { columns: ['browser', 'failures'], results: [['Safari', 13]] },
+            no_numbers: { columns: ['browser', 'version'], results: [['Safari', '17']] },
+            two_metrics: {
+                columns: ['hour', 'browser', 'failures', 'requests'],
+                results: [['2026-10-02 23:00:00', 'Safari', 4, 10]],
+            },
         }
         const context = createContext({ kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } })
+        vi.mocked(context.api.query({ projectId: '1' }).runQuery).mockImplementation(
+            async ({ query }: { query: Record<string, unknown> }) => {
+                if (query.kind !== 'HogQLQuery') {
+                    return { results: [{ label: 'signed_up', data: [5, 50, 6, 5, 4], days: DAYS }] }
+                }
+                const result = sqlResults[query.query as string]
+                if (!result) {
+                    throw new Error('Unknown column "oops"')
+                }
+                return result
+            }
+        )
+        const sql = (query: string): Record<string, unknown> => ({ kind: 'HogQLQuery', query })
 
         const result = await explainChartHandler(context, {
             insightId: 'abc12345',
@@ -161,41 +292,77 @@ describe('explain-chart', () => {
                     title: 'A spike on October 2',
                     start: '2026-10-02',
                     evidence: [
-                        { text: 'Chrome sent most of it.', query: drawable },
-                        { text: 'Safari stayed flat.', query: linkOnly },
                         {
-                            text: 'The hit rate fell.',
-                            query: { kind: 'HogQLQuery', query: 'SELECT 1' },
-                            chart: hitRate,
+                            text: 'Chrome sent most of it.',
+                            query: {
+                                kind: 'TrendsQuery',
+                                series,
+                                breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+                            },
                         },
+                        {
+                            text: 'Safari stayed flat.',
+                            query: {
+                                kind: 'TrendsQuery',
+                                series,
+                                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                            },
+                        },
+                        { text: 'Failures by hour.', query: sql('by_hour') },
+                        { text: 'Failures by browser.', query: sql('by_browser') },
+                        { text: 'Versions.', query: sql('no_numbers') },
+                        { text: 'Two metrics.', query: sql('two_metrics') },
+                        { text: 'No kind.', query: { series } },
+                        { text: 'A broken query.', query: sql('oops') },
+                        { text: 'An unknown kind.', query: { kind: '__proto__' } },
                     ],
                 },
             ],
         })
 
-        expect(
-            result.chapters[0]!.evidence.map((item) => [item.query !== null, item.chart ?? null, item.url !== null])
-        ).toEqual([
-            [true, null, true],
-            [false, null, true],
-            [false, hitRate, true],
-        ])
-    })
-
-    it('refuses a chart whose series do not have one value per label', () => {
-        const parsed = ExplainChartInputSchema.safeParse({
-            insightId: 'abc12345',
-            headline: 'One day stands out.',
-            chapters: [
+        expect(result.chapters[0]!.evidence.map((item) => [item.queryTool, item.chart, item.url !== null])).toEqual([
+            ['query-trends', null, true],
+            [null, null, true],
+            [
+                null,
                 {
-                    title: 'A spike on October 2',
-                    start: '2026-10-02',
-                    evidence: [{ text: 'The hit rate fell.', chart: { ...hitRate, labels: ['20:00'] } }],
+                    type: 'line',
+                    labels: ['Oct 2 23:00', 'Oct 3 00:00'],
+                    ticks: ['Oct 2 23:00', 'Oct 3 00:00'],
+                    series: [
+                        { name: 'Safari', values: [4, 9] },
+                        { name: 'Chrome', values: [null, 1] },
+                    ],
+                    yAxisLabel: 'failures',
                 },
+                true,
             ],
+            [
+                null,
+                {
+                    type: 'bar',
+                    labels: ['Safari'],
+                    ticks: ['Safari'],
+                    series: [{ name: 'failures', values: [13] }],
+                    yAxisLabel: 'failures',
+                },
+                true,
+            ],
+            [null, null, true],
+            [null, null, true],
+            ['query-trends', null, true],
+            [null, null, true],
+            [null, null, true],
+        ])
+        expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({
+            query: sql('by_hour'),
+            signal: expect.any(AbortSignal),
         })
-
-        expect(parsed.success).toBe(false)
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"Versions." returned nothing to draw')
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"Two metrics." returned nothing to draw')
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain(
+            '"A broken query." failed, so it shows as a link only: Unknown column "oops"'
+        )
     })
 
     it.each([

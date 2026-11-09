@@ -15,9 +15,11 @@ from posthog.constants import AvailableFeature
 from posthog.models.health_issue import HealthIssue
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.redis import get_client
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.growth.backend.constants import github_sdk_versions_key
 
 
@@ -199,15 +201,36 @@ class TestHealthIssueAPI(APIBaseTest):
         response = self.client.get(self._url("/00000000-0000-0000-0000-000000000000"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_resolve_action(self):
+    @parameterized.expand(
+        [
+            ("session", None),
+            ("personal_api_key_with_write_scope", ["health_issue:write"]),
+        ]
+    )
+    def test_resolve_action(self, _name, scopes):
         issue = self._create_issue()
+        if scopes is not None:
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
 
         response = self.client.post(self._url(f"/{issue.id}/resolve"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["status"], "resolved")
 
         issue.refresh_from_db()
         self.assertEqual(issue.status, HealthIssue.Status.RESOLVED)
+
+    def test_resolve_action_rejects_personal_api_key_with_read_scope_only(self):
+        issue = self._create_issue()
+        api_key = self.create_personal_api_key_with_scopes(["health_issue:read"])
+        self.client.logout()
+
+        response = self.client.post(self._url(f"/{issue.id}/resolve"), HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "API key missing required scope 'health_issue:write'")
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
 
     def test_patch_dismiss(self):
         issue = self._create_issue()
@@ -571,6 +594,73 @@ class TestHealthIssueAccessControl(APIBaseTest):
 
         retrieve_response = self.client.get(self._url(f"/{issue.id}"))
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+
+    def _create_stale_flag_issue(self, flag: FeatureFlag) -> HealthIssue:
+        return HealthIssue.objects.create(
+            team=self.team,
+            kind="stale_feature_flags",
+            severity=HealthIssue.Severity.INFO,
+            payload={"flag_id": flag.id, "flag_key": flag.key, "flag_name": flag.name},
+            unique_hash=f"stale-{flag.id}",
+        )
+
+    def _deny_flag(self, flag: FeatureFlag) -> None:
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag.id), access_level="none"
+        )
+
+    def test_member_denied_one_flag_does_not_see_its_issue_in_list_or_summary(self):
+        other_member = User.objects.create_and_join(self.organization, "other@example.com", None)
+        denied_flag = FeatureFlag.objects.create(team=self.team, key="denied-flag", created_by=other_member)
+        allowed_flag = FeatureFlag.objects.create(team=self.team, key="allowed-flag", created_by=None)
+        self._create_stale_flag_issue(denied_flag)
+        allowed_issue = self._create_stale_flag_issue(allowed_flag)
+        # Without its object key the issue names no flag, and retrieve serves it, so the list must too.
+        keyless_issue = HealthIssue.objects.create(
+            team=self.team,
+            kind="stale_feature_flags",
+            severity=HealthIssue.Severity.INFO,
+            payload={},
+            unique_hash="stale-keyless",
+        )
+        self._deny_flag(denied_flag)
+
+        list_response = self.client.get(self._url("?kind=stale_feature_flags"))
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertCountEqual(
+            [result["id"] for result in list_response.json()["results"]],
+            [str(allowed_issue.id), str(keyless_issue.id)],
+        )
+
+        summary_response = self.client.get(self._url("/summary"))
+        self.assertEqual(summary_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(summary_response.json()["unsnoozed"]["by_kind"], {"stale_feature_flags": 2})
+
+    def test_creator_still_sees_the_issue_for_their_own_denied_flag(self):
+        own_flag = FeatureFlag.objects.create(team=self.team, key="own-flag", created_by=self.user)
+        issue = self._create_stale_flag_issue(own_flag)
+        self._deny_flag(own_flag)
+
+        list_response = self.client.get(self._url("?kind=stale_feature_flags"))
+        self.assertEqual([result["id"] for result in list_response.json()["results"]], [str(issue.id)])
+        self.assertEqual(self.client.get(self._url(f"/{issue.id}")).status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("retrieve", lambda client, url: client.get(url)),
+            ("resolve", lambda client, url: client.post(f"{url}/resolve")),
+            ("dismiss", lambda client, url: client.patch(url, {"dismissed": True})),
+            ("snooze", lambda client, url: client.patch(url, {"snoozed_until": "P7D"})),
+        ]
+    )
+    def test_member_denied_one_flag_object_action_returns_403(self, _name, request):
+        flag = FeatureFlag.objects.create(team=self.team, key="denied-flag", created_by=None)
+        issue = self._create_stale_flag_issue(flag)
+        self._deny_flag(flag)
+
+        response = request(self.client, self._url(f"/{issue.id}"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "You do not have viewer access to this resource.")
 
 
 class TestSnoozeDurationField(SimpleTestCase):

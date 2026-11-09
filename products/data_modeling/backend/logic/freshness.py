@@ -22,6 +22,10 @@ Vocabulary, one term per concept:
   staler than a consumer requires).
   In interval-space a smaller timedelta means fresher/more frequent, so as plain
   timedeltas: source_floor <= target <= consumer_ceiling.
+- pinned: an opt-in on a node with a declared target. Its effective cadence is its own target,
+  so consumers do not speed it up, and its ancestors see the pinned target instead of the demand
+  below it. It has no consumer ceiling. Its children inherit the coarser of its source floor and
+  its pinned target as their floor contribution, so a child with another, fresher parent stays fast.
 
 Worked example, a chain src -> view -> endpoint:
   src is an imported table syncing every 1hour (its source interval), endpoint
@@ -37,7 +41,7 @@ Edges are (upstream_id, downstream_id): data flows upstream -> downstream, so a 
 
 import dataclasses
 from collections import defaultdict, deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping, Set
 from datetime import timedelta
 from typing import Literal
 
@@ -128,18 +132,26 @@ def _adjacency(edges: list[tuple[str, str]]) -> Adjacency:
     return Adjacency(children=children, parents=parents)
 
 
+def _pinned_targets(pinned: Collection[str], declared_targets: Mapping[str, timedelta]) -> dict[str, timedelta]:
+    """The pinned nodes that have a target to hold. A pin without a target pins nothing."""
+    return {node: declared_targets[node] for node in pinned if node in declared_targets}
+
+
 def compute_effective_cadences(
     *,
     nodes: set[str],
     edges: list[tuple[str, str]],
     declared_targets: dict[str, timedelta],
+    pinned: Collection[str] = frozenset(),
 ) -> dict[str, timedelta | None]:
     """Resolve each node's effective cadence.
 
     Returns a value for every id in `nodes`. `None` means "unscheduled" — a node with
     no declared target and no scheduled descendant demanding freshness (the
-    ride-downstream opt-out). Source nodes are not expected in `nodes`.
+    ride-downstream opt-out). Source nodes are not expected in `nodes`. A pinned node
+    resolves to its own declared target whatever its consumers demand.
     """
+    pinned_targets = _pinned_targets(pinned, declared_targets)
     adj = _adjacency(edges)
     # reverse-topological pass, iterative because recursion overflows on deep chains
     out_degree = {node: sum(1 for child in adj.children.get(node, []) if child in nodes) for node in nodes}
@@ -148,11 +160,14 @@ def compute_effective_cadences(
     while queue:
         node = queue.popleft()
         candidates: list[timedelta] = []
-        if node in declared_targets:
-            candidates.append(declared_targets[node])
-        for child in adj.children.get(node, []):
-            if child in nodes and (child_effective := resolved[child]) is not None:
-                candidates.append(child_effective)
+        if node in pinned_targets:
+            candidates.append(pinned_targets[node])
+        else:
+            if node in declared_targets:
+                candidates.append(declared_targets[node])
+            for child in adj.children.get(node, []):
+                if child in nodes and (child_effective := resolved[child]) is not None:
+                    candidates.append(child_effective)
         # min = the finest demand wins (smaller timedelta = fresher)
         resolved[node] = min(candidates) if candidates else None
         for parent in adj.parents.get(node, []):
@@ -228,8 +243,20 @@ def ancestors_of(node_id: str, edges: list[tuple[str, str]]) -> set[str]:
     return seen
 
 
-def all_source_floor_bounds(edges: list[tuple[str, str]], source_intervals: dict[str, timedelta]) -> dict[str, Bound]:
+def descendants_of(node_id: str, edges: list[tuple[str, str]]) -> set[str]:
+    """Every node downstream of `node_id`, however far — the cone that reads what it delivers."""
+    return ancestors_of(node_id, [(downstream, upstream) for upstream, downstream in edges])
+
+
+def all_source_floor_bounds(
+    edges: list[tuple[str, str]],
+    source_intervals: dict[str, timedelta],
+    pinned_targets: Mapping[str, timedelta] | None = None,
+) -> dict[str, Bound]:
     """Every node's source floor, with the source that set it, in one forward pass.
+
+    A pinned node (`pinned_targets` maps it to its pinned cadence) passes its children the coarser
+    of its own floor and its pin, blamed on the pinned node when the pin is the coarser side.
 
     A source node's floor is its own sync interval. A derived node's floor is the finest (min)
     among its parents' floors, because its output changes whenever any input changes: a view
@@ -244,14 +271,19 @@ def all_source_floor_bounds(edges: list[tuple[str, str]], source_intervals: dict
     all_ids = set(source_intervals) | {node for edge in edges for node in edge}
     in_degree = {node: len(adj.parents.get(node, [])) for node in all_ids}
     queue = deque(node for node in all_ids if in_degree[node] == 0)
+    pinned_targets = pinned_targets or {}
     floor: dict[str, Bound] = {}
+    passed_down: dict[str, Bound] = {}
     while queue:
         node = queue.popleft()
         if node in source_intervals:
             floor[node] = Bound(value=source_intervals[node], blocker=node)
         else:
-            inherited = [floor[parent] for parent in adj.parents.get(node, [])]
+            inherited = [passed_down[parent] for parent in adj.parents.get(node, [])]
             floor[node] = _finest(inherited) if inherited else Bound(value=STREAMING, blocker=None)
+        passed_down[node] = floor[node]
+        if node in pinned_targets:
+            passed_down[node] = max(floor[node], Bound(value=pinned_targets[node], blocker=node), key=_bound_sort_key)
         for child in adj.children.get(node, []):
             in_degree[child] -= 1
             if in_degree[child] == 0:
@@ -260,13 +292,17 @@ def all_source_floor_bounds(edges: list[tuple[str, str]], source_intervals: dict
 
 
 def all_consumer_ceiling_bounds(
-    edges: list[tuple[str, str]], declared_targets: dict[str, timedelta]
+    edges: list[tuple[str, str]],
+    declared_targets: dict[str, timedelta],
+    pinned: Collection[str] = frozenset(),
 ) -> dict[str, Bound | None]:
     """Every node's consumer ceiling, with the descendant that declared it, in one reverse pass.
 
     The ceiling is the finest declared target among strict descendants; None when no descendant
-    declares one. Cyclic nodes are omitted.
+    declares one. Cyclic nodes are omitted. A pinned node has no ceiling, so its ancestors see
+    only its own target and none of the demand below it.
     """
+    pinned_targets = _pinned_targets(pinned, declared_targets)
     adj = _adjacency(edges)
     all_ids = set(declared_targets) | {node for edge in edges for node in edge}
     out_degree = {node: len(adj.children.get(node, [])) for node in all_ids}
@@ -280,7 +316,7 @@ def all_consumer_ceiling_bounds(
             if child in declared_targets
         ]
         candidates += [bound for child in adj.children.get(node, []) if (bound := ceiling.get(child)) is not None]
-        ceiling[node] = _finest(candidates) if candidates else None
+        ceiling[node] = _finest(candidates) if candidates and node not in pinned_targets else None
         for parent in adj.parents.get(node, []):
             out_degree[parent] -= 1
             if out_degree[parent] == 0:
@@ -288,18 +324,26 @@ def all_consumer_ceiling_bounds(
     return ceiling
 
 
-def all_source_floors(edges: list[tuple[str, str]], source_intervals: dict[str, timedelta]) -> dict[str, timedelta]:
+def all_source_floors(
+    edges: list[tuple[str, str]],
+    source_intervals: dict[str, timedelta],
+    pinned_targets: Mapping[str, timedelta] | None = None,
+) -> dict[str, timedelta]:
     """Every node's source floor, for callers that need the value and not the blame."""
-    return {node: bound.value for node, bound in all_source_floor_bounds(edges, source_intervals).items()}
+    return {
+        node: bound.value for node, bound in all_source_floor_bounds(edges, source_intervals, pinned_targets).items()
+    }
 
 
 def all_consumer_ceilings(
-    edges: list[tuple[str, str]], declared_targets: dict[str, timedelta]
+    edges: list[tuple[str, str]],
+    declared_targets: dict[str, timedelta],
+    pinned: Collection[str] = frozenset(),
 ) -> dict[str, timedelta | None]:
     """Every node's consumer ceiling, for callers that need the value and not the blame."""
     return {
         node: (bound.value if bound is not None else None)
-        for node, bound in all_consumer_ceiling_bounds(edges, declared_targets).items()
+        for node, bound in all_consumer_ceiling_bounds(edges, declared_targets, pinned).items()
     }
 
 
@@ -348,6 +392,7 @@ def clamp_to_source_floor(
     *,
     edges: list[tuple[str, str]],
     source_intervals: dict[str, timedelta],
+    pinned: Collection[str] = frozenset(),
 ) -> tuple[dict[str, timedelta | None], list[ClampedCadence]]:
     """Coarsen every node scheduled finer than its sources can deliver to the nearest bucket >= its
     source floor, returning the adjusted cadences and the list of changes.
@@ -356,8 +401,12 @@ def clamp_to_source_floor(
     consumer, which is intended: the consumer's fast inputs keep it changing at its fine cadence,
     while the columns derived from the slow lineage update as often as that lineage delivers.
     Streaming/best-effort sources have a zero floor and are never clamped.
+
+    A pinned node's effective cadence is its pinned target, so its children's floors read it from
+    `effective`.
     """
-    floors = all_source_floors(edges, source_intervals)
+    pinned_targets = {node: cadence for node in pinned if (cadence := effective.get(node)) is not None}
+    floors = all_source_floors(edges, source_intervals, pinned_targets)
     clamped: dict[str, timedelta | None] = {}
     changes: list[ClampedCadence] = []
     for node_id, cadence in effective.items():
@@ -437,6 +486,7 @@ def compute_target_bounds(
     edges: list[tuple[str, str]],
     declared_targets: dict[str, timedelta],
     source_intervals: dict[str, timedelta],
+    pinned: Collection[str] = frozenset(),
 ) -> TargetBounds:
     """Resolve one node's selectable cadences, marking each blocked option with what blocks it.
 
@@ -444,8 +494,13 @@ def compute_target_bounds(
     API payload, and any UI that offers a choice all read this, so a refusal and a disabled option
     can never disagree about the same node.
     """
-    floor = all_source_floor_bounds(edges, source_intervals).get(node_id, Bound(value=STREAMING, blocker=None))
-    ceiling = all_consumer_ceiling_bounds(edges, declared_targets).get(node_id)
+    pinned_targets = _pinned_targets(pinned, declared_targets)
+    floor = all_source_floor_bounds(edges, source_intervals, pinned_targets).get(
+        node_id, Bound(value=STREAMING, blocker=None)
+    )
+    ceiling = all_consumer_ceiling_bounds(edges, declared_targets, pinned).get(node_id)
+    if node_id in pinned:
+        ceiling = None
     return _bounds_from(floor=floor, ceiling=ceiling)
 
 
@@ -491,20 +546,38 @@ def _describe(node_id: str | None, names: Mapping[str, str] | None, fallback: st
     return name or fallback
 
 
-def _nothing_satisfiable_message(bounds: TargetBounds, names: Mapping[str, str] | None) -> str:
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class FloorReason:
+    node: str  # the node that sets the floor
+    why: str  # why it holds the floor there
+
+
+def _floor_reason(floor: Bound, names: Mapping[str, str] | None, pinned: Collection[str]) -> FloorReason:
+    """The node that sets a floor, and why it holds the floor there: a slow source, or a pinned view."""
+    if floor.blocker is not None and floor.blocker in pinned:
+        view = _describe(floor.blocker, names, "an upstream view")
+        return FloorReason(node=view, why=f"{view} is pinned to refresh every {humanize_cadence(floor.value)}")
+    source = _describe(floor.blocker, names, "an upstream source")
+    return FloorReason(node=source, why=f"{source} only syncs every {humanize_cadence(floor.value)}")
+
+
+def _nothing_satisfiable_message(
+    bounds: TargetBounds, names: Mapping[str, str] | None, pinned: Collection[str] = frozenset()
+) -> str:
     """Explain a node with no legal cadence at all: crossed bounds, or a source slower than 30 days."""
     floor, ceiling = bounds.floor, bounds.ceiling
-    source = _describe(floor.blocker, names, "an upstream source") if floor else ""
+    floor_reason = _floor_reason(floor, names, pinned) if floor else FloorReason(node="", why="")
+    source = floor_reason.node
     consumer = _describe(ceiling.blocker, names, "a view or endpoint built on this one") if ceiling else ""
     if floor is not None and ceiling is not None:
         return (
-            f"No cadence works here: {source} only syncs every {humanize_cadence(floor.value)},"
+            f"No cadence works here: {floor_reason.why},"
             f" but {consumer} refreshes every {humanize_cadence(ceiling.value)}."
             f" Slow down {consumer} or speed up {source}."
         )
     if floor is not None:
         return (
-            f"No cadence works here: {source} only syncs every {humanize_cadence(floor.value)},"
+            f"No cadence works here: {floor_reason.why},"
             f" less often than anything this can refresh at. Speed up {source} first."
         )
     if ceiling is not None:
@@ -515,6 +588,15 @@ def _nothing_satisfiable_message(bounds: TargetBounds, names: Mapping[str, str] 
     return "No cadence works here."
 
 
+def ensure_schedulable(target: timedelta) -> None:
+    """Raise if `target` is not one of the cadences a person may pick."""
+    if target not in SCHEDULABLE_BUCKETS:
+        supported = ", ".join(format_cadence(interval) for interval in sorted(SCHEDULABLE_BUCKETS))
+        raise UnsupportedFrequencyTargetError(
+            f"Can't refresh every {humanize_cadence(target)}. Pick one of: {supported}."
+        )
+
+
 def validate_declared_target(
     *,
     node_id: str,
@@ -523,20 +605,22 @@ def validate_declared_target(
     declared_targets: dict[str, timedelta],
     source_intervals: dict[str, timedelta],
     names: Mapping[str, str] | None = None,
+    pinned: Collection[str] = frozenset(),
 ) -> None:
     """Raise if `target` is not selectable or falls outside the node's bounds.
 
     `names` maps node ids to display names; supply it to have refusals name the source or view
-    that blocks the target, which is the thing a person has to change to unblock it.
+    that blocks the target, which is the thing a person has to change to unblock it. `pinned`
+    holds the pin state the write would leave, including `node_id`'s own.
     """
-    if target not in SCHEDULABLE_BUCKETS:
-        supported = ", ".join(format_cadence(interval) for interval in sorted(SCHEDULABLE_BUCKETS))
-        raise UnsupportedFrequencyTargetError(
-            f"Can't refresh every {humanize_cadence(target)}. Pick one of: {supported}."
-        )
+    ensure_schedulable(target)
 
     bounds = compute_target_bounds(
-        node_id=node_id, edges=edges, declared_targets=declared_targets, source_intervals=source_intervals
+        node_id=node_id,
+        edges=edges,
+        declared_targets=declared_targets,
+        source_intervals=source_intervals,
+        pinned=pinned,
     )
     option = bounds.option_for(target)
     if option is None or option.allowed:
@@ -544,16 +628,14 @@ def validate_declared_target(
 
     # Nothing legal to fall back to, so no message here can end in "pick X instead"
     if not bounds.satisfiable:
-        raise UnsatisfiableFrequencyError(_nothing_satisfiable_message(bounds, names))
+        raise UnsatisfiableFrequencyError(_nothing_satisfiable_message(bounds, names, pinned))
 
     # Suggest a cadence the same call would accept, and name the bound itself rather than a
     # direction. Bounds are inclusive, so the bound is always a legal answer, while "or slower" /
     # "or faster" promises room that may not exist: a 15min ceiling has nothing fresher to offer.
     if option.blocked_by == "source" and bounds.floor is not None:
-        source = _describe(option.blocker, names, "an upstream source")
         raise UnsatisfiableFrequencyError(
-            f"Can't refresh every {humanize_cadence(target)}: {source} only syncs every"
-            f" {humanize_cadence(bounds.floor.value)}."
+            f"Can't refresh every {humanize_cadence(target)}: {_floor_reason(bounds.floor, names, pinned).why}."
             f" Pick {humanize_cadence(min(bounds.allowed))} instead."
         )
     if option.blocked_by == "consumer" and bounds.ceiling is not None:
@@ -579,20 +661,25 @@ def find_invalid_targets(
     edges: list[tuple[str, str]],
     declared_targets: dict[str, timedelta],
     source_intervals: dict[str, timedelta],
+    floor_exempt: Set[str] = frozenset(),
+    pinned: Collection[str] = frozenset(),
 ) -> list[InvalidTarget]:
     """Re-validate every declared target against its current bounds.
 
     Targets drift: a descendant declaring a finer target lowers ancestors' ceilings, and
     graph edits move floors. Runtime freshness stays correct (finest demand wins) — what
     breaks is declared == effective, so run this on any graph mutation and surface the result.
+
+    `floor_exempt` nodes may declare a target finer than their sources deliver: the scheduler
+    clamps them at run time, so the declared value is intent rather than drift.
     """
-    floors = all_source_floors(edges, source_intervals)
-    ceilings = all_consumer_ceilings(edges, declared_targets)
+    floors = all_source_floors(edges, source_intervals, _pinned_targets(pinned, declared_targets))
+    ceilings = all_consumer_ceilings(edges, declared_targets, pinned)
     invalid: list[InvalidTarget] = []
     for node_id, declared in declared_targets.items():
         source_floor = floors.get(node_id, STREAMING)
         consumer_ceiling = ceilings.get(node_id)
-        if is_finer_than(declared, source_floor) or (
+        if (node_id not in floor_exempt and is_finer_than(declared, source_floor)) or (
             consumer_ceiling is not None and is_coarser_than(declared, consumer_ceiling)
         ):
             invalid.append(
@@ -601,3 +688,106 @@ def find_invalid_targets(
                 )
             )
     return invalid
+
+
+def _below_source_floor(
+    *,
+    edges: list[tuple[str, str]],
+    declared_targets: Mapping[str, timedelta],
+    source_intervals: dict[str, timedelta],
+    pinned: Collection[str],
+) -> dict[str, InvalidTarget]:
+    return {
+        invalid.node_id: invalid
+        for invalid in find_invalid_targets(
+            edges=edges, declared_targets=dict(declared_targets), source_intervals=source_intervals, pinned=pinned
+        )
+        if is_finer_than(invalid.declared, invalid.source_floor)
+    }
+
+
+def nodes_below_source_floor(
+    *,
+    edges: list[tuple[str, str]],
+    declared_targets: Mapping[str, timedelta],
+    source_intervals: dict[str, timedelta],
+    pinned: Collection[str],
+) -> set[str]:
+    """The nodes whose declared target is finer than their sources can deliver."""
+    return set(
+        _below_source_floor(
+            edges=edges, declared_targets=declared_targets, source_intervals=source_intervals, pinned=pinned
+        )
+    )
+
+
+def descendants_broken_by_pin(
+    *,
+    node_id: str,
+    target: timedelta,
+    edges: list[tuple[str, str]],
+    declared_targets: Mapping[str, timedelta],
+    source_intervals: dict[str, timedelta],
+    pinned: Collection[str],
+    already_below_floor: Collection[str] | None = None,
+) -> list[InvalidTarget]:
+    """The downstream targets that pinning `node_id` to `target` would put out of reach.
+
+    A pin raises its children's source floor. A child with another, fresher parent keeps that
+    parent's floor, but a child that reads fresh data only through this node can no longer meet
+    its own target. Targets that were already out of reach of their source floor without the pin
+    don't count against it. A target that only broke its consumer ceiling still counts, because
+    the node can meet it at runtime and the pin's floor would take that away.
+
+    `already_below_floor` is `nodes_below_source_floor` without this pin. It does not depend on
+    `target`, so a caller checking many targets computes it once and passes it in.
+    """
+    targets = {**declared_targets, node_id: target}
+    others = set(pinned) - {node_id}
+    if already_below_floor is None:
+        already_below_floor = nodes_below_source_floor(
+            edges=edges, declared_targets=targets, source_intervals=source_intervals, pinned=others
+        )
+    descendants = descendants_of(node_id, edges)
+    broken = _below_source_floor(
+        edges=edges, declared_targets=targets, source_intervals=source_intervals, pinned=others | {node_id}
+    )
+    return sorted(
+        (invalid for node, invalid in broken.items() if node in descendants and node not in already_below_floor),
+        key=lambda invalid: invalid.node_id,
+    )
+
+
+def validate_pin(
+    *,
+    node_id: str,
+    target: timedelta,
+    edges: list[tuple[str, str]],
+    declared_targets: Mapping[str, timedelta],
+    source_intervals: dict[str, timedelta],
+    pinned: Collection[str],
+    names: Mapping[str, str] | None = None,
+) -> None:
+    """Raise UnsatisfiableFrequencyError when pinning `node_id` to `target` strands a downstream view.
+
+    The message names the first stranded view the caller may see, and generic prose otherwise.
+    """
+    broken = descendants_broken_by_pin(
+        node_id=node_id,
+        target=target,
+        edges=edges,
+        declared_targets=declared_targets,
+        source_intervals=source_intervals,
+        pinned=pinned,
+    )
+    if not broken:
+        return
+    named = [invalid for invalid in broken if (names or {}).get(invalid.node_id)]
+    stranded = (named or broken)[0]
+    view = _describe(stranded.node_id, names, "")
+    subject, fix = (f"downstream view {view}", view) if view else ("a downstream view", "that view")
+    raise UnsatisfiableFrequencyError(
+        f"Can't pin this view to {humanize_cadence(target)}: {subject} refreshes every "
+        f"{humanize_cadence(stranded.declared)} and has no fresher input than this view. "
+        f"Slow down {fix} first, or pin a faster cadence."
+    )

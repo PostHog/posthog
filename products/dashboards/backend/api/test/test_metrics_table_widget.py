@@ -1,4 +1,6 @@
 import datetime as dt
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
@@ -15,11 +17,13 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.dashboards.backend.constants import METRICS_TABLE_SPARKLINE_POINTS
 from products.dashboards.backend.widget_registry import METRICS_TABLE_WIDGET_TYPE, validate_widget_config
-from products.metrics.backend.facade.contracts import MetricQueryTooManyRowsError
+from products.metrics.backend.facade.api import run_metric_query
+from products.metrics.backend.facade.contracts import MetricQueryRequest, MetricQueryTooManyRowsError, MetricSeries
 from products.metrics.backend.facade.testing import seed_metric, truncate_metrics_tables
 
 QUEUE_COLUMN = {"label": "Queue depth", "metricName": "queue_depth", "aggregation": "avg"}
@@ -29,6 +33,19 @@ ERRORS_COLUMN = {
     "aggregation": "sum",
     "filters": [{"key": "status", "op": "eq", "value": "error"}],
 }
+
+
+@contextmanager
+def metrics_row_budget(rows: int) -> Iterator[None]:
+    # A small budget at the widget's facade call lets a few seeded series go past it.
+    def run_within_budget(*, team: Team, request: MetricQueryRequest) -> list[MetricSeries]:
+        series = run_metric_query(team=team, request=request)
+        if sum(len(line.points) for line in series) > rows:
+            raise MetricQueryTooManyRowsError("query produced too many (time bucket, series) rows")
+        return series
+
+    with patch("products.dashboards.backend.widgets.metrics_table.run_metric_query", side_effect=run_within_budget):
+        yield
 
 
 class TestMetricsTableWidgetConfig(SimpleTestCase):
@@ -188,7 +205,6 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
-    @patch("products.metrics.backend.metric_query_runner._ROW_LIMIT", 100)
     def test_many_label_values_over_a_long_range_stay_within_the_row_budget(self) -> None:
         # At the default 6-hour interval, 5 routes over 14 days make 280 bucket rows, above the patched budget.
         for route in ("/a", "/b", "/c", "/d", "/e"):
@@ -200,7 +216,8 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
             )
         column = {"label": "Load", "metricName": "worker_load", "aggregation": "avg"}
 
-        result = self._run({"groupBy": "route", "columns": [column], "dateRange": {"date_from": "-14d"}})
+        with metrics_row_budget(100):
+            result = self._run({"groupBy": "route", "columns": [column], "dateRange": {"date_from": "-14d"}})
 
         assert result["totalCount"] == 5
         assert all(len(row["sparklines"][0]) <= METRICS_TABLE_SPARKLINE_POINTS for row in result["rows"])
@@ -254,7 +271,6 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
 
         assert [row["values"] for row in result["rows"]] == [[10.0, 4.0]]
 
-    @patch("products.metrics.backend.metric_query_runner._ROW_LIMIT", 60)
     def test_too_many_label_values_retry_with_fewer_buckets(self) -> None:
         for route in ("/r1", "/r2", "/r3", "/r4", "/r5"):
             seed_metric(
@@ -265,7 +281,8 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
             )
         column = {"label": "Busy", "metricName": "busy_workers", "aggregation": "avg"}
 
-        result = self._run({"groupBy": "route", "columns": [column], "dateRange": {"date_from": "-1h"}})
+        with metrics_row_budget(50):
+            result = self._run({"groupBy": "route", "columns": [column], "dateRange": {"date_from": "-1h"}})
 
         assert result.get("queryError") is None
         assert result["totalCount"] == 5
@@ -301,7 +318,7 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
         }
 
         full_buckets = self._run(config)
-        with patch("products.metrics.backend.metric_query_runner._ROW_LIMIT", 60):
+        with metrics_row_budget(50):
             retried = self._run(config)
 
         assert [row["values"][0] for row in retried["rows"]] == pytest.approx(

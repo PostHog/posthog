@@ -4,6 +4,7 @@ import {
     captureInboxQueryChanged,
     captureInboxReportAction,
     captureInboxReportClosed,
+    captureInboxReportOpened,
     captureInboxReportScrolled,
     captureInboxReportsImpressed,
     captureInboxSettingsChanged,
@@ -127,7 +128,7 @@ describe('inboxAnalytics', () => {
                         status: 'scored',
                         model: 'report_embeddings@2026-09-30',
                         scored_at: '2026-09-30T12:00:00Z',
-                        predictions: [{ outcome: 'fix', probability: 0.4, lift: null, readable: true }],
+                        predictions: [{ outcome: 'fix', probability: 0.4, lift: 2.5, readable: true }],
                     },
                 }),
                 makeReport({ id: 'b', priority: null, actionability: null, source_products: ['error_tracking'] }),
@@ -141,6 +142,7 @@ describe('inboxAnalytics', () => {
             sortDirection: 'desc',
             createdWindow: '7d',
             rankerId: 'fix',
+            rankingPill: true,
         })
         const props = lastCapture(INBOX_EVENTS.REPORTS_IMPRESSED)
         expect(props).toMatchObject({
@@ -152,6 +154,7 @@ describe('inboxAnalytics', () => {
             sort_direction: 'desc',
             created_window: '7d',
             ranker_id: 'fix',
+            ranking_pill: true,
             has_pr: true,
         })
         expect(props?.impressions).toEqual([
@@ -162,11 +165,17 @@ describe('inboxAnalytics', () => {
                 signal_count: 3,
                 is_suggested_reviewer: true,
                 ranking_served_key: 'report_embeddings@2026-09-30',
+                pill_shown: true,
+                pill_open: null,
+                pill_action: null,
+                pill_fix: 2.5,
             }),
             expect.objectContaining({
                 report_id: 'b',
                 rank: 2,
                 ranking_served_key: null,
+                pill_shown: false,
+                pill_fix: null,
                 priority: null,
                 actionability: null,
                 source_products: ['error_tracking'],
@@ -189,6 +198,59 @@ describe('inboxAnalytics', () => {
             bulk_size: 1,
             ranker_id: 'fix',
         })
+    })
+
+    it('attributes a pill to opens and actions only after the pill reached the screen', () => {
+        const report = makeReport({
+            ranking: {
+                status: 'scored',
+                model: 'nn@2026-09-30',
+                scored_at: '2026-09-30T12:00:00Z',
+                predictions: [{ outcome: 'fix', probability: 0.4, lift: 2.5, readable: true }],
+            },
+        })
+        const capturedPills = (): (boolean | undefined)[] => {
+            captureInboxReportOpened({
+                report,
+                openMethod: 'click',
+                linkSource: null,
+                previousReportId: null,
+                rank: 1,
+                listSize: 1,
+                section: 'needs-decision',
+                rankerId: 'priority',
+                personalTier: null,
+                personalReasonShown: false,
+            })
+            captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
+            return [
+                lastCapture(INBOX_EVENTS.REPORT_OPENED)?.pill_shown,
+                lastCapture(INBOX_EVENTS.REPORT_ACTION)?.pill_shown,
+            ]
+        }
+
+        // A deep link loads a pill arm into the hidden list, so nothing is on screen yet.
+        setInboxServedRanker('priority', true)
+        expect(capturedPills()).toEqual([false, false])
+
+        captureInboxReportsImpressed({
+            tab: 'needs-decision',
+            reports: [report],
+            ranks: [1],
+            listSize: 1,
+            totalCount: 1,
+            hasActiveFilters: false,
+            scope: 'for-you',
+            sortField: 'recommended',
+            sortDirection: 'desc',
+            createdWindow: 'all',
+            rankerId: 'priority',
+            rankingPill: true,
+        })
+        expect(capturedPills()).toEqual([true, true])
+
+        setInboxServedRanker('priority', false)
+        expect(capturedPills()).toEqual([false, false])
     })
 
     it('never attributes a Today action to the Inbox ranker', () => {
