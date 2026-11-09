@@ -128,10 +128,10 @@ def normalize_date_filter(value: str) -> str:
     deletion with such a value would cover other recordings than staff asked for.
     """
     value = value.strip()
-    # A bare integer such as "-360" is parsed as an int by query_as_params_to_dict and fails Pydantic
-    # validation downstream, so relative dates need the "d" suffix.
+    # A bare integer is ambiguous: "-30" reads as days, but "2024" or "202401" is meant as a date and as
+    # days would reach back thousands of days. The query also parses it as an int and fails validation.
     if re.fullmatch(r"-?\d+", value):
-        return f"{value}d"
+        raise ValueError(f"{value!r} has no unit")
     if re.fullmatch(r"-?\d*[hdwmqysHDWMQY](Start|End)?", value):
         return value
     try:
