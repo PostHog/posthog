@@ -39,7 +39,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
@@ -55,6 +55,7 @@ from posthog.helpers.impersonation import get_original_user_from_session, get_or
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
+from posthog.ip_restrictions import enforce_ip_restrictions, get_restriction_client_ip
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
@@ -236,7 +237,12 @@ def pop_mcp_client_ip(request: HttpRequest) -> str | None:
 
     outcome = verify_signed_client_ip(ip, timestamp, signature, settings.MCP_CLIENT_IP_SIGNING_KEYS)
     MCP_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
-    return ip if outcome is SignedClientIPOutcome.VALID else None
+    if outcome is SignedClientIPOutcome.VALID:
+        # Keep the verified end-user IP on the request for the IP restriction checks, which run
+        # after this middleware but still need to judge the MCP caller rather than the pod address.
+        setattr(request, "verified_mcp_client_ip", ip)  # noqa: B010 — dynamic attr the stubs don't know
+        return ip
+    return None
 
 
 class ManagedProxyClientIPMiddleware:
@@ -1689,6 +1695,40 @@ def organization_block_page(organization: Organization) -> Optional[str]:
     if organization.is_active is False:
         return "/organization-deactivated"
     return None
+
+
+class IPRestrictionsMiddleware(MiddlewareMixin):
+    """Block requests from an IP that the caller's organization does not allow.
+
+    Runs after `AuthenticationMiddleware` for session requests, checking every organization the user
+    belongs to. Bearer credentials authenticate inside DRF, so `IPRestrictionsPermission` applies the
+    same check after their principal is resolved. Both use the cached organization restrictions and
+    `get_restriction_client_ip`, which rejects a spoofed X-Forwarded-For and fails closed when no
+    verified IP is available.
+    """
+
+    def process_view(
+        self,
+        request: HttpRequest,
+        view_func: Callable[..., HttpResponse],
+        view_args: tuple[object, ...],
+        view_kwargs: dict[str, object],
+    ) -> HttpResponse | None:
+        if request.path in ("/logout", "/logout/"):
+            return None
+        try:
+            enforce_ip_restrictions(request, getattr(request, "user", None))
+        except PermissionDenied as error:
+            return JsonResponse(
+                {
+                    "type": "authentication_error",
+                    "code": "ip_not_allowed",
+                    "detail": str(error.detail),
+                    "ip": get_restriction_client_ip(request),
+                },
+                status=403,
+            )
+        return None
 
 
 class ActiveOrganizationMiddleware:
