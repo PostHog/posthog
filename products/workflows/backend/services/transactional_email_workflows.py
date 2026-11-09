@@ -7,6 +7,7 @@ from typing import Optional
 from uuid import UUID
 
 from django.db import models, transaction
+from django.utils import timezone
 
 from posthog.api.tagged_item import current_tag_names, replace_tags_on_object
 from posthog.integrations import IntegrationManager, IntegrationNotFound
@@ -310,8 +311,12 @@ def update_code_email_labels(
         flow = _code_email_flows(team_id).select_for_update().only("id", "team_id").filter(id=workflow_id).first()
         if flow is None:
             raise WorkflowNotFound()
-        if description is not None:
-            # An update, not a save, so a label edit never rewrites the steps a send reads.
-            _code_email_flows(team_id).filter(id=workflow_id).update(description=description)
-        if tags is not None and {tagify(tag) for tag in tags} != current_tag_names(flow):
+        tags_changed = tags is not None and {tagify(tag) for tag in tags} != current_tag_names(flow)
+        if tags_changed:
             replace_tags_on_object(tags, flow)
+        if description is None and not tags_changed:
+            return
+        labels = {} if description is None else {"description": description}
+        # An update, not a save, so a label edit never rewrites the steps a send reads. It still moves
+        # updated_at, which the workflow API compares to reject a save based on older labels.
+        _code_email_flows(team_id).filter(id=workflow_id).update(**labels, updated_at=timezone.now())
