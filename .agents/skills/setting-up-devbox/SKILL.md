@@ -55,6 +55,10 @@ Commands that reach a box run the same reachability check first, so fix a failur
 ### 2. Set up this machine once
 
 `hogli devbox:setup` is interactive, so ask the user to run it in their own terminal.
+Without a terminal, login and every runtime command work when `CODER_SESSION_TOKEN` and `CODER_URL` are exported, because the Coder CLI uses that token before any stored login.
+Setup still prompts for each configuration step that has no saved value, so pass `--skip-configure-<step>` for those.
+Read the token from a file into the variable. Never put it on a command line or in the conversation.
+SSH from a shell that has the variable works. When setup says no working login is stored on disk, programs that start without the variable, such as an editor or a mutagen daemon, cannot reach the box.
 It installs the Coder CLI at the server's version into `~/.hogli/bin`, logs in, installs the pinned mutagen binary for `devbox:sync`, and writes the `coder.*` SSH host entries that `devbox:ssh` and `devbox:exec` use.
 `~/.hogli/bin` is not on `PATH`, so call that CLI as `~/.hogli/bin/coder` when a step needs `coder` directly.
 Each optional step has a `--configure-<step>` and `--skip-configure-<step>` flag: `ssh`, `git-identity`, `git-signing`, `region`, `dotfiles`, `claude`.

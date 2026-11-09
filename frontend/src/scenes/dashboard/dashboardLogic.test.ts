@@ -2182,6 +2182,17 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboard?.persisted_filters).toEqual({ date_from: '-7d' })
         })
 
+        it('ends the zoom preview once the dashboard dates move off the zoomed range', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const zoom = { dateFrom: '2026-10-02', dateTo: '2026-10-03' }
+
+            logic.actions.zoomDateRange(zoom.dateFrom, zoom.dateTo, false)
+            expect(logic.values.zoomPreview).toEqual(zoom)
+
+            logic.actions.setDates('-7d', null)
+            expect(logic.values.zoomPreview).toBeNull()
+        })
+
         it('saves dashboard settings only when requested', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const successToast = jest.spyOn(lemonToast, 'success')
@@ -3839,12 +3850,17 @@ describe('dashboardLogic', () => {
             // settles as a 404 — and must NOT set it before the request has been made.
             it('sets error404 after a settled 404 and not before', async () => {
                 expect(logic.values.error404).toBe(false)
+                const reportTimeToSeeData = jest.spyOn(eventUsageLogic.actions, 'reportTimeToSeeData').mockClear()
 
                 await expectLogic(logic).toFinishAllListeners()
 
                 expect(logic.values.dashboard).toBeNull()
                 expect(logic.values.dashboardFailedToLoad).toBe(false)
                 expect(logic.values.error404).toBe(true)
+                expect(reportTimeToSeeData).not.toHaveBeenCalledWith(
+                    expect.objectContaining({ type: 'dashboard_load', status: 'success' })
+                )
+                reportTimeToSeeData.mockRestore()
             })
 
             // Logging in lands a person on their configured home. When that home is this dashboard and
@@ -4730,6 +4746,35 @@ describe('dashboardLogic', () => {
                             total: 1,
                         },
                     })
+            })
+
+            it.each([
+                { tiles: 'one stale tile', staleCount: 1 },
+                { tiles: 'only fresh tiles', staleCount: 0 },
+            ])('reports time to see data on initial load with $tiles', async ({ staleCount }) => {
+                const dashboard = dashboards[5]
+                dashboard.tiles
+                    .filter((tile) => !!tile.insight)
+                    .forEach((tile, index) => {
+                        const cacheTargetAge = index < staleCount ? now().subtract(1, 'minute') : now().add(1, 'minute')
+                        tile.insight = { ...tile.insight!, cache_target_age: cacheTargetAge.toISOString() }
+                    })
+                const reportTimeToSeeData = jest.spyOn(eventUsageLogic.actions, 'reportTimeToSeeData').mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                }).toFinishAllListeners()
+
+                const successReports = reportTimeToSeeData.mock.calls
+                    .map(([payload]) => payload)
+                    .filter((payload) => payload.type === 'dashboard_load' && payload.status === 'success')
+                expect(successReports).toEqual([
+                    expect.objectContaining({
+                        action: DashboardLoadAction.InitialLoad,
+                        insights_fetched: staleCount,
+                    }),
+                ])
+                reportTimeToSeeData.mockRestore()
             })
         })
 

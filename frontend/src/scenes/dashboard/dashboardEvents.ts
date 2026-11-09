@@ -8,6 +8,8 @@ import { queryUsesDataWarehouse } from '~/queries/schema/node-accessors'
 import { isNodeWithSource } from '~/queries/schema/node-guards'
 import { DashboardMode, DashboardTile, DashboardTileSpacing, DashboardType, TileGroupDisplay } from '~/types'
 
+import type { LayoutGesturePerformance } from 'products/dashboards/frontend/dashboardPerformance'
+
 export type DashboardFilterChangeType =
     | 'date'
     | 'properties'
@@ -151,12 +153,14 @@ export function reportDashboardInsightDeleteAfterRemovalClicked(otherDashboardCo
 export function reportDashboardTileRepositioned(
     dashboardId: number,
     action: 'moved' | 'resized',
-    input: 'drag' | 'click' = 'drag'
+    input: 'drag' | 'click' = 'drag',
+    gesturePerformance?: LayoutGesturePerformance
 ): void {
     posthog.capture('dashboard tile repositioned', {
         dashboard_id: dashboardId,
         action,
         input,
+        ...gesturePerformance,
     })
 }
 
