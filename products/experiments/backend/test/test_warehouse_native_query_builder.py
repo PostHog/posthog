@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
@@ -6,6 +7,7 @@ from django.test import SimpleTestCase
 import duckdb
 import sqlglot
 from parameterized import parameterized
+from sqlglot import exp
 
 from posthog.schema import (
     Breakdown,
@@ -169,14 +171,39 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
 
     def test_customer_text_cannot_change_the_statement(self) -> None:
         self.warehouse.execute("INSERT INTO exposure_log VALUES (9, ?, '2026-01-02 00:00:00')", ["o'brien\\"])
+        # This table of the customer has the default name of a CTE of the statement.
+        self.warehouse.execute("CREATE VIEW posthog_exposures AS SELECT * FROM purchases")
 
         statement = self._build(
-            ExperimentMeanMetric(source=_source("SELECT * FROM purchases; -- every purchase;")),
+            ExperimentMeanMetric(source=_source("SELECT * FROM posthog_exposures; -- every purchase;")),
             exposure_query="SELECT * FROM exposure_log -- every exposure",
             variants=("control", "o'brien\\"),
         )
 
         self.assertEqual(self._run(statement), {"control": (2, 2, 2), "o'brien\\": (1, 0, 0)})
+
+    @parameterized.expand(
+        [
+            ("mean", _sum_of_amount()),
+            (
+                "ratio",
+                ExperimentRatioMetric(
+                    numerator=_source(math=ExperimentWarehouseNativeMathType.SUM, math_property="amount"),
+                    denominator=_source(),
+                ),
+            ),
+        ]
+    )
+    def test_statement_reads_each_cte_once(
+        self, _name: str, metric: ExperimentMeanMetric | ExperimentRatioMetric
+    ) -> None:
+        # BigQuery runs a CTE again for each reference to it, so a second reference bills the customer's scan twice.
+        tree = sqlglot.parse_one(self._build(metric), read="bigquery")
+        cte_names = {cte.alias for cte in tree.find_all(exp.CTE)}
+
+        reads = Counter(table.name for table in tree.find_all(exp.Table) if table.name in cte_names)
+
+        self.assertEqual(reads, dict.fromkeys(cte_names, 1))
 
     @parameterized.expand(
         [
@@ -191,6 +218,12 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
                 {},
                 ExperimentMeanMetric(source=_source("SELECT 1; SELECT 2")),
                 "The metric query cannot run. Raw queries must contain a single statement.",
+            ),
+            (
+                "metric query writes",
+                {},
+                ExperimentMeanMetric(source=_source("DELETE FROM purchases WHERE TRUE")),
+                "The metric query cannot run. Raw BigQuery queries must be read-only SELECT statements.",
             ),
             (
                 "value column is not a plain name",
