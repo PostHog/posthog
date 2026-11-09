@@ -171,6 +171,54 @@ describe("useGitProviderRepositories", () => {
     );
   });
 
+  it.each(["first", "second", "both"] as const)(
+    "keeps successful refreshes and reports the error when the %s GitHub connection fails",
+    async (failure) => {
+      const otherGithub: Integration = { ...github, id: 3 };
+      const repositories = new Map([
+        [github.id, ["example/first-before"]],
+        [otherGithub.id, ["example/second-before"]],
+      ]);
+      mocks.getIntegrations.mockResolvedValue([github, otherGithub, gitlab]);
+      mocks.getGithubRepositories.mockImplementation(async (id: number) =>
+        repositories.get(id),
+      );
+      mocks.refreshTeamRepository.mockImplementation(async (id: number) => {
+        if (
+          failure === "both" ||
+          (failure === "first" ? id === github.id : id === otherGithub.id)
+        ) {
+          throw new Error("Unavailable");
+        }
+        repositories.set(id, [
+          id === github.id ? "example/first-after" : "example/second-after",
+        ]);
+      });
+      const { result } = renderHook(useGitProviderRepositories, { wrapper });
+      await waitFor(() =>
+        expect(result.current.data.repositories).toHaveLength(3),
+      );
+
+      act(() => result.current.refetch());
+
+      await waitFor(() => expect(result.current.hasRefreshError).toBe(true));
+      await waitFor(() =>
+        expect(
+          result.current.data.repositories.map(
+            (repository) => repository.fullName,
+          ),
+        ).toEqual([
+          failure === "second" ? "example/first-after" : "example/first-before",
+          failure === "first"
+            ? "example/second-after"
+            : "example/second-before",
+          "example/gitlab",
+        ]),
+      );
+      expect(result.current.isError).toBe(false);
+    },
+  );
+
   it.each(["project", "region", "account"] as const)(
     "drops previous integration data after a %s change when the new request fails",
     async (change) => {

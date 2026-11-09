@@ -14,6 +14,10 @@ import type {
   TeamRepositoriesResult,
 } from "./repositories";
 import type { RepositoriesService } from "./repositoriesService";
+import {
+  type RepositoryRefetchKey,
+  teamRepositoryRefreshKeys,
+} from "./repositoryKeys";
 import type { Integration } from "./selectors";
 
 export interface GitProviderRepositoriesResult {
@@ -21,6 +25,11 @@ export interface GitProviderRepositoriesResult {
   repositories: GitProviderRepository[];
   failedConnections: GitProviderConnection[];
   pendingConnections: GitProviderConnection[];
+}
+
+export interface GitProviderRefreshResult {
+  keys: RepositoryRefetchKey[];
+  errors: unknown[];
 }
 
 @injectable()
@@ -71,11 +80,26 @@ export class GitProviderService {
     };
   }
 
-  refreshRepositories(integrations: ReadonlyArray<Integration>) {
-    return this.repositories.refreshTeamRepositoriesAndKeys(
-      gitProviderConnections(integrations, ["github"]).map(
-        (connection) => connection.integrationId,
+  async refreshRepositories(
+    integrations: ReadonlyArray<Integration>,
+  ): Promise<GitProviderRefreshResult> {
+    const integrationIds = gitProviderConnections(integrations, ["github"]).map(
+      (connection) => connection.integrationId,
+    );
+    const results = await Promise.allSettled(
+      integrationIds.map((integrationId) =>
+        this.repositories.refreshTeamRepositories([integrationId]),
       ),
     );
+    const refreshedIds = integrationIds.filter(
+      (_, index) => results[index]?.status === "fulfilled",
+    );
+    return {
+      keys:
+        refreshedIds.length > 0 ? teamRepositoryRefreshKeys(refreshedIds) : [],
+      errors: results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      ),
+    };
   }
 }

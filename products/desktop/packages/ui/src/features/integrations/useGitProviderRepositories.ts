@@ -28,12 +28,20 @@ export function useGitProviderRepositories() {
   const refresh = useMutation({
     mutationFn: async () => {
       const result = await integrationQuery.refetch({ throwOnError: true });
-      const keys = await service.refreshRepositories(result.data ?? []);
+      const { keys, errors } = await service.refreshRepositories(
+        result.data ?? [],
+      );
       await Promise.all(
         keys.map(({ queryKey, exact }) =>
           queryClient.invalidateQueries({ queryKey, exact }),
         ),
       );
+      if (errors.length > 0) {
+        throw new AggregateError(
+          errors,
+          "Failed to refresh repository connections",
+        );
+      }
     },
   });
 

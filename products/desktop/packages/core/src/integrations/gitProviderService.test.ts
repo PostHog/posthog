@@ -69,8 +69,9 @@ describe("GitProviderService", () => {
         refreshUserRepository: vi.fn(),
       }),
     );
-    const keys = await provider.refreshRepositories(integrations);
+    const { keys, errors } = await provider.refreshRepositories(integrations);
     expect(refreshTeamRepository.mock.calls).toEqual([[1], [2]]);
+    expect(errors).toEqual([]);
     expect(keys).toContainEqual({
       queryKey: ["integrations", "repositories", 1],
       exact: false,

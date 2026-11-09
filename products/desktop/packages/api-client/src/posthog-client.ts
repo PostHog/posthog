@@ -5445,16 +5445,17 @@ export class PostHogAPIClient {
     integrationId: string | number,
     signal?: AbortSignal,
   ): Promise<string[]> {
-    const controller = new AbortController();
-    const requestSignal = signal
-      ? AbortSignal.any([signal, controller.signal])
-      : controller.signal;
-    const timeout = setTimeout(() => controller.abort(), 15_000);
     const repositories: string[] = [];
     let offset = 0;
 
-    try {
-      while (true) {
+    while (true) {
+      const controller = new AbortController();
+      const requestSignal = signal
+        ? AbortSignal.any([signal, controller.signal])
+        : controller.signal;
+      const timeout = setTimeout(() => controller.abort(), 15_000);
+
+      try {
         requestSignal.throwIfAborted();
         const page = await this.getGithubRepositoriesPage(
           integrationId,
@@ -5470,9 +5471,9 @@ export class PostHogAPIClient {
         }
 
         offset += page.repositories.length;
+      } finally {
+        clearTimeout(timeout);
       }
-    } finally {
-      clearTimeout(timeout);
     }
   }
 

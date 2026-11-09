@@ -84,6 +84,7 @@ The `Settings/AccountSettings` stories cover transparent pictures, missing pictu
 With `posthog-desktop-gitlab-integration` enabled, open Settings > GitHub.
 Confirm that a connected GitLab project remains visible while a GitHub connection loads or fails.
 Refresh after changing GitHub repository access, and check the next page of a large repository list.
+With multiple GitHub connections, fail one refresh. Successful connections must show their updated repositories, and the refresh error must remain visible.
 Switch accounts or projects and fail the new integration request. Previous repository names must not appear.
 
 ## File Location
