@@ -112,6 +112,9 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
     def test_a_trace_keeps_the_reply_the_user_answered(self, _name: str, content: Any) -> None:
         self._assert_previous_reply({"role": "assistant", "content": content})
 
+    def test_a_trace_keeps_a_gemini_reply_the_user_answered(self) -> None:
+        self._assert_previous_reply({"role": "model", "parts": [{"text": "I archived all 40 notes."}]})
+
     def test_a_trace_keeps_an_otel_reply_the_user_answered(self) -> None:
         self._assert_previous_reply(
             {"role": "assistant", "parts": [{"type": "text", "content": "I archived all 40 notes."}]}
@@ -264,3 +267,11 @@ def test_only_a_populated_tool_call_makes_a_generation_a_step(_name: str, output
         id="e", event="$ai_generation", createdAt=AT.isoformat(), properties={"$ai_output_choices": output}
     )
     assert _calls_tools(event) is expected
+
+
+def test_a_tool_call_held_in_the_output_state_makes_a_generation_a_step() -> None:
+    state = [{"role": "assistant", "tool_calls": [{"function": {"name": "search"}}]}]
+    event = LLMTraceEvent(
+        id="e", event="$ai_generation", createdAt=AT.isoformat(), properties={"$ai_output_state": state}
+    )
+    assert _calls_tools(event) is True

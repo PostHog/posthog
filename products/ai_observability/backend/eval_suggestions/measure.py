@@ -19,6 +19,7 @@ from posthog.hogql import ast
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.utils import merge_heavy_properties
 from posthog.models.team import Team
+from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_hog import build_hog_event_global, execute_hog_eval_bytecode
 from posthog.temporal.ai_observability.run_trace_evaluation import build_trace_hog_globals
 
@@ -71,8 +72,8 @@ LIMIT {limit}
 
 # Only the last two messages of each input are read: the last is the user's message for the first call of a turn,
 # and the one before it is the assistant reply the user answers. Full histories cost far more than checks need.
-# The query keeps only the end of that reply's text (string content, content blocks or OTel parts), since a cut in
-# the raw JSON would make it unreadable.
+# The query keeps only the end of that reply's text (string content, content blocks, OTel or Gemini parts),
+# since a cut in the raw JSON would make it unreadable.
 # Rows are deduplicated by uuid first, since ingestion can write an event twice, and one row past the cap is kept so
 # a trace with more events than the cap shows up as incomplete.
 _HYDRATE_SQL = """
@@ -103,7 +104,7 @@ FROM (
         if(startsWith(input, '['), concat('[', left(JSONExtractRaw(input, -1), {max_input}), ']'), left(input, {max_input})) AS last_input,
         if(startsWith(input, '[') AND JSONLength(input) >= 2, JSONExtractRaw(input, -2), '') AS previous_raw,
         if(
-            JSONExtractString(previous_raw, 'role') = 'assistant',
+            JSONExtractString(previous_raw, 'role') IN ('assistant', 'model'),
             right(
                 arrayStringConcat(
                     arrayFilter(
@@ -111,7 +112,10 @@ FROM (
                         arrayConcat(
                             [JSONExtractString(previous_raw, 'content')],
                             arrayMap(block -> JSONExtractString(block, 'text'), JSONExtractArrayRaw(previous_raw, 'content')),
-                            arrayMap(block -> JSONExtractString(block, 'content'), JSONExtractArrayRaw(previous_raw, 'parts'))
+                            arrayMap(
+                                block -> if(JSONHas(block, 'content'), JSONExtractString(block, 'content'), JSONExtractString(block, 'text')),
+                                JSONExtractArrayRaw(previous_raw, 'parts')
+                            )
                         )
                     ),
                     ' '
@@ -253,7 +257,7 @@ def _has_tool_call(value: Any) -> bool:
 
 def _calls_tools(generation: LLMTraceEvent) -> bool:
     """Whether a generation's output asks for tools, which makes it a step of the turn and not its answer."""
-    output = generation.properties.get("$ai_output_choices") or generation.properties.get("$ai_output") or ""
+    output = extract_event_io(generation.event, generation.properties).output_raw
     if isinstance(output, str):
         try:
             output = json.loads(output)
