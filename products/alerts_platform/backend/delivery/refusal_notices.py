@@ -24,7 +24,6 @@ from posthog.email import EmailMessage, is_email_available
 from posthog.models import Team, User
 from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.slack.channels import clip_text
-from posthog.tasks.email import should_send_notification, should_send_pipeline_error_notification
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DestinationRefused
@@ -164,6 +163,9 @@ def _email(team_id: int, creator: User, key: str, message: AlertMessage, refusal
 
 
 def _wants_pipeline_error_emails(team_id: int, creator: User) -> bool:
+    # posthog.tasks.email imports the query and LLM stacks, and this module loads during django.setup().
+    from posthog.tasks.email import should_send_notification, should_send_pipeline_error_notification  # noqa: PLC0415
+
     organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get()
     # Only this organization's rules apply, so an admin elsewhere cannot silence this email.
     locks = notification_locks_for_users([creator.id], organization_id=organization_id).get(creator.id, {})
