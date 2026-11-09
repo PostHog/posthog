@@ -2,7 +2,7 @@ import './DataWarehousePreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 /**
  * Example-data preview for the data warehouse empty state: synced sources and a
@@ -12,7 +12,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
  * skill. Idle/run pairs are stacked in `__swap` grids, so nothing shifts.
  */
 export function DataWarehousePreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('WarehousePreview', isStatic && 'WarehousePreview--static')}>
