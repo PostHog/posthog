@@ -19,7 +19,7 @@ export function InboxSetupSourcesStep(): JSX.Element {
     return (
         <GuidedWizardSection
             title="Choose what to watch"
-            description="Signals from these sources tell Self-Driving when something needs a closer look."
+            description="Signals from these sources tell Self-driving when something needs a closer look."
             descriptionClassName="text-sm"
         >
             {!ready ? (
@@ -60,7 +60,7 @@ export function InboxSetupSourcesStep(): JSX.Element {
                     {!sources.some((source) => source.available) && (
                         <p>
                             No products are sending usable signals yet. Enable a product below or choose a scout in the
-                            next step. You need at least one source or scout to activate Self-Driving.
+                            next step. You need at least one source or scout to activate Self-driving.
                         </p>
                     )}
                     {productsNeedingSetup.length > 0 && (
