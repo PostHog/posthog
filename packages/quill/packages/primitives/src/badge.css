@@ -44,6 +44,11 @@
         background-color: var(--fill-hover);
     }
 
+    /* Hovered menu rows share the default fill. */
+    .quill-button--variant-default:is(:hover, [data-highlighted]) .quill-badge--variant-default {
+        background-color: var(--fill-selected);
+    }
+
     .quill-badge--variant-info {
         color: var(--info-foreground);
         background-color: var(--info);

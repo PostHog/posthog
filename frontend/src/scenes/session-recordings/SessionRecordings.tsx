@@ -44,7 +44,7 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
-import { SCENE_PLAYLIST_LOGIC_PROPS, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
+import { SCENE_PLAYLIST_LOGIC_PROPS, humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 
 const HedgehogExplorer = pngHoggie(explorerPng)
 
@@ -321,7 +321,7 @@ const ReplayPageTabs: ReplayTab[] = [
 export function SessionRecordingsPageTabs(): JSX.Element | null {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { replayLayout } = useValues(playerSettingsLogic)
-    if (tab === ReplayTabs.Home && isNewReplayLayout(replayLayout)) {
+    if (isNewReplayLayout(replayLayout)) {
         return null
     }
     return (
@@ -344,17 +344,32 @@ export function SessionRecordingsPageTabs(): JSX.Element | null {
     )
 }
 
+function ReplayTitleSection(): JSX.Element {
+    const { tab } = useValues(sessionReplaySceneLogic)
+    const { replayLayout } = useValues(playerSettingsLogic)
+    const collectionsUnderRecordings = tab === ReplayTabs.Playlists && isNewReplayLayout(replayLayout)
+    const replayName = sceneConfigurations[Scene.Replay].name
+    return (
+        <SceneTitleSection
+            name={collectionsUnderRecordings ? humanFriendlyTabName(tab) : replayName}
+            resourceType={{
+                type: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
+            }}
+            forceBackTo={
+                collectionsUnderRecordings
+                    ? { key: Scene.Replay, name: replayName, path: urls.replay(ReplayTabs.Home) }
+                    : undefined
+            }
+            actions={<Header />}
+        />
+    )
+}
+
 export function SessionsRecordings(): JSX.Element {
     return (
         <BindLogic logic={sessionReplaySceneLogic} props={{}}>
             <SceneContent className="h-full">
-                <SceneTitleSection
-                    name={sceneConfigurations[Scene.Replay].name}
-                    resourceType={{
-                        type: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
-                    }}
-                    actions={<Header />}
-                />
+                <ReplayTitleSection />
                 <SessionRecordingsPageTabs />
                 <MainPanel />
             </SceneContent>

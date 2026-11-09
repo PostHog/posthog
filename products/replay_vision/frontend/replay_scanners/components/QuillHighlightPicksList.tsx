@@ -29,7 +29,8 @@ export function QuillHighlightPicksList(): JSX.Element {
             className="flex h-full w-full min-w-60 flex-col overflow-hidden rounded border border-border bg-background text-foreground contain-inline-size"
             data-attr="vision-highlight-picks-list"
         >
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            {/* Keeps the rows' sr-only labels inside the scroller, or they stretch the page. */}
+            <div className="relative min-h-0 flex-1 overflow-y-auto">
                 {picks === null && !picksFailed ? (
                     <div className="flex flex-col gap-2 p-2" aria-busy>
                         {[0, 1, 2, 3].map((i) => (
