@@ -905,9 +905,6 @@ mod tests {
         );
     }
 
-    // ISSUE BUCKETS (most recent first): 500, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10
-    // TEAM BUCKETS (most recent first):  100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100
-    // Issue baseline = 110/11 = 10 (excludes current bucket), current = 500, spike threshold = 100, so SPIKING
     #[tokio::test]
     async fn test_bucket_reads_do_not_use_cross_slot_mget() {
         let mut ctx = TestContext::new();
@@ -934,6 +931,9 @@ mod tests {
         assert!(result.unwrap().is_empty());
     }
 
+    // ISSUE BUCKETS (most recent first): 500, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10
+    // TEAM BUCKETS (most recent first):  100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100
+    // Issue baseline = 110/11 = 10 (excludes current bucket), current = 500, spike threshold = 100, so SPIKING
     #[tokio::test]
     async fn test_full_history_spike() {
         let mut ctx = TestContext::new();
