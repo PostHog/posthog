@@ -1,4 +1,15 @@
-import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    kea,
+    path,
+    props,
+    reducers,
+    selectors,
+    useActions,
+    useMountedLogic,
+    useValues,
+} from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -195,6 +206,12 @@ function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
     return isMessagingSetupTab(tab) ? 'messaging-setup' : 'workflows'
 }
 
+// The scene holds the old list's logic on every tab, so its rows and filters survive a visit to another tab.
+function LegacyWorkflowsListState(): null {
+    useMountedLogic(workflowsLogic)
+    return null
+}
+
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
     const { startNewWorkflow } = useActions(newWorkflowLogic)
@@ -234,6 +251,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     if (currentTab === 'onboarding') {
         return (
             <SceneContent className="workflows">
+                {!listV2 && <LegacyWorkflowsListState />}
                 <WorkflowsOnboardingWizard />
             </SceneContent>
         )
@@ -241,6 +259,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
 
     return (
         <SceneContent className="workflows">
+            {!listV2 && <LegacyWorkflowsListState />}
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Workflows].name}
                 description={sceneConfigurations[Scene.Workflows].description}
