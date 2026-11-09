@@ -24,7 +24,8 @@ def source_repositories() -> tuple[str, ...]:
 
 
 def docs_paths() -> tuple[str, ...]:
-    return comma_separated(get_from_env("KNOWLEDGE_WRITER_DOCS_PATHS", DEFAULT_DOCS_PATHS))
+    listed = comma_separated(get_from_env("KNOWLEDGE_WRITER_DOCS_PATHS", DEFAULT_DOCS_PATHS))
+    return tuple(docs_path.rstrip("/") for docs_path in listed)
 
 
 def configured_writer_team_id() -> int | None:

@@ -51,6 +51,7 @@ DOCS_HEAD = {"repository": "PostHog/posthog.com", "branch": "docs/retention"}
 SECTION_PAGE = "https://posthog.com/docs/session-replay/retention"
 DOCS_PAGE_PATH = "contents/docs/session-replay/retention.mdx"
 WORKFLOW_PATH = ".github/workflows/deploy.yml"
+SIBLING_OF_DOCS_PATH = "contents/docs-tools/build.js"
 REPOSITORY_SOURCED_PAGE = "https://posthog.com/docs/logs/logql-api"
 START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 WRITER_APP_LOGIN = "posthog-app[bot]"
@@ -262,6 +263,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
     monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
+    monkeypatch.setenv("KNOWLEDGE_WRITER_DOCS_PATHS", "contents/docs")
     opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
     first_verdict = _verdict(suggested_page_urls=(SECTION_PAGE,))
     with (
@@ -289,6 +291,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     )
     for changed_files, refusal in (
         ((DOCS_PAGE_PATH, WORKFLOW_PATH), "changed_paths_outside_docs"),
+        ((SIBLING_OF_DOCS_PATH,), "changed_paths_outside_docs"),
         ((DOCS_PAGE_PATH,) * COMPARE_FILE_LIMIT, "too_many_changed_files"),
     ):
         with patch(CREATE_PULL_REQUEST) as create_for_refused_files:
@@ -329,9 +332,11 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     assert joined.pull_request_url == opened["pr_url"]
     assert TaskRun.objects.get(task_id=joined.task_id).branch == DOCS_HEAD["branch"]
 
-    with patch(f"{GITHUB}.comment_on_pull_request") as comment_for_refused_files:
+    with patch(f"{GITHUB}.comment_on_pull_request", return_value={"success": True}) as comment_for_refused_files:
         _finish_run(joined.task_id, django_capture_on_commit_callbacks, changed_files=(WORKFLOW_PATH,))
-    comment_for_refused_files.assert_not_called()
+    comment_for_refused_files.assert_called_once()
+    assert comment_for_refused_files.call_args.args[:2] == ("posthog.com", 9)
+    assert second_verdict.request.source_url not in comment_for_refused_files.call_args.args[2]
     assert (
         tasks_facade.read_task_state_entry(joined.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
         == "changed_paths_outside_docs"

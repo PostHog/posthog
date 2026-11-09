@@ -85,6 +85,13 @@ def joined_source_comment(request: DocsRequest) -> str:
     return f"The knowledge writer added a source to this pull request{requester}:\n\n- {request.source_url}"
 
 
+def refused_push_comment() -> str:
+    return (
+        "The knowledge writer's latest push to this branch did not pass its checks. "
+        "Review the new commits before you merge."
+    )
+
+
 def docs_github(team_id: int, docs_owner: str, *, priority: Priority) -> GitHubIntegration | None:
     for integration in IntegrationManager.github.oauth.list(team_id):
         if str(integration.config.get("account", {}).get("name", "")).lower() == docs_owner.lower():
@@ -235,29 +242,21 @@ def publish_claimed_pull_request(
         logger.warning("knowledge_writer_no_docs_github_integration", team_id=team_id, task_run_id=str(task_run_id))
         record_pull_request_failure(task_id, team_id, "no_github_integration")
         return None
-    refusal = publication_refusal(github, writer, head_branch)
-    if refusal is not None:
-        refuse_publication(task_id, team_id, task_run_id, refusal)
-        return None
     joined = tasks_facade.read_task_state_entry(task_id, team_id, JOIN_STATE_KEY)
     joined_pull_request = pull_request_json.validate_python(joined) if isinstance(joined, dict) else None
+    refusal = publication_refusal(github, writer, head_branch)
+    if refusal is not None:
+        if joined_pull_request is not None:
+            warn_on_joined_pull_request(github, docs_name, joined_pull_request, team_id, task_run_id)
+        refuse_publication(task_id, team_id, task_run_id, refusal)
+        return None
     pull_request = (
         add_source_to_pull_request(github, docs_name, joined_pull_request, request)
         if joined_pull_request is not None
         else open_pull_request(github, docs_name, request, head_branch, section=read_section(task_id, team_id))
     )
     if isinstance(pull_request, GitHubStepFailed):
-        failure = WriterPullRequestFailed("knowledge writer docs pull request failed")
-        capture_exception(
-            failure,
-            {
-                "team_id": team_id,
-                "task_run_id": str(task_run_id),
-                "step": pull_request.step,
-                "status_code": pull_request.status_code,
-            },
-        )
-        raise failure
+        raise reported_step_failure(pull_request, team_id, task_run_id)
     stored = pull_request_json.dump_python(pull_request, mode="json")
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))
@@ -290,9 +289,35 @@ def publication_refusal(github: GitHubIntegration, writer: WriterSettings, head_
     paths = changed_paths(github, writer.docs_repository, head_branch)
     if paths is None:
         return "too_many_changed_files"
-    if any(not path.startswith(writer.docs_paths) for path in paths):
+    if any(not is_docs_path(path, writer.docs_paths) for path in paths):
         return "changed_paths_outside_docs"
     return None
+
+
+def is_docs_path(path: str, docs_paths: tuple[str, ...]) -> bool:
+    return any(path == docs_path or path.startswith(f"{docs_path}/") for docs_path in docs_paths)
+
+
+def warn_on_joined_pull_request(
+    github: GitHubIntegration, docs_name: str, pull_request: WriterPullRequest, team_id: int, task_run_id: UUID
+) -> None:
+    commented = github.comment_on_pull_request(docs_name, pull_request.number, refused_push_comment())
+    if not commented.get("success"):
+        raise reported_step_failure(github_step_failed("comment_on_pull_request", commented), team_id, task_run_id)
+
+
+def reported_step_failure(step_failed: GitHubStepFailed, team_id: int, task_run_id: UUID) -> WriterPullRequestFailed:
+    failure = WriterPullRequestFailed("knowledge writer docs pull request failed")
+    capture_exception(
+        failure,
+        {
+            "team_id": team_id,
+            "task_run_id": str(task_run_id),
+            "step": step_failed.step,
+            "status_code": step_failed.status_code,
+        },
+    )
+    return failure
 
 
 def refuse_publication(task_id: UUID, team_id: int, task_run_id: UUID, reason: str) -> None:
