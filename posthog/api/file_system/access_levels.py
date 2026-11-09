@@ -6,7 +6,7 @@ from typing import Any, Optional, cast
 from django.apps import apps
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import BigIntegerField, CharField, F, Q, QuerySet, Value
+from django.db.models import BigIntegerField, CharField, F, IntegerField, Q, QuerySet, UUIDField, Value
 from django.db.models.functions import Cast
 
 from drf_spectacular.utils import extend_schema_field
@@ -141,6 +141,16 @@ def canonical_file_system_ref(entry_type: str, ref: str) -> str:
     """`ref` in the spelling its object's lookup field stores, or unchanged for an unregistered type."""
     registration = get_file_system_registration(entry_type)
     return _canonical_ref(registration, ref) if registration else ref
+
+
+def file_system_ref_has_spellings(entry_type: str) -> bool:
+    """Whether the lookup field of this type accepts more than one spelling of a key, such as a UUID
+    without hyphens or an integer with leading zeros. A text key matches only itself."""
+    registration = get_file_system_registration(entry_type)
+    if registration is None:
+        return False
+    model = apps.get_model(registration.app_label, registration.model_name)
+    return isinstance(model._meta.get_field(registration.lookup_field), (UUIDField, IntegerField))
 
 
 def _ref_translation_queryset(

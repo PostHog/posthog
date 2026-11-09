@@ -1,7 +1,7 @@
 from django.db import models
 from django.db.models import QuerySet
 
-from posthog.models.file_system.constants import DEFAULT_SURFACE
+from posthog.models.file_system.constants import DEFAULT_SURFACE, workflow_project_files_enabled
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.tagged_items_relation import Taggable
@@ -66,6 +66,14 @@ class MessageTemplate(FileSystemSyncMixin, Taggable, UUIDTModel):
             type="message_template",
             ref_field="id",
             surface=surface,
+        )
+
+    def files_new_rows(self) -> bool:
+        # A model save has no request user, so the flag is evaluated for the creator. A save never waits on
+        # a remote flag call: when local evaluation cannot decide, the unfiled saver files the object the
+        # next time someone with the flag opens the project tree.
+        return self.created_by is not None and workflow_project_files_enabled(
+            self.team, self.created_by, only_evaluate_locally=True
         )
 
     def get_file_system_representation(self) -> FileSystemRepresentation:

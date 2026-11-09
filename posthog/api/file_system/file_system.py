@@ -24,7 +24,7 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.functions import Concat, Lower
+from django.db.models.functions import Concat, Lower, Replace
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -39,6 +39,7 @@ from posthog.api.file_system.access_levels import (
     canonical_file_system_ref,
     denied_short_id_refs,
     entries_missing_access_level,
+    file_system_ref_has_spellings,
     filter_workflow_files_by_access_level,
 )
 from posthog.api.file_system.deletion import (
@@ -159,6 +160,25 @@ class FileSystemFrequentQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         default=8, min_value=1, max_value=20, help_text="Maximum number of frequently viewed items to return."
     )
+
+
+def _stored_spellings(team_id: int, file_type: str, ref: str) -> set[str]:
+    """Every stored ref of this type that reaches the same object as the canonical `ref`.
+
+    Rows written before refs were canonicalized can spell a UUID without hyphens or in upper case,
+    or an integer with leading zeros. Their text, lowercased and without hyphens, still contains the
+    canonical key's, which narrows the candidates for the canonical check to confirm.
+    """
+    if not file_system_ref_has_spellings(file_type):
+        return {ref}
+    candidates = (
+        FileSystem.objects.filter(team_id=team_id, type=file_type, shortcut=False)
+        .annotate(normalized_ref=Lower(Replace("ref", Value("-"), Value(""))))
+        .filter(normalized_ref__contains=ref.replace("-", "").lower())
+        .values_list("ref", flat=True)
+        .distinct()
+    )
+    return {ref} | {stored for stored in candidates if canonical_file_system_ref(file_type, stored) == ref}
 
 
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
@@ -467,6 +487,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         accessible_team_ids = self._accessible_team_ids
         if accessible_team_ids is not None:
             queryset = queryset.filter(team_id__in=accessible_team_ids)
+        if not self._workflow_files_enabled:
+            return self.user_access_control.filter_and_annotate_file_system_queryset(
+                queryset, extra_denied_refs=self._denied_short_id_refs
+            )
         queryset = filter_workflow_files_by_access_level(queryset, self.user_access_control, self.team.project_id)
         return self.user_access_control.filter_and_annotate_file_system_queryset(
             queryset, extra_denied_refs=self._denied_short_id_refs, resolved_types=WORKFLOW_FILE_SYSTEM_TYPES
@@ -1134,7 +1158,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # so a concurrent request deleting a sibling row locks the same row set in the
                 # same order and blocks on it, rather than each request locking a different subset
                 # and deadlocking against the other.
-                spellings = {ref} | {current.ref for current in group if current.ref}
+                spellings = _stored_spellings(team_id, file_type, ref) | {row.ref for row in group if row.ref}
                 sibling_ids = {
                     row.id
                     for row in FileSystem.objects.select_for_update()

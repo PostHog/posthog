@@ -1427,6 +1427,7 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
             name="Password reset",
             content={"email": {"subject": "Reset your password", "html": "<p>Reset</p>"}},
             type="email",
+            created_by=self.user,
         )
         self.hog_flow_id = make_transactional(
             self.team.id, self.template.id, user_id=self.user.id, from_integration_id=None
@@ -1489,6 +1490,8 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         mock_post.assert_not_called()
 
     def test_a_member_denied_the_workflow_cannot_delete_or_restore_it_through_project_files(self, mock_post, _flag):
+        self.template.refresh_from_db()
+        self.template.save()
         entry = FileSystem.objects.get(team=self.team, type="message_template", ref=str(self.template.id))
 
         response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
