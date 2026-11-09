@@ -12,7 +12,12 @@ from products.data_modeling.backend.facade.api import allowed_saved_query_ids, b
 from products.warehouse_sources.backend.facade.api import allowed_table_ids
 
 from ..facade.contracts import SubjectKinds
-from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
+from ..facade.enums import (
+    WarehouseSuggestionKind,
+    WarehouseSuggestionStatus,
+    WarehouseSuggestionSubjectKind,
+    WarehouseSuggestionSurface,
+)
 from ..models import WarehouseSuggestion
 from .flags import is_warehouse_suggestions_enabled
 from .rules import RULES
@@ -40,6 +45,34 @@ ALLOWED_SUBJECT_IDS: Mapping[WarehouseSuggestionSubjectKind, AllowedSubjectIds] 
 }
 CATALOG_KINDS = frozenset({WarehouseSuggestionKind.CERTIFY, WarehouseSuggestionKind.DEPRECATE})
 EDITOR_LEVEL: "AccessControlLevel" = "editor"
+SURFACE_FILTERS: Mapping[WarehouseSuggestionSurface, Q] = {
+    WarehouseSuggestionSurface.MODELS: Q(
+        kind__in=[WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE]
+    )
+    | Q(kind=WarehouseSuggestionKind.DEPRECATE, subject_kind=WarehouseSuggestionSubjectKind.SAVED_QUERY),
+    WarehouseSuggestionSurface.CATALOG: Q(kind__in=CATALOG_KINDS),
+}
+
+
+def surface_q(surface: WarehouseSuggestionSurface) -> Q:
+    return SURFACE_FILTERS[surface]
+
+
+def actionable_waiting(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    surface: WarehouseSuggestionSurface,
+    subject_kinds: SubjectKinds,
+) -> Q:
+    """Waiting suggestions on `surface` whose subject the user can read and whose subject kind they can act on."""
+    kinds = subject_kinds.readable & subject_kinds.actionable
+    scoped = Q(subject_kind__in=kinds) & surface_q(surface)
+    waiting = (
+        WarehouseSuggestion.objects.for_team(team_id)
+        .filter(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
+        .filter(scoped)
+    )
+    return scoped & subject_access(team_id, user_access_control, waiting, actionable_kinds=kinds).readable_q()
 
 
 def can_take(team: "Team", user: "User", suggestion: WarehouseSuggestion) -> bool:
@@ -83,6 +116,7 @@ def visible_suggestions(
     status: WarehouseSuggestionStatus | None = None,
     subject_id: UUID | None = None,
     assignee_id: int | None = None,
+    surface: WarehouseSuggestionSurface | None = None,
     subject_kinds: SubjectKinds,
 ) -> tuple[QuerySet[WarehouseSuggestion], SubjectAccess]:
     suggestions = (
@@ -90,6 +124,8 @@ def visible_suggestions(
         .filter(subject_kind__in=subject_kinds.readable)
         .exclude(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
     )
+    if surface is not None:
+        suggestions = suggestions.filter(surface_q(surface))
     if suggestion_id is not None:
         suggestions = suggestions.filter(id=suggestion_id)
     if kind is not None:

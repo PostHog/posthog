@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q, QuerySet
 
 from posthog.dataclasses import frozen
 
@@ -22,6 +22,7 @@ from .analytics import SuggestionOutcome, report_outcomes
 from .assignment import assign_surfaced, notify_surfaced
 from .candidates.base import CandidateContext
 from .candidates.registry import CANDIDATES
+from .inventory import TeamInventory
 from .reads import Subject
 from .rules import LifecycleRules, kind_position
 from .suggestions import ALLOWED_TRANSITIONS, Transitions, transition_to, upsert_suggestions
@@ -60,7 +61,7 @@ def apply_run(
     auto_resolved = _auto_resolve(context, fingerprints)
     expired = _expire(context, fingerprints, now)
     surfaced = _surface(context.team_id, context.rules.lifecycle, now) if surface else []
-    assigned = assign_surfaced(context, team, surfaced)
+    assigned = assign_surfaced(team, surfaced, context.inventory)
     assets_reconciled = _reconcile_assets(context)
     outcomes: OutcomeBatches = (
         (SuggestionOutcome.CREATED, created),
@@ -96,6 +97,7 @@ def _upsert(team_id: int, drafts: Sequence[SuggestionDraft]) -> list[WarehouseSu
     return list(suggestions.filter(fingerprint__in=fingerprints - existing))
 
 
+ALL_WAITING = Q()
 REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.AUTO_RESOLVED)
 FLIP_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE})
 REOPEN_ACCEPTED: Transitions = {WarehouseSuggestionStatus.ACCEPTED: frozenset({WarehouseSuggestionStatus.PROPOSED})}
@@ -183,8 +185,32 @@ def _expire(
     return _move_all(stale, context.team_id, WarehouseSuggestionStatus.EXPIRED)
 
 
-def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> list[WarehouseSuggestion]:
+def surface_on_demand(
+    team: "Team", rules: LifecycleRules, now: datetime, waiting: Q, inventory: TeamInventory
+) -> list[WarehouseSuggestion]:
+    """Show the next batch of `waiting` suggestions outside the daily limit, assigned but without notifications."""
+    surfaced = _surface(team.pk, rules, now, waiting=waiting, counts_today=False)
+    assign_surfaced(team, surfaced, inventory)
+    transaction.on_commit(partial(report_outcomes, SuggestionOutcome.SURFACED, surfaced, team=team))
+    return surfaced
+
+
+def waiting_count(team_id: int, waiting: Q) -> int:
+    return _waiting(team_id, waiting).count()
+
+
+def _surface(
+    team_id: int, rules: LifecycleRules, now: datetime, *, waiting: Q = ALL_WAITING, counts_today: bool = True
+) -> list[WarehouseSuggestion]:
     """Show waiting suggestions within the daily, open and per-kind limits, and return the ones shown."""
+    chosen = pick_waiting(team_id, rules, now, waiting=waiting, counts_today=counts_today)
+    suggestions = WarehouseSuggestion.objects.for_team(team_id)
+    suggestions.filter(id__in=chosen).update(surfaced_at=now)
+    return list(suggestions.filter(id__in=chosen).select_related("assignee"))
+
+
+def pick_waiting(team_id: int, rules: LifecycleRules, now: datetime, *, waiting: Q, counts_today: bool) -> list[UUID]:
+    """The `waiting` suggestions the next surfacing would show, without showing them."""
     suggestions = WarehouseSuggestion.objects.for_team(team_id)
     start_of_day = datetime.combine(now.date(), time.min, tzinfo=now.tzinfo)
     open_kinds = Counter(
@@ -192,27 +218,28 @@ def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> list[Warehou
             "kind", flat=True
         )
     )
-    slots = min(
-        rules.max_surfaced_per_day - suggestions.filter(surfaced_at__gte=start_of_day).count(),
-        rules.max_open - open_kinds.total(),
-    )
+    surfaced_today = suggestions.filter(surfaced_at__gte=start_of_day).count() if counts_today else 0
+    slots = min(rules.max_surfaced_per_day - surfaced_today, rules.max_open - open_kinds.total())
     if slots <= 0:
         return []
     first_week = not suggestions.filter(
         surfaced_at__lt=start_of_day - timedelta(days=rules.first_week_runs - 1)
     ).exists()
-    waiting = suggestions.filter(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True).only(
-        "id", "kind", "score"
-    )
-    chosen = _pick_in_turns(
-        list(waiting),
+    return _pick_in_turns(
+        list(_waiting(team_id, waiting).only("id", "kind", "score")),
         rules.first_week_kind_order if first_week else rules.kind_order,
         slots,
         open_kinds,
         rules.max_open_per_kind,
     )
-    suggestions.filter(id__in=chosen).update(surfaced_at=now)
-    return list(suggestions.filter(id__in=chosen).select_related("assignee"))
+
+
+def _waiting(team_id: int, waiting: Q) -> QuerySet[WarehouseSuggestion]:
+    return (
+        WarehouseSuggestion.objects.for_team(team_id)
+        .filter(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
+        .filter(waiting)
+    )
 
 
 def _pick_in_turns(
