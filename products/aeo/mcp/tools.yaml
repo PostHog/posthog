@@ -143,9 +143,11 @@ tools:
             answer engine: Claude (`claude-web-search`), ChatGPT/OpenAI (`openai-web-search`) and Exa (`exa-answer`).
             `topics` splits it per prompt topic with the same counts, rates and the number of active prompts, so you can
             rank topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all
-            answers, with `is_target` marking the project's own domains. Use it to answer "how are we doing overall",
-            "which topics or engines mention or cite us least", "how many prompts are never cited" and "which sites do
-            the engines cite instead of us". For one prompt, use `aeo-prompts-stats-get`.
+            answers, with `is_target` marking the project's own domains. `top_searches` lists the web searches the
+            engines ran most while answering, ranked by how many prompts triggered them, with how many of those answers
+            cited the project and up to five of the prompts. Use it to answer "how are we doing overall", "which topics
+            or engines mention or cite us least", "how many prompts are never cited", "which sites do the engines cite
+            instead of us" and "what do the engines search for". For one prompt, use `aeo-prompts-stats-get`.
         feature_flag: aeo-citation-tracking
     aeo-prompts-stats-get:
         operation: aeo_prompts_stats

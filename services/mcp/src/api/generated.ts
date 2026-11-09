@@ -459,6 +459,28 @@ export namespace Schemas {
       active_prompts: number;
     }
 
+    export interface AEOPromptSetSearchPrompt {
+      /** The prompt id (a UUID). */
+      id: string;
+      /** The prompt's current text. */
+      text: string;
+    }
+
+    export interface AEOPromptSetSearch {
+      /** Up to 5 prompts whose answers ran this search, the ones that ran it most first. */
+      top_prompts: AEOPromptSetSearchPrompt[];
+      /** The web search an engine ran while answering, lowercased with whitespace collapsed. */
+      query: string;
+      /** Distinct prompts whose answers ran this search in the window. */
+      prompts: number;
+      /** Answered checks in the window that ran this search. */
+      answers: number;
+      /** Of those answers, how many cited a URL on the project's target domains. */
+      cited: number;
+      /** Answer engines that ran this search, ordered by engine. */
+      engines: string[];
+    }
+
     export interface AEOPromptSetOverview {
       /** Checks across the prompt set in the last 'days' days. */
       current: AEOPromptSetCounts;
@@ -470,6 +492,8 @@ export namespace Schemas {
       topics: AEOPromptSetTopicCounts[];
       /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
       top_domains: AEOPromptSetDomain[];
+      /** The 20 web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project. */
+      top_searches: AEOPromptSetSearch[];
       /** Length of each window in days. */
       days: number;
       /** First day of the current window, in the project's timezone. */
@@ -110121,6 +110145,11 @@ export namespace Schemas {
          * @nullable
          */
       page_url: string | null;
+      /**
+         * Width in CSS pixels of the browser window the snapshot was recorded in, to draw it at its real scale.
+         * @nullable
+         */
+      viewport_width: number | null;
     }
 
     export interface SlackAppChannelJoinResult {
