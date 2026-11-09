@@ -30,7 +30,7 @@ function PlanCapWarning({
     return (
         <span className="flex items-center gap-1">
             <IconWarning className="shrink-0 text-lg text-warning" />
-            {`Your plan limits this to ${retentionPeriodLabel(planMonths)}`}
+            {`Your plan's limit is ${retentionPeriodLabel(planMonths)}`}
         </span>
     )
 }
