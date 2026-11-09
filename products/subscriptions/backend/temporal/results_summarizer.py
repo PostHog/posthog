@@ -33,25 +33,50 @@ def uses_generic_results_summary(query_kind: str) -> bool:
     return query_kind not in _TREND_SUMMARY_KINDS and query_kind not in _SUMMARIZERS
 
 
-def last_period_is_incomplete(query_kind: str, query_results: Any) -> bool:
-    """Whether the final time bucket was still collecting data when the query ran.
+def is_time_series_query(query_kind: str) -> bool:
+    return query_kind in _TIME_SERIES_KINDS
+
+
+def last_period_is_incomplete(query_kind: str, query_results: Any, interval: Any = None) -> bool:
+    """Whether the final returned time bucket was still collecting data when the query ran.
 
     A relative range such as "last 30 days" resolves its end to the end of the current day or hour,
     which is after the refresh time. A fixed end date, or excludeIncompletePeriods, resolves it before.
     """
-    if query_kind not in _TIME_SERIES_KINDS or not isinstance(query_results, dict):
+    if not is_time_series_query(query_kind) or not isinstance(query_results, dict):
         return False
     resolved_date_range = query_results.get("resolved_date_range")
     if not isinstance(resolved_date_range, dict):
         return False
-    date_to = resolved_date_range.get("date_to")
+    raw_date_to = resolved_date_range.get("date_to")
     last_refresh = query_results.get("last_refresh")
-    if not date_to or not last_refresh:
+    if not raw_date_to or not last_refresh:
         return False
     try:
-        return datetime.fromisoformat(str(date_to)) > datetime.fromisoformat(str(last_refresh))
+        date_to = datetime.fromisoformat(str(raw_date_to))
+        if date_to <= datetime.fromisoformat(str(last_refresh)):
+            return False
     except (TypeError, ValueError):
         return False
+
+    # A weekday filter drops deselected day buckets, so on such a day the last returned
+    # bucket is an earlier day that has ended.
+    if interval == "day":
+        last_day = _last_returned_day(query_results.get("result"))
+        return last_day is None or last_day[:10] == date_to.date().isoformat()
+    return True
+
+
+def _last_returned_day(results: Any) -> str | None:
+    if not isinstance(results, list):
+        return None
+    for series in results:
+        if not isinstance(series, dict) or series.get("compare_label") == "previous":
+            continue
+        days = series.get("days")
+        if isinstance(days, list) and days and isinstance(days[-1], str):
+            return days[-1]
+    return None
 
 
 def build_results_summary(
@@ -64,7 +89,9 @@ def build_results_summary(
     if not results:
         return "No results"
 
-    if query_kind in _TREND_SUMMARY_KINDS:
+    if query_kind == "StickinessQuery":
+        text = _summarize_stickiness(results, _sanitize_value_format(value_format))
+    elif query_kind in _TREND_SUMMARY_KINDS:
         text = _summarize_trends(results, _sanitize_value_format(value_format), last_period_incomplete)
     elif summarizer := _SUMMARIZERS.get(query_kind):
         text = summarizer(results)
@@ -117,7 +144,6 @@ def _numeric_points(data: list[Any], days: Any) -> list[tuple[str, float | int]]
 
 
 def _period_label(day: Any) -> str:
-    # Stickiness "days" are day counts, not calendar periods, so only date strings name a period.
     if not isinstance(day, str):
         return ""
     return sanitize_user_text(day, GENERIC_VALUE_MAX_LEN)
@@ -168,6 +194,32 @@ def _change_from(previous: float | int, latest: float | int) -> str:
         return f"{direction} from 0"
     pct = abs(latest - previous) / abs(previous) * 100
     return f"{direction} {pct:,.0f}%" if pct >= 10 else f"{direction} {pct:.1f}%"
+
+
+def _summarize_stickiness(results: list[dict[str, Any]], value_format: dict[str, Any] | None) -> str:
+    # Each point counts actors by how many periods they were active in, not by calendar period,
+    # so the series gets no latest, change or window trend.
+    lines: list[str] = []
+    for series in results:
+        label = _safe_label(series.get("label"), "Unknown")
+        data = series.get("data")
+        if isinstance(data, list):
+            bin_labels = series.get("labels")
+            if not isinstance(bin_labels, list) or len(bin_labels) != len(data):
+                bin_labels = [str(index + 1) for index in range(len(data))]
+            bins = [
+                f"{_safe_label(bin_label, str(index + 1))}={_fmt_value(value, value_format)}"
+                for index, (bin_label, value) in enumerate(zip(bin_labels, data))
+                if _is_finite_number(value)
+            ]
+            if bins:
+                count = series.get("count")
+                total = f", total={_fmt_value(count, value_format)}" if _is_finite_number(count) else ""
+                lines.append(f"- {label}: by periods active: {', '.join(bins)}{total}")
+                continue
+        lines.append(f"- {label}: (no data)")
+
+    return "\n".join(lines) if lines else "No stickiness series"
 
 
 def _looks_like_boxplot_trend(results: list[dict[str, Any]]) -> bool:

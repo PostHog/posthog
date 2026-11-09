@@ -30,6 +30,7 @@ from posthog.utils import get_instance_region
 from products.ai_observability.backend.prompt_references import resolve_prompt_references
 from products.product_analytics.backend.facade.api import get_query_specific_instructions
 from products.subscriptions.backend.logic.report_text import REPORT_TEXT_INSTRUCTIONS, ReportSummary
+from products.subscriptions.backend.temporal.results_summarizer import is_time_series_query
 
 logger = structlog.get_logger(__name__)
 
@@ -461,9 +462,9 @@ def generate_change_summary(
             annotations_section=annotations_section,
         )
 
-    messages[0]["content"] += (
-        f"\n\n{SUMMARY_CONTENT_INSTRUCTIONS}\n\n{SUMMARY_INTERPRETATION_INSTRUCTIONS}\n\n{TREND_FIELD_INSTRUCTIONS}"
-    )
+    messages[0]["content"] += f"\n\n{SUMMARY_CONTENT_INSTRUCTIONS}\n\n{SUMMARY_INTERPRETATION_INSTRUCTIONS}"
+    if any(is_time_series_query(state.get("query_kind", "")) for state in current_states):
+        messages[0]["content"] += f"\n\n{TREND_FIELD_INSTRUCTIONS}"
     messages[0]["content"] += (
         f"\n\n{REPORT_TEXT_INSTRUCTIONS}\nReturn one finding per bullet. Include the time window when describing a trend."
     )

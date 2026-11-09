@@ -250,7 +250,7 @@ class TestBuildResultsSummaryIncompletePeriod:
         assert summary == "- Signups: in progress=12 (2026-04-06) (incomplete period)"
 
     @pytest.mark.parametrize(
-        "query_kind,query_results,expected",
+        "query_kind,query_results,interval,expected",
         [
             (
                 "TrendsQuery",
@@ -258,6 +258,7 @@ class TestBuildResultsSummaryIncompletePeriod:
                     "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
                     "last_refresh": "2026-04-06T16:00:00+00:00",
                 },
+                None,
                 True,
             ),
             (
@@ -266,6 +267,7 @@ class TestBuildResultsSummaryIncompletePeriod:
                     "resolved_date_range": {"date_to": "2026-04-05T23:59:59.999999-07:00"},
                     "last_refresh": "2026-04-06T16:00:00+00:00",
                 },
+                None,
                 False,
             ),
             (
@@ -274,14 +276,85 @@ class TestBuildResultsSummaryIncompletePeriod:
                     "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
                     "last_refresh": "2026-04-06T16:00:00+00:00",
                 },
+                None,
                 False,
             ),
-            ("TrendsQuery", {"resolved_date_range": None, "last_refresh": "2026-04-06T16:00:00+00:00"}, False),
-            ("TrendsQuery", {"resolved_date_range": {"date_to": "not a date"}, "last_refresh": "2026-04-06"}, False),
+            ("TrendsQuery", {"resolved_date_range": None, "last_refresh": "2026-04-06T16:00:00+00:00"}, None, False),
+            (
+                "TrendsQuery",
+                {"resolved_date_range": {"date_to": "not a date"}, "last_refresh": "2026-04-06"},
+                None,
+                False,
+            ),
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                    "result": [{"days": ["2026-04-03", "2026-04-06"]}],
+                },
+                "day",
+                True,
+            ),
+            # Saturday run of a weekdays-only daily trend: the runner dropped Saturday's
+            # bucket, so the returned Friday ended before the refresh.
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-11T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-11T16:00:00+00:00",
+                    "result": [{"days": ["2026-04-09", "2026-04-10"]}],
+                },
+                "day",
+                False,
+            ),
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                    "result": [{"days": ["2026-03-30"]}],
+                },
+                "week",
+                True,
+            ),
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                    "result": [
+                        {"days": ["2026-03-30", "2026-03-31"], "compare_label": "previous"},
+                        {"days": ["2026-04-05", "2026-04-06"], "compare_label": "current"},
+                    ],
+                },
+                "day",
+                True,
+            ),
         ],
     )
-    def test_last_period_is_incomplete(self, query_kind, query_results, expected):
-        assert last_period_is_incomplete(query_kind, query_results) is expected
+    def test_last_period_is_incomplete(self, query_kind, query_results, interval, expected):
+        assert last_period_is_incomplete(query_kind, query_results, interval=interval) is expected
+
+
+class TestBuildResultsSummaryStickiness:
+    def test_lists_activity_frequency_bins_without_temporal_fields(self):
+        results = [
+            {
+                "label": "Pageview",
+                "data": [500, 200, 120, 80, 60, 40, 90],
+                "days": [1, 2, 3, 4, 5, 6, 7],
+                "labels": ["1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"],
+                "count": 1090,
+            }
+        ]
+
+        summary = build_results_summary("StickinessQuery", results, last_period_incomplete=True)
+
+        assert summary == (
+            "- Pageview: by periods active: 1 day=500, 2 days=200, 3 days=120, 4 days=80, "
+            "5 days=60, 6 days=40, 7 days=90, total=1,090"
+        )
 
 
 class TestBuildResultsSummaryTruncation:

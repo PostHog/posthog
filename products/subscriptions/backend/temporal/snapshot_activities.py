@@ -144,7 +144,9 @@ def _build_states_from_content_snapshot(
                 result_payload,
                 columns=columns,
                 value_format=value_format,
-                last_period_incomplete=last_period_is_incomplete(query_kind, query_results),
+                last_period_incomplete=last_period_is_incomplete(
+                    query_kind, query_results, interval=insight_snap.get("interval")
+                ),
             )
             fallback_reason: str | None = None
         elif query_error:
