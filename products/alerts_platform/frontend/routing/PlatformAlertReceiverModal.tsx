@@ -16,9 +16,10 @@ export function PlatformAlertReceiverModal(): JSX.Element {
         receiverForm,
         isReceiverFormSubmitting,
         slackIntegration,
+        slackIntegrations,
         integrationsLoading,
     } = useValues(platformAlertRoutingLogic)
-    const { closeReceiverModal, submitReceiverForm } = useActions(platformAlertRoutingLogic)
+    const { closeReceiverModal, submitReceiverForm, setReceiverFormValue } = useActions(platformAlertRoutingLogic)
     const keepsUrl = keepsStoredUrl(receiverForm, editingReceiver)
 
     return (
@@ -59,15 +60,37 @@ export function PlatformAlertReceiverModal(): JSX.Element {
                     integrationsLoading ? (
                         <Spinner />
                     ) : slackIntegration ? (
-                        <LemonField name="slackChannel" label="Channel">
-                            {({ value, onChange }) => (
-                                <SlackChannelPicker
-                                    integration={slackIntegration}
-                                    value={value ?? undefined}
-                                    onChange={onChange}
-                                />
-                            )}
-                        </LemonField>
+                        <>
+                            {slackIntegrations && slackIntegrations.length > 1 ? (
+                                <LemonField name="slackWorkspaceId" label="Workspace">
+                                    {({ onChange }) => (
+                                        <LemonSelect
+                                            fullWidth
+                                            value={slackIntegration.id}
+                                            options={slackIntegrations.map((integration) => ({
+                                                value: integration.id,
+                                                label: integration.display_name,
+                                            }))}
+                                            onChange={(workspaceId) => {
+                                                onChange(workspaceId)
+                                                // A channel ID belongs to one workspace.
+                                                setReceiverFormValue('slackChannel', null)
+                                            }}
+                                            data-attr="platform-alert-receiver-slack-workspace"
+                                        />
+                                    )}
+                                </LemonField>
+                            ) : null}
+                            <LemonField name="slackChannel" label="Channel">
+                                {({ value, onChange }) => (
+                                    <SlackChannelPicker
+                                        integration={slackIntegration}
+                                        value={value ?? undefined}
+                                        onChange={onChange}
+                                    />
+                                )}
+                            </LemonField>
+                        </>
                     ) : (
                         <SlackNotConfiguredBanner />
                     )

@@ -126,7 +126,7 @@ export interface platformAlertRoutingLogicActions {
     deleteRoute: (route: AlertRouteApi) => {
         route: AlertRouteApi
     }
-    loadReceivers: () => any
+    loadReceivers: (_: void) => void
     loadReceiversFailure: (
         error: string,
         errorObject?: any
@@ -136,12 +136,12 @@ export interface platformAlertRoutingLogicActions {
     }
     loadReceiversSuccess: (
         receivers: AlertReceiverApi[] | null,
-        payload?: any
+        payload?: void
     ) => {
         receivers: AlertReceiverApi[] | null
-        payload?: any
+        payload?: void
     }
-    loadRoutes: () => any
+    loadRoutes: (_: void) => void
     loadRoutesFailure: (
         error: string,
         errorObject?: any
@@ -151,10 +151,10 @@ export interface platformAlertRoutingLogicActions {
     }
     loadRoutesSuccess: (
         routes: AlertRouteApi[] | null,
-        payload?: any
+        payload?: void
     ) => {
         routes: AlertRouteApi[] | null
-        payload?: any
+        payload?: void
     }
     openReceiverModal: (receiver: AlertReceiverApi | null) => {
         receiver: AlertReceiverApi | null
@@ -256,7 +256,7 @@ export interface platformAlertRoutingLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackIntegration: (
             slackIntegrations: IntegrationType[] | undefined,
-            editingReceiver: AlertReceiverApi | null
+            receiverForm: ReceiverForm
         ) => IntegrationType | undefined
         receiversById: (receivers: AlertReceiverApi[] | null) => Record<string, AlertReceiverApi>
     }
@@ -290,15 +290,28 @@ export const platformAlertRoutingLogic = kea<platformAlertRoutingLogicType>([
         receivers: [
             null as AlertReceiverApi[] | null,
             {
-                loadReceivers: async () =>
-                    values.currentTeamId ? platformAlertReceiversList(String(values.currentTeamId)) : values.receivers,
+                loadReceivers: async (_: void, breakpoint) => {
+                    if (!values.currentTeamId) {
+                        return values.receivers
+                    }
+                    const receivers = await platformAlertReceiversList(String(values.currentTeamId))
+                    // Drops this response when a newer load started while it was in flight.
+                    breakpoint()
+                    return receivers
+                },
             },
         ],
         routes: [
             null as AlertRouteApi[] | null,
             {
-                loadRoutes: async () =>
-                    values.currentTeamId ? platformAlertRoutesList(String(values.currentTeamId)) : values.routes,
+                loadRoutes: async (_: void, breakpoint) => {
+                    if (!values.currentTeamId) {
+                        return values.routes
+                    }
+                    const routes = await platformAlertRoutesList(String(values.currentTeamId))
+                    breakpoint()
+                    return routes
+                },
             },
         ],
     })),
@@ -326,13 +339,12 @@ export const platformAlertRoutingLogic = kea<platformAlertRoutingLogicType>([
     }),
     selectors({
         slackIntegration: [
-            (s) => [s.slackIntegrations, s.editingReceiver],
+            (s) => [s.slackIntegrations, s.receiverForm],
             (
                 slackIntegrations: IntegrationType[] | undefined,
-                editingReceiver: AlertReceiverApi | null
+                receiverForm: ReceiverForm
             ): IntegrationType | undefined =>
-                // An edit stays on the receiver's own workspace, which need not be the project's first.
-                slackIntegrations?.find((integration) => integration.id === editingReceiver?.slack_workspace_id) ??
+                slackIntegrations?.find((integration) => integration.id === receiverForm.slackWorkspaceId) ??
                 slackIntegrations?.[0],
         ],
         receiversById: [

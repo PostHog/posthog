@@ -449,6 +449,24 @@ EDIT_RESPONSES = {
 }
 
 
+def resource_permitted(
+    request: Request,
+    user_access_control: UserAccessControl,
+    resource: APIScopeObject,
+    access_level: Literal["viewer", "editor"],
+    scope_action: Literal["read", "write"],
+) -> bool:
+    if not user_access_control.check_access_level_for_resource(resource, access_level):
+        return False
+    # Session auth carries no scopes, so only the access-control check applies to it.
+    token_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return (
+        token_scopes is None
+        or "*" in token_scopes
+        or not scopes_not_covered(token_scopes, [f"{resource}:{scope_action}"])
+    )
+
+
 def platform_flag_enabled(request: Request, team: Team, flag: str) -> bool:
     return permissions.posthog_feature_flag_enabled(
         flag,
@@ -542,22 +560,12 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     def _source_kinds_with(
         self, access_level: Literal["viewer", "editor"], scope_action: Literal["read", "write"]
     ) -> list[str]:
-        # Session auth carries no scopes, so only the access-control check applies to it.
-        token_scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
-        permitted: list[str] = []
-        for source_kind, resource in SOURCE_KIND_RESOURCE.items():
-            if source_kind not in self.open_source_kinds:
-                continue
-            if not self.user_access_control.check_access_level_for_resource(resource, access_level):
-                continue
-            if (
-                token_scopes is not None
-                and "*" not in token_scopes
-                and scopes_not_covered(token_scopes, [f"{resource}:{scope_action}"])
-            ):
-                continue
-            permitted.append(source_kind)
-        return permitted
+        return [
+            source_kind
+            for source_kind, resource in SOURCE_KIND_RESOURCE.items()
+            if source_kind in self.open_source_kinds
+            and resource_permitted(self.request, self.user_access_control, resource, access_level, scope_action)
+        ]
 
     def _readable_source_kinds(self) -> list[str]:
         return self._source_kinds_with("viewer", "read")

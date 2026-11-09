@@ -22,25 +22,31 @@ describe('receiverDestinationBody', () => {
     test.each<[string, ReceiverForm, AlertReceiverApi | null, ReturnType<typeof receiverDestinationBody>]>([
         [
             'an edit with a blank URL keeps the stored webhook',
-            { name: 'Infra', type: 'webhook', slackChannel: null, webhookUrl: '' },
+            { name: 'Infra', type: 'webhook', slackWorkspaceId: null, slackChannel: null, webhookUrl: '' },
             WEBHOOK_RECEIVER,
             null,
         ],
         [
             'an edit to another type sends the new destination',
-            { name: 'Infra', type: 'teams', slackChannel: null, webhookUrl: ' https://example.com/teams ' },
+            {
+                name: 'Infra',
+                type: 'teams',
+                slackWorkspaceId: null,
+                slackChannel: null,
+                webhookUrl: ' https://example.com/teams ',
+            },
             WEBHOOK_RECEIVER,
             { type: 'teams', webhook_url: 'https://example.com/teams' },
         ],
         [
             'an edit that keeps the Slack channel sends nothing',
-            { name: 'Infra', type: 'slack', slackChannel: 'C1|#alerts', webhookUrl: '' },
+            { name: 'Infra', type: 'slack', slackWorkspaceId: 7, slackChannel: 'C1|#alerts', webhookUrl: '' },
             SLACK_RECEIVER,
             null,
         ],
         [
             'a new Slack receiver splits the picker value',
-            { name: 'Infra', type: 'slack', slackChannel: 'C2|#on-call', webhookUrl: '' },
+            { name: 'Infra', type: 'slack', slackWorkspaceId: 7, slackChannel: 'C2|#on-call', webhookUrl: '' },
             null,
             { type: 'slack', slack_workspace_id: 7, slack_channel_id: 'C2', slack_channel_name: 'on-call' },
         ],

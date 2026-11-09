@@ -29,6 +29,8 @@ export const ALL_ROUTE_EVENT_KINDS = ROUTE_EVENT_KIND_OPTIONS.map((option) => op
 export interface ReceiverForm {
     name: string
     type: ReceiverType
+    // Null picks the project's first Slack workspace.
+    slackWorkspaceId: number | null
     // `<channel id>|#<channel name>`, the value `SlackChannelPicker` reads and writes.
     slackChannel: string | null
     webhookUrl: string
@@ -40,7 +42,13 @@ export interface RouteForm {
     eventKinds: PlatformAlertDestinationEventKindEnumApi[]
 }
 
-export const EMPTY_RECEIVER_FORM: ReceiverForm = { name: '', type: 'slack', slackChannel: null, webhookUrl: '' }
+export const EMPTY_RECEIVER_FORM: ReceiverForm = {
+    name: '',
+    type: 'slack',
+    slackWorkspaceId: null,
+    slackChannel: null,
+    webhookUrl: '',
+}
 export const EMPTY_ROUTE_FORM: RouteForm = { receiverId: null, matchers: [], eventKinds: ALL_ROUTE_EVENT_KINDS }
 
 export function receiverTypeLabel(type: ReceiverType): string {
@@ -58,6 +66,7 @@ export function receiverFormFor(receiver: AlertReceiverApi): ReceiverForm {
     return {
         name: receiver.name,
         type: receiver.type,
+        slackWorkspaceId: receiver.slack_workspace_id ?? null,
         slackChannel:
             receiver.type === 'slack' && receiver.slack_channel_id
                 ? `${receiver.slack_channel_id}|#${receiver.slack_channel_name || receiver.slack_channel_id}`

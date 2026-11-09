@@ -69,11 +69,30 @@ class TestPlatformAlertRouting(APIBaseTest):
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         assert self.client.get(self.routes_url).json() == []
 
-    def test_routing_is_unavailable_without_the_routing_flag(self) -> None:
-        self.flag_patch.side_effect = lambda flag, *args, **kwargs: flag != "platform-alerts-routing"
+    @parameterized.expand(
+        [
+            ("routing_flag_off", None, False, status.HTTP_403_FORBIDDEN),
+            ("key_without_source_scopes", ["alert:read", "alert:write"], True, status.HTTP_403_FORBIDDEN),
+            (
+                "key_with_every_source_scope",
+                ["alert:write", "logs:write", "metrics:write", "external_data_source:write", "insight:write"],
+                True,
+                status.HTTP_201_CREATED,
+            ),
+        ]
+    )
+    def test_writing_routing_needs_the_flag_and_every_source(
+        self, _name: str, key_scopes: list[str] | None, flag_on: bool, expected: int
+    ) -> None:
+        if not flag_on:
+            self.flag_patch.side_effect = lambda flag, *args, **kwargs: flag != "platform-alerts-routing"
+        if key_scopes is not None:
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(key_scopes)}")
 
-        assert self.client.get(self.receivers_url).status_code == status.HTTP_403_FORBIDDEN
-        assert self.client.post(self.routes_url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
+        response = self.client.post(self.receivers_url, {"name": "Infra", **_WEBHOOK}, format="json")
+
+        assert response.status_code == expected, response.json()
 
     def test_a_route_cannot_send_to_another_projects_receiver(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")

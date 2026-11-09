@@ -11,7 +11,7 @@ from django.db import models, transaction
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -21,6 +21,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import as_drf_validation_error
 from posthog.models import User
 from posthog.permissions import FEATURE_FLAG_REQUIRED_ERROR_CODE
+from posthog.scopes import APIScopeObject
 
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.api import redact_destination_data
@@ -38,7 +39,9 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.presentation.views.platform_alert import (
     PLATFORM_ALERTS_FLAG,
+    SOURCE_KIND_RESOURCE,
     platform_flag_enabled,
+    resource_permitted,
 )
 from products.alerts_platform.backend.presentation.views.platform_alert_destinations import (
     PlatformAlertDestinationEventKind,
@@ -62,6 +65,29 @@ class PlatformAlertRoutingFlagPermission(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         assert isinstance(view, TeamAndOrgViewSetMixin)
         return all(platform_flag_enabled(request, view.team, flag) for flag in (PLATFORM_ALERTS_FLAG, ROUTING_FLAG))
+
+
+class PlatformAlertRoutingSourceAccessPermission(BasePermission):
+    """A route can send any alert on the project to its receiver, so editing routing needs edit access to every
+    source's alerts, and reading it needs view access to them. Insight alerts count by project-level insight access,
+    because this product cannot check access to one insight."""
+
+    message = "Routing sends alerts from every source to its receivers, so it needs access to every alert source."
+    _RESOURCES: tuple[APIScopeObject, ...] = (*sorted(set(SOURCE_KIND_RESOURCE.values())), "insight")
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        assert isinstance(view, TeamAndOrgViewSetMixin)
+        reads = request.method in SAFE_METHODS
+        return all(
+            resource_permitted(
+                request,
+                view.user_access_control,
+                resource,
+                "viewer" if reads else "editor",
+                "read" if reads else "write",
+            )
+            for resource in self._RESOURCES
+        )
 
 
 class AlertReceiverSerializer(serializers.Serializer):
@@ -177,7 +203,7 @@ _INVALID = OpenApiResponse(description="The settings are invalid.")
 
 class _RoutingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "alert"
-    permission_classes = [PlatformAlertRoutingFlagPermission]
+    permission_classes = [PlatformAlertRoutingFlagPermission, PlatformAlertRoutingSourceAccessPermission]
     pagination_class = None
 
     def _track(self, event: str, properties: dict[str, Any]) -> None:

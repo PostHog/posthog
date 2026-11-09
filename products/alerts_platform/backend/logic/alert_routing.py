@@ -114,33 +114,35 @@ def create_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:
                 enabled=True if edit.enabled is None else edit.enabled,
             )
     except IntegrityError as error:
-        # The receiver was deleted after the check above.
+        # The receiver was deleted after the check above. Postgres checks the foreign key at commit,
+        # which is the exit of this block.
         raise _unknown_receiver() from error
     return _stored_route(row)
 
 
 def update_route(*, team_id: int, route_id: UUID, edit: AlertRouteEdit) -> StoredAlertRoute:
-    with transaction.atomic():
-        row = AlertRoute.objects.for_team(team_id).select_for_update().filter(id=route_id).first()
-        if row is None:
-            raise UnknownAlertRouting()
-        if edit.receiver_id is not None:
-            _check_receiver(team_id, edit.receiver_id)
-            row.receiver_id = edit.receiver_id
-        if edit.matchers is not None:
-            _validate_matchers(edit.matchers)
-            row.matchers = _stored_matchers(edit.matchers)
-        if edit.event_kinds is not None:
-            validate_event_kinds(edit.event_kinds)
-            row.event_kinds = [kind.value for kind in edit.event_kinds]
-        if edit.enabled is not None:
-            # nosemgrep: platform-alert-state-direct-mutation (a routing row's own switch, not an alert's lifecycle)
-            row.enabled = edit.enabled
-        try:
-            with transaction.atomic():
-                row.save()
-        except IntegrityError as error:
-            raise _unknown_receiver() from error
+    # Postgres checks the receiver foreign key at commit, so a receiver deleted after the check below
+    # fails when this block exits.
+    try:
+        with transaction.atomic():
+            row = AlertRoute.objects.for_team(team_id).select_for_update().filter(id=route_id).first()
+            if row is None:
+                raise UnknownAlertRouting()
+            if edit.receiver_id is not None:
+                _check_receiver(team_id, edit.receiver_id)
+                row.receiver_id = edit.receiver_id
+            if edit.matchers is not None:
+                _validate_matchers(edit.matchers)
+                row.matchers = _stored_matchers(edit.matchers)
+            if edit.event_kinds is not None:
+                validate_event_kinds(edit.event_kinds)
+                row.event_kinds = [kind.value for kind in edit.event_kinds]
+            if edit.enabled is not None:
+                # nosemgrep: platform-alert-state-direct-mutation (a routing row's own switch, not an alert's lifecycle)
+                row.enabled = edit.enabled
+            row.save()
+    except IntegrityError as error:
+        raise _unknown_receiver() from error
     return _stored_route(row)
 
 
