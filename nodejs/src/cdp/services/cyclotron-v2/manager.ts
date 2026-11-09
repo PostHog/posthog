@@ -8,6 +8,7 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
+import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
@@ -47,18 +48,35 @@ export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
  * Continuing tenants just increment their own counter as before. `COALESCE`
  * handles the empty-table cold-start (`MAX = NULL` → starting point of 0).
  *
+ * The plain UPDATE runs first because Postgres evaluates the `MAX` subquery in
+ * the INSERT's VALUES before it checks for a conflict, which means a full scan
+ * of the table for every job even though only a team's first email uses the
+ * result. Do not add an index on `counter` to make `MAX` cheap: every call
+ * changes `counter`, so the index would block HOT updates on this hot row.
+ * When two first emails for one team race, both UPDATEs find no row and the
+ * INSERT's `ON CONFLICT` branch gives the second one the next counter value.
+ *
  * For bulk inserts of multiple email jobs at once, `bulkCreateJobs` uses its
  * own batched UPSERT for efficiency rather than calling this in a loop.
  */
 export async function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise<string> {
-    const result = await pool.query<{ counter: string }>(
-        `INSERT INTO cyclotron_email_team_seq (team_id, counter)
-         VALUES ($1, COALESCE((SELECT MAX(counter) FROM cyclotron_email_team_seq), 0) + 1)
-         ON CONFLICT (team_id) DO UPDATE
-            SET counter = cyclotron_email_team_seq.counter + 1
+    let result = await pool.query<{ counter: string }>(
+        `UPDATE cyclotron_email_team_seq
+         SET counter = counter + 1
+         WHERE team_id = $1
          RETURNING counter`,
         [teamId]
     )
+    if (result.rows.length === 0) {
+        result = await pool.query<{ counter: string }>(
+            `INSERT INTO cyclotron_email_team_seq (team_id, counter)
+             VALUES ($1, COALESCE((SELECT MAX(counter) FROM cyclotron_email_team_seq), 0) + 1)
+             ON CONFLICT (team_id) DO UPDATE
+                SET counter = cyclotron_email_team_seq.counter + 1
+             RETURNING counter`,
+            [teamId]
+        )
+    }
     const counter = BigInt(result.rows[0].counter)
     // pg accepts BIGINT as string to avoid JS number precision loss
     return (counter * EMAIL_DEQUEUE_BLOCK_SIZE + BigInt(teamId)).toString()
@@ -136,7 +154,7 @@ export class CyclotronV2Manager {
     }
 
     constructor(config: CyclotronV2ManagerConfig) {
-        this.pool = new Pool({
+        this.pool = createCyclotronPool('manager', {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,

@@ -2901,8 +2901,17 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # A schema has no rules of its own, so the generic queryset filtering can't see its access.
         # Resolve each row the way retrieve does and drop the ones the user can't view - otherwise
         # the list serves names and sync metadata for tables and sources they're denied on.
-        schemas = list(queryset)
         uac = self.user_access_control
+        blocked = uac.blocked_resource_ids_by_scope
+        if (
+            uac.check_access_level_for_resource("warehouse_table", "viewer")
+            and uac.check_access_level_for_resource("external_data_source", "viewer")
+            and not blocked.get("warehouse_table")
+            and not blocked.get("external_data_source")
+        ):
+            return queryset
+
+        schemas = list(queryset)
         uac.preload_object_access_controls([schema.table or schema.source for schema in schemas])
         visible = [
             schema.id
@@ -3272,7 +3281,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance: ExternalDataSchema = self.get_object()
         source: ExternalDataSource = instance.source
 
-        source_inputs = SourceInputsStore.load(source)
+        try:
+            source_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": UNREADABLE_SOURCE_CONFIG_ERROR})
         if not source_inputs:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing job inputs"})
 

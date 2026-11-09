@@ -2311,7 +2311,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         lemonToast.error(
                             `This project can send a broadcast to up to ${humanFriendlyNumber(
                                 blastRadius.limit
-                            )} people right now. Add filters to narrow the audience, then launch again.`,
+                            )} people right now.${
+                                values.channel === 'email' ? ' A slower sending rate does not raise this limit.' : ''
+                            } Add filters to narrow the audience, then launch again.`,
                             {
                                 button: {
                                     label: 'See sending limits',
