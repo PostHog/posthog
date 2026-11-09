@@ -258,9 +258,12 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 )
 
         if export_context and export_context.get("heatmap_url"):
+            get_team = self.context.get("get_team")
+            heatmap_team = get_team() if get_team is not None else Team.objects.get(pk=self.context["team_id"])
             ok, err = is_heatmap_url_allowed(
                 export_context["heatmap_url"],
                 export_context.get("heatmap_type"),
+                heatmap_team,
             )
             if not ok:
                 raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
