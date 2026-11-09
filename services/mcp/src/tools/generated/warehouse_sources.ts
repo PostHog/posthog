@@ -1091,7 +1091,14 @@ const warehouseMigrationItemSkip = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/${encodeURIComponent(String(params.item_id))}/skip/`,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'proposal.schemas.*.disabled_columns',
+            'proposal.schemas.*.row_filters',
+            'proposal.schemas.*.alternative_names',
+            'proposal.prefill',
+            'created_by',
+        ]) as typeof result
+        return filtered
     },
 })
 
