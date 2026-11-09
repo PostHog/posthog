@@ -19,8 +19,8 @@ import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { HARNESS_BY_LABEL, harnessMark } from './dashboard/harnessRegistry'
-import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import { mcpLeaderboardHomeLogic } from './leaderboardHome/mcpLeaderboardHomeLogic'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import {
     type ActivityRow,
     type BucketRow,
