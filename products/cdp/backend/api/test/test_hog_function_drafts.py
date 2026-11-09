@@ -545,6 +545,9 @@ class TestHogFunctionDrafts(DraftTestCase):
 
         assert response.status_code == expected_status, response.json()
         assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
+        if mock_invoke.called:
+            sent_secrets = mock_invoke.call_args.kwargs["payload"]["configuration"]["encrypted_inputs"]
+            assert {key: item["value"] for key, item in sent_secrets.items()} == {"token": token["value"]}
 
     def test_publish_resolves_the_rollout_flag_before_locking_the_row(self):
         function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
@@ -588,6 +591,29 @@ class TestHogFunctionDrafts(DraftTestCase):
                 response = self.client.patch(self._url(function_id), rotated)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @parameterized.expand(
+        [("templating_turned_on", True, status.HTTP_400_BAD_REQUEST), ("unchanged", False, status.HTTP_200_OK)]
+    )
+    def test_url_templating_change_asks_for_an_unbound_secret(self, _name: str, templating: bool, expected_status: int):
+        url_schema, token_schema = BASE_FUNCTION["inputs_schema"]
+        url = {"value": "https://{event.properties.host}/a"}
+        function_id = self._create(
+            hog=SENDER_HOG,
+            inputs_schema=[{**url_schema, "templating": False}, token_schema],
+            inputs={"url": url, "token": {"value": "live"}},
+        )
+
+        with secret_host_binding_flag(True):
+            response = self.client.patch(
+                self._url(function_id),
+                {
+                    "inputs_schema": [{**url_schema, "templating": templating}, token_schema],
+                    "inputs": {"url": url, "token": {"secret": True}},
+                },
+            )
+
+        assert response.status_code == expected_status, response.json()
 
     def test_rotating_a_secret_cannot_move_a_sibling_that_reads_it(self):
         sibling_schema = {"key": "target", "type": "string", "label": "Target", "secret": True}
@@ -834,6 +860,7 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert configuration["hog"] == EDITED_HOG
         # The staged secret is what gets exercised, not the live one it will replace.
         assert configuration["inputs"]["token"]["value"] == "new"
+        assert configuration["encrypted_inputs"]["token"]["value"] == "new"
 
     def test_invocations_use_draft_recovers_unstaged_secrets_from_live(self):
         function_id = self._create()
@@ -844,6 +871,7 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         configuration = mock_invoke.call_args.kwargs["payload"]["configuration"]
         assert configuration["inputs"]["token"]["value"] == "live-token"
+        assert configuration["encrypted_inputs"]["token"]["value"] == "live-token"
 
     def test_invocations_use_draft_without_a_draft_is_rejected(self):
         function_id = self._create()

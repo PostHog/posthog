@@ -335,36 +335,48 @@ def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
     }
 
 
-def _comparable_inputs(items: Any) -> dict:
+def _comparable_inputs(items: Any, inputs_schema: Any = None) -> dict:
+    # The worker runs an input as a template unless its schema turns templating off, and an item saved
+    # without templating carries no flag of its own.
+    untemplated = {schema.get("key") for schema in inputs_schema or [] if schema.get("templating") is False}
     return {
-        key: (item.get("value"), item.get("templating") or "hog")
+        key: (item.get("value"), item.get("templating") or (None if key in untemplated else "hog"))
         for key, item in (items or {}).items()
         if isinstance(item, dict)
     }
 
 
-def _analyzed_config(hog: Optional[str], inputs: dict, mappings: Any, secret_keys: set[str]) -> tuple:
+def _analyzed_config(
+    hog: Optional[str], inputs: dict, inputs_schema: Any, mappings: Any, secret_keys: set[str]
+) -> tuple:
     public_inputs = {key: item for key, item in inputs.items() if key not in secret_keys}
     return (
         hog or "",
-        _comparable_inputs(public_inputs),
+        _comparable_inputs(public_inputs, inputs_schema),
         [_comparable_inputs(items) for items in mapping_inputs(mappings)],
     )
 
 
 def _unchanged_secrets(
-    instance: Optional[HogFunction], hog: str, inputs: dict, mappings: Any, stored_inputs: dict, derived: dict
+    instance: Optional[HogFunction],
+    hog: str,
+    inputs: dict,
+    inputs_schema: Any,
+    mappings: Any,
+    stored_inputs: dict,
+    derived: dict,
 ) -> set[str]:
     """A secret's own value is compared because a dictionary secret can hold the address it is sent to."""
     secret_keys = set(derived)
-    if instance is None or _analyzed_config(hog, inputs, mappings, secret_keys) != _analyzed_config(
-        instance.hog, stored_inputs, instance.mappings, secret_keys
+    if instance is None or _analyzed_config(hog, inputs, inputs_schema, mappings, secret_keys) != _analyzed_config(
+        instance.hog, stored_inputs, instance.inputs_schema, instance.mappings, secret_keys
     ):
         return set()
     moved = {
         key
         for key in secret_keys
-        if _comparable_inputs({key: inputs.get(key)}) != _comparable_inputs({key: stored_inputs.get(key)})
+        if _comparable_inputs({key: inputs.get(key)}, inputs_schema)
+        != _comparable_inputs({key: stored_inputs.get(key)}, instance.inputs_schema)
     }
     kept = secret_keys - moved
     if not moved or not kept:
@@ -439,6 +451,15 @@ def _secret_baselines(
         return stored_derived[key]
 
     return {key: baseline(key) for key in secret_keys}
+
+
+def _tested_secret_inputs(configuration: dict) -> dict:
+    inputs = configuration.get("inputs") or {}
+    return {
+        schema["key"]: inputs[schema["key"]]
+        for schema in configuration.get("inputs_schema") or []
+        if schema.get("secret") and schema["key"] in inputs
+    }
 
 
 def secret_binding_enforced(team: Team) -> bool:
@@ -1091,7 +1112,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         derived = analysis.origins
         live_secrets = self.context.get("live_encrypted_inputs", stored_secrets)
         stored_inputs = {**((instance.inputs or {}) if instance else {}), **live_secrets}
-        unchanged = _unchanged_secrets(instance, hog, checked_inputs, mappings, stored_inputs, derived)
+        inputs_schema = attrs.get("inputs_schema", instance.inputs_schema if instance else None)
+        unchanged = _unchanged_secrets(instance, hog, checked_inputs, inputs_schema, mappings, stored_inputs, derived)
         baselines = _secret_baselines(instance, checked_keys, stored_secrets, stored_inputs, derived, unchanged)
         entered = entered_secret_input_keys(self.requested_inputs) - undeclared
         bindings = {
@@ -1738,6 +1760,9 @@ class HogFunctionViewSet(
                 ),
             )
 
+        # The worker lays the function's stored secrets over the tested inputs. Sending the secrets that
+        # passed the origin check in their place means a test sends an entered secret, never the stored one.
+        configuration["encrypted_inputs"] = _tested_secret_inputs(configuration)
         res = create_hog_invocation_test(
             team_id=self.team_id,
             hog_function_id=str(hog_function.id) if hog_function else "new",

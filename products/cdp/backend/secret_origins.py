@@ -383,7 +383,12 @@ class _Analysis:
             self._input(key, set())
 
         self._collect(parse_program(hog), None)
-        self.fed_names += [(arg, self._call_arguments(name)) for arg, name in self.named_lambda_args]
+        feeds: dict[str, list[ast.Expr] | None] = {}
+        for arg, name in self.named_lambda_args:
+            self._spend_evaluation()
+            if name not in feeds:
+                feeds[name] = self._call_arguments(name)
+            self.fed_names.append((arg, feeds[name]))
         bound_elsewhere = {name for name, _ in self.fed_names}
         bound_elsewhere |= {param for params in self.functions.values() for param in params}
         variables = {name for name, _ in self.assignments} | self.declarations | bound_elsewhere
@@ -621,6 +626,10 @@ class _Analysis:
         elif isinstance(node, ast.ExprCall):
             self.exits += node.args
         elif isinstance(node, ast.Call):
+            # In `f(a)(b)` the VM runs `f(a)` and then calls its result, so a second argument list is a call
+            # that this analysis does not model.
+            if node.params is not None:
+                raise _CannotAnalyze("unsupported_code")
             self.calls.append(node)
             if node.name == "fetch" and len(node.args) > 1:
                 options = node.args[1]
@@ -751,7 +760,8 @@ class _Analysis:
             if not isinstance(value, dict):
                 return None
             for name, header in value.items():
-                if not isinstance(name, str):
+                # The worker expands this key into more entries, which can include a Host header.
+                if not isinstance(name, str) or name == "$$_extend_object":
                     return None
                 if name.lower() not in _HOST_HEADERS:
                     continue
