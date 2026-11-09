@@ -279,7 +279,7 @@ Idempotent. A reactivated check no longer matches.
 It reads its limits from the `personal-inbox-ranking` flag payload, and `"enabled": false` there stops every build.
 It prints the effective config first: the model, `reasoning_effort`, `rank_top`, `max_candidates`, `timeout_seconds` and `max_completion_tokens`.
 The model ranks only the best `rank_top` candidates. The other candidates follow in model order, with `ranked_by: model`.
-At most `top_max` entries (default 5) get the `top` tier and at most `worth_a_look_max` (default 10) get `worth_a_look`. An entry past a cap moves down to the next tier with room and keeps its rank.
+At most `top_max` entries (default 5) get the `top` tier and at most `worth_a_look_max` (default 15) get `worth_a_look`. An entry past a cap moves down to the next tier with room and keeps its rank.
 
 ```bash
 # Call the model, but store no PersonalInboxRanking row and capture no event
@@ -315,6 +315,7 @@ The command spends no build limit, so use it only for single runs.
 `GET /api/projects/:id/signals/reports/for_me/` (`../personal_ranking/serve.py`) serves the same list to the user it describes, when the flag is on for that user.
 It reuses the latest row for `freshness_minutes` after the row was built or last checked by the tick, while the input hash matches.
 Otherwise it queues one `build_personal_inbox_ranking` Celery task per person behind a cache lock, and serves the latest row as stale, or the candidates in inbox order with `fallback_reason: building`.
+The input hash covers the model, `reasoning_effort` and the rendered system prompt, so a payload change to a lever the prompt names, such as `rank_top`, a tier cap or a reason limit, rebuilds each list at its next check.
 It limits builds per person with `build_burst`, `builds_per_hour` and `builds_per_day` from the same payload.
 `max_builds_per_day` (default 500, at most 10000) limits the builds that call the model across every person, in one Redis token bucket per region (`../personal_ranking/build_budget.py`).
 A build with no ready activity summary, or for an organization that has not approved AI data processing, does not call the model and does not spend that limit.
