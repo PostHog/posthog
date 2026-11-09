@@ -18,6 +18,7 @@ const passwordReset: CodeEmailApi = {
     source_url:
         'https://github.com/acme/web/blob/4f2a9c1e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39/src/emails/password-reset.tsx',
     created_at: '2026-11-01T10:00:00Z',
+    user_access_level: 'editor',
 }
 
 const meta: Meta = {
