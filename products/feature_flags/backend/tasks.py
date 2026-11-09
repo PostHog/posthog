@@ -330,8 +330,8 @@ def cleanup_stale_flags_expiry_tracking_task(self: PushGatewayTask) -> None:
     """
     Periodic task to clean up stale entries in the flags cache expiry tracking sorted set.
 
-    Removes entries for teams that no longer exist in the database.
-    Runs daily to prevent sorted set bloat from deleted teams.
+    Deletes the cache entries of teams that no longer exist and removes their tracking members.
+    Runs daily, because a refresh can write a deleted team's entry again after the delete path cleared it.
     """
     if not settings.FLAGS_REDIS_URL:
         logger.info("Flags Redis URL not set, skipping flags expiry tracking cleanup")
@@ -542,8 +542,8 @@ def cleanup_stale_flag_definitions_expiry_tracking_task(self: PushGatewayTask) -
     """
     Periodic task to clean up stale entries in the flag definitions cache expiry tracking sorted set.
 
-    Removes entries for teams that no longer exist in the database.
-    Runs daily to prevent sorted set bloat from deleted teams.
+    Deletes the cache entries of teams that no longer exist and removes their tracking members.
+    Runs daily, because a refresh can write a deleted team's entry again after the delete path cleared it.
     """
 
     from posthog.storage.cache_expiry_manager import cleanup_stale_expiry_tracking
