@@ -14,6 +14,7 @@ const LIQUID_PARSE_LIMIT_CHARS = 5_000_000
 const LIQUID_MEMORY_LIMIT_UNITS = 1_000_000
 // Time and output are budgeted per invocation, not per template, because one invocation renders
 // every string leaf of every liquid input and those leaves would otherwise each get a full budget.
+// Time is CPU time on this thread, so a worker that is busy or throttled does not fail a normal template.
 const LIQUID_RENDER_LIMIT_MS = 500
 const LIQUID_OUTPUT_LIMIT_CHARS = 10_000_000
 
@@ -23,6 +24,32 @@ const LIQUID_TAG_CLOSERS: Record<string, string> = { '{': '}}', '%': '%}' }
 // the render deadline between template nodes, so one filter call can run unbounded. They are replaced
 // with a throwing filter rather than unregistered, because an unknown filter silently acts as identity.
 const LIQUID_UNBOUNDED_FILTERS = ['where_exp', 'find_exp', 'find_index_exp', 'reject_exp', 'group_by_exp']
+
+const LIQUID_RENDER_LIMIT_MESSAGE = 'template render limit exceeded'
+
+const threadCpuMs = (): number => {
+    const { user, system } = process.threadCpuUsage()
+    return (user + system) / 1000
+}
+
+// Only the time limit, which a busy worker can trip on a template that renders well under normal load.
+export const isLiquidRenderTimeLimitError = (error: unknown): boolean =>
+    error instanceof Error && error.message.includes(LIQUID_RENDER_LIMIT_MESSAGE)
+
+// LiquidJS checks its render limit against wall-clock time between template nodes. This replaces it on
+// the render context with the same check against thread CPU time, and keeps the LiquidJS error message.
+const cpuTimeRenderLimit = (limitMs: number): Context['renderLimit'] => {
+    const deadline = threadCpuMs() + limitMs
+    const limiter = {
+        use: (): void => {},
+        check: (): void => {
+            if (threadCpuMs() > deadline) {
+                throw new Error(LIQUID_RENDER_LIMIT_MESSAGE)
+            }
+        },
+    }
+    return limiter as unknown as Context['renderLimit']
+}
 
 export class LiquidRenderBudget {
     private usedMs = 0
@@ -241,7 +268,6 @@ const createLiquid = (outputEscape: 'escape' | undefined): Liquid => {
         // partial loading, so user-controlled templates can't read local files via include/render/layout.
         templates: {},
         parseLimit: LIQUID_PARSE_LIMIT_CHARS,
-        renderLimit: LIQUID_RENDER_LIMIT_MS,
         memoryLimit: LIQUID_MEMORY_LIMIT_UNITS,
     })
     for (const name of LIQUID_UNBOUNDED_FILTERS) {
@@ -293,17 +319,17 @@ export class LiquidRenderer {
             ...(isWarehouseRow ? { record: globals.event?.properties ?? {} } : {}),
         }
 
-        const start = performance.now()
+        const start = threadCpuMs()
         try {
             const liquid = escapeHtml ? this.liquid : this.plainTextLiquid
-            const result: string = liquid.parseAndRenderSync(decodeLiquidTags(template), context, {
-                renderLimit: budget.remainingMs(),
-            })
+            const ctx = new Context(context, liquid.options, { sync: true }, { liquid })
+            ctx.renderLimit = cpuTimeRenderLimit(budget.remainingMs())
+            const result: string = liquid.renderSync(liquid.parse(decodeLiquidTags(template)), ctx)
             // String length is O(1) on a V8 rope, so this rejects a huge result before anything flattens it.
             budget.useOutput(result.length)
             return result
         } finally {
-            budget.useTime(performance.now() - start)
+            budget.useTime(threadCpuMs() - start)
         }
     }
 }

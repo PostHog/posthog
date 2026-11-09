@@ -2,6 +2,7 @@ import { DateTime, Duration } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { isLiquidRenderTimeLimitError } from '~/cdp/utils/liquid'
 import {
     buildWorkflowStepDispatchKey,
     workflowStepDispatchKeyFromInvocation,
@@ -131,6 +132,15 @@ const logStepWarnings = (
     }
 }
 
+const LIQUID_RENDER_RETRY_DELAY_SECONDS = 10
+
+// Unlabelled by team, so an alert can fire on any failure. The step error log names the flow.
+const counterLiquidRenderTimeLimit = new Counter({
+    name: 'cdp_hogflow_liquid_render_time_limit',
+    help: 'A step ran out of liquid render time while it built its inputs, by outcome: retried, or failed after the retry.',
+    labelNames: ['outcome'],
+})
+
 const counterAwaitedStepStaleResume = new Counter({
     name: 'cdp_hogflow_awaited_step_stale_resume',
     help: 'A parked step received a wake keyed to an earlier visit of the same step and kept waiting.',
@@ -187,12 +197,21 @@ export class HogFunctionHandler implements ActionHandler {
         // rendered state in hogFunctionState) - so this also fires at most once per step per run
         if (
             !invocation.state.currentAction?.hogFunctionState &&
-            !invocation.state.currentAction?.frequencyCapHoldDeadlineAt
+            !invocation.state.currentAction?.frequencyCapHoldDeadlineAt &&
+            !invocation.state.currentAction?.liquidRenderRetried
         ) {
             observeMissingVariableReferences(invocation, action, result)
         }
 
-        const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
+        let functionResult: Awaited<ReturnType<HogFunctionHandler['executeHogFunction']>>
+        try {
+            functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
+        } catch (error) {
+            if (isLiquidRenderTimeLimitError(error)) {
+                return retryOrFailLiquidRender(invocation, result, error)
+            }
+            throw error
+        }
 
         if (functionResult.emailSendResult) {
             result.emailSendResult = functionResult.emailSendResult
@@ -662,4 +681,27 @@ function frequencyCapHold(
     )
     const until = DateTime.max(now, DateTime.fromMillis(cap.nextSlotAt + jitterMs))
     return { until, deadlineAt: deadline.toISO()!, firstHold: !startedDeadline }
+}
+
+// The render time limit fails the step before anything is sent, and the step otherwise continues past
+// the error as if it succeeded. A busy worker can trip the limit on a normal template, so the step
+// re-runs once after a short delay. A second failure throws, and the executor handles it as before.
+function retryOrFailLiquidRender(
+    invocation: CyclotronJobInvocationHogFlow,
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+    error: unknown
+): ActionHandlerResult {
+    const currentAction = invocation.state.currentAction
+    if (currentAction && !currentAction.liquidRenderRetried) {
+        currentAction.liquidRenderRetried = true
+        counterLiquidRenderTimeLimit.labels('retried').inc()
+        result.logs.push({
+            level: 'warn',
+            timestamp: DateTime.now(),
+            message: `Ran out of time to render the step's templates (${String(error)}). Retrying in ${LIQUID_RENDER_RETRY_DELAY_SECONDS}s`,
+        })
+        return { scheduledAt: DateTime.now().plus({ seconds: LIQUID_RENDER_RETRY_DELAY_SECONDS }) }
+    }
+    counterLiquidRenderTimeLimit.labels('failed').inc()
+    throw error
 }

@@ -857,12 +857,14 @@ export class RerunPaginatorService {
             // The cohort lookup counters are dropped too. A run that aborted after its last
             // lookup attempt would otherwise restart with no retries left, and the leftover
             // cohortLookupFailed flag would turn an unrelated error on that step into an abort.
+            // The liquid render retry flag is dropped for the same reason, so the rerun keeps its retry.
             const {
                 hogFunctionState: _stripped,
                 awaitingResume: _awaitingResume,
                 resumeResult: _resumeResult,
                 cohortLookupAttempts: _cohortLookupAttempts,
                 cohortLookupFailed: _cohortLookupFailed,
+                liquidRenderRetried: _liquidRenderRetried,
                 ...restoredCurrentAction
             } = persistedState.currentAction ?? {}
 

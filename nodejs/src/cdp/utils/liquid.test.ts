@@ -336,6 +336,22 @@ describe('LiquidRenderer', () => {
             expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow(expectedError)
         })
 
+        it('does not count wall-clock time that the worker spends on other work', () => {
+            // Each clock read jumps a second, as when a busy or throttled worker stalls between template nodes.
+            let now = performance.now()
+            const spy = jest.spyOn(performance, 'now').mockImplementation(() => (now += 1000))
+            try {
+                expect(
+                    LiquidRenderer.renderWithHogFunctionGlobals(
+                        '{% for i in (1..3) %}{{ person.name }}{% endfor %}',
+                        globals
+                    )
+                ).toBe('test_persontest_persontest_person')
+            } finally {
+                spy.mockRestore()
+            }
+        })
+
         it('renders an email body whose size comes from an inlined image, not from tags', () => {
             // Real bodies reach megabytes because a logo is inlined as a base64 data URI. They carry a
             // handful of tags, so tightening the length caps toward the typical template breaks them.

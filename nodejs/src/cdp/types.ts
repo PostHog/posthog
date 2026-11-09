@@ -518,6 +518,9 @@ export type HogFlowInvocationContext = {
         // on_error says, because the default 'continue' takes the continue edge, and on a branch that
         // edge sends a member down the path for people outside the cohort.
         cohortLookupFailed?: boolean
+        // Set when rendering the step's liquid inputs ran out of render time and the step was retried.
+        // A busy worker can trip the limit on a normal template, so the step gets one more attempt.
+        liquidRenderRetried?: boolean
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
         // Set by the subscription matcher consumer when it wakes a wait_until_condition
         // job because a matching event arrived (as opposed to a scheduled timeout firing).

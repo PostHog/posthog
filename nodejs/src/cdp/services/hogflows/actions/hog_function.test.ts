@@ -405,6 +405,31 @@ describe('HogFunctionHandler', () => {
         })
     })
 
+    it('retries the step once when its liquid inputs run out of render time, then fails it', async () => {
+        action.config.inputs.name = {
+            value: '{% assign a = (1..100) %}{% for i in a %}{% for j in a %}{% for k in a %}{% for l in a %}{% endfor %}{% endfor %}{% endfor %}{% endfor %}',
+            templating: 'liquid',
+        }
+
+        const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: firstResult })
+
+        expect(handlerResult.scheduledAt).toBeDefined()
+        expect(firstResult.logs.find((l) => l.level === 'warn')?.message).toContain('template render limit exceeded')
+
+        const retryResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        await expect(hogFunctionHandler.execute({ invocation, action, result: retryResult })).rejects.toThrow(
+            'template render limit exceeded'
+        )
+        expect(mockFetch).not.toHaveBeenCalled()
+    })
+
     it('should throw an error if template is not found', async () => {
         const action = findActionByType(invocation.hogFlow, 'function')!
         action.config.template_id = 'template_123'
