@@ -1,0 +1,24 @@
+name: Dependency proof trigger
+
+# Exists only so dependency-proof.yml can run on `workflow_run` for every pull request.
+# That workflow runs its default-branch copy and holds the dependency proof App key, which a
+# `pull_request` job must never see. No paths filter, so every pull request gets a result and a
+# stale proof never stands in for a missing one.
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+    trigger:
+        name: Request a dependency proof
+        runs-on: ubuntu-24.04
+        timeout-minutes: 2
+        steps:
+            - run: 'true'

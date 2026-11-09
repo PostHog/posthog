@@ -1,0 +1,126 @@
+name: Dependency proof
+
+# Proves a bot's dependency update and posts the "Dependency proof" check run on the pull
+# request head. Everything here runs from the default branch: the triggering run only names a
+# head SHA, the pull request is looked up through the API, settings come from this commit, and
+# pnpm runs in the merge-base tree. Nothing from the pull request tree is executed.
+# The prover is .github/scripts/dependency_proof; the trigger is dependency-proof-trigger.yml.
+
+on:
+    workflow_run:
+        workflows: [Dependency proof trigger]
+        types: [completed]
+
+# Keyed by the proved head. `github.head_ref || github.ref` is the default branch on every
+# `workflow_run`, which would put all pull requests in one group and drop pending runs, and a
+# dropped run leaves a required check missing.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha }}
+    cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+    prove:
+        name: Prove the dependency update
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        outputs:
+            files: ${{ steps.prove.outputs.files }}
+            pr: ${{ steps.prove.outputs.pr }}
+            merge_base: ${{ steps.prove.outputs.merge_base }}
+        steps:
+            # The prover reads the merge base and the head from the object database, so the
+            # working tree only needs the prover itself.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/dependency_proof
+                      .github/actions/setup-uv
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Prove the update
+              id: prove
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  BASE_BRANCH: ${{ github.event.repository.default_branch }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  TRIGGERING_ACTOR_ID: ${{ github.event.workflow_run.triggering_actor.id }}
+                  WORKFLOW_SHA: ${{ github.sha }}
+                  MERGE_BASE_DIR: ${{ runner.temp }}/merge-base
+              run: uv run --no-project --with pyyaml==6.0.3 python -I .github/scripts/dependency_proof/__main__.py
+
+    # Any outcome of `prove` other than a success with a readable file list posts a neutral check
+    # that attests nothing, so stamphog lifts nothing and a person can still merge after review.
+    # The run itself still fails, so a broken prover shows up in the Actions tab.
+    publish:
+        name: Publish the Dependency proof check
+        needs: prove
+        if: ${{ !cancelled() }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        environment: dependency-proof
+        steps:
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              with:
+                  client-id: ${{ vars.DEPENDENCY_PROOF_APP_ID }}
+                  private-key: ${{ secrets.DEPENDENCY_PROOF_APP_PRIVATE_KEY }}
+                  permission-checks: write
+
+            - name: Create the check run
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  WORKFLOW_SHA: ${{ github.sha }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  PROVE_RESULT: ${{ needs.prove.result }}
+                  PROVE_FILES: ${{ needs.prove.outputs.files }}
+                  PROVE_PR: ${{ needs.prove.outputs.pr }}
+                  PROVE_MERGE_BASE: ${{ needs.prove.outputs.merge_base }}
+              run: |
+                  set -euo pipefail
+
+                  if [[ "$PROVE_RESULT" == "success" ]] \
+                      && files="$(jq -ce 'select(type == "array" and all(.[]; type == "string"))' <<< "$PROVE_FILES")"; then
+                      conclusion=success
+                      title="Attested $(jq length <<< "$files") dependency file(s)"
+                      [[ "$files" != "[]" ]] || title="Nothing to attest"
+                  else
+                      conclusion=neutral
+                      files='[]'
+                      title="The dependency update could not be proved"
+                  fi
+                  pr="${PROVE_PR:-0}"
+                  merge_base="${PROVE_MERGE_BASE:-}"
+                  [[ "$pr" =~ ^[0-9]+$ ]] || pr=0
+                  [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] || merge_base=""
+                  marker="$(jq -cn --argjson files "$files" --argjson pr "$pr" --arg head_sha "$HEAD_SHA" \
+                      --arg merge_base "$merge_base" --arg workflow_sha "$WORKFLOW_SHA" \
+                      '{files: $files, pr: $pr, head_sha: $head_sha, merge_base: $merge_base, workflow_sha: $workflow_sha}' \
+                      | python3 -c 'import json, sys; print(json.dumps(json.load(sys.stdin)))')"
+                  jq -n --arg head_sha "$HEAD_SHA" --arg conclusion "$conclusion" --arg details_url "$RUN_URL" \
+                      --arg title "$title" --arg summary "<!-- stamphog:v1 $marker -->" \
+                      '{name: "Dependency proof", head_sha: $head_sha, status: "completed", conclusion: $conclusion,
+                        details_url: $details_url, output: {title: $title, summary: $summary}}' \
+                      | gh api --method POST "repos/$REPOSITORY/check-runs" --input - > /dev/null
+
+                  if [[ "$PROVE_RESULT" != "success" ]]; then
+                      exit 1
+                  fi
+                  [[ "$conclusion" == "success" ]]
