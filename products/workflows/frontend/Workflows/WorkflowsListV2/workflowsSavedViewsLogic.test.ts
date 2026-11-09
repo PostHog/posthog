@@ -101,6 +101,8 @@ describe('workflowsSavedViewsLogic', () => {
     const notMe: FacetFilter = { facet: 'createdBy', value: MOCK_DEFAULT_USER.uuid, negated: true }
     const applyViewById = (id: string): void =>
         logic.actions.applyView(logic.values.views.find((view) => view.id === id)!)
+    const selectViewById = (id: string): void =>
+        logic.actions.selectView(logic.values.views.find((view) => view.id === id)!)
 
     it.each([
         [
@@ -269,15 +271,15 @@ describe('workflowsSavedViewsLogic', () => {
         await save
     })
 
-    it('carries additions across views and shared links until reset', async () => {
+    it('carries additions and typed text across views and shared links until reset', async () => {
         router.actions.push(urls.workflows(), { view: 'drafts' })
         logic = workflowsSavedViewsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
-        workflowsListV2Logic.actions.setValue({ filters: [status('draft'), eventTrigger], text: '' })
+        workflowsListV2Logic.actions.setValue({ filters: [status('draft'), eventTrigger], text: 'renewal' })
         expect(logic.values.addedFilters).toEqual([eventTrigger])
 
-        applyViewById('needs-attention')
+        selectViewById('needs-attention')
         const sharedUrl = router.values.location.search
         logic.unmount()
         logic = workflowsSavedViewsLogic()
@@ -291,9 +293,12 @@ describe('workflowsSavedViewsLogic', () => {
             status('active'),
             eventTrigger,
         ])
+        expect(workflowsListV2Logic.values.value.text).toEqual('renewal')
+        expect(logic.values.activeViewChanges).toEqual(['filters', 'search'])
         logic.actions.resetView()
-        applyViewById('all')
-        expect(workflowsListV2Logic.values.value.filters).toEqual([])
+        expect(workflowsListV2Logic.values.value.text).toEqual('')
+        selectViewById('all')
+        expect(workflowsListV2Logic.values.value).toEqual({ filters: [], text: '' })
     })
 
     it('treats an open folder as navigation, so it changes no view and picking a view leaves the folder', async () => {
@@ -442,10 +447,12 @@ describe('workflowsSavedViewsLogic', () => {
         expect(workflowsListV2Logic.values.value.text).toEqual('renewal')
         expect(workflowsListV2Logic.values.shownColumns).toEqual(['trigger', 'owner'])
 
-        logic.actions.applyView(logic.values.views.find((view) => view.id === VIEW_ID)!)
+        selectViewById(VIEW_ID)
         expect(workflowsListV2Logic.values.shownColumns).toEqual(['health'])
-        logic.actions.applyView(logic.values.views.find((view) => view.id === createdId)!)
+        expect(workflowsListV2Logic.values.value.text).toEqual('')
+        selectViewById(createdId)
         expect(workflowsListV2Logic.values.shownColumns).toEqual(['trigger', 'owner'])
+        expect(workflowsListV2Logic.values.value.text).toEqual('renewal')
     })
 
     it('leaves an inactive full-text view count unknown instead of showing an incomplete count or searching in the background', async () => {

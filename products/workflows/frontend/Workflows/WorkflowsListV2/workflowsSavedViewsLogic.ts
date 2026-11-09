@@ -130,7 +130,11 @@ export interface workflowsSavedViewsLogicActions {
     toggleColumn: (column: 'created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type') => {
         column: 'created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type'
     } // workflowsListV2Logic
-    applyView: (view: WorkflowSavedView) => {
+    applyView: (
+        view: WorkflowSavedView,
+        text?: string
+    ) => {
+        text: string | undefined
         view: WorkflowSavedView
     }
     clearSavedViews: () => {
@@ -184,6 +188,9 @@ export interface workflowsSavedViewsLogicActions {
     ) => {
         name: string
         onFailure: ((failure: unknown) => void) | undefined
+    }
+    selectView: (view: WorkflowSavedView) => {
+        view: WorkflowSavedView
     }
     setActiveViewId: (id: string) => {
         id: string
@@ -293,7 +300,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         setSavedViewsLoadFailed: (failed: boolean) => ({ failed }),
         loadSavedViews: true,
         setActiveViewId: (id: string) => ({ id }),
-        applyView: (view: WorkflowSavedView) => ({ view }),
+        applyView: (view: WorkflowSavedView, text?: string) => ({ view, text }),
+        selectView: (view: WorkflowSavedView) => ({ view }),
         resetView: (keepAddedFilters: boolean = false) => ({ keepAddedFilters }),
         // `onFailure` lets a dialog stay open on a failure the toast already explained.
         saveViewAs: (name: string, onFailure?: (failure: unknown) => void) => ({ name, onFailure }),
@@ -711,15 +719,22 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             setVisibleColumns: writeUrl,
             toggleColumn: writeUrl,
             resetColumns: writeUrl,
-            applyView: ({ view }) => {
+            selectView: ({ view }) => {
+                // Text typed on top of the current view is the user's own search, so it carries to the picked view
+                // like an added pill. Text that the current view saved stays with that view.
+                const text = values.value.text.trim()
+                const typed = text && text !== values.activeView.state.text.trim() ? values.value.text : undefined
+                actions.applyView(view, typed)
+            },
+            applyView: ({ view, text }) => {
                 if (!values.available) {
                     return
                 }
                 cache.applyingView = true
                 const viewValue = workflowViewValue(view.state)
                 actions.setValue({
-                    ...viewValue,
                     filters: mergeAddedFilters(viewValue.filters, values.addedFilters, values.facets),
+                    text: text ?? viewValue.text,
                 })
                 actions.setVisibleColumns(normalizeViewColumns(view.state.columns))
                 cache.applyingView = false

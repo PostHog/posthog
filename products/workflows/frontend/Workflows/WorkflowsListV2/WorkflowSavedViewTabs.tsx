@@ -37,7 +37,7 @@ export function WorkflowSavedViewTabs(): JSX.Element | null {
         savedViewsLoading,
         addedFilters,
     } = useValues(workflowsSavedViewsLogic)
-    const { applyView, resetView, updateActiveView, loadSavedViews } = useActions(workflowsSavedViewsLogic)
+    const { selectView, resetView, updateActiveView, loadSavedViews } = useActions(workflowsSavedViewsLogic)
     if (savedViewsLoadFailed) {
         return (
             <LemonBanner type="warning" className="mb-3">
@@ -54,7 +54,7 @@ export function WorkflowSavedViewTabs(): JSX.Element | null {
         return null
     }
     const saveRoom = isModified ? 2 : addedFilters.length || activeViewConflicted ? 1 : 0
-    const rowProps = { views, activeViewId, viewCounts, isModified, activeViewChanges, onApplyView: applyView }
+    const rowProps = { views, activeViewId, viewCounts, isModified, activeViewChanges, onApplyView: selectView }
     return (
         <div className="@container/saved-views">
             <div className="flex flex-col @min-[42rem]/saved-views:flex-row @min-[42rem]/saved-views:items-end gap-2">
