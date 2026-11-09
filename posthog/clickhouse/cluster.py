@@ -897,10 +897,24 @@ class MutationCapacityTimeout(Exception):
     """Raised when another mutation held the table past a runner's ``capacity_timeout``."""
 
 
+# A server profile can set alter_update_mode = lightweight_force. That turns ALTER UPDATE, and a DELETE
+# rewritten to it, into a patch part with no row in system.mutations, so the runner cannot find its own
+# mutation. These settings keep the statement a mutation, whatever the profile says.
+MUTATION_SETTINGS: Mapping[str, str] = {
+    "lightweight_delete_mode": "alter_update",
+    "alter_update_mode": "heavy",
+}
+
+
 # Mutability is intentional: subclasses set fields in __post_init__ and callers build these
 # incrementally. Stated explicitly so the bare-dataclass ratchet has a declared choice.
 @dataclass(frozen=False)
 class MutationRunner(abc.ABC):
+    """
+    Runs a statement as a mutation and tracks it in system.mutations. To write a patch part instead,
+    which has no mutation to track, pass ``patch_parts=True``.
+    """
+
     table: str
     parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
@@ -933,6 +947,17 @@ class MutationRunner(abc.ABC):
     def __post_init__(self) -> None:
         if invalid_keys := {key for key in self.parameters.keys() if key.startswith("__")}:
             raise ValueError(f"invalid parameter names: {invalid_keys!r} (keys cannot start with double underscore)")
+        if not self.patch_parts and (
+            patch_part_settings := {
+                key: value
+                for key, value in self.settings.items()
+                if key in MUTATION_SETTINGS and value != MUTATION_SETTINGS[key]
+            }
+        ):
+            raise ValueError(
+                f"settings {patch_part_settings!r} can write a patch part, which leaves no mutation for this runner "
+                "to find. Pass patch_parts=True to write a patch part instead."
+            )
 
     def __call__(self, client: Client) -> MutationWaiter:
         """
@@ -952,14 +977,7 @@ class MutationRunner(abc.ABC):
             client.execute(self.get_statement(expected_commands), self.parameters, settings=settings)
             return MutationWaiter(self.table, set())
 
-        # This path finds its work in system.mutations, so the statement must run as a mutation. A server
-        # profile with alter_update_mode = lightweight_force turns ALTER UPDATE, and DELETE rewritten to it,
-        # into a patch part with no mutation row. The runner then fails to find its own mutation.
-        mutation_settings = {
-            "lightweight_delete_mode": "alter_update",
-            "alter_update_mode": "heavy",
-            **self.settings,
-        }
+        mutation_settings = {**MUTATION_SETTINGS, **self.settings}
 
         if self.force:
             logger.info(

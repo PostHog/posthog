@@ -157,6 +157,21 @@ def test_mutation_runner_rejects_invalid_parameters() -> None:
         AlterTableMutationRunner(table="table", commands={"command"}, parameters={"__invalid_key": True})
 
 
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"alter_update_mode": "lightweight_force"},
+        {"alter_update_mode": "lightweight"},
+        {"lightweight_delete_mode": "lightweight_update_force"},
+    ],
+)
+def test_mutation_runner_points_patch_part_settings_at_patch_parts(settings: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match="patch_parts=True"):
+        LightweightDeleteMutationRunner(table="table", predicate="true", settings=settings)
+
+    LightweightDeleteMutationRunner(table="table", predicate="true", settings=settings, patch_parts=True)
+
+
 def test_mutation_runner_waits_for_capacity_and_retries_rejected_enqueue() -> None:
     runner = AlterTableMutationRunner(table=EVENTS_DATA_TABLE(), commands={"UPDATE person_id = person_id WHERE 1"})
 
