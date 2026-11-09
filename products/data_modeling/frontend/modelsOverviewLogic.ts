@@ -293,7 +293,9 @@ export interface modelsOverviewLogicMeta {
         ) => AttentionSubject[]
         attentionRows: (
             attentionSubjects: AttentionSubject[],
-            healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>,
+            healthBySubjectKey: {
+                [k: string]: DataQualitySubjectHealthApi
+            },
             refreshRequests: Record<string, number>
         ) => AttentionRow[]
         unlistedFailingSubjectCount: (

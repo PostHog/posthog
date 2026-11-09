@@ -24,7 +24,6 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { ModelsOverviewAttentionFilter } from './ModelsOverviewAttentionFilter'
-import { ModelsOverviewHealthy } from './ModelsOverviewEmptyState'
 import { AttentionRow, modelsOverviewLogic } from './modelsOverviewLogic'
 import { ModelsOverviewNextStep } from './ModelsOverviewNextStep'
 import { ATTENTION_DESCRIPTION, IssueKind, IssueTone } from './overviewIssueCopy'
@@ -234,19 +233,12 @@ export function ModelsOverviewIssues(): JSX.Element {
         attentionCounts,
         filteredAttentionRows,
         unlistedFailingSubjectCount,
-        nothingToReport,
         modelsFailed,
         overviewError,
-        checksHealth,
         modelsFirstLoading,
         checksFirstLoading,
-        refreshSummary,
     } = useValues(modelsOverviewLogic)
     const { loadNodes, loadDataWarehouseSavedQueries, loadOverview } = useActions(modelsOverviewLogic)
-
-    if (nothingToReport) {
-        return <ModelsOverviewHealthy checksHealth={checksHealth} refreshSummary={refreshSummary} />
-    }
 
     const loading = (modelsFirstLoading || checksFirstLoading) && attentionRows.length === 0
 
