@@ -1,5 +1,6 @@
-import { IconWarning } from '@posthog/icons'
 import { LemonDialog, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
 import { EventsRetentionChangeNote } from './EventsRetentionChangeNote'
 import { EventsRetentionLevel } from './eventsRetentionDeletionCountLogic'
@@ -85,8 +86,8 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
                     />
                 )}
                 {abovePlan && (
-                    <span className="flex items-center gap-1">
-                        <IconWarning className="shrink-0 text-lg text-warning" />
+                    <span className="flex items-center gap-1 text-sm text-danger">
+                        <IconErrorOutline className="shrink-0 text-xl" />
                         {`Your plan's limit is ${retentionPeriodLabel(planMonths)}`}
                     </span>
                 )}
