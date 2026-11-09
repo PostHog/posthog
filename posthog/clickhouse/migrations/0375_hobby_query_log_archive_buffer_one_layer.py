@@ -4,9 +4,10 @@ from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_V3_BUFFER_TAB
 from posthog.clickhouse.table_engines import Buffer
 from posthog.run_mode import RunMode, run_mode
 
-# Each Buffer layer flushes on its own once max_time passes. On an idle hobby install every one of the
-# 16 layers flushes every 60 seconds, which writes 16 small parts a minute into the replicated data
-# table. One layer is enough for the query volume of a single install.
+# Each Buffer layer that holds rows flushes on its own once max_time passes, and each flush writes a
+# part into the replicated data table. On an idle hobby install the query_log flushes spread their
+# inserts over many of the 16 layers, so every minute brings several small parts where one would do.
+# One layer is enough for the query volume of a single install.
 #
 # Installs that applied 0273 before it built the v3 archive still write through the earlier
 # generation's query_log_archive_buffer, so both Buffers get one layer, each only where it exists.
