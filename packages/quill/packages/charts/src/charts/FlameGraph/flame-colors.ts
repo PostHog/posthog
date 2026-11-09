@@ -77,7 +77,8 @@ export function computeFlameColors(
     colorBy: FlameColorBy,
     theme: ChartTheme,
     ink: FlameInk,
-    diff: FlameDiffOptions
+    diff: FlameDiffOptions,
+    groupColors?: Record<string, string>
 ): FlameColors {
     const fills: string[] = []
     const marks = new Uint8Array(tree.size)
@@ -122,24 +123,28 @@ export function computeFlameColors(
     }
 
     const palette = theme.colors.length > 0 ? theme.colors : DEFAULT_CHART_COLORS
-    const slotFills = palette.map((color) =>
-        blend(color, ink.background, ink.dark ? FILL_STRENGTH.dark : FILL_STRENGTH.light)
-    )
-    const slots = new Map<string, number>()
+    const strength = ink.dark ? FILL_STRENGTH.dark : FILL_STRENGTH.light
+    const slotFills = palette.map((color) => blend(color, ink.background, strength))
+    const customFills = new Map<string, string>()
+    const customFill = (color: string): string =>
+        cached(customFills, color, () => blend(color, ink.background, strength))
+    const keyFills = new Map<string, string>()
     const selfByKey = new Map<string, number>()
+    let nextSlot = 0
     for (let i = 0; i < tree.size; i++) {
         const node = tree.nodes[i]
         const key = colorBy === 'group' ? node.group : node.name
+        let keyFill = key ? keyFills.get(key) : undefined
+        if (key && keyFill === undefined) {
+            const groupColor =
+                colorBy === 'group' && groupColors && Object.hasOwn(groupColors, key) ? groupColors[key] : undefined
+            keyFill = groupColor ? customFill(groupColor) : slotFills[nextSlot++ % slotFills.length]
+            keyFills.set(key, keyFill)
+        }
+        fills[i] = node.color ? customFill(node.color) : (keyFill ?? ink.neutral)
         if (!key) {
-            fills[i] = ink.neutral
             continue
         }
-        let slot = slots.get(key)
-        if (slot === undefined) {
-            slot = slots.size % slotFills.length
-            slots.set(key, slot)
-        }
-        fills[i] = slotFills[slot]
         // Laid-out widths, because concurrent children are scaled down to fit their parent.
         let selfWidth = tree.x1[i] - tree.x0[i]
         for (let c = tree.childStart[i], end = c + tree.childCount[i]; c < end; c++) {
@@ -150,10 +155,10 @@ export function computeFlameColors(
 
     const legend: LegendItem[] =
         colorBy === 'group'
-            ? Array.from(slots, ([key, slot]) => ({
+            ? Array.from(keyFills, ([key, color]) => ({
                   key,
                   label: key,
-                  color: slotFills[slot],
+                  color,
                   secondaryLabel: tree.totalValue > 0 ? formatShare(selfByKey.get(key) ?? 0) : undefined,
               })).sort((a, b) => (selfByKey.get(b.key) ?? 0) - (selfByKey.get(a.key) ?? 0))
             : []
