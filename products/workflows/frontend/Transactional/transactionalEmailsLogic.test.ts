@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import type { MessageTemplate } from '../TemplateLibrary/types'
+import type { TransactionalEmailRow } from './transactionalEmailRows'
 import { transactionalEmailsLogic } from './transactionalEmailsLogic'
 
 const template = (id: string, name: string, tags: string[], createdBy: number, transactional = true): MessageTemplate =>
@@ -166,43 +167,60 @@ describe('transactionalEmailsLogic', () => {
         ])
     })
 
-    it('keeps the newer tags when an older tag save answers last', async () => {
-        let releaseFirst: () => void = () => {}
-        let firstStarted: () => void = () => {}
-        const firstRequest = new Promise<void>((resolve) => (firstStarted = resolve))
-        useMocks({
-            patch: {
-                [`${CODE_EMAILS}:id/`]: async ({ request, params }) => {
-                    const { tags } = (await request.json()) as { tags: string[] }
-                    writes.push({ path: `transactional_code_emails/${String(params.id)}`, tags })
-                    if (writes.length === 1) {
-                        firstStarted()
-                        await new Promise<void>((resolve) => (releaseFirst = resolve))
-                    }
-                    return [200, codeEmail(String(params.id), 'password-changed', tags)]
+    it('stores the newest tags when a second tag edit is made while the first one saves', async () => {
+        jest.useFakeTimers()
+        try {
+            let stored = ['auth']
+            let releaseFirst: () => void = () => {}
+            useMocks({
+                patch: {
+                    [`${CODE_EMAILS}:id/`]: async ({ request, params }) => {
+                        const { tags } = (await request.json()) as { tags: string[] }
+                        writes.push({ path: `transactional_code_emails/${String(params.id)}`, tags })
+                        if (writes.length === 1) {
+                            await new Promise<void>((resolve) => (releaseFirst = resolve))
+                        }
+                        stored = tags
+                        return [200, codeEmail(String(params.id), 'password-changed', tags)]
+                    },
                 },
-            },
+                get: { [CODE_EMAILS]: () => [200, [codeEmail('k', 'password-changed', stored)]] },
+            })
+            const row = (): TransactionalEmailRow =>
+                logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!
+
+            logic.actions.saveTransactionalTags(row(), ['auth', 'security'])
+            await jest.advanceTimersByTimeAsync(300)
+            logic.actions.saveTransactionalTags(row(), ['auth', 'security', 'urgent'])
+            await jest.advanceTimersByTimeAsync(300)
+            expect(writes).toHaveLength(1)
+            releaseFirst()
+            await jest.advanceTimersByTimeAsync(0)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(stored).toEqual(['auth', 'security', 'urgent'])
+            expect(row().tags).toEqual(['auth', 'security', 'urgent'])
+            logic.actions.loadCodeEmails()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(row().tags).toEqual(['auth', 'security', 'urgent'])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('reads back the stored tags of an email sent from code when its tag save fails', async () => {
+        useMocks({
+            patch: { [`${CODE_EMAILS}:id/`]: () => [500, { detail: 'Unavailable' }] },
+            get: { [`${CODE_EMAILS}:id/`]: () => [200, codeEmail('k', 'password-changed', ['auth'])] },
         })
-        const tagsShown = (): string[] =>
-            logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!.tags
 
         logic.actions.saveTransactionalTags(
             logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!,
             ['auth', 'security']
         )
-        await firstRequest
-        logic.actions.saveTransactionalTags(
-            logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!,
-            ['auth', 'security', 'urgent']
-        )
-        await expectLogic(logic).toDispatchActions(['transactionalTagsSaved'])
-        releaseFirst()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(writes.map((write) => write.tags)).toEqual([
-            ['auth', 'security'],
-            ['auth', 'security', 'urgent'],
-        ])
-        expect(tagsShown()).toEqual(['auth', 'security', 'urgent'])
+        expect(logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!.tags).toEqual(['auth'])
+        expect(logic.values.savingTagsFor).toBeNull()
     })
 })

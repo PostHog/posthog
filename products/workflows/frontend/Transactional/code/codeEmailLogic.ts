@@ -77,7 +77,11 @@ export interface codeEmailLogicActions {
     updateCodeEmail: (fields: PatchedCodeEmailUpdateApi) => {
         fields: PatchedCodeEmailUpdateApi
     }
-    updateCodeEmailFailure: (error: string) => {
+    updateCodeEmailFailure: (
+        codeEmail: CodeEmailApi,
+        error: string
+    ) => {
+        codeEmail: CodeEmailApi
         error: string
     }
     updateCodeEmailSuccess: (
@@ -122,7 +126,7 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
             codeEmail,
             fields,
         }),
-        updateCodeEmailFailure: (error: string) => ({ error }),
+        updateCodeEmailFailure: (codeEmail: CodeEmailApi, error: string) => ({ codeEmail, error }),
         savesSettled: true,
         setSourceFormOpen: (open: boolean) => ({ open }),
         linkSourceFile: (sourceUrl: string) => ({ sourceUrl }),
@@ -138,6 +142,7 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
                 // Edits show at once, so an edit made while a save is in flight starts from the newest values.
                 updateCodeEmail: (state, { fields }) => (state ? { ...state, ...fields } : state),
                 updateCodeEmailSuccess: (_, { codeEmail }) => codeEmail,
+                updateCodeEmailFailure: (_, { codeEmail }) => codeEmail,
             },
         ],
         loadState: [
@@ -188,77 +193,106 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
             ],
         ],
     }),
-    listeners(({ actions, values, props, cache }) => ({
-        loadCodeEmail: async () => {
+    listeners(({ actions, values, props, cache }) => {
+        const withUnsavedFields = (): CodeEmailApi => ({ ...cache.stored, ...cache.unsavedFields })
+
+        const fetchStored = async (): Promise<CodeEmailApi> => {
+            cache.stored = await transactionalCodeEmailsRetrieve(String(values.currentTeamId), props.id)
+            return cache.stored
+        }
+
+        const readBack = async (): Promise<void> => {
             try {
-                actions.codeEmailLoaded(await transactionalCodeEmailsRetrieve(String(values.currentTeamId), props.id))
+                await fetchStored()
+                actions.codeEmailLoaded(withUnsavedFields())
             } catch (error) {
                 if (error instanceof ApiError && error.status === 404) {
                     actions.codeEmailNotFound()
-                } else {
-                    actions.codeEmailLoadFailed()
                 }
             }
-        },
-        codeEmailLoaded: ({ codeEmail }) => {
-            if (!cache.openedTracked) {
-                cache.openedTracked = true
-                // pinned: analytics event name
-                posthog.capture('code email opened', { has_source_file: !!codeEmail.source_url })
-            }
-        },
-        // Each save replaces the fields it sends, so saves run one at a time and edits made meanwhile go in the
-        // next one. Two saves in flight could answer out of order and put back the older values.
-        updateCodeEmail: async ({ fields }) => {
-            cache.unsavedFields = { ...cache.unsavedFields, ...fields }
-            if (cache.saveRunning) {
-                return
-            }
-            cache.saveRunning = true
-            try {
-                while (cache.unsavedFields) {
-                    const sent: PatchedCodeEmailUpdateApi = cache.unsavedFields
-                    cache.unsavedFields = null
-                    try {
-                        const saved = await transactionalCodeEmailsPartialUpdate(
-                            String(values.currentTeamId),
-                            props.id,
-                            sent
-                        )
-                        actions.updateCodeEmailSuccess({ ...saved, ...cache.unsavedFields }, sent)
-                    } catch (error: any) {
-                        cache.unsavedFields = null
-                        actions.updateCodeEmailFailure(error?.detail || "Couldn't save your change. Try again.")
+        }
+
+        return {
+            loadCodeEmail: async () => {
+                try {
+                    actions.codeEmailLoaded(await fetchStored())
+                } catch (error) {
+                    if (error instanceof ApiError && error.status === 404) {
+                        actions.codeEmailNotFound()
+                    } else {
+                        actions.codeEmailLoadFailed()
                     }
                 }
-            } finally {
-                cache.saveRunning = false
-                actions.savesSettled()
-            }
-        },
-        updateCodeEmailFailure: ({ error }) => {
-            lemonToast.error(error)
-            // The page shows edits that were never stored, so the stored email is read back.
-            actions.loadCodeEmail()
-        },
-        linkSourceFile: ({ sourceUrl }) => {
-            // pinned: analytics event name
-            posthog.capture('code email source file linked', {
-                changed: !!values.codeEmail?.source_url,
-                host: parseSourceFile(sourceUrl).host,
-            })
-            actions.updateCodeEmail({ source_url: sourceUrl })
-        },
-        copyAgentPrompt: async () => {
-            if (values.codeEmail && (await copyToClipboard(agentPrompt(values.codeEmail), 'prompt'))) {
+            },
+            codeEmailLoaded: ({ codeEmail }) => {
+                if (!cache.openedTracked) {
+                    cache.openedTracked = true
+                    // pinned: analytics event name
+                    posthog.capture('code email opened', { has_source_file: !!codeEmail.source_url })
+                }
+            },
+            // Each save replaces the fields it sends, so saves run one at a time and edits made meanwhile go in the
+            // next one. Two saves in flight could answer out of order and put back the older values. The read-back
+            // after a failed save runs in the same queue, so it can't answer after a newer save.
+            updateCodeEmail: async ({ fields }) => {
+                cache.unsavedFields = { ...cache.unsavedFields, ...fields }
+                if (cache.saveRunning) {
+                    return
+                }
+                cache.saveRunning = true
+                try {
+                    while (cache.unsavedFields || cache.readBackNeeded) {
+                        if (!cache.unsavedFields) {
+                            cache.readBackNeeded = false
+                            await readBack()
+                            continue
+                        }
+                        const sent: PatchedCodeEmailUpdateApi = cache.unsavedFields
+                        cache.unsavedFields = null
+                        try {
+                            cache.stored = await transactionalCodeEmailsPartialUpdate(
+                                String(values.currentTeamId),
+                                props.id,
+                                sent
+                            )
+                            actions.updateCodeEmailSuccess(withUnsavedFields(), sent)
+                        } catch (error: any) {
+                            cache.readBackNeeded = true
+                            actions.updateCodeEmailFailure(
+                                withUnsavedFields(),
+                                error?.detail || "Couldn't save your change. Try again."
+                            )
+                        }
+                    }
+                } finally {
+                    cache.saveRunning = false
+                    actions.savesSettled()
+                }
+            },
+            updateCodeEmailFailure: ({ error }) => {
+                lemonToast.error(error)
+            },
+            linkSourceFile: ({ sourceUrl }) => {
                 // pinned: analytics event name
-                posthog.capture('code email agent prompt copied', { has_source_file: !!values.codeEmail.source_url })
-            }
-        },
-        showSends: ({ searchParams }) => {
-            // The Sends tab reads its filters from the URL, so the drilldown stays on this page.
-            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
-        },
-    })),
+                posthog.capture('code email source file linked', {
+                    changed: !!values.codeEmail?.source_url,
+                    host: parseSourceFile(sourceUrl).host,
+                })
+                actions.updateCodeEmail({ source_url: sourceUrl })
+            },
+            copyAgentPrompt: async () => {
+                if (values.codeEmail && (await copyToClipboard(agentPrompt(values.codeEmail), 'prompt'))) {
+                    // pinned: analytics event name
+                    posthog.capture('code email agent prompt copied', {
+                        has_source_file: !!values.codeEmail.source_url,
+                    })
+                }
+            },
+            showSends: ({ searchParams }) => {
+                // The Sends tab reads its filters from the URL, so the drilldown stays on this page.
+                router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
+            },
+        }
+    }),
     afterMount(({ actions }) => actions.loadCodeEmail()),
 ])

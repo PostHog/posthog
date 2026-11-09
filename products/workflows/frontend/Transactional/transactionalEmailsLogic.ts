@@ -15,6 +15,7 @@ import { tagsModel } from '~/models/tagsModel'
 import {
     transactionalCodeEmailsList,
     transactionalCodeEmailsPartialUpdate,
+    transactionalCodeEmailsRetrieve,
 } from 'products/messaging/frontend/generated/api'
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -209,29 +210,44 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
             }
             const edit = (latestTagEdits.get(row.id) ?? 0) + 1
             latestTagEdits.set(row.id, edit)
+            const isLatestEdit = (): boolean => latestTagEdits.get(row.id) === edit
             try {
-                await saveTagsAfterPause(row.id, async () => {
-                    if (row.source !== 'code') {
-                        return saveTemplateTags(row.template, tags)
-                    }
-                    const updated = await transactionalCodeEmailsPartialUpdate(
-                        String(values.currentTeamId),
-                        row.codeEmail.id,
-                        { tags }
-                    )
-                    // A newer edit on this row already shows its tags, so this older answer must not replace them.
-                    if (latestTagEdits.get(row.id) === edit) {
-                        transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(updated)
-                    }
-                    tagsModel.findMounted()?.actions.loadTags()
-                })
+                await saveTagsAfterPause(row.id, () =>
+                    saveInOrder(row.id, async () => {
+                        if (!isLatestEdit()) {
+                            return
+                        }
+                        if (row.source !== 'code') {
+                            return saveTemplateTags(row.template, tags)
+                        }
+                        const updated = await transactionalCodeEmailsPartialUpdate(
+                            String(values.currentTeamId),
+                            row.codeEmail.id,
+                            { tags }
+                        )
+                        if (isLatestEdit()) {
+                            transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(updated)
+                        }
+                        tagsModel.findMounted()?.actions.loadTags()
+                    })
+                )
             } catch (error: any) {
                 lemonToast.error(`Couldn't save tags: ${error?.detail || error?.message || 'unknown error'}`)
                 // The row is showing tags that were never stored, so the stored ones are read back.
-                if (row.source === 'code') {
-                    actions.loadCodeEmails()
-                } else {
+                if (row.source !== 'code') {
                     actions.loadTemplates()
+                } else if (isLatestEdit()) {
+                    try {
+                        const stored = await transactionalCodeEmailsRetrieve(
+                            String(values.currentTeamId),
+                            row.codeEmail.id
+                        )
+                        if (isLatestEdit()) {
+                            transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(stored)
+                        }
+                    } catch {
+                        actions.loadCodeEmails()
+                    }
                 }
             } finally {
                 if (!pendingTagSaves.has(row.id)) {
@@ -291,6 +307,15 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
 
 // The newest tag edit made on each row, so a save can tell when a later edit has replaced its tags.
 const latestTagEdits = new Map<string, number>()
+
+// Writes on one row run one after another, so the server stores tags in the order the user made them.
+const tagWrites = new Map<string, Promise<void>>()
+
+function saveInOrder(rowId: string, save: () => Promise<void>): Promise<void> {
+    const write = (tagWrites.get(rowId) ?? Promise.resolve()).catch(() => undefined).then(save)
+    tagWrites.set(rowId, write)
+    return write
+}
 
 // Tag writes waiting out their pause, keyed by row. They are held here rather than behind a
 // listener breakpoint, which would also cancel them when another row is edited or the list unmounts.
