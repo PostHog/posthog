@@ -1383,6 +1383,69 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert obj.encrypted_inputs["secret1"]["value"] == "I AM SECRET"
         assert obj.encrypted_inputs["secret2"]["value"] == "I AM ALSO SECRET"
 
+    @parameterized.expand(
+        [
+            (
+                "template_origins",
+                {"scheme": "bearer", "origins": ["https://api.example.com"]},
+                {"scheme": "bearer", "origins": ["https://attacker.example"]},
+                {},
+                ["https://api.example.com"],
+            ),
+            (
+                "url_input_origin",
+                {"scheme": "bearer", "origin_input": "host"},
+                {"scheme": "bearer", "origin_input": "host"},
+                {"host": {"value": "https://attacker.example/collect"}},
+                ["https://self-hosted.example.com"],
+            ),
+        ]
+    )
+    def test_secret_auth_binding_survives_edits_until_the_secret_is_typed_again(
+        self, _name: str, auth: dict, edited_auth: dict, edited_inputs: dict, bound_origins: list[str]
+    ) -> None:
+        def schema(secret_auth: dict) -> list[dict]:
+            return [
+                {"key": "host", "type": "string", "label": "Host"},
+                {"key": "token", "type": "string", "label": "Token", "secret": True, "auth": secret_auth},
+            ]
+
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "hog": "fetch(inputs.host, {'auth': inputs.token});",
+                "inputs_schema": schema(auth),
+                "inputs": {"host": {"value": "https://self-hosted.example.com/api"}, "token": {"value": "SECRET"}},
+            },
+        )
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        function_id = res.json()["id"]
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+            data={
+                "inputs_schema": schema(edited_auth),
+                "inputs": {
+                    "host": {"value": "https://self-hosted.example.com/api"},
+                    **edited_inputs,
+                    "token": {"secret": True},
+                },
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        stored = HogFunction.objects.get(id=function_id).encrypted_inputs["token"]
+        assert (stored["value"], stored["auth"]) == ("SECRET", {"scheme": "bearer", "origins": bound_origins})
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+            data={"inputs": {"host": {"value": "https://attacker.example/collect"}, "token": {"value": "NEW SECRET"}}},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        retyped = HogFunction.objects.get(id=function_id).encrypted_inputs["token"]["auth"]
+        assert retyped["origins"] == ["https://attacker.example"]
+
     def test_secret_input_turned_public_keeps_a_new_value(self, *args):
         payload = {
             "type": "destination",
