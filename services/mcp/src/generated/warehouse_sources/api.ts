@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 38 enabled ops
+ * PostHog API - MCP 40 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1128,6 +1128,61 @@ export const WarehouseMigrationsRetrieveParams = () => zod.object({
 })
 
 /**
+ * Plan vendor connections an agent read, and add them to an uploaded migration.
+ */
+export const warehouseMigrationsConnectionsCreatePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const WarehouseMigrationsConnectionsCreateParams = () => zod.object({
+    id: zod.string().regex(warehouseMigrationsConnectionsCreatePathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const warehouseMigrationsConnectionsCreateBodyDestinationsMax = 100
+
+export const warehouseMigrationsConnectionsCreateBodyConnectionsMax = 25
+
+export const WarehouseMigrationsConnectionsCreateBody = () => zod.object({
+    account: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('The Fivetran account info response, unchanged. Send it once, with the first upload.'),
+    destinations: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .max(warehouseMigrationsConnectionsCreateBodyDestinationsMax)
+        .optional()
+        .describe(
+            "Fivetran destination details responses, unchanged. Send them before the connections that use them, so PostHog reads each connection's sync time in its destination's time zone."
+        ),
+    connections: zod
+        .array(
+            zod.object({
+                connection: zod
+                    .record(zod.string(), zod.unknown())
+                    .describe(
+                        'The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay.'
+                    ),
+                schema_config: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe(
+                        'The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.'
+                    ),
+            })
+        )
+        .max(warehouseMigrationsConnectionsCreateBodyConnectionsMax)
+        .optional()
+        .describe(
+            'At most 25 connections. A connection uploaded again replaces its plan, unless it is already created in PostHog or skipped.'
+        ),
+})
+
+/**
  * Import a team's Fivetran setup and plan the PostHog sources that replace it.
  */
 export const warehouseMigrationsItemsListPathIdRegExp = new RegExp(
@@ -1228,4 +1283,22 @@ export const WarehouseMigrationsConnectLinkRetrieveParams = () => zod.object({
 
 export const WarehouseMigrationsConnectLinkRetrieveQueryParams = () => zod.object({
     provider: zod.enum(['fivetran']).describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
+})
+
+/**
+ * Start a migration that an agent fills with what it reads from the vendor, without a vendor key.
+ */
+export const WarehouseMigrationsUploadCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseMigrationsUploadCreateBody = () => zod.object({
+    provider: zod
+        .enum(['fivetran'])
+        .describe('\* `fivetran` - Fivetran')
+        .describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
 })

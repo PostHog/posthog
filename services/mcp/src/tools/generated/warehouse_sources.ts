@@ -1091,7 +1091,14 @@ const warehouseMigrationItemSkip = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/${encodeURIComponent(String(params.item_id))}/skip/`,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'proposal.schemas.*.disabled_columns',
+            'proposal.schemas.*.row_filters',
+            'proposal.schemas.*.alternative_names',
+            'proposal.prefill',
+            'created_by',
+        ]) as typeof result
+        return filtered
     },
 })
 
@@ -1188,6 +1195,71 @@ const warehouseMigrationRefresh = (): ToolBase<
     },
 })
 
+const WarehouseMigrationStartUploadSchema = () => {
+    const WarehouseMigrationsUploadCreateBody = orvalSchemas.WarehouseMigrationsUploadCreateBody()
+    return WarehouseMigrationsUploadCreateBody
+}
+
+const warehouseMigrationStartUpload = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationStartUploadSchema>,
+    Schemas.WarehouseMigration
+> => ({
+    name: 'warehouse-migration-start-upload',
+    schema: WarehouseMigrationStartUploadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationStartUploadSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.provider !== undefined) {
+            body['provider'] = params.provider
+        }
+        const result = await context.api.request<Schemas.WarehouseMigration>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/upload/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WarehouseMigrationUploadConnectionsSchema = () => {
+    const WarehouseMigrationsConnectionsCreateBody = orvalSchemas.WarehouseMigrationsConnectionsCreateBody()
+    const WarehouseMigrationsConnectionsCreateParams = orvalSchemas.WarehouseMigrationsConnectionsCreateParams()
+    return WarehouseMigrationsConnectionsCreateParams.omit({ project_id: true }).extend(
+        WarehouseMigrationsConnectionsCreateBody.shape
+    )
+}
+
+const warehouseMigrationUploadConnections = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationUploadConnectionsSchema>,
+    Schemas.WarehouseMigrationUploadResponse
+> => ({
+    name: 'warehouse-migration-upload-connections',
+    schema: WarehouseMigrationUploadConnectionsSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof WarehouseMigrationUploadConnectionsSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.account !== undefined) {
+            body['account'] = params.account
+        }
+        if (params.destinations !== undefined) {
+            body['destinations'] = params.destinations
+        }
+        if (params.connections !== undefined) {
+            body['connections'] = params.connections
+        }
+        const result = await context.api.request<Schemas.WarehouseMigrationUploadResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/connections/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, ['items.*.proposal']) as typeof result
+        return filtered
+    },
+})
+
 const WarehouseMigrationsListSchema = () => {
     const WarehouseMigrationsListQueryParams = orvalSchemas.WarehouseMigrationsListQueryParams()
     return WarehouseMigrationsListQueryParams
@@ -1251,5 +1323,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'warehouse-migration-items-list': warehouseMigrationItemsList,
     'warehouse-migration-items-skip': warehouseMigrationItemsSkip,
     'warehouse-migration-refresh': warehouseMigrationRefresh,
+    'warehouse-migration-start-upload': warehouseMigrationStartUpload,
+    'warehouse-migration-upload-connections': warehouseMigrationUploadConnections,
     'warehouse-migrations-list': warehouseMigrationsList,
 }

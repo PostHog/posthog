@@ -154,7 +154,7 @@ function MigrationPrefillConfirm({ sourceName }: { sourceName: string }): JSX.El
     const { setPrefillConfirmed } = useActions(sourceConnectSceneLogic)
 
     return (
-        <LemonBanner type="warning">
+        <LemonBanner type="warning" className="ph-no-capture">
             <p className="font-semibold mb-1">Check where your credentials go</p>
             <p className="m-0 mb-2 text-sm">
                 {migrationCreator
