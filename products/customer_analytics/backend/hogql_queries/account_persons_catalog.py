@@ -175,6 +175,9 @@ class AccountPersonsCatalog:
             if self.variant != "test":
                 return build_full_database()
             if self.database is None:
+                # This experiment is a one-off exception to the builder's restriction on user-written HogQL.
+                # It depends on the supports_query allowlist and the existing access checks.
+                # Do not copy this pattern to other query paths.
                 self.database = Database.create_for_posthog_tables(self.team, modifiers=modifiers, timings=timings)
                 self.database.user_access_control = user_access_control
             return self.database
