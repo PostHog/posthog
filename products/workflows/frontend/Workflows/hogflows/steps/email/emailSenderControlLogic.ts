@@ -15,6 +15,7 @@ import {
     OwnOnlySetting,
     isEmailStep,
     ownOnlySettings,
+    sandboxSenderAllowed,
     toOwnEmailAction,
     toSandboxAction,
 } from './emailStepVariants'
@@ -104,7 +105,12 @@ export interface emailSenderControlLogicMeta {
         action: (workflow: HogFlow, actionId: string) => EmailStepAction | null
         ownSenders: (integrations: IntegrationType[] | null) => IntegrationType[]
         selectedSender: (action: EmailStepAction | null) => SenderChoice | null
-        showSandboxOption: (action: EmailStepAction | null, canAdoptSandbox: boolean) => boolean
+        showSandboxOption: (
+            action: EmailStepAction | null,
+            canAdoptSandbox: boolean,
+            workflow: HogFlow,
+            workflowLogicProps: WorkflowLogicProps
+        ) => boolean
     }
 }
 
@@ -192,9 +198,15 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
             },
         ],
         showSandboxOption: [
-            (s) => [s.action, s.canAdoptSandbox],
-            (action: EmailStepAction | null, canAdoptSandbox: boolean): boolean =>
-                canAdoptSandbox || action?.type === 'email_sandbox',
+            (s, p) => [s.action, s.canAdoptSandbox, s.workflow, p.workflowLogicProps],
+            (
+                action: EmailStepAction | null,
+                canAdoptSandbox: boolean,
+                workflow: HogFlow,
+                workflowLogicProps: WorkflowLogicProps
+            ): boolean =>
+                (canAdoptSandbox && sandboxSenderAllowed(workflow, !!workflowLogicProps.editTemplateId)) ||
+                action?.type === 'email_sandbox',
         ],
     }),
     listeners(({ actions, values, props }) => {

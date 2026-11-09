@@ -17,6 +17,7 @@ import { CyclotronJobInvocationGlobals, FilterLogicalOperator, PersonType, Prope
 
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import { withSandboxRecipient } from '../../steps/email/emailStepVariants'
 import { sandboxTestOutcome } from '../../steps/email/sandboxTestResult'
 import { HogflowTestResult } from '../../steps/types'
 import { createExampleEvent } from '../../testEventFactory'
@@ -365,8 +366,12 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                         }
                     }
 
+                    const testedAction = values.workflow.actions?.find((action) => action.id === values.selectedNodeId)
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
-                        configuration: values.workflowSanitized,
+                        configuration:
+                            testedAction?.type === 'email_sandbox' && emailToUse
+                                ? withSandboxRecipient(values.workflowSanitized, testedAction.id, emailToUse)
+                                : values.workflowSanitized,
                         globals: {
                             ...parsedGlobals,
                             variables: values.workflow.variables?.reduce(
@@ -383,6 +388,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
 
                     const result: HogflowTestResult = {
                         ...apiResponse,
+                        mocked: testInvocation.mock_async_functions,
                         logs: apiResponse.logs?.map((log) => ({
                             ...log,
                             instanceId: 'test',
@@ -391,7 +397,6 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                     }
 
                     actions.setTestResult(result)
-                    const testedAction = values.workflow.actions?.find((action) => action.id === values.selectedNodeId)
                     const sandboxOutcome =
                         testedAction?.type === 'email_sandbox' && !testInvocation.mock_async_functions
                             ? sandboxTestOutcome(result)

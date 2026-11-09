@@ -499,4 +499,5 @@ export interface HogflowTestResult {
     errors?: string[]
     variables?: Record<string, any>
     execResult?: unknown
+    mocked?: boolean
 }

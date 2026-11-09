@@ -23,7 +23,7 @@ import type {
     TeamType,
     UserBasicType,
 } from '../../../../../frontend/src/types'
-import { DefaultEmailSender, resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
+import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
 import { sandboxSenderLogic } from '../../Channels/sandboxSenderLogic'
 import type { WorkflowEmailSandboxStatusApi } from '../../generated/api.schemas'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
@@ -33,7 +33,12 @@ import { getEdgeId } from './edgeId'
 import { getTeamUtmDefaults, newEmailUtmConfig, utmKeysFollowingSavedDefault } from './steps/components/utmDefaults'
 import type { UtmTagValues } from './steps/components/UtmTagFields'
 import type { UtmTagKey } from './steps/components/UtmTagFields'
-import { needsSandboxSender, toSandboxAction } from './steps/email/emailStepVariants'
+import {
+    hasOwnSender,
+    needsSandboxSender,
+    sandboxSenderAllowed,
+    toSandboxAction,
+} from './steps/email/emailStepVariants'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType } from './steps/types'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
@@ -2393,7 +2398,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => {
+    listeners(({ values, actions, props }) => {
         return {
             resetFlowFromHogFlow: ({ hogFlow }) => {
                 try {
@@ -2610,7 +2615,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
-                    let ownSender: DefaultEmailSender | null = null
                     if (!isHogFlowActionNode && 'template_id' in config && config.template_id === 'template-email') {
                         const emailInput = config.inputs?.email
                         const team = values.currentTeam
@@ -2620,7 +2624,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ? team.workflows_config?.default_email_integration_id
                                 : null
                         )
-                        ownSender = sender
                         if (sender && emailInput?.value && !emailInput.value.from?.integrationId) {
                             config = {
                                 ...config,
@@ -2658,7 +2661,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             : {}),
                     } as HogFlowAction
 
-                    if (!isHogFlowActionNode && !ownSender && needsSandboxSender(newAction, values.canAdoptSandbox)) {
+                    if (
+                        !isHogFlowActionNode &&
+                        hasOwnSender(values.integrations) === false &&
+                        sandboxSenderAllowed(values.workflow, !!props.editTemplateId) &&
+                        needsSandboxSender(newAction, values.canAdoptSandbox)
+                    ) {
                         newAction = toSandboxAction(newAction)
                         if (values.sandboxStatus?.integration_id === null) {
                             actions.provisionSandboxSender('inserted_step')

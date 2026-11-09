@@ -7,6 +7,7 @@ export type SandboxTestStatus = 'accepted' | 'skipped' | 'failed' | 'pending'
 export interface SandboxTestOutcome {
     status: SandboxTestStatus
     reason?: string
+    mocked?: boolean
 }
 
 const STATUSES: readonly string[] = ['accepted', 'skipped', 'failed', 'pending']
@@ -44,15 +45,22 @@ export function sandboxTestOutcome(result: HogflowTestResult | null): SandboxTes
     return {
         status: execResult.status as SandboxTestStatus,
         ...(typeof execResult.reason === 'string' ? { reason: execResult.reason } : {}),
+        ...(result?.mocked ? { mocked: true } : {}),
     }
 }
 
-export function sandboxTestBanner({ status, reason }: SandboxTestOutcome): LemonBannerProps {
+export function sandboxTestBanner({ status, reason, mocked }: SandboxTestOutcome): LemonBannerProps {
     const explanation = reason ? (REASONS[reason] ?? `Reason: ${reason}.`) : null
     const sentence = (...parts: (string | null)[]): string => parts.filter(Boolean).join(' ')
     switch (status) {
         case 'accepted':
-            return { type: 'success', children: 'Sent from the sandbox sender.' }
+            return mocked
+                ? {
+                      type: 'success',
+                      children:
+                          'Test passed without sending. Turn on real HTTP requests to send from the sandbox sender.',
+                  }
+                : { type: 'success', children: 'Sent from the sandbox sender.' }
         case 'pending':
             return { type: 'warning', children: sentence('Not sent yet.', explanation, 'Try again in a few minutes.') }
         case 'skipped':

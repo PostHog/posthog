@@ -42,6 +42,12 @@ describe('testResultBanner', () => {
     it.each([
         ['a sent email', { status: 'accepted' }, 'success', 'Sent from the sandbox sender.'],
         [
+            'a mocked run',
+            { status: 'accepted', mocked: true },
+            'success',
+            'Test passed without sending. Turn on real HTTP requests to send from the sandbox sender.',
+        ],
+        [
             'a recipient who is not a member',
             { status: 'skipped', reason: 'not_member' },
             'warning',
@@ -60,8 +66,13 @@ describe('testResultBanner', () => {
             "Couldn't send. Reason: something_new.",
         ],
     ])('describes %s from the sandbox sender', (_name, execResult, type, children) => {
-        const failed = execResult.status === 'failed'
-        const testResult = result({ execResult, ...(failed ? { status: 'error', errors: ['not sent'] } : {}) })
+        const { mocked, ...sent } = execResult as typeof execResult & { mocked?: boolean }
+        const failed = sent.status === 'failed'
+        const testResult = result({
+            execResult: sent,
+            mocked,
+            ...(failed ? { status: 'error', errors: ['not sent'] } : {}),
+        })
 
         expect(testResultBanner(testResult, 'email_sandbox')).toEqual({ type, children })
     })

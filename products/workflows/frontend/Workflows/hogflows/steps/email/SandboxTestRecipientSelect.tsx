@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
@@ -26,11 +27,20 @@ export function SandboxTestRecipientSelect({
             label: member.user.first_name ? `${member.user.first_name} (${member.user.email})` : member.user.email,
         }))
 
+    // The test sends to `value` whatever the select shows, so a value that isn't a verified member is replaced.
+    const firstMember = options[0]?.value
+    const valueIsMember = options.some((option) => option.value === value)
+    useEffect(() => {
+        if (!membersLoading && firstMember && !valueIsMember) {
+            onChange(firstMember)
+        }
+    }, [membersLoading, firstMember, valueIsMember]) // eslint-disable-line react-hooks/exhaustive-deps
+
     return (
         <LemonSelect
             fullWidth
             className="mt-1"
-            value={options.some((option) => option.value === value) ? value : null}
+            value={valueIsMember ? value : null}
             onChange={(email) => email && onChange(email)}
             options={options}
             loading={membersLoading}

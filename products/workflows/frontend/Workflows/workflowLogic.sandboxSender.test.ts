@@ -115,11 +115,17 @@ describe('workflowLogic first-run email sender', () => {
     })
 
     it.each([
-        ['adoption is off', sandboxStatus({ adoption_enabled: false }), 200],
-        ['the organization is blocked', sandboxStatus({ organization_blocked: true }), 200],
-        ['setting up the sender fails', sandboxStatus({ integration_id: null }), 403],
-    ])('keeps an own email step without a sender when %s', async (_, status, provisionStatus) => {
-        useSenderMocks([], status, provisionStatus)
+        ['adoption is off', [], sandboxStatus({ adoption_enabled: false }), 200],
+        ['the organization is blocked', [], sandboxStatus({ organization_blocked: true }), 200],
+        ['setting up the sender fails', [], sandboxStatus({ integration_id: null }), 403],
+        [
+            'several own senders exist and none is the default',
+            [verifiedSender, { ...verifiedSender, id: 8 }],
+            sandboxStatus(),
+            200,
+        ],
+    ])('keeps an own email step without a sender when %s', async (_, integrations, status, provisionStatus) => {
+        useSenderMocks(integrations, status, provisionStatus)
 
         const email = await openTemplate()
 

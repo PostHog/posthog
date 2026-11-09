@@ -317,14 +317,28 @@ describe('hogFlowEditorLogic', () => {
             return logic.values.workflow.actions.find((action) => action.name === 'Email')
         }
 
-        it.each([
-            ['an own verified sender exists', [ownSender], status, 'function_email'],
-            ['adoption is off', [], { ...status, adoption_enabled: false }, 'function_email'],
-            ['the organization is blocked', [], { ...status, organization_blocked: true }, 'function_email'],
-            ['the project has no own sender', [], status, 'email_sandbox'],
-        ])('picks the step kind when %s', (_, integrations, sandboxStatus, expectedType) => {
-            integrationsLogic.actions.loadIntegrationsSuccess(integrations)
+        it.each<[string, IntegrationType[] | null, typeof status, Partial<HogFlow>, string]>([
+            ['an own verified sender exists', [ownSender], status, {}, 'function_email'],
+            [
+                'several own senders exist and none is the default',
+                [ownSender, { ...ownSender, id: 8 }],
+                status,
+                {},
+                'function_email',
+            ],
+            ['the own senders are still loading', null, status, {}, 'function_email'],
+            ['adoption is off', [], { ...status, adoption_enabled: false }, {}, 'function_email'],
+            ['the organization is blocked', [], { ...status, organization_blocked: true }, {}, 'function_email'],
+            ['another product owns the workflow', [], status, { origin_product: 'broadcasts' }, 'function_email'],
+            ['the project has no own sender', [], status, {}, 'email_sandbox'],
+        ])('picks the step kind when %s', (_, integrations, sandboxStatus, workflowInfo, expectedType) => {
+            if (integrations) {
+                integrationsLogic.actions.loadIntegrationsSuccess(integrations)
+            } else {
+                integrationsLogic.actions.clearIntegrations()
+            }
             sandboxSenderLogic.actions.loadSandboxStatusSuccess(sandboxStatus)
+            workflowLogic().actions.setWorkflowInfo(workflowInfo)
 
             expect(insertEmail()?.type).toEqual(expectedType)
         })

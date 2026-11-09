@@ -5,7 +5,7 @@ import { IntegrationType } from '~/types'
 
 import { sandboxSenderLogic } from '../../../../Channels/sandboxSenderLogic'
 import { workflowLogic } from '../../../workflowLogic'
-import type { HogFlowAction } from '../../types'
+import type { HogFlow, HogFlowAction } from '../../types'
 import { emailSenderControlLogic } from './emailSenderControlLogic'
 
 const STATUS = {
@@ -110,13 +110,21 @@ describe('emailSenderControlLogic', () => {
         })
     })
 
-    it.each([
-        ['an own step when adoption is on', ownStep(), STATUS, true],
-        ['an own step when adoption is off', ownStep(), { ...STATUS, adoption_enabled: false }, false],
-        ['an own step when the organization is blocked', ownStep(), { ...STATUS, organization_blocked: true }, false],
-        ['a sandbox step when adoption is off', SANDBOX_STEP, { ...STATUS, adoption_enabled: false }, true],
-    ])('offers the sandbox sender for %s', (_, step, status, expected) => {
+    it.each<[string, HogFlowAction, Record<string, any>, boolean, Partial<HogFlow>]>([
+        ['an own step when adoption is on', ownStep(), STATUS, true, {}],
+        ['an own step when adoption is off', ownStep(), { ...STATUS, adoption_enabled: false }, false, {}],
+        [
+            'an own step when the organization is blocked',
+            ownStep(),
+            { ...STATUS, organization_blocked: true },
+            false,
+            {},
+        ],
+        ['a sandbox step when adoption is off', SANDBOX_STEP, { ...STATUS, adoption_enabled: false }, true, {}],
+        ['an own step in a workflow another product owns', ownStep(), STATUS, false, { origin_product: 'broadcasts' }],
+    ])('offers the sandbox sender for %s', (_, step, status, expected, workflowInfo) => {
         setUp(step, status)
+        wfLogic.actions.setWorkflowInfo(workflowInfo)
 
         expect(logic.values.showSandboxOption).toEqual(expected)
     })

@@ -5,6 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { CyclotronJobInvocationGlobals } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
+import type { HogFlow, HogFlowAction } from '../../types'
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
 
 jest.mock('~/queries/query', () => {
@@ -490,5 +491,47 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             await runTestOn('wait_step')
             expect(logic.values.nextActionId).toBe(expectedNextActionId)
         })
+    })
+
+    it('sends a sandbox step test to the chosen member even when the step names a fixed address', async () => {
+        let sentTo: string | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                    const { configuration } = (await request.json()) as { configuration: HogFlow }
+                    sentTo = (configuration.actions[0].config as any).inputs.email.value.to.email
+                    return [
+                        200,
+                        { status: 'success', logs: [], nextActionId: null, execResult: { status: 'accepted' } },
+                    ]
+                },
+            },
+        })
+        workflowLogicInstance.actions.setWorkflowValues({
+            actions: [
+                {
+                    id: 'email',
+                    type: 'email_sandbox',
+                    name: 'Email',
+                    description: '',
+                    created_at: 0,
+                    updated_at: 0,
+                    config: {
+                        inputs: { email: { templating: 'liquid', value: { to: { email: 'ops@example.com' } } } },
+                    },
+                } as HogFlowAction,
+            ],
+        })
+        logic.actions.setTestInvocationValue('globals', '{"person": {"properties": {"email": "lead@example.com"}}}')
+        logic.actions.setTestInvocationValue('mock_async_functions', true)
+        logic.actions.setEmailAddressOverride('member@example.com')
+        logic.actions.setSelectedNodeId('email')
+
+        await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
+            'submitTestInvocationSuccess',
+        ])
+
+        expect(sentTo).toBe('member@example.com')
+        expect(logic.values.testResult?.mocked).toBe(true)
     })
 })

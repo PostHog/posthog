@@ -1,4 +1,6 @@
-import type { HogFlowAction } from '../../types'
+import type { IntegrationType } from '~/types'
+
+import type { HogFlow, HogFlowAction } from '../../types'
 
 export type OwnEmailAction = Extract<HogFlowAction, { type: 'function_email' }>
 export type SandboxEmailAction = Extract<HogFlowAction, { type: 'email_sandbox' }>
@@ -20,6 +22,30 @@ export function needsSandboxSender(action: HogFlowAction, canAdoptSandbox: boole
     return (
         canAdoptSandbox && action.type === 'function_email' && !action.config.inputs?.email?.value?.from?.integrationId
     )
+}
+
+/** The server refuses a sandbox step in a template or in a workflow another product owns. */
+export function sandboxSenderAllowed(workflow: Pick<HogFlow, 'origin_product'>, editingTemplate: boolean): boolean {
+    return !editingTemplate && !workflow.origin_product
+}
+
+/** Null while the senders are still loading, so a caller can't mistake "not loaded" for "has none". */
+export function hasOwnSender(integrations: IntegrationType[] | null | undefined): boolean | null {
+    return integrations
+        ? integrations.some((integration) => integration.kind === 'email' && integration.config?.verified === true)
+        : null
+}
+
+/** The step's own To can be a literal address, so changing only the test person's email would still send to it. */
+export function withSandboxRecipient(workflow: HogFlow, actionId: string, email: string): HogFlow {
+    return {
+        ...workflow,
+        actions: workflow.actions.map((action) =>
+            action.id === actionId && action.type === 'email_sandbox'
+                ? withSandboxEmail(action, { to: { ...action.config.inputs.email.value.to, email } })
+                : action
+        ),
+    }
 }
 
 export function toSandboxAction(action: OwnEmailAction): SandboxEmailAction {
