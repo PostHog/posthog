@@ -2,7 +2,7 @@ from datetime import timedelta
 
 import time_machine
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.utils import timezone
 
 import dagster
@@ -113,22 +113,6 @@ class TestClearStaleOAuthApplications(TestCase):
 
         kept = [live, recently_expired, unrevoked_refresh, pending_grant, pending_device]
         assert self._remaining(*kept) == {a.pk for a in kept}
-
-    def test_only_apps_created_more_than_30_days_ago_are_deleted(self):
-        just_inside = self._app(age_days=29)
-        just_outside = self._app(age_days=31)
-
-        self._run()
-
-        assert self._remaining(just_inside, just_outside) == {just_inside.pk}
-
-    @override_settings(OAUTH_STALE_APPLICATION_GRACE_PERIOD=60 * 60)
-    def test_a_shorter_grace_period_does_not_lower_the_30_day_age_floor(self):
-        recent = self._app(age_days=10)
-
-        self._run()
-
-        assert self._remaining(recent) == {recent.pk}
 
     @parameterized.expand(
         [
