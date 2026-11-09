@@ -70,17 +70,21 @@ async def test_async_iterate_context_mutation_persists_across_iterations():
 class _JobTrackingExecutor(ThreadPoolExecutor):
     def __init__(self) -> None:
         super().__init__(max_workers=2)
-        self._started_jobs = 0
-        self.second_job_started = threading.Event()
+        self._submitted_jobs = 0
+        self.cleanup_entered = threading.Event()
 
     def submit(self, fn, /, *args, **kwargs):
-        def job():
-            self._started_jobs += 1
-            if self._started_jobs == 2:
-                self.second_job_started.set()
-            return fn(*args, **kwargs)
+        self._submitted_jobs += 1
+        if self._submitted_jobs == 2:
+            close = args[0]
 
-        return super().submit(job)
+            def cleanup():
+                # Signal inside Context.run so a started job cannot hide a context re-entry failure.
+                self.cleanup_entered.set()
+                return close()
+
+            return super().submit(fn, cleanup)
+        return super().submit(fn, *args, **kwargs)
 
 
 @pytest.mark.asyncio
@@ -99,7 +103,7 @@ async def test_async_iterate_close_runs_when_cancelled_mid_iteration(monkeypatch
 
         def __next__(self):
             next_entered.set()
-            next_released.wait(timeout=3.0)
+            next_released.wait()
             return 1
 
         def close(self):
@@ -113,13 +117,19 @@ async def test_async_iterate_close_runs_when_cancelled_mid_iteration(monkeypatch
     monkeypatch.setattr(async_iterate_module, "_SOURCE_ITERATOR_EXECUTOR", executor)
 
     task = asyncio.create_task(consume())
-    assert await asyncio.to_thread(next_entered.wait, 3.0), "the first next() never started"
-    task.cancel()
-    assert await asyncio.to_thread(executor.second_job_started.wait, 3.0), "the cleanup never started"
-    next_released.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    executor.shutdown()
+    try:
+        assert await asyncio.to_thread(next_entered.wait, 5), "the first next() never started"
+        task.cancel()
+        assert await asyncio.to_thread(executor.cleanup_entered.wait, 5), "the cleanup context was never entered"
+    finally:
+        next_released.set()
+        if not task.cancelling():
+            task.cancel()
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            executor.shutdown()
 
     # close() must have run despite cancellation mid-iteration.
     assert closed_flag.wait(timeout=3.0), "iterator.close() was not called"

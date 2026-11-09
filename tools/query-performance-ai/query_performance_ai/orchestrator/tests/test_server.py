@@ -4,6 +4,7 @@ import json
 import threading
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
@@ -162,7 +163,7 @@ def test_query_lock_serializes_concurrent_runs(server_fixture) -> None:
             if in_flight > 1:
                 overlapped.set()
         enter.set()
-        release.wait(timeout=2)
+        release.wait()
         with counter_lock:
             in_flight -= 1
         return ExecutionResult(rows=[[1]], elapsed_ms=1.0, rows_read=None, bytes_read=None, query_id=None)
@@ -173,13 +174,14 @@ def test_query_lock_serializes_concurrent_runs(server_fixture) -> None:
         status, _body = _request(port, path="/v1/run", method="POST", token=token, body={"sql": "SELECT 1"})
         return status
 
-    t1 = threading.Thread(target=hit)
-    t2 = threading.Thread(target=hit)
-    t1.start()
-    enter.wait(timeout=2)  # first call is in flight
-    t2.start()
-    assert query_lock.contended.wait(timeout=5), "the second /v1/run never waited on the coordinator lock"
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(hit)
+        try:
+            assert enter.wait(timeout=5), "the first /v1/run never started"
+            second = executor.submit(hit)
+            assert query_lock.contended.wait(timeout=5), "the second /v1/run never waited on the coordinator lock"
+        finally:
+            release.set()
+        assert first.result(timeout=5) == 200
+        assert second.result(timeout=5) == 200
     assert not overlapped.is_set(), "the coordinator's lock didn't serialize /v1/run"
-    release.set()
-    t1.join(timeout=5)
-    t2.join(timeout=5)

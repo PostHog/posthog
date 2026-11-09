@@ -447,7 +447,7 @@ select = [
 # maturin-built extension living under rust/, not part of the Django app), so imports
 # are necessarily lazy / post-path-insert (PLC0415, E402); the planner's small CLI
 # prints its report (T201).
-"rust/deltalite/python/**" = ["PLC0415", "E402", "T201", "TID251"]
+"rust/deltalite/python/**" = ["PLC0415", "E402", "T201"]
 # Django settings aggregator: star imports are how settings modules merge into one namespace.
 # Not portable to explicit re-exports without losing the settings-loading semantics.
 "posthog/settings/**" = ["F403", "F405"]
@@ -463,7 +463,6 @@ select = [
 "ee/clickhouse/materialized_columns/test/test_columns.py" = ["TID251"]
 "ee/clickhouse/models/test/utils/util.py" = ["TID251"]
 "posthog/dags/tests/test_clickhouse_cleanup.py" = ["TID251"]
-"posthog/dags/tests/test_person_property_reconciliation.py" = ["TID251"]
 "posthog/hogql_queries/test/test_query_runner.py" = ["TID251"]
 "posthog/temporal/common/test_threaded_worker.py" = ["TID251"]
 "posthog/temporal/common/test_utils.py" = ["TID251"]
@@ -473,6 +472,7 @@ select = [
 "posthog/test/base.py" = ["TID251"]
 "posthog/test/playwright_setup_functions.py" = ["TID251"]
 "posthog/test/temporal_test_servers.py" = ["TID251"]
+"rust/deltalite/python/tests/test_crash_redelivery.py" = ["TID251"]
 
 # PLC0415 exemptions. products/ and services/llm-gateway/ have their own ruff configs.
 # Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.
@@ -494,7 +494,7 @@ select = [
 banned-module-level-imports = ["elevenlabs", "matplotlib", "trafilatura"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"time.sleep".msg = "a test waits on its condition, not on a fixed sleep (see /writing-tests)"
+"time.sleep".msg = "Wait on a condition or control the clock in tests. See /writing-tests."
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10

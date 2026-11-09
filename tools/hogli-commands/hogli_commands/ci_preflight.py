@@ -156,7 +156,7 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="ruff-test-sleep",
-        label="fixed time.sleep in a test (ruff TID251 ignores inline noqa in CI)",
+        label="fixed sleeps in Python tests",
         triggers=["*.py"],
         verify=["ruff", "check", "--ignore-noqa", "--select", "TID251"],
         takes_files=True,

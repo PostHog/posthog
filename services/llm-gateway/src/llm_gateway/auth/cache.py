@@ -1,5 +1,4 @@
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -16,10 +15,7 @@ class CachedAuthEntry:
 
 
 class AuthCache:
-    def __init__(
-        self, max_size: int | None = None, ttl: int | None = None, clock: Callable[[], float] = time.monotonic
-    ) -> None:
-        self._clock = clock
+    def __init__(self, max_size: int | None = None, ttl: int | None = None) -> None:
         settings = get_settings()
         self._max_size = max_size if max_size is not None else settings.auth_cache_max_size
         self._ttl = ttl if ttl is not None else settings.auth_cache_ttl
@@ -30,7 +26,7 @@ class AuthCache:
         if entry is None:
             return False, None
 
-        if self._clock() > entry.expires_at:
+        if time.monotonic() > entry.expires_at:
             self._cache.pop(key, None)
             return False, None
 
@@ -51,7 +47,7 @@ class AuthCache:
             else:
                 return
 
-        expires_at = self._clock() + effective_ttl
+        expires_at = time.monotonic() + effective_ttl
         self._cache[key] = CachedAuthEntry(user=user, expires_at=expires_at)
 
     def invalidate(self, key: str) -> None:

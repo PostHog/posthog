@@ -1,5 +1,4 @@
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from threading import Lock
 
@@ -14,12 +13,11 @@ class Bucket:
 class TokenBucketLimiter:
     rate: float
     capacity: float
-    clock: Callable[[], float] = time.monotonic
     _buckets: dict[str, Bucket] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock)
 
     def consume(self, key: str, tokens: float = 1.0) -> bool:
-        now = self.clock()
+        now = time.monotonic()
 
         with self._lock:
             if key not in self._buckets:
@@ -41,7 +39,7 @@ class TokenBucketLimiter:
 
     def get_remaining(self, key: str) -> float:
         """Get remaining tokens in bucket for a key."""
-        now = self.clock()
+        now = time.monotonic()
 
         with self._lock:
             if key not in self._buckets:
@@ -54,7 +52,7 @@ class TokenBucketLimiter:
 
     def release(self, key: str, tokens: float) -> None:
         """Release tokens back to bucket."""
-        now = self.clock()
+        now = time.monotonic()
         with self._lock:
             if key in self._buckets:
                 bucket = self._buckets[key]

@@ -1,7 +1,7 @@
 import threading
 from contextlib import ExitStack
+from functools import partial
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -21,15 +21,6 @@ _CHARTS = "products.subscriptions.backend.temporal.ai_subscription.charts"
 _LINE = StepChart(display="ActionsLineGraph", x_column="day", y_columns=["signups"])
 _BAR = StepChart(display="ActionsBar", x_column="day", y_columns=["signups"])
 _ROWS = [["2026-08-01", 1], ["2026-08-02", 2], ["2026-08-03", 3]]
-
-_hung_renders_released = threading.Event()
-
-
-@pytest.fixture(autouse=True)
-def release_hung_renders():
-    _hung_renders_released.clear()
-    yield
-    _hung_renders_released.set()
 
 
 def _response(rows=None, columns=("day", "signups")):
@@ -183,8 +174,8 @@ async def test_a_failed_render_drops_that_chart_and_keeps_the_rest():
     assert failures == [ChartRenderFailure(step_index=0, reason=ChartFailureReason.RENDER_FAILED)]
 
 
-def _hangs(**kwargs):
-    _hung_renders_released.wait(timeout=30)
+def _hangs(*, released: threading.Event, **kwargs):
+    released.wait()
     return MagicMock(id=1, exception=None), b"png"
 
 
@@ -210,8 +201,10 @@ def _returns_no_png(**kwargs):
     ]
 )
 async def test_a_chart_that_cannot_render_is_dropped_with_a_reason(_name, side_effect, overrides, expected):
+    released = threading.Event()
     with ExitStack() as stack:
-        stack.enter_context(patch(f"{_CHARTS}.render_png_export", side_effect=side_effect))
+        stack.callback(released.set)
+        stack.enter_context(patch(f"{_CHARTS}.render_png_export", side_effect=partial(side_effect, released=released)))
         for attribute, value in overrides.items():
             stack.enter_context(patch(f"{_CHARTS}.{attribute}", value))
         rendered, failures = await render_charts([_chart()], team=MagicMock(), user=MagicMock())
@@ -222,17 +215,21 @@ async def test_a_chart_that_cannot_render_is_dropped_with_a_reason(_name, side_e
 
 async def test_a_slow_chart_does_not_discard_the_ones_that_rendered():
     charts = [_chart(hogql="FAST", step_index=0), _chart(hogql="SLOW", step_index=1)]
+    released = threading.Event()
 
     def _render(**kwargs):
         if kwargs["export_context"]["source"]["source"]["query"] == "SLOW":
-            _hung_renders_released.wait(timeout=30)
+            released.wait()
         return MagicMock(id=7, exception=None), b"png"
 
     with (
         patch(f"{_CHARTS}._CHART_PHASE_BUDGET_SECONDS", 1.5),
         patch(f"{_CHARTS}.render_png_export", side_effect=_render),
     ):
-        rendered, failures = await render_charts(charts, team=MagicMock(), user=MagicMock())
+        try:
+            rendered, failures = await render_charts(charts, team=MagicMock(), user=MagicMock())
+        finally:
+            released.set()
 
     assert [chart.step_index for chart in rendered] == [0]
     assert failures == [ChartRenderFailure(step_index=1, reason=ChartFailureReason.BUDGET_EXHAUSTED)]

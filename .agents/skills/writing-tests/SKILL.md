@@ -175,7 +175,7 @@ Escalating to the next rung is the last resort, not the default.
 - **No `time.sleep` in test code.** `[lint: TID251]` CI runs the rule with `--ignore-noqa`, so a `noqa` does nothing; a slow fake gets a path in `per-file-ignores`.
   Replace the sleep with the control that matches the wait:
   - `time.time()` or `datetime.now()`: `time_machine.travel(..., tick=False)`, then `traveller.shift(...)`.
-  - `time.monotonic()`: time-machine does not patch it, so give the code a `clock` parameter.
+  - `time.monotonic()`: time-machine does not patch it. Patch the clock where the code reads it.
   - Another thread or process: `threading.Event`, a future, `thread.join()`, or `posthog.test.waiting.wait_until`.
   - Something that must not happen: `assert not event.wait(timeout=...)`.
   - Order between two writes: set each timestamp yourself.
