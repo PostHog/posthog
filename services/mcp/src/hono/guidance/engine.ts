@@ -8,6 +8,7 @@ import { guidanceEvaluationErrorsTotal, guidanceNoticesTotal } from '../metrics'
 import type { ResolvedState } from '../request-state-resolver'
 import { GuidanceProductState } from './product-state'
 import { GUIDANCE_RULES, type GuidanceRule } from './rules'
+import { selfDrivingActivationGuidance } from './self-driving-activation'
 
 // A conversation handle outlives any single request, so its counters keep the session store's
 // idle TTL. Without a handle the counters key on the caller and expire like a 30-minute idle
@@ -172,14 +173,19 @@ export class GuidanceEngine {
         if (!isGuidanceAudience(state)) {
             return undefined
         }
-        const preset = resolveScopePreset(state.apiKeyScopes)
-        const rules = this.rules.filter((rule) => ruleApplies(rule, state, preset))
-        if (rules.length === 0) {
-            return undefined
-        }
         try {
-            const scopes = countingScopes(state)
             const productState = new GuidanceProductState(this.redis, state)
+            const activation = await selfDrivingActivationGuidance(this.redis, state, call, productState)
+            if (activation) {
+                guidanceNoticesTotal.inc({ rule: activation.ruleId, outcome: activation.outcome })
+                return activation
+            }
+            const preset = resolveScopePreset(state.apiKeyScopes)
+            const rules = this.rules.filter((rule) => ruleApplies(rule, state, preset))
+            if (rules.length === 0) {
+                return undefined
+            }
+            const scopes = countingScopes(state)
             let winner: GuidanceNotice | undefined
             for (const rule of rules) {
                 const result = await this.touchRule(rule, scopes, call, winner === undefined, productState)

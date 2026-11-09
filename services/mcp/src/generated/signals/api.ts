@@ -405,6 +405,14 @@ export const SignalsConfigCreateBody = () => zod.object({
         ),
 })
 
+export const SignalsOnboardingListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
 export const SignalsReportsListParams = () => zod.object({
     project_id: zod
         .string()

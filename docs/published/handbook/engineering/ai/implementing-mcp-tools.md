@@ -163,6 +163,14 @@ The server does not capture the prompt text separately.
 This collection trial changes no tool results and adds no recommendations or elicitation.
 Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.
 
+## Self-driving activation guidance
+
+The `mcp-guidance-error-tracking-sd-activation` flag controls suggestions after successful error issue-list or issue-detail calls. Eligible external user agents receive an activation link when setup has not started. Task-bound callers, scouts, impersonated requests, and PostHog's own agents receive no suggestion. A carried session or conversation handle limits the suggestion to once per conversation. Without a carried handle, the caller receives at most one suggestion until thirty minutes of inactivity. Cache and onboarding lookups share the guidance engine's 300 ms budget; a late answer cannot reserve a new suggestion.
+
+The read-only `self-driving-status-get` tool uses the existing onboarding API and is available independently of the guidance flag. After sharing a link, agents poll every ten seconds for up to five minutes while continuing the current task. Polling stops on completion, an error, a project change, or the deadline. Completed setup does not prove that monitoring is running or a report is ready. After completion, agents search existing reports and work logs before repeating research.
+
+Deploy the frontend activation routes and MCP changes before enabling the guidance flag. The GitHub link opens `/inbox/activate`; eligible projects can also use `/inbox/activate/without-github`. Guidance uses the existing exposure analytics, and onboarding keeps its existing activation events.
+
 ## Interview recruitment with URL elicitation
 
 > [!CAUTION]
