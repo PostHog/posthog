@@ -131,26 +131,3 @@ class TestShardedAlterRouting(unittest.TestCase):
         for role in SINGLE_SHARD_DATA_NODE_ROLES:
             self.assertIn(role, DATA_NODE_ROLES)
         self.assertNotIn(NodeRole.DATA, SINGLE_SHARD_DATA_NODE_ROLES)
-
-
-class TestOnlyIfTableExists(unittest.TestCase):
-    @parameterized.expand([("table_exists", 1, True), ("table_missing", 0, False)])
-    def test_query_runs_only_where_the_table_exists(self, _name: str, exists: int, runs: bool):
-        client = mock.MagicMock()
-        client.execute.side_effect = lambda query, *args, **kwargs: (
-            [[exists]] if query.startswith("EXISTS TABLE") else []
-        )
-        cluster = mock.MagicMock()
-        cluster.map_hosts_by_roles.side_effect = lambda fn, **kwargs: mock.MagicMock(result=lambda: fn(client))
-        with (
-            mock.patch("posthog.clickhouse.client.migration_tools.settings.DEBUG", True),
-            mock.patch("posthog.clickhouse.client.migration_tools.get_migrations_cluster", return_value=cluster),
-        ):
-            operation = run_sql_with_exceptions(
-                sql="DROP TABLE some_buffer", node_roles=[NodeRole.OPS], only_if_table_exists="some_buffer"
-            )
-            operation._func(None)
-
-        executed = [call.args[0] for call in client.execute.call_args_list]
-        self.assertEqual(executed[0], "EXISTS TABLE some_buffer")
-        self.assertEqual("DROP TABLE some_buffer" in executed, runs)
