@@ -1,12 +1,13 @@
 import re
 import json
 import random
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import time_machine
 
-from aioresponses import aioresponses
+from aioresponses import CallbackResult, aioresponses
 from prometheus_client import REGISTRY
 
 from products.logs.backend.internal_logs import sign_internal_logs
@@ -112,3 +113,39 @@ async def test_producer_counts_each_record_once_by_outcome(
     for call in calls:
         assert call.kwargs["headers"]["Authorization"] == "Bearer phc_test_token"
         assert call.kwargs["headers"]["x-posthog-internal"].startswith("v1.hog_flow.")
+
+
+async def test_producer_signs_each_retry_again() -> None:
+    signed_at = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
+    producer = InternalLogsProducer(
+        InternalLogsProducerConfig(
+            url=URL,
+            signing_keys="k1",
+            teams="1",
+            max_in_flight=1,
+            max_buffered_bytes=1024 * 1024,
+            retry_timeout_ms=10_000,
+        ),
+        _api_token,
+    )
+    entry = InternalLogEntry(
+        team_id=1, log_source_id="flow-1", instance_id="run-1", timestamp=signed_at, level="info", message="hello"
+    )
+
+    with time_machine.travel(signed_at, tick=False) as clock, aioresponses() as mocked:
+
+        def hang_past_the_signature_window(url: object, **kwargs: object) -> CallbackResult:
+            clock.shift(10 * 60)
+            return CallbackResult(status=503)
+
+        mocked.post(URL, callback=hang_past_the_signature_window)
+        mocked.post(URL, status=200)
+        producer.enqueue("hog_flow", [entry])
+        producer.flush()
+        await producer.drain(timeout_seconds=5)
+
+    calls = [call for url_calls in mocked.requests.values() for call in url_calls]
+    assert [call.kwargs["headers"]["x-posthog-internal"] for call in calls] == [
+        sign_internal_logs("k1", "hog_flow", 1, signed_at),
+        sign_internal_logs("k1", "hog_flow", 1, signed_at + timedelta(minutes=10)),
+    ]
