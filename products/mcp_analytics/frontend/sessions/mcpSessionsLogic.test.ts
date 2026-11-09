@@ -317,6 +317,25 @@ describe('mcpSessionsLogic', () => {
             }
         })
 
+        it.each([
+            ['no URL params', {}],
+            ['shared filters', { filter_test_accounts: true, properties: [TOOL_FILTER] }],
+            [
+                'shared filters and a date range',
+                { filter_test_accounts: true, properties: [TOOL_FILTER], date_from: '-30d' },
+            ],
+        ])('loads the list once when mounting with %s', async (_label, searchParams) => {
+            logic.unmount()
+            listMock.mockClear()
+            router.actions.push(urls.mcpAnalyticsSessions(), searchParams)
+
+            logic = mcpSessionsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listMock).toHaveBeenCalledTimes(1)
+        })
+
         it('drops a load-more page fetched under the previous filters', async () => {
             listMock.mockResolvedValue({
                 results: [{ session_id: 'A', session_start: '2026-01-01T00:05:00Z' }],
