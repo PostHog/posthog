@@ -581,6 +581,7 @@ class TestMaybeReconcileDag(BaseTest):
                 _free_plan_floor({"min_interval": "6hour", "clamp_existing": False}),
                 M15,
             ),
+            ("variant_without_payload_applies_no_floor", False, _free_plan_floor(None), M15),
         ]
     )
     def test_plan_floor_coarsens_the_schedule_and_keeps_the_saved_cadence(
@@ -603,6 +604,20 @@ class TestMaybeReconcileDag(BaseTest):
         )
         endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
         self.assertEqual(get_declared_target(endpoint), M15)
+
+    def test_a_bad_payload_is_reported_once_per_process(self):
+        self.organization.has_active_subscription = False
+        self.organization.save(update_fields=["has_active_subscription"])
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=_free_plan_floor({"min_interval": "soon"})),
+            mock.patch(f"{REFRESH_FLOOR}._reported_payload_errors", set()),
+            mock.patch(f"{REFRESH_FLOOR}.capture_exception") as capture,
+        ):
+            readings = [read_organization_plan_refresh_floor(self.organization) for _ in range(2)]
+
+        self.assertEqual([reading.evaluated for reading in readings], [False, False])
+        self.assertEqual(capture.call_count, 1)
 
     @parameterized.expand(
         [

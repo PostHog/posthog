@@ -31,6 +31,8 @@ _BUCKETS_BY_NAME = {format_cadence(bucket): bucket for bucket in SCHEDULABLE_BUC
     "24hour": timedelta(days=1)
 }
 
+_reported_payload_errors: set[str] = set()
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class PlanRefreshFloor:
@@ -83,13 +85,16 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
         )
         if result is None:
             return PlanRefreshFloorReading(floor=None, evaluated=_no_result_means_no_floor())
-        if not result.enabled:
+        if not result.enabled or result.payload is None:
             return PlanRefreshFloorReading(floor=None, evaluated=True)
         return PlanRefreshFloorReading(floor=_parse(result.payload), evaluated=True)
     except InvalidRefreshFloorPayload as error:
         # The payload is typed by hand into the flag, which only checks that it is JSON. Report a value
-        # the code cannot use, so the person who set it hears about it.
-        capture_exception(error, {"flag": REFRESH_FLOOR_FLAG, "organization_id": organization_id})
+        # the code cannot use, so the person who set it hears about it. Every graph build reads the floor,
+        # so each bad payload is reported once per process.
+        if str(error) not in _reported_payload_errors:
+            _reported_payload_errors.add(str(error))
+            capture_exception(error, {"flag": REFRESH_FLOOR_FLAG, "organization_id": organization_id})
         return PlanRefreshFloorReading(floor=None, evaluated=False)
     except Exception:
         logger.warning("refresh_floor_flag_evaluation_failed", organization_id=organization_id, exc_info=True)

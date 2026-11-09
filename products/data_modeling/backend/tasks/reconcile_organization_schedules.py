@@ -8,7 +8,7 @@ RECONCILE_RETRY_OPTIONS = {
     "autoretry_for": (Exception,),
     "retry_backoff": 60,
     "retry_backoff_max": 3600,
-    "retry_jitter": False,
+    "retry_jitter": True,
     "max_retries": 8,
 }
 
