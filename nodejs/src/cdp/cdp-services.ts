@@ -35,10 +35,6 @@ import { IntegrationManagerService } from './services/managers/integration-manag
 import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
-import {
-    EMAIL_ATTACHMENTS_MAX_CONNECTIONS,
-    EmailAttachmentsService,
-} from './services/messaging/email-attachments.service'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
@@ -131,7 +127,6 @@ export interface CdpCoreServices {
     messageAssetsService: MessageAssetsService
     /** Buffers transactional email status rows. `invocationResultsService.flush()` produces them. */
     emailStatusService: EmailStatusService
-    emailAttachmentsService: EmailAttachmentsService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -479,10 +474,6 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
-    const emailAttachmentsService = new EmailAttachmentsService(
-        config.CYCLOTRON_NODE_DATABASE_URL,
-        EMAIL_ATTACHMENTS_MAX_CONNECTIONS
-    )
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -507,8 +498,7 @@ export function createCdpCoreServices(
         workflowsActivationReporter,
         messageAssetsService,
         workflowEmailRateLimiter,
-        teamEmailRateLimiter,
-        emailAttachmentsService
+        teamEmailRateLimiter
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -653,7 +643,6 @@ export function createCdpCoreServices(
         recipientTokensService,
         outputs,
         emailService,
-        emailAttachmentsService,
         messageAssetsService,
         emailStatusService,
     }
