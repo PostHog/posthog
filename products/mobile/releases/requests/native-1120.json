@@ -1,8 +1,0 @@
-{
-    "schemaVersion": 1,
-    "id": "native-1120",
-    "kind": "native",
-    "runtimeVersion": "1.12.0",
-    "previousRelease": "ota-1110-navigation",
-    "notes": "Report links from Slack and other web sources open in the app on iOS and Android. Verify that a report link opens the report screen with the app installed, and the browser without it."
-}
