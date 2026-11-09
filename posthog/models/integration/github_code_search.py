@@ -6,6 +6,7 @@ candidates only: each one is read and kept when the literal appears exactly.
 """
 
 import re
+from itertools import islice
 from urllib.parse import quote
 
 from posthog.dataclasses import frozen
@@ -14,6 +15,7 @@ from posthog.models.integration.github import GitHubIntegration
 
 MAX_CANDIDATE_FILES = 20
 CONTEXT_LINES = 5
+MAX_MATCHED_LINES_PER_FILE = 20
 # GitHub caps search text at 256 characters, and the literal goes in quotes.
 MAX_LITERAL_LENGTH = 254
 _IDENTIFIER_CHARACTER = r"[A-Za-z0-9_-]"
@@ -48,8 +50,9 @@ class GitHubExactCodeSearch:
 
         ``literal`` must not sit inside a longer run of letters, digits, ``_`` or ``-``. Each
         matched line comes with up to ``CONTEXT_LINES`` lines on either side.
-        ``complete`` is False when GitHub did not return every candidate or a candidate could not
-        be read, so a caller can tell "nowhere" from "not found in what was searched".
+        ``complete`` is False when GitHub did not return every candidate, a candidate could not be
+        read, or a file held more than ``MAX_MATCHED_LINES_PER_FILE`` matches, so a caller can tell
+        "nowhere" from "not found in what was searched".
         Raises ``GitHubEgressBudgetExhausted`` when the egress lane sheds a request.
         """
         if not literal.strip() or len(literal) > MAX_LITERAL_LENGTH:
@@ -71,6 +74,9 @@ class GitHubExactCodeSearch:
                 complete = False
                 continue
             lines = self._matched_lines(file["content"].splitlines(), pattern)
+            if len(lines) > MAX_MATCHED_LINES_PER_FILE:
+                lines = lines[:MAX_MATCHED_LINES_PER_FILE]
+                complete = False
             if lines:
                 matches.append(ExactCodeMatch(repository=repository, path=path, lines=lines))
         return ExactCodeSearchResult(matches=matches, complete=complete)
@@ -98,11 +104,11 @@ class GitHubExactCodeSearch:
 
     @staticmethod
     def _matched_lines(file_lines: list[str], pattern: re.Pattern[str]) -> tuple[MatchedLine, ...]:
+        matching = (index for index, line in enumerate(file_lines) if pattern.search(line))
         return tuple(
             MatchedLine(
                 number=index + 1,
                 context="\n".join(file_lines[max(0, index - CONTEXT_LINES) : index + CONTEXT_LINES + 1]),
             )
-            for index, line in enumerate(file_lines)
-            if pattern.search(line)
+            for index in islice(matching, MAX_MATCHED_LINES_PER_FILE + 1)
         )

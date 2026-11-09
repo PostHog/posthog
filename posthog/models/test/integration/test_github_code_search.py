@@ -103,6 +103,7 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
             ("more_results_than_read", {"total_count": 5, "incomplete_results": False}, 200),
             ("candidate_gone", {"total_count": 1, "incomplete_results": False}, 404),
             ("candidate_not_utf8", {"total_count": 1, "incomplete_results": False}, 200, b"caf\xe9"),
+            ("too_many_matches_in_file", {"total_count": 1, "incomplete_results": False}, 200, b"welcome\n" * 21),
         ]
     )
     def test_reports_an_incomplete_search(
