@@ -144,6 +144,14 @@ class FiringAlert:
 
 
 @frozen
+class EnabledAlert:
+    id: UUID
+    name: str
+    insight_name: str | None
+    insight_short_id: str
+
+
+@frozen
 class AlertInternalEvent:
     """One internal event that makes an alert's HogFunction destinations fire."""
 

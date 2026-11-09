@@ -35,10 +35,6 @@ import { IntegrationManagerService } from './services/managers/integration-manag
 import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
-import {
-    EMAIL_ATTACHMENTS_MAX_CONNECTIONS,
-    EmailAttachmentsService,
-} from './services/messaging/email-attachments.service'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
@@ -131,7 +127,6 @@ export interface CdpCoreServices {
     messageAssetsService: MessageAssetsService
     /** Buffers transactional email status rows. `invocationResultsService.flush()` produces them. */
     emailStatusService: EmailStatusService
-    emailAttachmentsService: EmailAttachmentsService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -188,6 +183,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
+        | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
@@ -478,10 +474,6 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
-    const emailAttachmentsService = new EmailAttachmentsService(
-        config.CYCLOTRON_NODE_DATABASE_URL,
-        EMAIL_ATTACHMENTS_MAX_CONNECTIONS
-    )
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -493,6 +485,7 @@ export function createCdpCoreServices(
             teamEmailCapMode: parseTeamEmailCapMode(config.EMAIL_TEAM_SENDING_CAP_MODE),
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
+            workflowRunLinkTagTeams: config.CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -505,8 +498,7 @@ export function createCdpCoreServices(
         workflowsActivationReporter,
         messageAssetsService,
         workflowEmailRateLimiter,
-        teamEmailRateLimiter,
-        emailAttachmentsService
+        teamEmailRateLimiter
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -651,7 +643,6 @@ export function createCdpCoreServices(
         recipientTokensService,
         outputs,
         emailService,
-        emailAttachmentsService,
         messageAssetsService,
         emailStatusService,
     }

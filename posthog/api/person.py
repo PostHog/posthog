@@ -90,6 +90,7 @@ from posthog.utils import (
     str_to_bool,
 )
 
+from products.access_control.backend.facade.api import property_key_overlaps_restriction, redact_restricted_properties
 from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
@@ -181,7 +182,7 @@ def get_person_name(team: Team, person: Person) -> str:
 
 
 def get_person_name_helper(
-    person_pk: int, person_properties: dict[str, str], distinct_ids: list[str], team: Team
+    person_pk: int | str | uuid.UUID, person_properties: dict[str, str], distinct_ids: list[str], team: Team
 ) -> str:
     display_name = None
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
@@ -455,9 +456,13 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
             restricted = self.context.get("restricted_person_properties")
             if restricted and representation.get("properties"):
-                representation["properties"] = {
-                    k: v for k, v in representation["properties"].items() if k not in restricted
-                }
+                representation["properties"] = redact_restricted_properties(representation["properties"], restricted)
+                representation["name"] = get_person_name_helper(
+                    instance.pk,
+                    representation["properties"],
+                    representation["distinct_ids"],
+                    self.context["get_team"](),
+                )
             return representation
         elif isinstance(instance, MissingPerson):
             return {
@@ -1035,9 +1040,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for person_dict in serialized_actors:
                 properties = person_dict.get("properties")
                 if isinstance(properties, dict):
-                    person_dict["properties"] = {
-                        k: v for k, v in properties.items() if k not in restricted_person_properties
-                    }
+                    person_dict["properties"] = redact_restricted_properties(properties, restricted_person_properties)
+                    person_dict["name"] = get_person_name_helper(
+                        person_dict["id"], person_dict["properties"], person_dict["distinct_ids"], team
+                    )
 
         # After the restriction, so no tag reveals a hidden property. CSV would turn the list into
         # per-row columns.
@@ -1349,7 +1355,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 user=user,
                 property_type=PropertyDefinition.Type.PERSON,
             )
-            if key in restricted:
+            if property_key_overlaps_restriction(key, restricted):
                 span.set_attribute("result_count", 0)
                 resp = response.Response({"results": [], "refreshing": False})
                 resp["Cache-Control"] = "max-age=10"
@@ -1974,7 +1980,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         tags=["persons"],
     )
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
-    def properties_at_time(self, request: request.Request) -> response.Response:
+    def properties_at_time(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         """
         Get person properties as they existed at a specific point in time.
 
@@ -2056,13 +2062,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 timestamp=timestamp,
                 distinct_ids=distinct_ids_queried,
                 include_set_once=include_set_once,
+                user=cast(User, request.user),
             )
 
-            # Serialize the person object
-            person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
+            serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
+            person_data = PersonSerializer(person, context=serializer_context).data
 
-            # Replace current properties with point-in-time properties
-            person_data["properties"] = point_in_time_properties
+            # The serializer only filtered the current properties, not these reconstructed ones.
+            person_data["properties"] = redact_restricted_properties(
+                point_in_time_properties, serializer_context.get("restricted_person_properties") or set()
+            )
 
             # Add metadata about the point-in-time query
             person_data["point_in_time_metadata"] = {

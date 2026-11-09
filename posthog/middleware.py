@@ -25,12 +25,12 @@ from django.db import (
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
 from django.utils.functional import SimpleLazyObject
-from django.utils.http import http_date, url_has_allowed_host_and_scheme
+from django.utils.http import escape_leading_slashes, http_date, url_has_allowed_host_and_scheme
 
 import requests
 import structlog
@@ -68,11 +68,15 @@ from posthog.models.activity_logging.utils import (
 from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, new_events_schema_for_request
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
-from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.facade.api import find_action_team_id
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import (
+    Action as AuthorizationAction,
+    ResourceType,
+)
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -533,14 +537,11 @@ class AutoProjectMiddleware:
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
-        user_permissions = UserPermissions(user)
-        user_access_control = UserAccessControl(user=user, team=new_team)
 
-        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-        #   However this should be a rare operation!
-        if (
-            not user_access_control.check_access_level_for_object(new_team, "member")
-            and user_permissions.team(new_team).effective_membership_level is None
+        if not authorization.check(
+            resource=Resource(type=ResourceType.PROJECT, id=str(new_team.pk)),
+            action=AuthorizationAction.VIEW,
+            subject=Subject(user_id=user.pk),
         ):
             if user.is_staff:
                 # Staff users get a popup with suggested users to log in as, facilating support
@@ -1700,9 +1701,9 @@ def organization_block_page(organization: Organization) -> Optional[str]:
 class IPRestrictionsMiddleware(MiddlewareMixin):
     """Block requests from an IP that the caller's organization does not allow.
 
-    Runs after `AuthenticationMiddleware` for session requests, checking every organization the user
-    belongs to. Bearer credentials authenticate inside DRF, so `IPRestrictionsPermission` applies the
-    same check after their principal is resolved. Both use the cached organization restrictions and
+    Runs after `AuthenticationMiddleware` for session requests. Routed viewsets defer to
+    `IPRestrictionsPermission` so the check includes the view's team and organization overrides.
+    Both use the cached organization restrictions and
     `get_restriction_client_ip`, which rejects a spoofed X-Forwarded-For and fails closed when no
     verified IP is available.
     """
@@ -1719,6 +1720,19 @@ class IPRestrictionsMiddleware(MiddlewareMixin):
         try:
             enforce_ip_restrictions(request, getattr(request, "user", None))
         except PermissionDenied as error:
+            if (
+                request.method in ("GET", "HEAD")
+                and not request.path_info.startswith("/api/")
+                and "text/html" in request.headers.get("Accept", "")
+            ):
+                response = render(
+                    request,
+                    "ip_restricted.html",
+                    {"detail": str(error.detail), "retry_url": escape_leading_slashes(request.get_full_path())},
+                    status=403,
+                )
+                add_never_cache_headers(response)
+                return response
             return JsonResponse(
                 {
                     "type": "authentication_error",

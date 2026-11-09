@@ -1,4 +1,4 @@
-"""Slack destinations for insight alerts.
+"""Slack and PagerDuty destinations for insight alerts.
 
 The alert UI builds these from the `insight-alert-firing` Slack sub-template in
 frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts. The blocks here mirror that
@@ -10,8 +10,13 @@ from __future__ import annotations
 
 from typing import Any, Final
 
+from products.alerts.backend.facade.contracts import (
+    INSIGHT_ALERT_INCIDENT_CLOSED_EVENT,
+    INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
+)
 from products.alerts.backend.logic.destination_configs import (
     DESTINATION_SPECS,
+    build_alert_destination_config,
     clip_hog_function_name,
     destination_filter,
 )
@@ -19,6 +24,8 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
     DestinationType,
+    EventKindSpec,
+    IncidentAction,
 )
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
@@ -223,3 +230,48 @@ def build_insight_alert_slack_config(
             },
         },
     )
+
+
+_ALERT_URL: Final = "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+_PRODUCT_LABEL: Final = "insight alert"
+
+# Only the platform emits these events, so a PagerDuty destination pages only while the platform owns the alert.
+INSIGHT_INCIDENT_EVENT_KINDS: Final[tuple[EventKindSpec, ...]] = (
+    EventKindSpec(
+        event_id=INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
+        display_kind="incident opened",
+        header="Insight alert '{event.properties.alert_name}' is firing",
+        details=(
+            ("Breaches", "{event.properties.breaches}"),
+            ("Insight", "{event.properties.insight_name}"),
+        ),
+        primary_action_url=_ALERT_URL,
+        primary_action_label="View alert",
+        webhook_body={},
+        product_label=_PRODUCT_LABEL,
+        incident_action=IncidentAction.TRIGGER,
+    ),
+    EventKindSpec(
+        event_id=INSIGHT_ALERT_INCIDENT_CLOSED_EVENT,
+        display_kind="incident closed",
+        header="Insight alert '{event.properties.alert_name}' stopped firing",
+        details=(("Insight", "{event.properties.insight_name}"),),
+        primary_action_url=_ALERT_URL,
+        primary_action_label="View alert",
+        webhook_body={},
+        product_label=_PRODUCT_LABEL,
+        incident_action=IncidentAction.RESOLVE,
+    ),
+)
+
+
+def build_insight_alert_pagerduty_configs(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    """One HogFunction per incident event, so the trigger and its resolve share a deduplication key."""
+    return [
+        build_alert_destination_config(
+            spec=spec, alert_id=alert_id, alert_name=alert_name or "Alert", data=data, slack_context_elements=()
+        )
+        for spec in INSIGHT_INCIDENT_EVENT_KINDS
+    ]

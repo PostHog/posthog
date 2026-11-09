@@ -29,6 +29,14 @@ jobs:
         steps:
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/checkout@v6.0.2
+              with:
+                  sparse-checkout: |
+                      /.nvmrc
+                      /bin/lint_duplication.py
+                      /bin/lint-duplication.limits.json
+                      /.github/scripts/post-duplication-section.mjs
+                      /frontend/bin/ci-report/
+                  sparse-checkout-cone-mode: false
             - name: Fetch PR base for the clone baseline
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref || 'master' }}
@@ -55,6 +63,10 @@ jobs:
               continue-on-error: true
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref || 'master' }}
+                  # Worktree creation inherits sparse settings; the scanner needs every source file.
+                  GIT_CONFIG_COUNT: '1'
+                  GIT_CONFIG_KEY_0: core.sparseCheckout
+                  GIT_CONFIG_VALUE_0: 'false'
               run: |
                   if [ ! -f bin/lint_duplication.py ]; then
                       echo "bin/lint_duplication.py not present on this branch; skipping"

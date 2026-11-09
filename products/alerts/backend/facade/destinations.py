@@ -110,6 +110,14 @@ def build_insight_alert_slack_config(
     )
 
 
+def build_insight_alert_pagerduty_configs(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    return insight_alert_destinations.build_insight_alert_pagerduty_configs(
+        alert_id=alert_id, alert_name=alert_name, data=data
+    )
+
+
 def insight_alert_slack_properties(
     *,
     breaches: list[str],
@@ -330,6 +338,13 @@ def unrevised_hold_backs(
     """
     return destination_eligibility.unrevised_hold_backs(
         config.payload["template_id"], config.payload["inputs"], allowed_event_ids
+    )
+
+
+def alert_has_enabled_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> bool:
+    """Whether an enabled function takes the alert's events, bound to it on any template or unbound."""
+    return destination_eligibility.alert_has_enabled_destinations(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
 
 

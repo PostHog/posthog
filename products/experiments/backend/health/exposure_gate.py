@@ -64,6 +64,7 @@ from products.experiments.backend.health.context import (
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
     changes_of_kind,
+    split_changed_after_the_end,
 )
 from products.experiments.backend.health.split_changes import split_change_from_activity
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -143,10 +144,14 @@ def load_split_history(
 ) -> FlagHistory | FlagHistoryNotChecked | None:
     """
     The flag history as `load_flag_history` returns it, with the exposure questions of the split changes only. The
-    questions that only the other kinds read are absent. Never raises.
+    questions that only the other kinds read are absent. It loads after the end too, because `srm` tests the run against
+    the flag's current split then and needs to know whether that split changed. When it changed after the end, `srm`
+    doesn't test the run, so the history carries the changes without asking any exposure question. Never raises.
     """
     try:
-        return _load_flag_history(experiment, reader_access, asked=frozenset({ExperimentHealthFlagChangeKind.SPLIT}))
+        return _load_flag_history(
+            experiment, reader_access, asked=frozenset({ExperimentHealthFlagChangeKind.SPLIT}), after_the_end=True
+        )
     except Exception as error:
         capture_exception(error)
         return None
@@ -452,11 +457,13 @@ def _load_flag_history(
     reader_access: ExperimentHealthReaderAccess,
     *,
     asked: frozenset[ExperimentHealthFlagChangeKind] = frozenset(_KINDS),
+    after_the_end: bool = False,
 ) -> FlagHistory | FlagHistoryNotChecked | None:
     start_date = experiment.start_date
     # django-stubs types the id as int, but an unsaved instance can carry None.
     feature_flag_id: int | None = experiment.feature_flag_id
-    if start_date is None or experiment.end_date is not None or experiment.archived or feature_flag_id is None:
+    ended = experiment.end_date is not None and not after_the_end
+    if start_date is None or ended or experiment.archived or feature_flag_id is None:
         return None
     if experiment.feature_flag.deleted:
         return None
@@ -523,6 +530,8 @@ def _load_flag_history(
     reason = _not_checked_reason(experiment, reader_access)
     if reason is not None:
         return FlagHistoryNotChecked(reason=reason, start_date=start_date, team_timezone=team_timezone, changes=changes)
+    if after_the_end and split_changed_after_the_end(changes, experiment.end_date):
+        return history
 
     timeline = _Timeline(
         changes,
