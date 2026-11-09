@@ -12,10 +12,10 @@ RECONCILE_RETRY_OPTIONS = {
     "autoretry_for": (Exception,),
     "retry_backoff": 60,
     "retry_backoff_max": 3600,
-    "retry_jitter": False,
+    "retry_jitter": True,
     "max_retries": 8,
 }
-PENDING_RECONCILE_RETRY_AFTER = timedelta(hours=4)  # past the roughly three hours RECONCILE_RETRY_OPTIONS can take
+PENDING_RECONCILE_RETRY_AFTER = timedelta(hours=4)  # past the at most three hours RECONCILE_RETRY_OPTIONS can take
 PENDING_RECONCILE_GIVE_UP_AFTER = timedelta(days=7)
 # Temporal's schedule listing is eventually consistent, so a reconcile right after a plan change can miss a
 # schedule created just before it. A second pass this long after the change reads a listing that has caught up.

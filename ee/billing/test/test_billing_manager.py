@@ -583,6 +583,36 @@ class TestBillingManager(BaseTest):
         organization.refresh_from_db()
         assert organization.billing_package_label() == expected
 
+    def test_package_change_keeps_usage_written_since_the_organization_loaded(self):
+        organization = self.organization
+        organization.has_active_subscription = True
+        organization.usage = {"billing_package": "none", "events": {"usage": 1, "limit": None}}
+        organization.save()
+        Organization.objects.filter(id=organization.id).update(
+            usage={"billing_package": "none", "events": {"usage": 5, "limit": None, "quota_limited_until": 1}}
+        )
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        BillingManager(license).update_org_details(
+            organization,
+            cast(
+                BillingStatus,
+                {
+                    "customer": {"billing_plan": "scale", "never_drop_data": False},
+                    "computed_at": "2026-11-01T00:00:00+00:00",
+                },
+            ),
+        )
+
+        organization.refresh_from_db()
+        assert organization.billing_package_label() == "paid"
+        assert organization.usage["events"] == {"usage": 5, "limit": None, "quota_limited_until": 1}
+        assert organization.usage["billing_status_computed_at"] == "2026-11-01T00:00:00+00:00"
+
     def test_older_billing_status_does_not_reverse_a_package_change(self):
         organization = self.organization
         organization.has_active_subscription = True
