@@ -30,7 +30,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -2401,6 +2401,10 @@ class AccountNotebookViewSet(
     queryset = None
     lookup_field = "short_id"
 
+    @property
+    def requires_resource_level_access(self) -> bool:
+        return self.request.method not in SAFE_METHODS
+
     ALLOWED_ORDERING = frozenset(
         {
             "created_at",
@@ -2516,7 +2520,7 @@ class AccountNotebookViewSet(
                     content=data.content,
                     text_content=data.text_content,
                     synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
-                    tags=serializer.initial_data.get("tags"),
+                    tags=data.tags,
                 ),
                 user=cast(User, request.user),
                 user_access_control=self.user_access_control,

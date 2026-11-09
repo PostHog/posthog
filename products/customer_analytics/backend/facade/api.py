@@ -5093,20 +5093,21 @@ def create_account_notebook(
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     content = input.synthesized_content if input.synthesized_content is not None else input.content
-    created = notebooks.create_account_notebook(
-        team_id,
-        account_id,
-        title=input.title,
-        content=content,
-        text_content=input.text_content,
-        created_by_id=user.id,
-        last_modified_by_id=user.id,
-    )
-    tags: list[str] = []
-    if input.tags:
-        updated = notebooks.update_account_notebook(account_id, created.short_id, tags=input.tags)
-        if updated is not None:
-            tags = list(updated.tags)
+    with transaction.atomic():
+        created = notebooks.create_account_notebook(
+            team_id,
+            account_id,
+            title=input.title,
+            content=content,
+            text_content=input.text_content,
+            created_by_id=user.id,
+            last_modified_by_id=user.id,
+        )
+        tags: list[str] = []
+        if input.tags:
+            updated = notebooks.update_account_notebook(account_id, created.short_id, tags=input.tags)
+            if updated is not None:
+                tags = list(updated.tags)
     # The creator is also the (only) modifier of a just-created notebook, so the user the
     # caller already holds is both `created_by` and `last_modified_by` — no extra fetch.
     author = _to_user_basic_info(user)

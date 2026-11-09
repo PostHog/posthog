@@ -320,13 +320,21 @@ def update_account_notebook(
 
     The title is not editable here: a note's displayed title comes from its first line, so it is
     renamed by editing the note."""
-    notebook = get_account_notebook(account_id, short_id)
-    if notebook is None:
-        return None
-    if tags is not None:
-        with transaction.atomic():
-            set_notebook_tags(notebook, tags)
-    return get_account_notebook(account_id, short_id)
+    if tags is None:
+        return get_account_notebook(account_id, short_id)
+    with transaction.atomic():
+        notebook = (
+            _account_notebook_queryset(account_id)
+            .select_related(None)
+            .prefetch_related(None)
+            .filter(short_id=short_id, resources__account__team_id=F("team_id"))
+            .select_for_update(of=("self",))
+            .first()
+        )
+        if notebook is None:
+            return None
+        set_notebook_tags(notebook, tags)
+        return get_account_notebook(account_id, short_id)
 
 
 def set_notebook_tags(notebook: Notebook, tags: Iterable[str]) -> None:
@@ -340,6 +348,7 @@ def set_notebook_tags(notebook: Notebook, tags: Iterable[str]) -> None:
         kept.append(item)
     removed = list(notebook.tagged_items.exclude(tag__name__in=deduped).select_related("tag__team"))
     for item in removed:
+        item.uuid_object = notebook
         item.delete()
     if removed:
         Tag.objects.filter(

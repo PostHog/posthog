@@ -378,18 +378,18 @@ describe('what a view saves', () => {
                 'Created by: Leo, Kaya',
                 'Search: "renewal"',
                 'Account: Acme Example',
-                'My accounts only',
+                'Assigned to: Kaya',
                 'Sort: Title, Z to A',
             ],
             teamTabOnly: [],
         })
     })
 
-    it('marks the account and "My accounts" filters as team-tab only inside an account', () => {
+    it('marks the account and assignee filters as team-tab only inside an account', () => {
         const summary = describeAccountNotesView(state, memberName, 'account')
 
         expect(summary.applied).not.toContain('Account: Acme Example')
-        expect(summary.teamTabOnly).toEqual(['Account: Acme Example', 'My accounts only'])
+        expect(summary.teamTabOnly).toEqual(['Account: Acme Example', 'Assigned to: Kaya'])
     })
 
     it('describes an empty view as just its sort', () => {

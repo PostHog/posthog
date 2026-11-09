@@ -157,7 +157,7 @@ export function describeAccountNotesView(
         accountParts.push(`Account: ${filters.account_name ?? filters.account_id}`)
     }
     if (filters.assigned_to.length) {
-        accountParts.push('My accounts only')
+        accountParts.push(`Assigned to: ${filters.assigned_to.map(memberName).join(', ')}`)
     }
     if (scope === 'account') {
         teamTabOnly.push(...accountParts)

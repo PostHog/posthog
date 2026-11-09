@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 from uuid import uuid4
 
@@ -7,7 +8,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -1343,19 +1346,47 @@ class TestAccountNotebookViewSet(APIBaseTest):
             tag, _ = Tag.objects.get_or_create(name=name, team=self.team)
             TaggedItem.for_content_object(tag, notebook).save()
 
-    def test_create_with_tags(self):
+    @parameterized.expand(
+        [
+            ("strings", ["Renewal", "risk"], ["renewal", "risk"]),
+            ("numbers", [123, "Risk"], ["123", "risk"]),
+        ]
+    )
+    def test_create_with_tags(self, _name: str, tags: list[str | int], expected: list[str]) -> None:
         response = self.client.post(
             self.endpoint_base,
-            {"title": "Renewal call", "text_content": "notes", "tags": ["Renewal", "risk"]},
+            {"title": "Renewal call", "text_content": "notes", "tags": tags},
             format="json",
         )
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         data = response.json()
-        self.assertEqual(data["tags"], ["renewal", "risk"])
+        self.assertEqual(data["tags"], expected)
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=data["short_id"])
-        self.assertEqual(sorted(notebook.tagged_items.values_list("tag__name", flat=True)), ["renewal", "risk"])
+        self.assertEqual(sorted(notebook.tagged_items.values_list("tag__name", flat=True)), expected)
+
+    def test_create_with_tags_rolls_back_on_tag_insert_failure(self) -> None:
+        def fail_tag_insert(
+            execute: Callable[[str, object, bool, dict[str, object]], object],
+            sql: str,
+            params: object,
+            many: bool,
+            context: dict[str, object],
+        ) -> object:
+            if sql.startswith('INSERT INTO "posthog_taggeditem"'):
+                raise RuntimeError("tag insert failed")
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(fail_tag_insert):
+            response = self.client.post(
+                self.endpoint_base, {"title": "Rollback note", "text_content": "notes", "tags": ["risk"]}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertFalse(Notebook.objects.filter(team=self.team, title="Rollback note").exists())
+        self.assertFalse(ResourceNotebook.objects.filter(account=self.account).exists())
+        self.assertFalse(Tag.objects.filter(team=self.team, name="risk").exists())
 
     def test_create_without_tags_returns_empty_tags(self):
         # The "New note" button and any MCP caller that does not tag.
@@ -1414,6 +1445,27 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         self.assertEqual(response.json()["tags"], ["renewal", "risk"])
         self.assertFalse(Tag.objects.filter(team=self.team, name="old").exists())
+        unchanged = self.client.patch(f"{self.endpoint_base}{notebook.short_id}/", {}, format="json")
+        self.assertEqual(unchanged.status_code, status.HTTP_200_OK)
+        self.assertEqual(unchanged.json()["tags"], ["renewal", "risk"])
+
+    def test_clearing_tags_keeps_activity_and_avoids_reloading_notebook_per_tag(self) -> None:
+        notebook = self._link_internal_notebook(title="Tagged")
+        self._tag(notebook, "one", "two", "three")
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.patch(f"{self.endpoint_base}{notebook.short_id}/", {"tags": []}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["tags"], [])
+        notebook_reads = [q for q in queries if q["sql"].startswith("SELECT") and 'FROM "posthog_notebook"' in q["sql"]]
+        self.assertLessEqual(len(notebook_reads), 2)
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="TaggedItem", activity="deleted")
+        self.assertEqual(logs.count(), 3)
+        self.assertEqual({log.detail["context"]["tag_name"] for log in logs}, {"one", "two", "three"})
+        for log in logs:
+            self.assertEqual(log.detail["context"]["related_object_id"], str(notebook.id))
+            self.assertEqual(log.detail["context"]["related_object_name"], "Tagged")
 
     def test_partial_update_does_not_rename(self):
         # A note's displayed title comes from its first line, so a title set here would disagree
@@ -1917,6 +1969,45 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
         create_response = self.client.post(url, {"title": "x"}, format="json")
         self.assertEqual(create_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("patch", "viewer", status.HTTP_403_FORBIDDEN),
+            ("delete", "viewer", status.HTTP_403_FORBIDDEN),
+            ("patch", "editor", status.HTTP_200_OK),
+            ("delete", "editor", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_account_notebook_writes_require_resource_editor(
+        self, method: str, resource_level: str, expected_status: int
+    ) -> None:
+        self._set_access_level(self.viewer_user, resource="customer_analytics", access_level=resource_level)
+        membership = OrganizationMembership.objects.get(user=self.viewer_user, organization=self.organization)
+        other_account = Account.objects.for_team(self.team.id).create(team=self.team, name="Other account")
+        for account, level in [(self.account, "viewer"), (other_account, "editor")]:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="account",
+                resource_id=str(account.id),
+                access_level=level,
+                organization_member=membership,
+            )
+        notebook = Notebook.objects.create(team=self.team, visibility=Notebook.Visibility.INTERNAL)
+        ResourceNotebook.objects.create(notebook=notebook, account=self.account)
+        self.client.force_login(self.viewer_user)
+        url = f"{self.accounts_url}{self.account.id}/notebooks/{notebook.short_id}/"
+
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_200_OK)
+        response = getattr(self.client, method)(url, {"tags": ["changed"]}, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            self.assertTrue(Notebook.objects.filter(team=self.team, pk=notebook.pk).exists())
+            self.assertFalse(notebook.tagged_items.exists())
+        elif method == "patch":
+            self.assertEqual(response.json()["tags"], ["changed"])
+        else:
+            self.assertFalse(Notebook.objects.filter(team=self.team, pk=notebook.pk).exists())
 
     def test_account_presence_404_when_object_access_denied(self) -> None:
         AccessControl.objects.create(
