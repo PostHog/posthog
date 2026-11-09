@@ -49,7 +49,11 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
                     {
                         key: 'sends',
                         label: 'Sends',
-                        content: workflowFailed ? failedBanner : <WorkflowInvocations id={codeEmail.hog_flow_id} />,
+                        content: workflowFailed ? (
+                            failedBanner
+                        ) : (
+                            <WorkflowInvocations id={codeEmail.hog_flow_id} linkSteps={false} />
+                        ),
                     },
                     { key: 'api', label: 'API', content: <CodeEmailApiExample templateKey={codeEmail.key} /> },
                 ]}
