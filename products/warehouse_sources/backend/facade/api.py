@@ -100,6 +100,7 @@ __all__ = [
     "get_queryable_table",
     "resolve_object_by_name",
     "direct_access_table_ids",
+    "team_has_had_direct_query_source",
     "discard_backing_table",
     "record_table_row_count",
     "allowed_table_ids",
@@ -546,6 +547,19 @@ def direct_access_table_ids(team_id: int) -> set[UUID]:
         .values_list("id", flat=True)
     )
     return set(rows)
+
+
+def team_has_had_direct_query_source(team_id: int) -> bool:
+    """Whether any source in this team, deleted ones included, was set up for queries over a direct connection.
+
+    A view saved on a source keeps its connection id after the source is deleted, so deleted rows count too.
+    It can return True for a source that `is_direct_capable` refuses, such as one whose type maps to no engine.
+    """
+    return (
+        _ExternalDataSource.objects.filter(team_id=team_id)
+        .filter(Q(access_method=_ExternalDataSource.AccessMethod.DIRECT) | Q(direct_query_enabled=True))
+        .exists()
+    )
 
 
 def allowed_table_ids(
