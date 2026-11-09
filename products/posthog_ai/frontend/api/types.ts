@@ -7,6 +7,7 @@ export type {
     ProgressStep,
 } from '../types/streamTypes'
 export type { ToolCallMessage } from '../types/toolTypes'
+export type { ReplySuggestions } from '../utils/replySuggestions'
 export type { Task, TaskAssigneeFilter, TaskListParams } from '../types/taskTypes'
 export type {
     ToolStreamEvent,

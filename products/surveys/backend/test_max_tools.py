@@ -6,24 +6,43 @@ import os
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
+from pydantic import ValidationError as ArgsValidationError
 
-from posthog.models import Organization, Project, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Project, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
-from .max_tools import CreateSurveyTool, EditSurveyTool, SimpleSurveyQuestion, SurveyAnalysisTool
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
+
+from .max_tools import (
+    CreateSurveyTool,
+    CreateSurveyToolArgs,
+    EditSurveyTool,
+    EditSurveyToolArgs,
+    SimpleSurveyQuestion,
+    SurveyAnalysisTool,
+)
 
 
 async def create_test_team(organization: Organization, name: str) -> Team:
     project_id = await sync_to_async(Team.objects.increment_id_sequence)()
     project = await Project.objects.acreate(id=project_id, organization=organization)
     return await Team.objects.acreate(id=project.id, project=project, organization=organization, name=name)
+
+
+FIXED_REPEATS = {"schedule": "recurring", "iteration_count": 3, "iteration_frequency_days": 30}
+OPEN_ENDED = {"schedule": "recurring", "repeat_until_stopped": True, "iteration_frequency_days": 30}
 
 
 class TestSurveyCreatorTool(BaseTest):
@@ -53,6 +72,13 @@ class TestSurveyCreatorTool(BaseTest):
         assert "appearance" in config
         assert "default_settings" in config
         assert config["default_settings"]["type"] == "popover"
+
+    def test_build_appearance_sanitizes_team_html(self):
+        from products.surveys.backend.max_tools import _build_appearance
+
+        self.team.survey_config = {"appearance": {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"}}
+
+        assert _build_appearance(self.team)["thankYouMessageHeader"] == "Thanks"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -955,7 +981,15 @@ class TestEditSurveyTool(BaseTest):
             team=self.team,
             key="survey-targeting-flag",
             created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
         )
         if "linked_flag_variant" in tool_kwargs:
             tool_kwargs = {**tool_kwargs, "linked_flag_id": flag.id}
@@ -1048,26 +1082,30 @@ class TestEditSurveyTool(BaseTest):
 
     @parameterized.expand(
         [
-            ("recurring_to_always", {"schedule": "always"}, "always", None, None),
-            ("recurring_to_once", {"schedule": "once"}, "once", None, None),
-            ("change_count_only", {"iteration_count": 5}, "recurring", 5, 30),
-            ("count_below_current_iteration", {"iteration_count": 1}, "recurring", 3, 30),
+            ("recurring_to_always", FIXED_REPEATS, {"schedule": "always"}, ("always", None, None, False)),
+            ("recurring_to_once", FIXED_REPEATS, {"schedule": "once"}, ("once", None, None, False)),
+            ("change_count_only", FIXED_REPEATS, {"iteration_count": 5}, ("recurring", 5, 30, False)),
+            ("count_below_current_iteration", FIXED_REPEATS, {"iteration_count": 1}, ("recurring", 3, 30, False)),
+            ("open_ended_to_once", OPEN_ENDED, {"schedule": "once"}, ("once", None, None, False)),
+            ("open_ended_frequency_only", OPEN_ENDED, {"iteration_frequency_days": 14}, ("recurring", None, 14, True)),
+            ("open_ended_to_fixed_count", OPEN_ENDED, {"iteration_count": 5}, ("recurring", 5, 30, False)),
         ]
     )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_edit_survey_schedule(self, _name, kwargs, expected_schedule, expected_count, expected_frequency):
+    async def test_edit_survey_schedule(self, _name, initial_schedule, kwargs, expected):
         tool = self._setup_tool()
-        survey = await self._create_test_survey(
-            schedule="recurring", iteration_count=3, iteration_frequency_days=30, current_iteration=2
-        )
+        survey = await self._create_test_survey(**initial_schedule, current_iteration=2)
 
         await tool._arun_impl(survey_id=str(survey.id), **kwargs)
 
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
-        assert updated_survey.schedule == expected_schedule
-        assert updated_survey.iteration_count == expected_count
-        assert updated_survey.iteration_frequency_days == expected_frequency
+        assert (
+            updated_survey.schedule,
+            updated_survey.iteration_count,
+            updated_survey.iteration_frequency_days,
+            updated_survey.repeat_until_stopped,
+        ) == expected
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -1436,3 +1474,151 @@ class TestEditSurveyTool(BaseTest):
         assert ids[0] == "uuid-first"
         assert ids[1] and ids[1] != "uuid-first"
         assert len(set(ids)) == len(ids)
+
+
+class TestSurveyToolsSaveThroughSurveyAPI(BaseTest):
+    def setUp(self):
+        super().setUp()
+        env_patcher = patch.dict(os.environ, {"OPENAI_API_KEY": "test-api-key"})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
+
+    async def _run(self, tool_kind: str, **kwargs) -> tuple[str, dict]:
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        if tool_kind == "create":
+            create_tool = CreateSurveyTool(team=self.team, user=self.user, config=config)
+            return await create_tool._arun_impl(
+                questions=[SimpleSurveyQuestion(type="open", question="Why?")], **kwargs
+            )
+        survey = await Survey.objects.acreate(
+            team=self.team, name="Draft", type="popover", questions=[{"type": "open", "question": "Why?"}]
+        )
+        edit_tool = EditSurveyTool(team=self.team, user=self.user, config=config)
+        return await edit_tool._arun_impl(survey_id=str(survey.id), **kwargs)
+
+    @parameterized.expand([("create",), ("edit",)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_rejects_a_name_another_survey_uses(self, tool_kind):
+        await Survey.objects.acreate(team=self.team, name="Enquête", type="popover", questions=[])
+
+        content, artifact = await self._run(tool_kind, name="Enquête")
+
+        assert artifact["error"] == "validation_failed", content
+        assert "Enquête (2)" in artifact["error_message"]
+        assert await Survey.objects.filter(team=self.team, name="Enquête").acount() == 1
+
+    @parameterized.expand(
+        [
+            ("create", {"name": "New", "should_launch": True}, "created"),
+            ("edit", {"launch": True}, "updated"),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_logs_activity_and_activates_the_already_answered_flag(self, tool_kind, kwargs, activity):
+        content, artifact = await self._run(tool_kind, **kwargs)
+
+        survey = await Survey.objects.select_related("internal_targeting_flag").aget(
+            id=artifact["survey_id"], team=self.team
+        )
+        assert survey.internal_targeting_flag is not None, content
+        assert survey.internal_targeting_flag.active is True
+        assert await ActivityLog.objects.filter(
+            team_id=self.team.id, scope="Survey", item_id=str(survey.id), activity=activity, user=self.user
+        ).aexists()
+
+    @parameterized.expand(
+        [
+            ("script_in_html", {"thankYouMessageHeader": "<script>x</script>Thanks"}, "popover", "Thanks"),
+            ("white_label_without_the_feature", {"whiteLabel": True}, "popover", None),
+            ("popup_delay_on_a_hosted_survey", {"surveyPopupDelaySeconds": 5}, "external_survey", None),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_applies_team_default_appearance_safely(self, _name, team_appearance, survey_type, expected):
+        self.team.survey_config = {"appearance": team_appearance}
+        await self.team.asave()
+
+        content, artifact = await self._run("create", name="Appearance", survey_type=survey_type)
+
+        survey = await Survey.objects.aget(id=artifact["survey_id"], team=self.team)
+        assert survey.appearance is not None, content
+        [key] = team_appearance
+        assert survey.appearance.get(key) == expected
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_reports_a_pending_change_request_when_a_flag_write_needs_approval(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        await self.organization.asave()
+        _, created = await self._run("create", name="Gated")
+        edit_tool = EditSurveyTool(
+            team=self.team, user=self.user, config={"configurable": {"team": self.team, "user": self.user}}
+        )
+        await ApprovalPolicy.objects.acreate(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id], "roles": []},
+            allow_self_approve=True,
+            bypass_org_membership_levels=[],
+            created_by=self.user,
+        )
+
+        with patch("products.approvals.backend.ownership.scope_by_owner_enabled", return_value=False):
+            content, artifact = await edit_tool._arun_impl(survey_id=str(created["survey_id"]), wait_period_days=7)
+
+        assert artifact["error"] == "approval_required", content
+        change_request = await ChangeRequest.objects.aget(id=artifact["change_request_id"], team=self.team)
+        assert change_request.action_key == "feature_flag.update"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_rejects_a_flag_variant_without_a_linked_flag(self):
+        content, artifact = await self._run("edit", linked_flag_variant="control")
+
+        assert artifact["error"] == "validation_failed", content
+        assert "linked_flag_id" in artifact["error_message"]
+
+    @parameterized.expand(
+        [
+            (CreateSurveyToolArgs, {"name": "S", "questions": [{"type": "open", "question": "Why?"}]}),
+            (EditSurveyToolArgs, {"survey_id": "any"}),
+        ]
+    )
+    def test_args_reject_a_non_positive_linked_flag_id(self, args_model, required_args):
+        with pytest.raises(ArgsValidationError, match="linked_flag_id"):
+            args_model(**required_args, linked_flag_id=0)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_refuses_a_survey_the_user_is_denied_access_to(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        await self.organization.asave()
+        membership = await OrganizationMembership.objects.aget(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        await membership.asave()
+        survey = await Survey.objects.acreate(team=self.team, name="Restricted", type="popover", questions=[])
+        await AccessControl.objects.acreate(
+            team=self.team,
+            resource="survey",
+            resource_id=str(survey.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        edit_tool = EditSurveyTool(
+            team=self.team, user=self.user, config={"configurable": {"team": self.team, "user": self.user}}
+        )
+
+        with pytest.raises(MaxToolAccessDeniedError):
+            await edit_tool._arun_impl(survey_id=str(survey.id), name="Renamed")
+
+        await survey.arefresh_from_db()
+        assert survey.name == "Restricted"

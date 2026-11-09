@@ -147,7 +147,8 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
         ],
     }),
     selectors({
-        // The same list as the Products tab of the current navigation. Home has its own rail item.
+        // The same list as the Products tab of the current navigation, less Home, which is the rail's Home item. Never
+        // drop a product because another rail pane also links to it: this list is where people go to find everything.
         products: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): FileSystemImport[] =>

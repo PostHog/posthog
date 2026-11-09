@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
 
 import { IconChat, IconGitBranch } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DraftThread, inboxReportDetailLogic, ReviewThread, threadKey } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
@@ -170,7 +170,14 @@ export function PullRequestDiffPanel({ report, commit }: { report: SignalReport;
                 />
             </div>
             {reportDiffError ? (
-                <p className="m-0 py-4 text-sm text-danger">{reportDiffError}</p>
+                <p className="m-0 py-4 text-sm text-danger">
+                    {reportDiffError.message}
+                    {reportDiffError.remediationUrl ? (
+                        <Link to={reportDiffError.remediationUrl} className="ml-2">
+                            Open GitHub integration settings
+                        </Link>
+                    ) : null}
+                </p>
             ) : reportDiff ? (
                 <>
                     <PullRequestDiffView

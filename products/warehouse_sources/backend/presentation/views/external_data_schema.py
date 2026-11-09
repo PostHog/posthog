@@ -21,9 +21,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
-from posthog.permissions import AccessControlPermission, is_service_auth
+from posthog.permissions import AccessControlPermission, is_service_auth, scopes_caller_lacks
 from posthog.utils import str_to_bool
 
+from products.access_control.backend.facade.api import InvalidObjectAccessControlError
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_warehouse.backend.facade.api import (
@@ -44,7 +45,14 @@ from products.data_warehouse.backend.facade.api import (
     update_external_job_status,
 )
 from products.warehouse_sources.backend.facade.api import schema_needs_webhook, sources_missing_webhook
-from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
+from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
+from products.warehouse_sources.backend.facade.contracts import (
+    HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE,
+    ConfigValueError,
+    HistoryAccessRulesNotAllowedError,
+    HistoryTableDropRefusedError,
+    UndecryptedConfigError,
+)
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
@@ -72,6 +80,7 @@ from products.warehouse_sources.backend.facade.source_inputs import SourceInputs
 from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
+    CDC_SNAPSHOT_POSITION_KEY,
     AnySource,
     Config,
     RowFilterValidationError,
@@ -80,7 +89,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     WebhookSource,
     add_table_failure_message,
     ambiguous_masked_columns,
+    assert_history_table_droppable,
+    check_access_rules_copy,
     collision_alias_masked_columns,
+    drop_history_table,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     fold_column_name,
     get_cdc_adapter,
@@ -96,17 +108,27 @@ from products.warehouse_sources.backend.facade.source_management import (
     pin_history_naming,
     pinned_history_naming,
     purge_buffer_prefix,
+    registered_history_table,
     repair_is_running,
+    request_access_rules_copy,
     reserved_column_collisions,
     reserved_column_names,
     resnapshot_stays_in_buffer,
     source_type_supports_cdc,
+    stage_access_rules_copy,
     stage_handed_over_reset,
     tables_wait_for_repair,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import IncrementalFieldType, IncrementalSyncBlockedReason
-from products.warehouse_sources.backend.presentation.history_tracking import report_history_change
+from products.warehouse_sources.backend.facade.types import (
+    IncrementalFieldType,
+    IncrementalSyncBlockedReason,
+    WarehouseColumnSensitivity,
+)
+from products.warehouse_sources.backend.presentation.history_tracking import (
+    report_history_change,
+    report_history_table_deleted,
+)
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SchemaDestinationsSerializer,
@@ -561,6 +583,14 @@ def _source_column_names(instance: ExternalDataSchema) -> set[str]:
     return {column["name"] for column in columns if isinstance(column, dict) and isinstance(column.get("name"), str)}
 
 
+SENSITIVITY_SCHEMA = {
+    "type": "string",
+    "nullable": True,
+    "enum": [*WarehouseColumnSensitivity.values, None],
+    "description": "The kind of personal or secret data the column's name and type suggest, or null.",
+}
+
+
 MASKING_KEY_UNAVAILABLE_ERROR = (
     "Column masking isn't set up on this PostHog instance. "
     "Set WAREHOUSE_COLUMN_MASKING_KEY to a secret of at least 32 characters, then try again."
@@ -914,6 +944,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         allow_null=True,
         help_text="For CDC syncs: consolidated, cdc_only, or both.",
     )
+    copy_access_rules_to_history = serializers.BooleanField(
+        required=False,
+        write_only=True,
+        help_text="When the table keeps history after this update, replace the history table's access rules with "
+        "the table's own rules. If the history table doesn't exist yet, the rules are copied when its first "
+        "snapshot loads. Requires the right to manage access to both tables.",
+    )
     incremental_sync_blocked = serializers.ChoiceField(
         choices=IncrementalSyncBlockedReason.choices,
         read_only=True,
@@ -1016,6 +1053,26 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         help_text="Name of the history table that keeps every version of each row, or `null` when the table "
         "keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.",
     )
+    drop_history_table = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        help_text=(
+            "For CDC syncs: set to true with a change that stops writing the history table, such as "
+            "`cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, "
+            "to delete the history table and every past row version in it. This cannot be undone. Refused "
+            "while a sync of the table is still running. Omit it, or send false, to keep the history table."
+        ),
+    )
+    registered_history_table_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Name of the history table registered for this schema, whether or not its mode still writes it, "
+            "or `null` when none is registered. One the schema no longer writes can be removed with the "
+            "`history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, "
+            "`null` elsewhere. After an update that sent `drop_history_table`, a name means the history "
+            "table was kept, for example because a sync started meanwhile."
+        ),
+    )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
     source = serializers.SerializerMethodField(  # type: ignore[assignment]
@@ -1052,6 +1109,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "description",
             "primary_key_columns",
             "cdc_table_mode",
+            "copy_access_rules_to_history",
             "incremental_sync_blocked",
             "webhook_not_registered",
             "enabled_columns",
@@ -1061,6 +1119,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "available_columns",
             "source_column_metadata_available",
             "history_table_name",
+            "drop_history_table",
+            "registered_history_table_name",
             "source",
             "api_version",
             "api_version_deprecation",
@@ -1085,6 +1145,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "available_columns",
             "source_column_metadata_available",
             "history_table_name",
+            "registered_history_table_name",
             "source",
             "api_version_deprecation",
             "user_access_level",
@@ -1093,6 +1154,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_history_table_name(self, schema: ExternalDataSchema) -> str | None:
         return history_table_name(schema)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_registered_history_table_name(self, schema: ExternalDataSchema) -> str | None:
+        if not self.context.get("include_history_table"):
+            return None
+        table = registered_history_table(schema)
+        return table.name if table is not None else None
 
     @extend_schema_field(
         {
@@ -1103,6 +1171,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     "name": {"type": "string"},
                     "data_type": {"type": "string"},
                     "is_nullable": {"type": "boolean"},
+                    "sensitivity": SENSITIVITY_SCHEMA,
                 },
                 "required": ["name"],
             },
@@ -1114,9 +1183,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if isinstance(columns, list):
             sql_columns = [
                 {
-                    "name": column.get("name"),
+                    "name": column["name"],
                     "data_type": column.get("data_type"),
                     "is_nullable": column.get("is_nullable"),
+                    "sensitivity": classify_column_sensitivity(column["name"], column.get("data_type")),
                 }
                 for column in columns
                 if isinstance(column, dict) and isinstance(column.get("name"), str)
@@ -1129,7 +1199,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # or not yet reloaded. Fall back to the synced table's universal column store so the Descriptions
         # UI can still list columns (and surface their existing annotations) and let users edit them.
         table = schema.table
-        return table.get_user_facing_columns() if table is not None else []
+        return [
+            {**column, "sensitivity": classify_column_sensitivity(column["name"], column.get("data_type"))}
+            for column in (table.get_user_facing_columns() if table is not None else [])
+        ]
 
     def get_source_column_metadata_available(self, schema: ExternalDataSchema) -> bool:
         metadata = schema.schema_metadata or {}
@@ -1414,6 +1487,22 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         validated_data.pop("incremental_field_lookback_seconds", None)
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
+        copy_access_rules_to_history = validated_data.pop("copy_access_rules_to_history", False)
+        request = self.context.get("request")
+        if copy_access_rules_to_history:
+            # Checked before the save, so a refused copy leaves the schema unchanged.
+            if request is None or not isinstance(request.user, User):
+                raise PermissionDenied(HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE)
+            # The copy writes access rules, which a token may only do with the scope the rules endpoint requires.
+            if scopes_caller_lacks(request, ["access_control:write"]):
+                raise PermissionDenied("Copying access rules requires the access_control:write scope.")
+            try:
+                check_access_rules_copy(instance, request.user)
+            except HistoryAccessRulesNotAllowedError as e:
+                raise PermissionDenied(str(e))
+            except InvalidObjectAccessControlError as e:
+                raise ValidationError({"copy_access_rules_to_history": str(e)})
+        drop_history = validated_data.pop("drop_history_table", False)
 
         enabled_columns_changed = "enabled_columns" in validated_data and (
             validated_data["enabled_columns"] != instance.enabled_columns
@@ -1702,6 +1791,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     "cdc_last_log_position",
                     CDC_RESET_PENDING_KEY,
                     CDC_SNAPSHOT_LANE_KEY,
+                    CDC_SNAPSHOT_POSITION_KEY,
                 ):
                     payload.pop(stale_key, None)
                 instance.initial_sync_complete = False
@@ -1752,6 +1842,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 f"{instance.name} has the same name as the history table of another table of this source, so it "
                 "can't sync. Rename the table on your database to sync it."
             )
+
+        history_table_to_drop = self._history_table_to_drop(instance, validated_data) if drop_history else None
 
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)
@@ -1968,6 +2060,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # must empty the buffer before its new snapshot.
         if leaving_cdc:
             instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
+            instance.sync_type_config.pop(CDC_SNAPSHOT_POSITION_KEY, None)
         publication_removal: Callable[[], None] | None = None
         if (is_cdc or leaving_cdc) and source_type_supports_cdc(source.source_type):
             publication_removal = self._handle_cdc_publication_change(
@@ -1978,6 +2071,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             instance.sync_type_config.update({"reset_pipeline": True})
             validated_data["sync_type_config"].update({"reset_pipeline": True})
 
+        resulting_keeps_history = ExternalDataSchema(
+            sync_type=validated_data.get("sync_type", instance.sync_type), sync_type_config=instance.sync_type_config
+        ).keeps_history
+        if copy_access_rules_to_history and request is not None:
+            stage_access_rules_copy(instance, cast(User, request.user), keeps_history=resulting_keeps_history)
+        elif not resulting_keeps_history or history_mode_before is None:
+            # An editor who keeps history on can't withdraw an admin's request; turning history off or turning it
+            # on again without the copy does.
+            stage_access_rules_copy(instance, None, keeps_history=resulting_keeps_history)
+
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(
@@ -1985,6 +2088,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         )
         if publication_removal is not None:
             self._run_temporal_side_effect(publication_removal)
+        # Ahead of the side effects below, because a sync they start would block the drop.
+        if history_table_to_drop is not None:
+            self._run_temporal_side_effect(lambda: self._drop_history_table_after_mode_change(updated_instance))
 
         if masked_columns_changed:
             # Profiles computed before the mask hold plaintext bounds, and the profiler recomputes them only daily.
@@ -2122,13 +2228,52 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 )
                 self._run_temporal_side_effect(lambda: _reset_cdc_for_full_resnapshot(updated_instance))
 
-        request = self.context.get("request")
         if request is not None:
             report_history_change(
                 request.user, updated_instance, history_mode_before=history_mode_before, request=request
             )
+        if copy_access_rules_to_history and request is not None:
+            # A history table that is already registered gets the rules now; otherwise its registration does.
+            try:
+                request_access_rules_copy(updated_instance, cast(User, request.user))
+            except InvalidObjectAccessControlError as e:
+                raise ValidationError({"copy_access_rules_to_history": str(e)})
 
         return updated_instance
+
+    def _history_table_to_drop(
+        self, instance: ExternalDataSchema, validated_data: dict[str, Any]
+    ) -> DataWarehouseTable | None:
+        """The history table a request with `drop_history_table` deletes, or None when the schema has none."""
+        resulting_sync_type = validated_data.get("sync_type", instance.sync_type)
+        resulting_mode = (validated_data.get("sync_type_config", instance.sync_type_config) or {}).get("cdc_table_mode")
+        table = registered_history_table(instance)
+        if table is None:
+            return None
+        require_history_table_editor(self.context.get("request"), self.context.get("view"), table)
+        try:
+            assert_history_table_droppable(
+                instance,
+                keeps_history=resulting_sync_type == ExternalDataSchema.SyncType.CDC
+                and is_history_table_mode(resulting_mode),
+            )
+        except HistoryTableDropRefusedError as e:
+            raise ValidationError({"drop_history_table": str(e)})
+        return table
+
+    def _drop_history_table_after_mode_change(self, schema: ExternalDataSchema) -> None:
+        try:
+            dropped = drop_history_table(schema)
+        except HistoryTableDropRefusedError:
+            # A sync started after the check above. The table stays, and the later delete can remove it.
+            logger.warning("history_table_drop_refused_after_mode_change", schema_id=str(schema.id), exc_info=True)
+            return
+        except Exception as e:
+            capture_exception(e)
+            return
+        request = self.context.get("request")
+        if dropped is not None and request is not None:
+            report_history_table_deleted(request.user, schema, trigger="mode_change", request=request)
 
     def _effective_probe_api_version(self, schema: ExternalDataSchema, source_impl: AnySource) -> str | None:
         """Version the schema will sync with after this request saves.
@@ -2537,6 +2682,18 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "label", "should_sync", "last_synced_at", "sync_type"]
 
 
+def require_history_table_editor(request: Request | None, view: Any, table: DataWarehouseTable) -> None:
+    """A history table can carry an access rule of its own, stricter than the one the schema resolves through."""
+    if request is None or is_service_auth(request):
+        return
+    user_access_control = getattr(view, "user_access_control", None)
+    if user_access_control is None:
+        return
+    level = user_access_control.get_user_access_level(table)
+    if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+        raise PermissionDenied("You do not have editor access to this table's history table.")
+
+
 class WarehouseTableAccessPermission(AccessControlPermission):
     """Resolves a schema's access through the table it syncs.
 
@@ -2575,6 +2732,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "cancel",
         "incremental_fields",
         "delete_data",
+        "delete_history_table",
         "destinations",
     ]
     scope_object_read_actions = ["list", "retrieve", "logs"]
@@ -2622,6 +2780,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
         context["include_source"] = self.action == "retrieve"
+        # Single-schema responses only, so a list skips the lookup. After a drop, a name means the table was kept.
+        context["include_history_table"] = self.action in ("retrieve", "update", "partial_update")
         return context
 
     def safely_get_queryset(self, queryset):
@@ -2645,8 +2805,17 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # A schema has no rules of its own, so the generic queryset filtering can't see its access.
         # Resolve each row the way retrieve does and drop the ones the user can't view - otherwise
         # the list serves names and sync metadata for tables and sources they're denied on.
-        schemas = list(queryset)
         uac = self.user_access_control
+        blocked = uac.blocked_resource_ids_by_scope
+        if (
+            uac.check_access_level_for_resource("warehouse_table", "viewer")
+            and uac.check_access_level_for_resource("external_data_source", "viewer")
+            and not blocked.get("warehouse_table")
+            and not blocked.get("external_data_source")
+        ):
+            return queryset
+
+        schemas = list(queryset)
         uac.preload_object_access_controls([schema.table or schema.source for schema in schemas])
         visible = [
             schema.id
@@ -2961,13 +3130,65 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=None,
+        description=(
+            "Delete the history table of a CDC schema that no longer writes it, for example after "
+            "`cdc_table_mode` moved to `consolidated` or the schema left CDC while keeping it. Deletes the "
+            "table and every past row version in it, and cannot be undone. Refused while the schema still "
+            "writes the history table, or while a sync of it is still running. Switching back to a mode that "
+            "keeps history later starts a new history table."
+        ),
+        responses={
+            204: OpenApiResponse(description="The history table was deleted."),
+            400: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
+                description="The schema has no history table to delete, or it can't be deleted yet.",
+            ),
+            503: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
+                description="The history table's files couldn't all be deleted. It stays, so retry the request.",
+            ),
+        },
+    )
+    @action(methods=["DELETE"], detail=True, url_path="history_table")
+    def delete_history_table(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSchema = self.get_object()
+        table = registered_history_table(instance)
+        if table is None:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"detail": "This table has no history table."})
+        require_history_table_editor(request, self, table)
+        try:
+            drop_history_table(instance)
+        except HistoryTableDropRefusedError as e:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"detail": str(e)})
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                data={
+                    "detail": "PostHog couldn't delete all of the history table's files. Try again in a few minutes."
+                },
+            )
+        report_history_table_deleted(request.user, instance, trigger="delete_action", request=request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @extend_schema(request=None)
     @action(methods=["POST"], detail=True)
     def incremental_fields(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
         source: ExternalDataSource = instance.source
 
-        source_inputs = SourceInputsStore.load(source)
+        try:
+            source_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": UNREADABLE_SOURCE_CONFIG_ERROR})
         if not source_inputs:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing job inputs"})
 
@@ -3068,7 +3289,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "supports_webhooks": schema.supports_webhooks,
             "webhook_only": schema.webhook_only,
             "available_columns": [
-                {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                {
+                    "field": col_name,
+                    "label": col_name,
+                    "type": col_type,
+                    "nullable": nullable,
+                    "sensitivity": classify_column_sensitivity(col_name, col_type),
+                }
                 for col_name, col_type, nullable in schema.columns
             ],
             "detected_primary_keys": schema.detected_primary_keys,

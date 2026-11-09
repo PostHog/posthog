@@ -40,6 +40,7 @@ class OrganizationUsageResource(TypedDict):
     usage: int | None
     limit: int | None
     todays_usage: int | None
+    daily_usage: NotRequired[dict[str, int]]
 
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
@@ -71,6 +72,8 @@ class OrganizationUsageInfo(TypedDict):
     logs_mb_ingested: OrganizationUsageResource | None
     replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
+    billing_status_computed_at: NotRequired[str]
+    billing_latest_usage_report_date: NotRequired[str | None]
 
 
 @frozen
@@ -379,6 +382,16 @@ class Organization(ModelActivityMixin, UUIDTModel):
         return self.name
 
     __repr__ = sane_repr("name")
+
+    @property
+    def ip_restrictions(self) -> list[str]:
+        config = getattr(self, "ip_restrictions_config", None)
+        return config.ip_restrictions if config is not None else []
+
+    @property
+    def ip_restrictions_enabled(self) -> bool:
+        config = getattr(self, "ip_restrictions_config", None)
+        return bool(config.enabled) if config is not None else False
 
     @classmethod
     def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
