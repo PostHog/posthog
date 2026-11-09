@@ -21,7 +21,6 @@ from posthog.hogql.database.database import (
     is_reserved_models_name,
     models_namespace_chain,
 )
-from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import get_table_names
@@ -44,6 +43,7 @@ from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.api import has_incremental_history
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
+    CONNECTION_SAVE_REASON,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
     ViewColumnSource,
@@ -718,10 +718,9 @@ class DataWarehouseSavedQuerySerializer(
         user = self.context["request"].user
         engine = ViewEngine.from_query(query)
 
-        if engine.target == ViewEngineTarget.CONNECTION and (
-            get_direct_connection_source(self.context["get_team"](), engine.connection_id, user=user) is None
-        ):
-            raise exceptions.ValidationError(detail=INVALID_CONNECTION_ID_ERROR)
+        # Saved connection views stay as they are; this only blocks writing a connection query.
+        if engine.target == ViewEngineTarget.CONNECTION:
+            raise exceptions.ValidationError(detail=CONNECTION_SAVE_REASON)
 
         if engine.is_raw_trino:
             try:
