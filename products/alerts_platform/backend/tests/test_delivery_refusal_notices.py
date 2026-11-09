@@ -54,7 +54,11 @@ class TestRefusalNotices(BaseTest):
             looked_up.append(alert_id)
             return creator.id if creator is not None else None
 
-        message = replace(alert_message(), configuration_id=str(self.configuration.id))
+        message = replace(
+            alert_message(),
+            configuration_id=str(self.configuration.id),
+            alert_url="https://app.example.com/project/1/insights/abc123/alerts?alert_id=a1",
+        )
         with patch.dict(refusal_notices._creators, {SourceKind.LOGS: creator_of}):
             notify_refused(team_id=self.team.id, message=message, destination=destination, refusal=REFUSAL, now=now)
         return looked_up
@@ -71,10 +75,12 @@ class TestRefusalNotices(BaseTest):
 
         assert self._recipients() == [[self.user.id]] * 3
         event = stored_notifications_for_team(self.team.id)[0]
-        assert (event.notification_type, event.body) == (
+        assert (event.notification_type, event.body, event.source_url) == (
             "alert_destination_refused",
             "The webhook destination refused the message with status 400. "
             "Every notification sent there will fail until the destination is fixed.",
+            # The query selects the alert on the insight's alerts page.
+            "/project/1/insights/abc123/alerts?alert_id=a1",
         )
         # `posthog.email` sends one campaign key to a recipient once, so a key per notice is one email per notice.
         assert len({kwargs["campaign_key"] for _, kwargs in self.email.call_args_list}) == 3
@@ -92,11 +98,27 @@ class TestRefusalNotices(BaseTest):
         assert self._recipients() == [sorted([self.user.id, self.teammate.id])]
         self.email.assert_not_called()
 
+    def test_nobody_denied_the_alerts_source_is_told(self) -> None:
+        checked: list[str] = []
+
+        def only_the_teammate(_resolver: object, user_ids: list[int], resource_type: str, _team: object) -> list[int]:
+            checked.append(resource_type)
+            return [user_id for user_id in user_ids if user_id == self.teammate.id]
+
+        with patch.object(refusal_notices.RecipientsResolver, "filter_by_access_control", only_the_teammate):
+            self._notify(self.user)
+
+        assert self._recipients() == [[self.teammate.id]]
+        self.email.assert_not_called()
+        assert set(checked) == {"logs"}
+
     def test_a_notice_that_fails_never_raises_and_is_tried_again_on_the_next_refusal(self) -> None:
         with patch.object(refusal_notices.cache, "add", side_effect=ConnectionError("cache down")):
             self._notify(self.user)
         with patch.object(refusal_notices, "create_notification", side_effect=RuntimeError("notifications down")):
             self._notify(self.user)
+        # The email does not wait on the in-app notification.
+        assert self.email.call_count == 1
         self._notify(self.user)
 
         assert self._recipients() == [[self.user.id]]

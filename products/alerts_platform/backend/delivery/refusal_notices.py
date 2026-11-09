@@ -5,13 +5,18 @@ in-app notification, because they left, lost access to the project, turned that 
 off, or the alert records no creator, the project's members get it instead. A source registers how
 to find an alert's creator when Django starts, because the platform imports no source.
 
+Everyone told must be allowed to view the alert's source, so a notice names no alert to a member
+that source's access rules hide it from.
+
 One destination is noticed at most once per UTC day. Every check that fires sends again, and an
 insight alert sends on every check while it fires, so a notice per send would repeat all day. A
-cache entry per day skips the repeats before any query runs, and the notification and email keys
-stop a duplicate when two sends race past it.
+daily marker, written once every channel has sent, skips the repeats before any query runs. A
+short claim stops concurrent sends from noticing together, and the notification and email keys
+stop a duplicate when a channel is retried.
 """
 
 from datetime import UTC, datetime
+from typing import Final, cast
 from urllib.parse import urlsplit
 
 from django.core.cache import cache
@@ -29,16 +34,29 @@ from products.alerts_platform.backend.facade.contracts import SourceAlertCreator
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
+    NotificationResourceType,
     NotificationType,
     Priority,
+    RecipientsResolver,
     TargetType,
     create_notification,
 )
 
 EMAIL_TEMPLATE_NAME = "alert_destination_refused"
 MAX_TITLE_CHARS = 100
-# Longer than the day the key names, so the entry outlives every send that builds it.
-_SEEN_TTL_SECONDS = 2 * 24 * 60 * 60
+# Longer than the day the key names, so the marker outlives every send that builds it.
+_NOTICED_TTL_SECONDS = 2 * 24 * 60 * 60
+# Longer than one notice takes, and short enough that a worker that dies holding it delays the
+# notice by minutes, not by the rest of the day.
+_CLAIM_TTL_SECONDS = 5 * 60
+
+# The access-control resource that governs each source's alerts. A source missing here is checked
+# for project access only.
+_ACCESS_RESOURCES: Final[dict[SourceKind, NotificationResourceType]] = {
+    SourceKind.LOGS: "logs",
+    SourceKind.INSIGHT: "insight",
+    SourceKind.METRICS: "metrics",
+}
 
 logger = structlog.get_logger(__name__)
 
@@ -67,33 +85,53 @@ def notify_refused(
     """
     day = (now or datetime.now(UTC)).date().isoformat()
     key = "alert-destination-refused:" + credential_digest(f"{team_id}|{message.configuration_id}|{destination}|{day}")
+    claim = f"{key}:claim"
     try:
-        if not cache.add(key, True, timeout=_SEEN_TTL_SECONDS):
+        if cache.get(key) or not cache.add(claim, True, timeout=_CLAIM_TTL_SECONDS):
             return
         try:
-            _notify_everyone(team_id, message, key, refusal)
-        except Exception:
-            # Dropped so the next refused send tries again.
-            cache.delete(key)
-            raise
+            if _notify_everyone(team_id, message, key, refusal):
+                cache.set(key, True, timeout=_NOTICED_TTL_SECONDS)
+        finally:
+            cache.delete(claim)
     except Exception:
         logger.exception("alert_destination_refused_notice_failed", team_id=team_id, alert_id=message.configuration_id)
 
 
-def _notify_everyone(team_id: int, message: AlertMessage, key: str, refusal: DestinationRefused) -> None:
+def _notify_everyone(team_id: int, message: AlertMessage, key: str, refusal: DestinationRefused) -> bool:
+    """Sends on every channel, each apart from the others. Returns whether all of them sent."""
     title = clip_text(f"An alert destination refused a notification from {message.alert_name}", MAX_TITLE_CHARS)
     body = f"{refusal} Every notification sent there will fail until the destination is fixed."
-    source_url = urlsplit(message.alert_url).path
+    url = urlsplit(message.alert_url)
+    # The query too: an insight alert's link selects the alert with `?alert_id=`.
+    source_url = f"{url.path}?{url.query}" if url.query else url.path
+    resource_type = _ACCESS_RESOURCES.get(message.source)
 
-    creator = _reachable_creator(team_id, message)
-    notified = creator is not None and _notify(team_id, TargetType.USER, str(creator.id), key, title, body, source_url)
-    if not notified:
-        _notify(team_id, TargetType.TEAM, str(team_id), f"{key}:team", title, body, source_url)
+    creator = _reachable_creator(team_id, message, resource_type)
+    sent = True
+    try:
+        notified = creator is not None and _notify(
+            team_id, TargetType.USER, str(creator.id), key, title, body, source_url, resource_type
+        )
+        if not notified:
+            _notify(team_id, TargetType.TEAM, str(team_id), f"{key}:team", title, body, source_url, resource_type)
+    except Exception:
+        sent = False
+        logger.exception("alert_destination_refused_in_app_failed", team_id=team_id, alert_id=message.configuration_id)
     if creator is not None:
-        _email(creator, key, message, refusal)
+        try:
+            _email(creator, key, message, refusal)
+        except Exception:
+            sent = False
+            logger.exception(
+                "alert_destination_refused_email_failed", team_id=team_id, alert_id=message.configuration_id
+            )
+    return sent
 
 
-def _reachable_creator(team_id: int, message: AlertMessage) -> User | None:
+def _reachable_creator(
+    team_id: int, message: AlertMessage, resource_type: NotificationResourceType | None
+) -> User | None:
     lookup = _creators.get(message.source)
     if lookup is None:
         return None
@@ -109,11 +147,22 @@ def _reachable_creator(team_id: int, message: AlertMessage) -> User | None:
     if creator_id is None:
         return None
     team = Team.objects.get(id=team_id)
-    return team.all_users_with_access().filter(id=creator_id, is_active=True).first()
+    creator = team.all_users_with_access().filter(id=creator_id, is_active=True).first()
+    if creator is None or resource_type is None:
+        return creator
+    allowed = RecipientsResolver().filter_by_access_control([creator.id], cast(str, resource_type), team)
+    return creator if allowed else None
 
 
 def _notify(
-    team_id: int, target_type: TargetType, target_id: str, key: str, title: str, body: str, source_url: str
+    team_id: int,
+    target_type: TargetType,
+    target_id: str,
+    key: str,
+    title: str,
+    body: str,
+    source_url: str,
+    resource_type: NotificationResourceType | None,
 ) -> bool:
     event = create_notification(
         NotificationData(
@@ -125,6 +174,8 @@ def _notify(
             target_type=target_type,
             target_id=target_id,
             source_url=source_url,
+            # An access-controlled resource type makes the notification skip anyone denied it.
+            resource_type=resource_type,
             idempotency_key=key,
         )
     )
