@@ -180,6 +180,9 @@ describe('llmProviderKeysLogic', () => {
                             evaluation('running', true, null),
                         ],
                         alternative_keys: [],
+                        active_key_evaluations: [
+                            { ...evaluation('by-active-key', false, 'provider_key_quota_exceeded') },
+                        ],
                     },
                 },
                 post: {
@@ -205,12 +208,15 @@ describe('llmProviderKeysLogic', () => {
             await expectLogic(logic, () => logic.actions.validateProviderKey({ id: key.id }))
                 .toDispatchActions(['validateProviderKeySuccess', 'loadTurnedOffEvaluationsSuccess'])
                 .toFinishAllListeners()
-            expect(logic.values.turnedOffEvaluations?.evaluations.map((turnedOff) => turnedOff.id)).toEqual(['by-key'])
+            expect(logic.values.turnedOffEvaluations?.evaluations.map((turnedOff) => turnedOff.id)).toEqual([
+                'by-key',
+                'by-active-key',
+            ])
 
             await expectLogic(logic, () => logic.actions.turnEvaluationsBackOn())
                 .toDispatchActions(['turnEvaluationsBackOnSuccess'])
                 .toFinishAllListeners()
-            expect(patched).toEqual(['by-key'])
+            expect(patched.sort()).toEqual(['by-active-key', 'by-key'])
             expect(logic.values.turnedOffEvaluations).toBeNull()
         })
     })

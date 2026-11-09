@@ -4,7 +4,7 @@ from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
@@ -43,7 +43,7 @@ from ..llm.providers.openai_compatible import (
     is_allowed_custom_base_url,
 )
 from ..models.evaluation_config import EvaluationConfig
-from ..models.evaluations import Evaluation
+from ..models.evaluations import Evaluation, EvaluationStatus
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from ..models.taggers import Tagger
@@ -641,12 +641,33 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             state=LLMProviderKey.State.OK,
         ).exclude(id=instance.id)
 
+        # An evaluation with no pinned key runs on the project's active key (`active_key_fallback`), so a
+        # problem with that key turns it off too. Listed apart, because replacing a key only re-pins the
+        # configs above.
+        active_key_evaluations = []
+        if EvaluationConfig.objects.filter(team_id=self.team_id, active_provider_key=instance).exists():
+            active_key_evaluations = [
+                {
+                    "id": str(evaluation.id),
+                    "name": evaluation.name,
+                    "enabled": evaluation.enabled,
+                    "status_reason": evaluation.status_reason,
+                }
+                for evaluation in Evaluation.objects.filter(
+                    team_id=self.team_id, deleted=False, status=EvaluationStatus.ERROR
+                ).filter(
+                    Q(model_configuration__isnull=True)
+                    | Q(model_configuration__provider_key__isnull=True, model_configuration__provider=instance.provider)
+                )
+            ]
+
         return Response(
             {
                 "evaluations": evaluations,
                 "alternative_keys": [
                     {"id": str(key.id), "name": key.name, "provider": key.provider} for key in alternative_keys
                 ],
+                "active_key_evaluations": active_key_evaluations,
             }
         )
 
