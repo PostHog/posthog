@@ -63,7 +63,7 @@ Its body tells the agent to:
 1. Call `skill-get` for the skill and note the returned `version`.
 2. Page through the body with `body_offset` until `body_next_offset` is null, passing the same `version` each time.
 3. Follow the complete body as the skill's instructions.
-4. Fetch any referenced bundled file with `skill-file-get` at that `version` and write it into the skill directory before use.
+4. Fetch any referenced bundled file with `skill-file-get` at that `version`, paging with `content_offset` until `content_next_offset` is null, and write it into the skill directory before use.
 
 Pinning the version keeps a publish that lands mid-fetch from mixing two versions of the skill.
 Skill content only crosses the MCP server when a skill is invoked; the bundle itself carries discovery metadata only.
