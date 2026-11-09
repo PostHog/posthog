@@ -405,7 +405,7 @@ describe('HogFunctionHandler', () => {
         })
     })
 
-    it.each([
+    const skipChecks: [string, () => void][] = [
         [
             'suppression',
             () => (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValue('suppressed'),
@@ -429,34 +429,43 @@ describe('HogFunctionHandler', () => {
                 invocation.state.currentAction!.frequencyCapHoldDeadlineAt = DateTime.now().minus({ hours: 1 }).toISO()!
             },
         ],
-    ])('lets an email to an address with a control character past %s to the send', async (_check, skip) => {
-        const emailTemplate = await insertHogFunctionTemplate(hub.postgres, {
-            id: `template-test-hogflow-email-${team.id}`,
-            name: 'Test Email Template',
-            code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
-            inputs_schema: [{ key: 'email', type: 'native_email', required: true }],
-        })
-        const emailAction = {
-            ...action,
-            type: 'function_email',
-            config: {
-                template_id: emailTemplate.template_id,
-                inputs: { email: { value: { to: { email: 'jo\u000B@example.com' } } } },
-            },
-        } as Extract<HogFlowAction, { type: 'function_email' }>
-        skip()
-        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-            queue: 'hog',
-            queuePriority: 0,
-        })
-
-        await hogFunctionHandler.execute({ invocation, action: emailAction, result: invocationResult })
-
-        expect(mockFetch).toHaveBeenCalledTimes(1)
-        expect(invocationResult.metrics.map((m) => m.metric_name)).not.toContainEqual(
-            expect.stringMatching(/suppressed|bounce_prevented|frequency_capped/)
+    ]
+    const recipientCases: [string, Record<string, unknown>, boolean][] = [
+        ['the To address', { to: { email: 'jo\u000B@example.com' } }, true],
+        ['a CC address', { to: { email: 'jo@example.com' }, cc: 'ok@example.com, jo\u0001@example.com' }, true],
+        ['a BCC address', { to: { email: 'jo@example.com' }, bcc: 'jo\u007F@example.com' }, true],
+        ['only a CC display name', { to: { email: 'jo@example.com' }, cc: '"Ann\u0001" <ann@example.com>' }, false],
+        ['only the To display name', { to: { email: 'jo@example.com', name: 'Jo\u0001' } }, false],
+    ]
+    it.each(
+        skipChecks.flatMap(([check, skip]) =>
+            recipientCases.map(([where, email, failsAtSend]) => [where, check, email, failsAtSend, skip] as const)
         )
-    })
+    )(
+        'with a control character in %s, %s skips the email only if the send would not fail',
+        async (_where, _check, email, failsAtSend, skip) => {
+            const emailTemplate = await insertHogFunctionTemplate(hub.postgres, {
+                id: `template-test-hogflow-email-${team.id}`,
+                name: 'Test Email Template',
+                code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
+                inputs_schema: [{ key: 'email', type: 'native_email', required: true }],
+            })
+            const emailAction = {
+                ...action,
+                type: 'function_email',
+                config: { template_id: emailTemplate.template_id, inputs: { email: { value: email } } },
+            } as Extract<HogFlowAction, { type: 'function_email' }>
+            skip()
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await hogFunctionHandler.execute({ invocation, action: emailAction, result: invocationResult })
+
+            expect(mockFetch).toHaveBeenCalledTimes(failsAtSend ? 1 : 0)
+        }
+    )
 
     it('should throw an error if template is not found', async () => {
         const action = findActionByType(invocation.hogFlow, 'function')!

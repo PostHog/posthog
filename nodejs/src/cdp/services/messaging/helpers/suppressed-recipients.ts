@@ -19,16 +19,64 @@ export type SuppressedRecipientsResult = {
 type ParsedAddress = { email: string; name?: string }
 
 // Tab, line feed and carriage return are left out: they separate the entries of an address list.
-const CONTROL_CHARACTERS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g
+const CONTROL_CHARACTER = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/
+const DROPPED_BY_ADDRESSPARSER = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g
+const PRIVATE_USE_START = 0xe000
+const PRIVATE_USE_BLOCKS = 200
 
 const escapeControlCharacters = (value: string): string =>
-    value.replace(CONTROL_CHARACTERS, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+    value.replace(
+        new RegExp(CONTROL_CHARACTER.source, 'g'),
+        (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`
+    )
+
+const freeStandInBase = (value: string): number | undefined => {
+    const usedBlocks = new Set<number>()
+    for (let i = 0; i < value.length; i++) {
+        const block = Math.floor((value.charCodeAt(i) - PRIVATE_USE_START) / 32)
+        if (block >= 0 && block < PRIVATE_USE_BLOCKS) {
+            usedBlocks.add(block)
+        }
+    }
+    for (let block = 0; block < PRIVATE_USE_BLOCKS; block++) {
+        if (!usedBlocks.has(block)) {
+            return PRIVATE_USE_START + block * 32
+        }
+    }
+    return undefined
+}
+
+// addressparser drops most control characters, so delivery sends to the address without them, and a
+// control character in a display name or comment never reaches SES. Each dropped character is swapped
+// for a private-use stand-in before the parse and swapped back after, so only a mailbox that held one
+// is returned.
+const mailboxesWithControlCharacters = (list: string): string[] => {
+    const base = freeStandInBase(list)
+    if (base === undefined) {
+        return [list]
+    }
+    const withStandIns = list.replace(DROPPED_BY_ADDRESSPARSER, (char) =>
+        String.fromCharCode(base + char.charCodeAt(0))
+    )
+    const restore = (address: string): string =>
+        Array.from(address, (char) => {
+            const code = char.charCodeAt(0) - base
+            return code >= 0 && code < 32 ? String.fromCharCode(code) : char
+        }).join('')
+    return addressparser(withStandIns, { flatten: true })
+        .map((entry) => restore(entry.address))
+        .filter((address) => CONTROL_CHARACTER.test(address))
+}
+
+const holdsControlCharacter = (value: unknown): value is string =>
+    typeof value === 'string' && CONTROL_CHARACTER.test(value)
 
 export const fieldsWithControlCharacters = ({ to, cc, bcc }: EmailRecipients): string[] =>
-    Object.entries({ To: to?.email, CC: cc, BCC: bcc }).flatMap(([field, value]) => {
-        const escaped = typeof value === 'string' ? escapeControlCharacters(value) : value
-        return escaped !== value ? [`${field} "${escaped}"`] : []
-    })
+    Object.entries({
+        To: holdsControlCharacter(to?.email) ? [to.email] : [],
+        CC: holdsControlCharacter(cc) ? mailboxesWithControlCharacters(cc) : [],
+        BCC: holdsControlCharacter(bcc) ? mailboxesWithControlCharacters(bcc) : [],
+    }).flatMap(([field, addresses]) => addresses.map((address) => `${field} "${escapeControlCharacters(address)}"`))
 
 // The suppression list stores bare addresses, so a quoted local part (`"jo"@x.com`) is checked unquoted.
 export const unquoteMailbox = (address: string): string => {

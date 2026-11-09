@@ -1640,12 +1640,17 @@ describe('EmailService', () => {
 
         it.each([
             ['To', { to: { email: 'jo\u0000@example.com', name: 'Jo' } }, 'To "jo\\u0000@example.com"'],
+            ['CC', { cc: 'ok@example.com, "Jo" <jo\u0001@example.com>' }, 'CC "jo\\u0001@example.com"'],
+            ['BCC', { bcc: 'ok@example.com; jo\u007F@example.com' }, 'BCC "jo\\u007f@example.com"'],
             [
-                'CC',
-                { cc: 'ok@example.com, "Jo\u0001" <jo@example.com>' },
-                'CC "ok@example.com, "Jo\\u0001" <jo@example.com>"',
+                'every field',
+                {
+                    to: { email: 'a\u0000@example.com', name: 'A' },
+                    cc: 'b\u0001@example.com',
+                    bcc: 'c\u0002@example.com',
+                },
+                'To "a\\u0000@example.com" and CC "b\\u0001@example.com" and BCC "c\\u0002@example.com"',
             ],
-            ['BCC', { bcc: 'jo\u007F@example.com' }, 'BCC "jo\\u007f@example.com"'],
         ])('fails the send before any lookup when %s has a control character', async (_field, recipients, named) => {
             const isSuppressed = jest.spyOn(service['emailSuppressionService'], 'isSuppressed')
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, ...recipients })
@@ -1657,23 +1662,49 @@ describe('EmailService', () => {
             expect(isSuppressed).not.toHaveBeenCalled()
             expect(result).toMatchObject({
                 finished: true,
-                error: `Email not sent: To, CC and BCC can't contain a control character. Fix the template or person property that fills ${named}.`,
+                error: `Email not sent: an email address can't contain a control character. Fix the template or person property that fills ${named}.`,
             })
             expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_failed'])
         })
 
-        it('sends to a cc list that a template splits across lines', async () => {
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1 },
-                cc: 'one@example.com,\n\ttwo@example.com\r\n',
-            })
+        it.each([
+            [
+                'a template splits across lines',
+                { cc: 'one@example.com,\n\ttwo@example.com\r\n' },
+                ['one@example.com', 'two@example.com'],
+                [],
+            ],
+            [
+                'a CC display name holds a control character',
+                { cc: '"One\u0001" <one@example.com>, two@example.com' },
+                ['"One" <one@example.com>', 'two@example.com'],
+                [],
+            ],
+            [
+                'a CC comment holds a control character',
+                { cc: 'one@example.com (One\u0002), two@example.com' },
+                ['"One" <one@example.com>', 'two@example.com'],
+                [],
+            ],
+            ['a BCC display name holds DEL', { bcc: 'One\u007F <one@example.com>' }, [], ['"One" <one@example.com>']],
+            [
+                'the To display name holds a control character',
+                { to: { email: 'jo@example.com', name: 'Jo\u0001' } },
+                [],
+                [],
+            ],
+        ])('sends to every recipient when %s', async (_case, recipients, cc, bcc) => {
+            const isSuppressed = jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(false)
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, ...recipients })
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
             const result = await service.executeSendEmail(invocation)
 
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Destination.CcAddresses).toEqual(['one@example.com', 'two@example.com'])
+            expect(isSuppressed).toHaveBeenCalled()
+            const destination = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Destination
+            expect(destination.CcAddresses ?? []).toEqual(cc)
+            expect(destination.BccAddresses ?? []).toEqual(bcc)
         })
 
         it.each([
