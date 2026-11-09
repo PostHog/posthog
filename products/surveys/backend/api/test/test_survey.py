@@ -309,14 +309,14 @@ class TestSurvey(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("default_sentinel", "default"),
-            ("language_name_alias", "english"),
-            ("empty_subtag", ""),
-            ("includes_invalid_chars", "en US"),
-            ("non_bcp47_word", "custom-customer-locale"),
+            ("default_sentinel", "default", "translation_language_reserved"),
+            ("language_name_alias", "english", "translation_language_invalid"),
+            ("empty_subtag", "", "translation_language_empty"),
+            ("includes_invalid_chars", "en US", "translation_language_invalid"),
+            ("non_bcp47_word", "custom-customer-locale", "translation_language_invalid"),
         ]
     )
-    def test_translation_rejects_invalid_language_codes(self, _name: str, lang_code: str) -> None:
+    def test_translation_rejects_invalid_language_codes(self, _name: str, lang_code: str, expected_code: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -330,6 +330,7 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "translation" in response.json()["detail"].lower()
+        assert response.json()["code"] == expected_code
 
     @parameterized.expand(
         [
@@ -362,6 +363,7 @@ class TestSurvey(APIBaseTest):
             f"{context} matches the survey's base language ('en'), so the untranslated text already covers it. "
             "Remove this translation, or set base_language to the language the untranslated text is written in."
         )
+        assert response.json()["code"] == "translation_language_matches_base"
 
     def test_survey_defaults_to_english_base_language(self) -> None:
         response = self.client.post(
@@ -553,6 +555,7 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "base_language" in response.json() or "translation" in response.content.decode().lower()
+        assert response.json()["code"] == "translation_language_matches_base"
 
     @parameterized.expand(
         [
@@ -3677,6 +3680,89 @@ class TestSurvey(APIBaseTest):
         self.assertIn("id", updated_data["questions"][1])
         self.assertIsNotNone(updated_data["questions"][1]["id"])
         self.assertNotIn(updated_data["questions"][1]["id"], original_question_ids)
+
+    @parameterized.expand(
+        [
+            # Each payload item is (index of the stored question it edits or None for a new one, overrides, send its id).
+            # Expected is, per returned question, the index of the stored question whose id it must carry, or None for a fresh id.
+            (
+                "no_ids_one_field_changed",
+                [(0, {}, False), (1, {"hasOpenChoice": True}, False), (2, {}, False)],
+                [0, 1, 2],
+            ),
+            (
+                "no_ids_reworded_is_indistinguishable_from_replaced",
+                [(0, {"question": "Reworded?"}, False), (1, {}, False), (2, {}, False)],
+                [None, 1, 2],
+            ),
+            ("no_ids_reordered", [(2, {}, False), (0, {}, False), (1, {}, False)], [2, 0, 1]),
+            ("no_ids_first_removed", [(1, {}, False), (2, {}, False)], [1, 2]),
+            (
+                "no_ids_question_added",
+                [(0, {}, False), (1, {}, False), (2, {}, False), (None, {"question": "Anything else?"}, False)],
+                [0, 1, 2, None],
+            ),
+            ("no_ids_type_changed", [(0, {"type": "rating", "scale": 5}, False), (1, {}, False)], [None, 1]),
+            ("ids_reordered", [(2, {}, True), (1, {}, True), (0, {}, True)], [2, 1, 0]),
+            (
+                "ids_with_new_question_in_removed_slot",
+                [
+                    (0, {}, True),
+                    (None, {"type": "single_choice", "question": "Which add-on?", "choices": ["None", "Some"]}, False),
+                    (2, {}, True),
+                ],
+                [0, None, 2],
+            ),
+            (
+                "ids_with_removed_question_readded_without_id",
+                [(0, {}, True), (1, {}, False), (2, {}, True)],
+                [0, 1, 2],
+            ),
+            (
+                "no_ids_twin_stored_questions_are_ambiguous",
+                [(3, {}, False), (1, {}, True), (2, {}, True)],
+                [None, 1, 2],
+                [{"type": "open", "question": "What brought you here?", "description": "Second copy"}],
+            ),
+            (
+                "no_ids_twin_sent_questions_are_ambiguous",
+                [(0, {}, False), (0, {"description": "Copy"}, False), (1, {}, True), (2, {}, True)],
+                [None, None, 1, 2],
+            ),
+        ]
+    )
+    def test_question_ids_survive_questions_patch(self, _name, payload_spec, expected_sources, extra_stored=()):
+        stored: list[dict[str, Any]] = [
+            {"id": str(uuid.uuid4()), "type": "open", "question": "What brought you here?"},
+            {"id": str(uuid.uuid4()), "type": "single_choice", "question": "Which plan?", "choices": ["Free", "Paid"]},
+            {"id": str(uuid.uuid4()), "type": "rating", "question": "How likely to recommend?", "scale": 10},
+            *({"id": str(uuid.uuid4()), **extra} for extra in extra_stored),
+        ]
+        survey = Survey.objects.create(
+            team=self.team, created_by=self.user, name="live survey", type="popover", questions=stored
+        )
+
+        questions = []
+        for source, overrides, send_id in payload_spec:
+            base = stored[source] if source is not None else {"type": "open"}
+            question = {**base, **overrides}
+            if not send_id:
+                question.pop("id", None)
+            questions.append(question)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/", data={"questions": questions}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        returned_ids = [q["id"] for q in response.json()["questions"]]
+        stored_ids = {q["id"] for q in stored}
+        for returned_id, source in zip(returned_ids, expected_sources, strict=True):
+            if source is None:
+                assert returned_id and returned_id not in stored_ids
+            else:
+                assert returned_id == stored[source]["id"]
+        assert len(set(returned_ids)) == len(returned_ids)
 
     def test_custom_question_ids_accepted_when_creating_survey(self):
         """Test that custom question IDs are accepted when creating a survey."""

@@ -114,4 +114,54 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "availableServices": "Carrier services available for the option, each with a name and description.",
         },
     },
+    "contacts": {
+        "description": "People associated with the Squarespace site (customers, mailing list subscribers, "
+        "and donors), with their marketing opt-in state. Replaces the profiles table.",
+        "docs_url": "https://developers.squarespace.com/commerce-apis/contacts#list-contacts",
+        "columns": {
+            "id": "Unique contact id. Same value as the profile id and the customerId on an order.",
+            "createdOn": "ISO 8601 UTC timestamp of when the contact was created.",
+            "firstName": "Contact first name.",
+            "lastName": "Contact last name.",
+            "locale": "Contact locale (e.g. en-US).",
+            "primaryEmail": "Primary email address, with the marketing opt-in state and the dates the contact "
+            "joined and left the marketing list.",
+            "defaultShippingAddress": "Address book entry that is the contact's default shipping address.",
+        },
+    },
+    "discounts": {
+        "description": "Discounts configured on the Squarespace site: the order criteria, the discount "
+        "amount, and whether a promo code or automatic trigger activates it.",
+        "docs_url": "https://developers.squarespace.com/commerce-apis/discounts#list-discounts",
+        "columns": {
+            "id": "Unique discount id.",
+            "name": "Display name of the discount.",
+            "status": "Lifecycle status: ACTIVE, SCHEDULED, or EXPIRED.",
+            "criteria": "Conditions an order must meet for the discount to apply, discriminated by type "
+            "(ANY_ORDER, CART_TOTAL, PRODUCT, BUY_X_GET_Y).",
+            "template": "Shape of the discount, discriminated by type (FIXED_AMOUNT, PERCENTAGE, "
+            "BUY_X_GET_Y_FIXED_AMOUNT, BUY_X_GET_Y_PERCENTAGE, FREE_SHIPPING).",
+            "trigger": "How the discount is activated: AUTO, or CODE with the promo code.",
+            "validFrom": "ISO 8601 UTC timestamp of when the discount becomes active.",
+            "validTo": "ISO 8601 UTC timestamp of when the discount stops being active.",
+            "numberOfUses": "Number of times the discount has been redeemed.",
+            "lastRedeemedAt": "ISO 8601 UTC timestamp of the most recent redemption, or null.",
+            "isLimitedUses": "Whether the discount can only be used maxUsesAllowed times site-wide.",
+            "maxUsesAllowed": "Maximum site-wide redemptions when isLimitedUses is true.",
+            "isOncePerCustomer": "Whether a customer can use the discount only once.",
+            "subscriptionOptions": "How the discount applies to subscription payments.",
+            "paymentPlanOptions": "How the discount applies to payment plan payments.",
+            "websiteId": "Id of the website the discount belongs to.",
+        },
+    },
+    "contact_address_book": {
+        "description": "Saved addresses in each contact's address book (up to 50 per contact).",
+        "docs_url": "https://developers.squarespace.com/commerce-apis/contacts#get-address-book",
+        "columns": {
+            "id": "Address book entry id.",
+            "contactId": "Id of the contact the address belongs to.",
+            "address": "The address: name, address lines, city, region, country code, postal code, and phone.",
+            "defaultShipping": "Whether this entry is the contact's default shipping address.",
+        },
+    },
 }
