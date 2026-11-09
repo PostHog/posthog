@@ -539,6 +539,74 @@ class TestBillingManager(BaseTest):
         # Retention drops to the default; unrelated Logs settings survive.
         assert self.team.logs_settings == {"retention_days": 14, "json_parse_logs": True}
 
+    @parameterized.expand(
+        [
+            ("partial_response", None, {}, "unknown"),
+            ("missing_billing_plan_keeps_package", "paid", {}, "paid"),
+            ("unknown_billing_plan_keeps_package", "paid", {"billing_plan": None}, "paid"),
+            ("first_package_sync", None, {"billing_plan": "paid"}, "none"),
+            ("free_first_package_sync", None, {"has_active_subscription": False, "billing_plan": "free"}, "none"),
+            ("package_dropped", "paid", {"billing_plan": "paid"}, "none"),
+            *[
+                (f"billing_plan_{package}", "none", {"billing_plan": package}, "paid")
+                for package in ("teams", "boost", "scale", "enterprise")
+            ],
+            (
+                "active_package_trial",
+                "none",
+                {"billing_plan": "paid", "trial": {"status": "active", "target": "scale"}},
+                "paid",
+            ),
+            (
+                "expired_package_trial",
+                "paid",
+                {"billing_plan": "paid", "trial": {"status": "expired", "target": "scale"}},
+                "none",
+            ),
+        ]
+    )
+    def test_update_org_details_stores_the_billing_package(
+        self, _name: str, had_package: str | None, customer: dict[str, object], expected: str
+    ) -> None:
+        organization = self.organization
+        organization.has_active_subscription = True
+        organization.usage = {"billing_package": had_package} if had_package else {}
+        organization.save()
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, {"customer": customer}))
+
+        organization.refresh_from_db()
+        assert organization.billing_package_label() == expected
+
+    def test_older_billing_status_does_not_reverse_a_package_change(self):
+        organization = self.organization
+        organization.has_active_subscription = True
+        organization.usage = {}
+        organization.save()
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        no_package: dict[str, Any] = {"billing_plan": "paid"}
+
+        def sync(computed_at: str, customer: dict[str, Any]) -> str:
+            BillingManager(license).update_org_details(
+                organization, cast(BillingStatus, {"customer": customer, "computed_at": computed_at})
+            )
+            organization.refresh_from_db()
+            return organization.billing_package_label()
+
+        assert sync("2026-11-01T00:00:00+00:00", no_package) == "none"
+        assert sync("2026-11-03T00:00:00+00:00", {"billing_plan": "scale"}) == "paid"
+        assert sync("2026-11-02T00:00:00+00:00", no_package) == "paid"
+        assert sync("2026-11-04T00:00:00+00:00", no_package) == "none"
+
     def test_update_org_details_keeps_logs_retention_while_entitled(self):
         organization = self.organization
         organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
@@ -1108,6 +1176,7 @@ class TestBillingManager(BaseTest):
             "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
             "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
             "billing_status_computed_at": "2026-08-02T00:00:00+00:00",
+            "billing_package": "paid",
         }
         organization.save()
 
@@ -1120,6 +1189,7 @@ class TestBillingManager(BaseTest):
         assert organization.usage["events"]["usage"] == expected_events_usage
         assert organization.usage.get("billing_status_computed_at") == expected_computed_at
         assert organization.usage.get("billing_latest_usage_report_date") == expected_report_date
+        assert organization.billing_package_label() == "paid"
 
     def test_update_org_details_writes_nothing_for_a_status_that_changes_only_the_stamp(self):
         manager = BillingManager(license=None)

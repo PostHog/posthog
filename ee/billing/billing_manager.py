@@ -30,7 +30,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.events_plan_deletion import apply_events_retention_change
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization import BILLING_PACKAGE_USAGE_KEY, OrganizationMembership, OrganizationUsageInfo
 from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.event_retention import (
     billed_events_retention_months,
@@ -86,6 +86,7 @@ class FundingStatusUnavailable(Exception):
 
 
 _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE = "__funding_status_unavailable__"
+_PAID_PACKAGES = ("boost", "teams", "scale", "enterprise")
 
 
 @frozen
@@ -135,6 +136,19 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
             return True
 
     return False
+
+
+def _billing_package(customer: CustomerInfo) -> Literal["paid", "none"] | None:
+    billing_plan = customer.get("billing_plan")
+    trial = customer.get("trial")
+    # billing_plan ignores trials, so a package trial is read from the trial target.
+    if billing_plan in _PAID_PACKAGES or (
+        isinstance(trial, dict) and trial.get("status") == "active" and trial.get("target") in _PAID_PACKAGES
+    ):
+        return "paid"
+    if billing_plan in ("free", "paid"):
+        return "none"
+    return None
 
 
 def _is_older_than_applied_billing_status(organization: Organization, computed_at: datetime) -> bool:
@@ -889,6 +903,15 @@ class BillingManager:
             if updated_customer_trust_scores != current_customer_trust_scores:
                 organization.customer_trust_scores = updated_customer_trust_scores
                 org_modified = True
+
+        package = _billing_package(data)
+        if (
+            package is not None
+            and organization.usage is not None
+            and organization.usage.get(BILLING_PACKAGE_USAGE_KEY) != package
+        ):
+            organization.usage[BILLING_PACKAGE_USAGE_KEY] = package
+            org_modified = True
 
         # The stamp goes out only with a save that a change already needs. A save for the stamp
         # alone writes this in-memory copy back over counters and quota markers that the quota

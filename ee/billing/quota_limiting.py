@@ -25,7 +25,7 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.organization import Organization, OrganizationUsageInfo
+from posthog.models.organization import BILLING_PACKAGE_USAGE_KEY, Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
@@ -1113,7 +1113,7 @@ def set_org_usage_summary(
     _merge_informational_usage_summary(cast(dict, new_usage), original_usage, todays_usage)
 
     # update_org_details writes these after this comparison, so keep the stored values here.
-    for key in BILLING_STATUS_STAMP_KEYS:
+    for key in (*BILLING_STATUS_STAMP_KEYS, BILLING_PACKAGE_USAGE_KEY):
         if key in original_usage and key not in new_usage:
             cast(dict, new_usage)[key] = original_usage[key]
 

@@ -35,6 +35,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+BILLING_PACKAGE_USAGE_KEY = "billing_package"
+
 
 class OrganizationUsageResource(TypedDict):
     usage: int | None
@@ -513,6 +515,25 @@ class Organization(ModelActivityMixin, UUIDTModel):
         if available_keys & _enterprise_only_feature_keys():
             return "enterprise"
         return "paid"
+
+    def billing_plan_label(self) -> Literal["free", "paid", "unknown"]:
+        """The `organization_plan` person property that staged-rollout flags target.
+
+        Read from `has_active_subscription`, which billing syncs, rather than from `get_plan_tier`,
+        which calls an organization "paid" as soon as it has any product feature. "unknown" until
+        billing has synced the organization once.
+        """
+        if self.has_active_subscription is None:
+            return "unknown"
+        return "paid" if self.has_active_subscription else "free"
+
+    def billing_package_label(self) -> Literal["paid", "none", "unknown"]:
+        """The `organization_package` person property: "paid" on a Teams, Boost, Scale or Enterprise package.
+
+        Billing sync stores it in `usage`. "unknown" until a billing status names the plan.
+        """
+        package = (self.usage or {}).get(BILLING_PACKAGE_USAGE_KEY)
+        return package if package in ("paid", "none") else "unknown"
 
     def limit_product_until_end_of_billing_cycle(self, resource: "QuotaResource") -> None:
         """
