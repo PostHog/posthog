@@ -170,6 +170,16 @@ class TestTreeFacts(BaseTest):
                 TreeFacts(cross_join_equalities=1),
             ),
             (
+                "a cross join with a property equality",
+                "SELECT count() FROM events l CROSS JOIN events r WHERE l.properties.key = r.properties.key",
+                TreeFacts(property_filter=True, cross_join_equalities=1),
+            ),
+            (
+                "an unreferenced CTE",
+                "WITH counts AS (SELECT event, count() AS n FROM events GROUP BY event), unused AS (SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id UNION ALL SELECT sum(n) FROM counts UNION ALL SELECT max(n) FROM counts) SELECT count() FROM events",
+                TreeFacts(),
+            ),
+            (
                 "an equality inside OR",
                 "SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id OR l.event = 'example'",
                 TreeFacts(),

@@ -33,11 +33,33 @@ class _LocalCalls(TraversingVisitor):
         super().visit_window_function(node)
 
 
+class _OperandSources(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.aliases: set[str] = set()
+        self.unknown = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        if len(node.chain) > 1:
+            self.aliases.add(str(node.chain[0]))
+        # Property lowering wraps the read in calls around a bare `properties` field, so only its type names the source.
+        elif isinstance(node.type, ast.FieldType) and isinstance(
+            node.type.table_type, ast.TableAliasType | ast.CTETableAliasType | ast.SelectQueryAliasType
+        ):
+            self.aliases.add(node.type.table_type.alias)
+        else:
+            self.unknown = True
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.unknown = True
+
+
 class QueryStructures(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.ctes: dict[int, ast.CTE] = {}
         self.references: Counter[int] = Counter()
+        self._visited_ctes: set[int] = set()
         self.cross_join_equalities = 0
         self.date_arrays_before_breakdown_limit = False
 
@@ -45,17 +67,23 @@ class QueryStructures(TraversingVisitor):
         pass
 
     def visit_cte(self, node: ast.CTE) -> None:
-        if node.expr.type is not None:
-            self.ctes[id(node.expr.type)] = node
-        super().visit_cte(node)
+        # ClickHouse never runs a CTE body that nothing references, so bodies are visited from their references.
+        pass
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         table_type = node.table.type if node.table is not None else None
         if isinstance(table_type, ast.CTETableAliasType):
             table_type = table_type.cte_table_type
         if isinstance(table_type, ast.CTETableType):
-            self.references[id(table_type.select_query_type)] += 1
+            type_id = id(table_type.select_query_type)
+            self.references[type_id] += 1
+            self._visit_cte_body(type_id)
         super().visit_join_expr(node)
+
+    def _visit_cte_body(self, type_id: int) -> None:
+        if type_id in self.ctes and self.references[type_id] and type_id not in self._visited_ctes:
+            self._visited_ctes.add(type_id)
+            self.visit(self.ctes[type_id].expr)
 
     @staticmethod
     def _alias(join: ast.JoinExpr) -> str | None:
@@ -65,7 +93,17 @@ class QueryStructures(TraversingVisitor):
             return str(join.table.chain[0])
         return None
 
+    @staticmethod
+    def _source(expr: ast.Expr) -> str | None:
+        sources = _OperandSources()
+        sources.visit(expr)
+        return next(iter(sources.aliases)) if len(sources.aliases) == 1 and not sources.unknown else None
+
     def visit_select_query(self, node: ast.SelectQuery) -> None:
+        for cte in (node.ctes or {}).values():
+            if cte.expr.type is not None:
+                self.ctes[id(cte.expr.type)] = cte
+                self._visit_cte_body(id(cte.expr.type))
         calls = _LocalCalls()
         for expr in node.select:
             calls.visit(expr)
@@ -83,17 +121,11 @@ class QueryStructures(TraversingVisitor):
                 for term in iter_and_terms(node.where):
                     if not isinstance(term, ast.CompareOperation) or term.op != ast.CompareOperationOp.Eq:
                         continue
-                    left, right = strip_aliases(term.left), strip_aliases(term.right)
-                    if (
-                        isinstance(left, ast.Field)
-                        and isinstance(right, ast.Field)
-                        and len(left.chain) > 1
-                        and len(right.chain) > 1
+                    left, right = self._source(term.left), self._source(term.right)
+                    if (left in left_aliases and right == right_alias) or (
+                        right in left_aliases and left == right_alias
                     ):
-                        if (left.chain[0] in left_aliases and right.chain[0] == right_alias) or (
-                            right.chain[0] in left_aliases and left.chain[0] == right_alias
-                        ):
-                            self.cross_join_equalities += 1
+                        self.cross_join_equalities += 1
             if right_alias:
                 left_aliases.add(right_alias)
             join = join.next_join
