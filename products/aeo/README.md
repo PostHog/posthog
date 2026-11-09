@@ -26,6 +26,7 @@ The scheduled task is additionally gated per team by the `aeo-citation-tracking`
 Each project decides which domains count as "us" through its own brands: the rows of its brand catalog with kind `own` that nobody ignored.
 Add one before the first run, with `POST /api/projects/<id>/aeo_brands/` (`{"domain": "example.com", "kind": "own"}`) or the `aeo-brands-create` MCP tool.
 A project without an own brand is skipped by the runner (`aeo_citation_run_no_own_brand`), so it records no checks and makes no paid engine calls.
+Adding an own brand, or a change that makes a brand count as own or stop counting, recomputes `cited`, `target_urls` and `target_best_position` of the project's past checks in the background, and clears the brand sentiment of the checks that changed so the next sentiment run scores them again.
 
 ## Usage
 

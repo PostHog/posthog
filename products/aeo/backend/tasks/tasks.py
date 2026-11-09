@@ -29,7 +29,7 @@ from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.aeo.backend import suggestions
-from products.aeo.backend.catalog import sync_brands_from_run
+from products.aeo.backend.catalog import recompute_own_citations, sync_brands_from_run
 from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG, PromptSuggestionRequest
 from products.aeo.backend.runner import run_citation_checks
 
@@ -175,3 +175,10 @@ def suggest_aeo_prompts_task(team_id: int, job_id: str, request: dict) -> None:
         suggestions.fail_job(team_id, job_id, "Prompt suggestions failed. Try again in a minute.")
         logger.exception("aeo_prompt_suggestions_task_failed", team_id=team_id)
         raise
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit  # Team is the tenant; checks are read and written via AEOCitationCheck.objects.for_team
+def recompute_aeo_own_citations_task(team_id: int) -> None:
+    changed = recompute_own_citations(team_id)
+    logger.info("aeo_own_citations_recomputed", team_id=team_id, changed=changed)

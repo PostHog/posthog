@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
+from django.db.models import QuerySet
+
 import tldextract
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
+from products.aeo.backend.engines import is_target_url, target_position
 from products.aeo.backend.facade.contracts import (
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
@@ -38,6 +41,7 @@ PUBLISHER_DOMAINS = frozenset(
         "news.ycombinator.com",
     }
 )
+RECOMPUTE_BATCH_SIZE = 1000
 # Offline: the bundled public suffix list, so a sync never fetches anything.
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 
@@ -69,6 +73,61 @@ def own_domains(team_id: int) -> list[str]:
         .exclude(status=BrandStatus.IGNORED)
         .values_list("domain", flat=True)
     )
+
+
+def counts_as_own(kind: str, status: str) -> bool:
+    return kind == BrandKind.OWN and status != BrandStatus.IGNORED
+
+
+def recompute_own_citations(team_id: int) -> int:
+    """Recompute `cited`, `target_urls` and `target_best_position` of the team's answered checks from
+    their stored citations and the team's current own domains, the same way the runner sets them.
+    Returns how many checks changed.
+
+    Two overlapping passes can each read a different set of own domains. A pass re-reads the domains
+    when it ends and goes again if they moved, so the pass that writes last always used the current set.
+    """
+    team_id = resolve_effective_team_id(team_id)
+    changed = 0
+    domains = own_domains(team_id)
+    while True:
+        changed += _recompute_with(team_id, domains)
+        current = own_domains(team_id)
+        if current == domains:
+            return changed
+        domains = current
+
+
+def _recompute_with(team_id: int, domains: list[str]) -> int:
+    checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
+    rows = checks.filter(check_failed=False).only("id", "cited_urls", "cited", "target_urls", "target_best_position")
+    pending: list[AEOCitationCheck] = []
+    changed = 0
+    for check in rows.iterator(chunk_size=RECOMPUTE_BATCH_SIZE):
+        cited_urls = [url for url in check.cited_urls or [] if isinstance(url, str)]
+        target_urls = [url for url in cited_urls if is_target_url(url, domains)]
+        position = target_position(cited_urls, domains)
+        if (check.cited, check.target_urls, check.target_best_position) == (bool(target_urls), target_urls, position):
+            continue
+        check.cited = bool(target_urls)
+        check.target_urls = target_urls
+        check.target_best_position = position
+        # The score was taken for the brand as it was then. The next sentiment run scores a cleared row
+        # again when it names the current brand and falls inside the run's backlog window.
+        check.brand_sentiment = None
+        check.brand_sentiment_score = None
+        pending.append(check)
+        if len(pending) >= RECOMPUTE_BATCH_SIZE:
+            changed += _write_recomputed(checks, pending)
+            pending = []
+    return changed + _write_recomputed(checks, pending)
+
+
+def _write_recomputed(checks: QuerySet[AEOCitationCheck], rows: list[AEOCitationCheck]) -> int:
+    checks.bulk_update(
+        rows, ["cited", "target_urls", "target_best_position", "brand_sentiment", "brand_sentiment_score"]
+    )
+    return len(rows)
 
 
 # A newly cited domain is never the team's own: own brands are added by people before the first run.

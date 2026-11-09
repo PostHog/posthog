@@ -71,7 +71,7 @@ from products.aeo.backend.facade.contracts import (
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
-from products.aeo.backend.tasks.tasks import suggest_aeo_prompts_task
+from products.aeo.backend.tasks.tasks import recompute_aeo_own_citations_task, suggest_aeo_prompts_task
 
 
 def run_citation_checks_for_team(team_id: int) -> CitationRunSummary:
@@ -658,11 +658,14 @@ def create_brand(team_id: int, new: BrandCreate) -> Brand:
             )
     except IntegrityError as error:
         raise duplicate from error
+    if catalog.counts_as_own(brand.kind, brand.status):
+        _recompute_own_citations_on_commit(brand.team_id)
     return _to_brand(brand)
 
 
 def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
     brand = _get_brand_row(team_id, brand_id)
+    was_own = catalog.counts_as_own(brand.kind, brand.status)
     # Only the fields sent are written, so two people editing different fields do not undo each other.
     changed: list[str] = []
     if change.name is not None:
@@ -679,7 +682,15 @@ def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
         changed.append("aliases")
     if changed:
         brand.save(update_fields=[*changed, "updated_at"])
+    if catalog.counts_as_own(brand.kind, brand.status) != was_own:
+        _recompute_own_citations_on_commit(brand.team_id)
     return _to_brand(brand)
+
+
+def _recompute_own_citations_on_commit(team_id: int) -> None:
+    """Past checks were scored against the own domains of their run day, so a change to the own
+    domains recomputes them in the background, once the brand change is visible to the task."""
+    transaction.on_commit(lambda: recompute_aeo_own_citations_task.delay(team_id))
 
 
 def _clean_aliases(aliases: tuple[str, ...]) -> list[str]:

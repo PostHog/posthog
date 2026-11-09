@@ -997,6 +997,37 @@ class TestAEOPromptAPI(APIBaseTest):
         assert (brand["status"], brand["source"]) == ("confirmed", "manual")
         assert AEOBrand.objects.for_team(other_team.id).count() == 2
 
+    @parameterized.expand(
+        [
+            ("create_own", None, {"domain": "example.com", "kind": "own"}, 1),
+            ("create_competitor", None, {"domain": "example.com", "kind": "competitor"}, 0),
+            ("relabel_to_own", "competitor", {"kind": "own"}, 1),
+            ("relabel_own_to_competitor", "own", {"kind": "competitor"}, 1),
+            ("ignore_own", "own", {"status": "ignored"}, 1),
+            ("confirm_own", "own", {"status": "confirmed"}, 0),
+            ("rename_own", "own", {"name": "Example Inc", "aliases": ["Example"]}, 0),
+        ]
+    )
+    def test_own_brand_changes_recompute_past_citations_after_commit(
+        self, _name: str, existing_kind: str | None, body: dict, expected_calls: int
+    ) -> None:
+        url = f"/api/projects/{self.team.id}/aeo_brands/"
+        brand_id = self._brand(self.team, "example.com", kind=existing_kind) if existing_kind else None
+
+        with (
+            patch("products.aeo.backend.facade.api.recompute_aeo_own_citations_task") as task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if brand_id is None:
+                response = self.client.post(url, body, format="json")
+            else:
+                response = self.client.patch(f"{url}{brand_id}/", body, format="json")
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
+        assert task.delay.call_count == expected_calls
+        if expected_calls:
+            task.delay.assert_called_with(self.team.id)
+
     def test_brands_create_rejects_a_known_domain_with_a_pointer_to_update(self) -> None:
         self._brand(self.team, "example.com")
 
