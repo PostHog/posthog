@@ -1,6 +1,7 @@
 import re
 import builtins
 import itertools
+from collections import Counter, defaultdict
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -49,6 +50,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE, SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -237,6 +239,43 @@ def sanitize_survey_question(question: dict[str, Any]) -> dict[str, Any]:
     if isinstance(translations, dict):
         sanitized_question["translations"] = sanitize_survey_translations(translations)
     return sanitized_question
+
+
+@frozen
+class _QuestionContent:
+    type: str
+    text: str
+
+    @classmethod
+    def of(cls, question: dict[str, Any]) -> "_QuestionContent":
+        # repr keeps the key hashable whatever a stored question holds
+        return cls(type=repr(question.get("type")), text=repr(question.get("question")))
+
+
+def _carry_over_question_ids(questions: list[dict[str, Any]], existing_questions: list[dict[str, Any]]) -> None:
+    """Give an id-less question the id of the one stored question with the same type and text.
+
+    Responses are keyed by question id, so a fresh id hides every earlier answer to that question.
+    A reworded question is not matched, and neither is a type and text shared by several stored or
+    sent questions: either way the old answers could land under a different question.
+    Ids compare as strings because response keys are built from str(id).
+    """
+    sent_ids = {str(question["id"]) for question in questions if question.get("id")}
+    unclaimed = [
+        existing
+        for existing in existing_questions
+        if isinstance(existing.get("id"), str) and existing["id"] not in sent_ids
+    ]
+    id_less = [question for question in questions if not question.get("id")]
+    stored_by_content: dict[_QuestionContent, list[dict[str, Any]]] = defaultdict(list)
+    for existing in unclaimed:
+        stored_by_content[_QuestionContent.of(existing)].append(existing)
+    sent_counts = Counter(_QuestionContent.of(question) for question in id_less)
+    for question in id_less:
+        content = _QuestionContent.of(question)
+        matches = stored_by_content.get(content, [])
+        if len(matches) == 1 and sent_counts[content] == 1:
+            question["id"] = matches[0]["id"]
 
 
 # Keep this in sync with SurveyAPISerializer's public runtime contract.
@@ -1397,23 +1436,28 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     def _validate_translation_language_key(self, raw_key: Any, base_language: str, context: str) -> str:
         """Validate and normalize a single translation language key. Raises ValidationError on bad input."""
         if not isinstance(raw_key, str) or not raw_key.strip():
-            raise serializers.ValidationError(f"{context}: translation language code cannot be empty.")
+            raise serializers.ValidationError(
+                f"{context}: translation language code cannot be empty.", code="translation_language_empty"
+            )
         normalized = _normalize_language_code(raw_key)
         if normalized in REJECTED_TRANSLATION_KEYS:
             raise serializers.ValidationError(
                 f"{context}: '{raw_key}' is not a valid translation language. "
-                "The untranslated text is the original — set the survey's base language instead of adding it as a translation."
+                "The untranslated text is the original — set the survey's base language instead of adding it as a translation.",
+                code="translation_language_reserved",
             )
         if not BCP47_LANGUAGE_CODE_RE.match(normalized):
             raise serializers.ValidationError(
                 f"{context}: '{raw_key}' is not a valid language code. "
-                "Use BCP-47 codes like 'en', 'es', or 'es-MX' (not language names like 'english')."
+                "Use BCP-47 codes like 'en', 'es', or 'es-MX' (not language names like 'english').",
+                code="translation_language_invalid",
             )
         if normalized == base_language:
             raise serializers.ValidationError(
                 f"{context}: '{raw_key}' matches the survey's base language ('{base_language}'), so the untranslated "
                 "text already covers it. Remove this translation, or set base_language to the language the untranslated "
-                "text is written in."
+                "text is written in.",
+                code="translation_language_matches_base",
             )
         return normalized
 
@@ -1719,6 +1763,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             cleaned_questions.append(cleaned_question)
 
+        _carry_over_question_ids(cleaned_questions, existing_questions)
         return cleaned_questions
 
     def validate_schedule(self, value):
@@ -1934,7 +1979,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                                 f"'{incoming_base_language}' already exists as a translation key on this survey. "
                                 "Remove the translation first, or pick a different base language."
                             )
-                        }
+                        },
+                        code="translation_language_matches_base",
                     )
 
         self._reconcile_schedule_with_iterations(data)

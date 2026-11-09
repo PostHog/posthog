@@ -615,6 +615,58 @@ class _ScopedView:
         self.action = action
 
 
+class TestUserScopeTenantPermissions(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("user_only", {}, None, [2], ["other"], False, True),
+            ("project_denied", {"team_id": 1}, None, [2], [], True, False),
+            ("organization_denied", {"team_id": 1}, None, [], ["other"], True, False),
+            ("policy_denied", {"team_id": 1}, None, [], [], False, False),
+            ("allowed", {"team_id": 1}, None, [1], None, True, True),
+            ("current_team_denied", {}, "team_id", [2], [], True, False),
+        ]
+    )
+    def test_user_scopes_respect_the_route_tenant(
+        self,
+        _name: str,
+        parent_kwargs: dict[str, int],
+        current_team_parameter: str | None,
+        scoped_teams: list[int],
+        scoped_organizations: list[str] | None,
+        keys_allowed: bool,
+        expected: bool,
+    ) -> None:
+        organization = Organization(
+            id=uuid4(),
+            members_can_use_personal_api_keys=keys_allowed,
+            available_product_features=[{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}],
+        )
+        authenticator = PersonalAPIKeyAuthentication()
+        authenticator.personal_api_key = PersonalAPIKey(
+            scopes=["user:read"],
+            scoped_teams=scoped_teams,
+            scoped_organizations=scoped_organizations if scoped_organizations is not None else [str(organization.id)],
+        )
+        request = SimpleNamespace(successful_authenticator=authenticator, method="GET", user=User(id=1))
+        view = SimpleNamespace(
+            scope_object="user",
+            action="list",
+            parent_query_kwargs=parent_kwargs,
+            param_derived_from_user_current_team=current_team_parameter,
+            team=SimpleNamespace(id=1, organization=organization),
+            organization=organization,
+        )
+        with patch(
+            "posthog.permissions.get_cached_organization_membership",
+            return_value=OrganizationMembership(level=OrganizationMembership.Level.MEMBER),
+        ):
+            if expected:
+                assert APIScopePermission().has_permission(request, view)
+            else:
+                with self.assertRaises(PermissionDenied):
+                    APIScopePermission().has_permission(request, view)
+
+
 class TestAPIScopePermissionLegacyFallback(SimpleTestCase):
     def setUp(self) -> None:
         self.permission = APIScopePermission()

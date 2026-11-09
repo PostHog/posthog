@@ -2056,6 +2056,12 @@ def collect_task_run_state_metrics(
 # --- Writes ---
 
 
+def mark_slack_task_manual_billing(*, team_id: int, task_id: str) -> None:
+    Task.objects.get(team_id=team_id, id=task_id, origin_product=Task.OriginProduct.SLACK)
+    for run_id in TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list("id", flat=True):
+        TaskRun.update_state_atomic(run_id, updates={"billing_product": "posthog_ai"})
+
+
 def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, user_id: int) -> None:
     """Link only a saved Slack task; a repeated activity must not add another discussion entry."""
     from products.signals.backend.facade.api import record_slack_report_discussion
@@ -8133,6 +8139,8 @@ def create_task(
 
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
+        implementation_access_instruction,
+        implementation_access_repositories,
         is_pull_request_run_request,
         record_report_task,
     )
@@ -8505,6 +8513,16 @@ def create_task(
                     }
                 )
             validated_data["github_integration"] = pilot_integration
+
+    if signal_report_id and signal_report_task_relationship in (None, "implementation"):
+        if repository := validated_data.get("repository"):
+            # Tells the agent about the repositories `run_task` adds to its token, as auto-start does.
+            validated_data["description"] = (validated_data.get("description") or "") + (
+                implementation_access_instruction(
+                    repository=repository,
+                    access_repositories=implementation_access_repositories(team_id=team_id, repository=repository),
+                )
+            )
 
     if report_ref:
         validated_data["source_kind"] = SourceKind.SIGNAL_REPORT.value
@@ -9870,6 +9888,7 @@ def run_task(
     """
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
+        implementation_access_repositories,
         is_report_implementation_task,
     )
     from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
@@ -10264,6 +10283,15 @@ def run_task(
         run_state_values.pop("provider")
     extra_state = extra_state or {}
     extra_state["pr_base_branch"] = branch
+    # Auto-start stamps the project's extra repositories at task creation. A task started from the
+    # inbox gets them here, because the key is PATCH-protected and a client cannot send it.
+    if is_implementation and task.repository and "github_access_repositories" not in extra_state:
+        access_repositories = implementation_access_repositories(team_id=team_id, repository=task.repository)
+        if access_repositories:
+            cloned_repositories = [name.lower() for name in (task.repositories or [task.repository])]
+            extra_state["github_access_repositories"] = list(
+                dict.fromkeys([*cloned_repositories, *access_repositories])
+            )
     for key, value in run_state_values.items():
         if value is not None:
             extra_state[key] = value.value if hasattr(value, "value") else value
