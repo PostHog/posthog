@@ -202,6 +202,16 @@ Do not return early before them, or a silent refusal leaves an older approval st
 Every path that writes to the PR asks `ReviewRun.may_publish`, so the approval exception is decided in one place.
 Publication is its own state: a withheld verdict keeps `verdict_posted_at` empty (`ReviewRun.verdict_withheld`), so the verdict a run computed is never read as one the PR saw.
 
+A silent run never covers a visible request. `_queue_review_at_head` ignores a silent run whose verdict is unpublished unless the request is silent too, so a manual request supersedes a silent run in flight, as the label webhook always did.
+A visible request (the trigger label, or a manual request) on a head whose latest run withheld a REFUSED or ESCALATE verdict goes to `publish_withheld_verdict_or_review` instead of starting a run.
+`post_verdict` stores `decision_fingerprint` on every run (`logic/decision_fingerprint.py`): a hash of the engine context minus the fields that move without changing the decision, each one named in that module.
+`publish_withheld_verdict` reads the context again with no sandbox and no LLM call, and it posts only when the fingerprint matches, the PR is open, the head and the base are the reviewed ones, and a writer-pinned read finds no newer run.
+It posts what `post_verdict` would post in the repo's current mode (the review, and the label strip in label mode), then stamps `verdict_posted_at`. A repeat call posts nothing more.
+Every other outcome, an error included, queues a normal review of the head.
+It never posts an APPROVE: a silent approval was posted when it was decided.
+A WAIT is never reused, because a WAIT can end with time alone (a reviewer bot's 👀 ages out) and the fingerprint cannot see that.
+A field added to the engine context belongs in the fingerprint, or a stale verdict gets published over the new input.
+
 ## External review evidence
 
 - `facade/review_evidence.py` is a registry of providers that stamphog owns. A product that reviews PRs and depends on stamphog (today review_hog, as PostHog Review) registers one at app-ready, for the same dependency-cycle reason as `inbox_hooks.py`. Stamphog never imports a provider's product.

@@ -918,6 +918,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("same_base_is_returned", ReviewRunStatus.COMPLETED, "master", False, False),
             # A base retarget changes the diff without moving the head.
             ("other_base_is_replaced", ReviewRunStatus.COMPLETED, "feat/parent", True, True),
+            ("silent_in_flight_is_superseded", ReviewRunStatus.REVIEWING, None, True, True, True),
         ]
     )
     def test_repeat_request_dedupes_on_the_current_head(
@@ -927,9 +928,12 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         reviewed_base_ref: str | None,
         expect_created: bool,
         expect_start: bool,
+        existing_silent: bool = False,
     ) -> None:
         first = self._request().json()["run"]["id"]
         output = {"pr": {"base": {"ref": reviewed_base_ref}}} if reviewed_base_ref else {}
+        if existing_silent:
+            output["silent_review"] = {"source": "reviewhog_clean"}
         ReviewRun.objects.unscoped().filter(id=first).update(status=existing_status, output=output)
         self.start_workflow.reset_mock()
 
@@ -940,6 +944,8 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert body["created"] is expect_created
         assert (body["run"]["id"] == first) is not expect_created
         assert self.start_workflow.called is expect_start
+        if existing_silent:
+            assert ReviewRun.objects.unscoped().get(id=first).status == ReviewRunStatus.SUPERSEDED
 
     @parameterized.expand(
         [
