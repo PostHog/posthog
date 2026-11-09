@@ -1,5 +1,6 @@
 import json
 import uuid
+import asyncio
 from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -20,6 +21,7 @@ from temporalio.worker import Worker
 
 from posthog.hogql import ast
 
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.sync import database_sync_to_async
 
 from products.ml_inference.backend.facade.contracts import DecisionResult, NoulAnswer
@@ -34,6 +36,7 @@ from products.signals.backend.emission.fetchers.data_warehouse import data_wareh
 from products.signals.backend.emission.pipeline import (
     LLM_MAX_ATTEMPTS,
     TEMPORAL_PAYLOAD_MAX_BYTES,
+    _create_message,
     _emit_signals,
     _reports_closed_to_source_state,
     _summarize_description,
@@ -47,6 +50,7 @@ from products.signals.backend.emission.registry import SignalEmitterOutput, Sign
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact, SignalSpend
 from products.signals.backend.spend import signal_id_for
+from products.signals.backend.trial.policy import TrialRefused
 
 PIPELINE_MODULE_PATH = "products.signals.backend.emission.pipeline"
 FETCHER_MODULE_PATH = "products.signals.backend.emission.fetchers.data_warehouse"
@@ -396,6 +400,35 @@ class TestRunSignalPipelineEmitterFailures:
 @pytest.mark.django_db(transaction=True)
 class TestEmissionRetryIdentity:
     @pytest.mark.asyncio
+    async def test_pipeline_refuses_new_records_but_retries_admitted_records(self, team):
+        config = _make_config(record_processed_outputs=True)
+        with (
+            patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=False) as quota,
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *a, **kw: key == "self-driving-quota-enforcement",
+            ),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+            patch(f"{PIPELINE_MODULE_PATH}._create_message", new_callable=AsyncMock) as provider,
+        ):
+            emit.side_effect = RuntimeError("dispatch unavailable")
+            with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
+                await run_signal_pipeline(team=team, config=config, records=[{"id": "accepted"}], extra={})
+            accepted_id = emit.call_args.kwargs["signal_id"]
+            quota.return_value = True
+            emit.side_effect = None
+            emit.reset_mock()
+            result = await run_signal_pipeline(
+                team=team, config=config, records=[{"id": "accepted"}, {"id": "fresh"}], extra={}
+            )
+        assert result["signals_emitted"] == 1
+        emit.assert_awaited_once()
+        assert emit.call_args.kwargs["signal_id"] == accepted_id
+        provider.assert_not_awaited()
+        assert await database_sync_to_async(lambda: SignalSpend.objects.for_team(team.id).count())() == 1
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("record_processed_outputs", [False, True])
     async def test_retry_repairs_ledger_for_finalized_signal(self, team, record_processed_outputs: bool) -> None:
         output = replace(_make_output(source_id="record-1"), idempotency_key="record-1")
@@ -429,8 +462,10 @@ class TestEmissionRetryIdentity:
             for output in outputs:
                 if output.source_id == "filtered":
                     await database_sync_to_async(
-                        lambda output=output: SignalSpend.objects.for_team(team.id).create(
-                            team_id=team.id, signal_id=output.signal_id, kind=SignalSpend.Kind.AD_HOC, spend=1
+                        lambda output=output: (
+                            SignalSpend.objects.for_team(team.id)
+                            .filter(signal_id=output.signal_id, kind=SignalSpend.Kind.AD_HOC)
+                            .update(spend=1)
                         )
                     )()
             return [output for output in outputs if output.source_id != "filtered"]
@@ -449,7 +484,7 @@ class TestEmissionRetryIdentity:
             emit.side_effect = RuntimeError("dispatch failed")
             with pytest.raises(RuntimeError):
                 await run_signal_pipeline(team=team, config=config, records=records, extra={})
-            filtered = await database_sync_to_async(lambda: SignalSpend.objects.for_team(team.id).get())()
+            filtered = await database_sync_to_async(lambda: SignalSpend.objects.for_team(team.id).get(spend=1))()
             assert filtered.finalized_at is not None
             emit.side_effect = None
             await run_signal_pipeline(team=team, config=config, records=records, extra={})
@@ -511,6 +546,34 @@ class TestEmissionRetryIdentity:
 
 
 class TestCheckActionability:
+    @pytest.mark.asyncio
+    async def test_provider_call_keeps_its_timeout(self):
+        client = MagicMock()
+
+        async def wait_forever(**kwargs):
+            await asyncio.Event().wait()
+
+        client.messages.create = AsyncMock(side_effect=wait_forever)
+        with patch(f"{PIPELINE_MODULE_PATH}.LLM_CALL_TIMEOUT_SECONDS", 0.01):
+            with pytest.raises(TimeoutError):
+                await _create_message(client, team_id=1, signal_id=None, messages=[], extra_headers={})
+        client.messages.create.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("refusal", [QuotaLimitExceeded(), TrialRefused("spend_exhausted")])
+    async def test_admission_refusal_does_not_retry_or_fail_open(self, refusal):
+        client = MagicMock()
+        client.messages.create = AsyncMock()
+        with (
+            patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", side_effect=refusal) as prepare,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture_exception") as capture,
+        ):
+            with pytest.raises(type(refusal)):
+                await check_actionability(client, 1, _make_output(), "Check {description}")
+        assert prepare.call_count == 1
+        client.messages.create.assert_not_awaited()
+        capture.assert_not_called()
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "llm_response,expected",
@@ -694,6 +757,32 @@ class TestCheckActionability:
 
 class TestFilterActionable:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("stage", ["actionability", "summarization"])
+    @pytest.mark.parametrize("refusal", [QuotaLimitExceeded(), TrialRefused("spend_exhausted")])
+    async def test_refused_records_leave_the_batch_without_provider_fallback(
+        self, stage: str, refusal: Exception
+    ) -> None:
+        team = MagicMock(id=1)
+        client = MagicMock()
+        client.messages.create = AsyncMock()
+        outputs = [_make_output(description="x" * 100)]
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=client),
+            patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", side_effect=refusal) as prepare,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture_exception") as capture,
+            patch(f"{PIPELINE_MODULE_PATH}.logger.exception") as log_exception,
+        ):
+            if stage == "actionability":
+                result = await filter_actionable(team, outputs, "Check {description}", extra={})
+            else:
+                result = await summarize_long_descriptions(team, outputs, "Summarize {description}", 10, extra={})
+        assert result == []
+        assert prepare.call_count == 1
+        client.messages.create.assert_not_awaited()
+        capture.assert_not_called()
+        log_exception.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_filters_non_actionable_outputs(self):
         outputs = [
             _make_output(source_id="1", description="actionable one"),
@@ -720,6 +809,21 @@ class TestFilterActionable:
 
 
 class TestSummarizeDescription:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("refusal", [QuotaLimitExceeded(), TrialRefused("spend_exhausted")])
+    async def test_admission_refusal_does_not_retry_or_truncate(self, refusal):
+        client = MagicMock()
+        client.messages.create = AsyncMock()
+        with (
+            patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", side_effect=refusal) as prepare,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture_exception") as capture,
+        ):
+            with pytest.raises(type(refusal)):
+                await _summarize_description(client, 1, _make_output(), "Summarize {description}", 10)
+        assert prepare.call_count == 1
+        client.messages.create.assert_not_awaited()
+        capture.assert_not_called()
+
     PROMPT = "Summarize this: {description}"
     THRESHOLD = 200
 
@@ -1314,7 +1418,6 @@ class TestEmitActivityTableNameResolution:
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", fetch_mock),
-            patch(f"{ACTIVITY_MODULE_PATH}.is_team_signals_quota_limited", return_value=False),
             patch(f"{ACTIVITY_MODULE_PATH}.afetch_source_config", AsyncMock(return_value={})),
             patch(f"{ACTIVITY_MODULE_PATH}.run_signal_pipeline", new_callable=AsyncMock) as run_mock,
         ):
@@ -1352,7 +1455,6 @@ class TestEmitActivitySourceConfigThreading:
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", AsyncMock(return_value=(schema, team))),
-            patch(f"{ACTIVITY_MODULE_PATH}.is_team_signals_quota_limited", return_value=False),
             patch(f"{ACTIVITY_MODULE_PATH}.get_data_warehouse_table_name", return_value="test.table"),
             patch(
                 f"{ACTIVITY_MODULE_PATH}.afetch_source_config",

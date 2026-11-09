@@ -17,6 +17,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.event_usage import groups
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
@@ -44,6 +45,7 @@ from products.signals.backend.temporal.llm import effort_kwargs
 from products.signals.backend.temporal.signal_queries import fetch_source_signal_matches
 from products.signals.backend.trial.policy import TrialRefused
 from products.signals.backend.trial.reports import requires_trial_accounting
+from products.signals.backend.trial.signals import admit_signal
 
 logger = structlog.get_logger(__name__)
 
@@ -207,18 +209,20 @@ async def _create_message(
     messages: list[MessageParam],
     extra_headers: dict[str, str],
 ) -> Message:
-    trial = await database_sync_to_async_pool(requires_trial_accounting)(team_id, signal_id)
-    if trial:
-        client = client.with_options(max_retries=0)
-    return await accounted_message(
-        client,
-        model=LLM_MODEL,
-        messages=messages,
-        max_tokens=LLM_MAX_OUTPUT_TOKENS,
-        metadata={"user_id": f"team-{team_id}"},
-        extra_headers=extra_headers,
-        **effort_kwargs(LLM_MODEL),
-    )
+    # Keep the timeout inside the coroutine that admission can close before generation starts.
+    async with asyncio.timeout(LLM_CALL_TIMEOUT_SECONDS):
+        trial = await database_sync_to_async_pool(requires_trial_accounting)(team_id, signal_id)
+        if trial:
+            client = client.with_options(max_retries=0)
+        return await accounted_message(
+            client,
+            model=LLM_MODEL,
+            messages=messages,
+            max_tokens=LLM_MAX_OUTPUT_TOKENS,
+            metadata={"user_id": f"team-{team_id}"},
+            extra_headers=extra_headers,
+            **effort_kwargs(LLM_MODEL),
+        )
 
 
 async def _summarize_description(
@@ -242,11 +246,8 @@ async def _summarize_description(
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
         summary = ""
         try:
-            generation = asyncio.wait_for(
-                _create_message(
-                    client, team_id=team_id, signal_id=output.signal_id, messages=messages, extra_headers=extra_headers
-                ),
-                timeout=LLM_CALL_TIMEOUT_SECONDS,
+            generation = _create_message(
+                client, team_id=team_id, signal_id=output.signal_id, messages=messages, extra_headers=extra_headers
             )
             priced = await generate_with_spend(
                 generation,
@@ -265,7 +266,7 @@ async def _summarize_description(
             if len(summary) > threshold:
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
             return dataclasses.replace(output, description=summary)
-        except TrialRefused:
+        except (QuotaLimitExceeded, TrialRefused):
             raise
         except Exception as e:
             posthoganalytics.capture_exception(
@@ -317,6 +318,8 @@ async def summarize_long_descriptions(
                 result = await _summarize_description(
                     client, team.id, output, summarization_prompt, threshold, gateway_mode=gateway_mode
                 )
+            except (QuotaLimitExceeded, TrialRefused):
+                return None
             except Exception:
                 logger.exception(
                     "Summarization failed, skipping signal",
@@ -414,15 +417,12 @@ async def check_actionability(
             if attempt > 0:
                 await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
             try:
-                generation = asyncio.wait_for(
-                    _create_message(
-                        client,
-                        team_id=team_id,
-                        signal_id=output.signal_id,
-                        messages=[{"role": "user", "content": prompt}],
-                        extra_headers=extra_headers,
-                    ),
-                    timeout=LLM_CALL_TIMEOUT_SECONDS,
+                generation = _create_message(
+                    client,
+                    team_id=team_id,
+                    signal_id=output.signal_id,
+                    messages=[{"role": "user", "content": prompt}],
+                    extra_headers=extra_headers,
                 )
                 priced = await generate_with_spend(
                     generation,
@@ -435,7 +435,7 @@ async def check_actionability(
                 response = priced.response
                 response_text = _extract_text(response).strip().upper()
                 return "NOT_ACTION" not in response_text
-            except TrialRefused:
+            except (QuotaLimitExceeded, TrialRefused):
                 raise
             except Exception as e:
                 posthoganalytics.capture_exception(
@@ -504,7 +504,7 @@ async def filter_actionable(
                     context_fields=context_fields,
                     system_one_prompt=system_one_prompt,
                 )
-            except TrialRefused:
+            except (QuotaLimitExceeded, TrialRefused):
                 return False
             except Exception:
                 logger.exception(
@@ -674,6 +674,25 @@ def _reports_closed_to_source_state(team_id: int, report_ids: set[str]) -> set[s
     return {report_id for report_id, target in targets.items() if str(target.id) in closed_targets}
 
 
+async def filter_admitted(
+    team: Team, organization: Organization, outputs: list[SignalEmitterOutput]
+) -> list[SignalEmitterOutput]:
+    admitted_outputs = []
+    for output in outputs:
+        assert output.signal_id is not None
+        try:
+            await database_sync_to_async(admit_signal)(
+                team=team, signal_id=output.signal_id, billing_exempt=system_source_exempt(output.source_product)
+            )
+        except (QuotaLimitExceeded, TrialRefused):
+            capture_pipeline_stage(
+                "signal_data_source_filtered", team, organization, output, {"filter_reason": "quota_limited"}
+            )
+        else:
+            admitted_outputs.append(output)
+    return admitted_outputs
+
+
 async def run_signal_pipeline(
     team: Team,
     config: SignalSourceTableConfig,
@@ -791,6 +810,8 @@ async def run_signal_pipeline(
             else:
                 kept_outputs.append(output)
         outputs = kept_outputs
+
+    outputs = await filter_admitted(team, organization, outputs)
 
     if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
         threshold = config.description_summarization_threshold_chars

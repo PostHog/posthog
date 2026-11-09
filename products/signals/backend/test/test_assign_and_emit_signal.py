@@ -27,7 +27,6 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalSpend,
 )
-from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
 from products.signals.backend.temporal.agentic.select_repository import (
@@ -1365,7 +1364,7 @@ async def test_withheld_research_emits_skipped_event(
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_bucket_reached_under_suppression_is_claimed_by_the_next_signal(ateam):
-    """A quota-suppressed crossing must not cost the report that bucket. Promotion compares the
+    """A daily-limit-suppressed crossing must not cost the report that bucket. Promotion compares the
     count the report has reached against its next bucket, so the bucket stays claimable until a
     pass actually covers it — where testing the crossing itself would hand bucket 2 to the
     suppressed signal and leave every later signal measuring against bucket 4."""
@@ -1379,8 +1378,8 @@ async def test_bucket_reached_under_suppression_is_claimed_by_the_next_signal(at
     )
 
     with patch(
-        f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
-        return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
+        f"{GROUPING_MODULE_PATH}.daily_report_limit_gate",
+        return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
     ):
         suppressed = await assign_and_emit_signal_activity(
             _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
@@ -1642,9 +1641,10 @@ async def test_deleted_report_emits_matched_deleted_telemetry(ateam, patch_side_
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("kind", ["trial_source", "free_system_source", "unfunded_source"])
-async def test_exhausted_trial_preserves_admitted_signal_promotion(ateam, kind):
+async def test_grouping_leaves_trial_admission_to_report_pass(ateam, kind):
     from products.signals.backend.spend import record_llm_spend
-    from products.signals.backend.trial.policy import TrialPolicy
+    from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+    from products.signals.backend.trial.reports import prepare_report_pass
 
     inputs = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD)
     if kind == "free_system_source":
@@ -1667,64 +1667,30 @@ async def test_exhausted_trial_preserves_admitted_signal_promotion(ateam, kind):
     ):
         await database_sync_to_async(exhaust)()
         result = await assign_and_emit_signal_activity(inputs)
-    assert result.promoted is (kind != "unfunded_source")
-
-
-# ---------------------------------------------------------------------------
-# Quota gate: promotion withheld for enforced over-quota teams
-# ---------------------------------------------------------------------------
+        assert result.promoted is True
+        if kind == "unfunded_source":
+            with pytest.raises(TrialRefused):
+                await database_sync_to_async(prepare_report_pass)(
+                    team=ateam, report_id=result.report_id, operation_key="first", signal_id=inputs.signal_id
+                )
+        else:
+            await database_sync_to_async(prepare_report_pass)(
+                team=ateam, report_id=result.report_id, operation_key="first", signal_id=inputs.signal_id
+            )
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("enforced", "expected_status", "expected_promoted"),
-    [
-        # Enforced over-quota team: the signal is assigned and weighted, but no summary run spawns
-        # and the status is untouched so the first post-quota signal re-evaluates promotion.
-        (True, SignalReport.Status.POTENTIAL, False),
-        # Dark launch (limited, enforcement flag off): behavior unchanged, telemetry only.
-        (False, SignalReport.Status.CANDIDATE, True),
-    ],
-)
-async def test_quota_gate_withholds_promotion_only_when_enforced(
-    ateam, patch_side_effects, enforced, expected_status, expected_promoted
-):
-    with patch(
-        f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
-        return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
-    ):
+async def test_grouping_does_not_recheck_billing_limit(ateam, patch_side_effects):
+    with patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=True) as gate:
         result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
 
-    assert result.promoted is expected_promoted
+    gate.assert_not_called()
+    assert result.promoted is True
     report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
-    assert report.status == expected_status
+    assert report.status == SignalReport.Status.CANDIDATE
     assert report.signal_count == 1
     assert report.total_weight == pytest.approx(WEIGHT_THRESHOLD)
-
-    quota_events = [
-        call
-        for call in patch_side_effects["capture"].call_args_list
-        if call.kwargs.get("event") == "signal_report_quota_paused"
-    ]
-    assert len(quota_events) == 1
-    assert quota_events[0].kwargs["properties"]["stage"] == "promotion"
-    assert quota_events[0].kwargs["properties"]["enforced"] is enforced
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_quota_gate_emits_no_event_when_signal_would_not_promote(ateam, patch_side_effects):
-    """A limited team's below-threshold signal must not emit quota telemetry: the event volume
-    measures withheld summary runs, not every assignment on a limited team."""
-    with patch(
-        f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
-        return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
-    ):
-        await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5))
-
-    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
-    assert "signal_report_quota_paused" not in events
 
 
 # ---------------------------------------------------------------------------
@@ -1762,29 +1728,6 @@ async def test_daily_limit_gate_withholds_promotion(ateam, patch_side_effects):
     # The org's billing quota is clear, so its event stream must stay silent.
     events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
     assert "signal_report_quota_paused" not in events
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_both_limits_emit_both_events(ateam, patch_side_effects):
-    # Each event stream must stay complete for its own gate's dashboards; neither suppresses
-    # the other when both limits are hit at once.
-    with (
-        patch(
-            f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
-            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
-        ),
-        patch(
-            f"{GROUPING_MODULE_PATH}.daily_report_limit_gate",
-            return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
-        ),
-    ):
-        result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
-
-    assert result.promoted is False
-    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
-    assert "signal_report_quota_paused" in events
-    assert "signal_report_daily_limit_paused" in events
 
 
 @pytest.mark.asyncio

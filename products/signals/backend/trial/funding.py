@@ -53,12 +53,10 @@ def signal_funding(team_id: int, signal_id: str | None, *, for_report: bool = Fa
 
     if signal_id is None:
         return None
-    snapshot = (
-        SignalSpend.objects.for_team(team_id)
-        .filter(signal_id=signal_id, kind=SignalSpend.Kind.AD_HOC)
-        .values("trial_grant_id", "billing_exempt")
-        .first()
-    )
+    receipts = SignalSpend.objects.for_team(team_id).filter(signal_id=signal_id, kind=SignalSpend.Kind.AD_HOC)
+    if for_report:
+        receipts = receipts.filter(finalization_requested_at__isnull=True, finalized_at__isnull=True)
+    snapshot = receipts.values("trial_grant_id", "billing_exempt").first()
     if snapshot is None:
         return None
     grant_id = snapshot["trial_grant_id"]

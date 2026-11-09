@@ -37,11 +37,6 @@ from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
-from products.signals.backend.quota import (
-    SelfDrivingQuotaGate,
-    capture_signal_report_quota_paused,
-    self_driving_quota_gate,
-)
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import forks_recurrence
 from products.signals.backend.report_merge import signal_target_report
@@ -1078,8 +1073,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 )
             ):
                 if suppress_promotion:
-                    # The team's org is over its self-driving credits quota with enforcement on, or
-                    # the team hit its daily report limit: the signal is still assigned, weighted,
+                    # The team hit its daily report limit: the signal is still assigned, weighted,
                     # and emitted, but no summary run spawns. The status is left untouched, so the
                     # first matching signal after the limit lifts re-evaluates promotion under the
                     # same rules.
@@ -1179,20 +1173,11 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        # Resolved before the assign transaction: the gates are Redis/Postgres + flag network I/O
-        # that must not run while holding the report row lock.
         system_source = system_source_exempt(input.source_product)
-        quota_gate = (
-            SelfDrivingQuotaGate(limited=False, enforced=False)
-            if system_source
-            else await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(
-                team, signal_id=input.signal_id
-            )
-        )
         daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
 
         db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(
-            not system_source and (quota_gate.enforced or daily_gate.limited)
+            not system_source and daily_gate.limited
         )
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
@@ -1305,12 +1290,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         source_id=input.source_id,
                     )
             # Emitted only when the signal would have promoted the report, so the event volume
-            # measures withheld summary runs rather than every assignment on a limited team. Both
-            # events fire when both limits are hit, keeping each stream complete for its own gate.
-            if quota_gate.limited and (db_result.promoted or db_result.promotion_suppressed):
-                capture_signal_report_quota_paused(
-                    team, report_id=db_result.report_id, stage="promotion", enforced=quota_gate.enforced
-                )
+            # measures withheld summary runs rather than every assignment on a limited team.
             if daily_gate.limited and (db_result.promoted or db_result.promotion_suppressed):
                 capture_signal_report_daily_limit_paused(
                     team, report_id=db_result.report_id, stage="promotion", gate=daily_gate

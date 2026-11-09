@@ -67,6 +67,7 @@ from products.signals.backend.trial.reports import (
     requires_trial_accounting,
     task_trial_context,
 )
+from products.signals.backend.trial.signals import admit_signal
 from products.signals.backend.usage import trial_usage
 from products.tasks.backend.models import Task, TaskRun
 
@@ -251,7 +252,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         assert trial_usage(grant).spend_microusd == 123
 
     @parameterized.expand([(True,), (False,)])
-    def test_rollout_controls_report_pass_quota_bypass(self, enabled: bool) -> None:
+    def test_existing_report_is_not_rechecked_when_rollout_changes(self, enabled: bool) -> None:
         self.claim()
         report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.IN_PROGRESS, triggering_signal_id=uuid4()
@@ -262,7 +263,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
             paused = async_to_sync(check_report_quota_gate_activity)(
                 CheckReportQuotaGateInput(team_id=self.team.id, report_id=str(report.id), stage="summary_entry")
             )
-        assert paused is (not enabled)
+        assert paused is False
         if not enabled:
             assert TrialLLMExecution.prepare(team_id=self.team.id, gateway=None) is None
 
@@ -520,9 +521,12 @@ class TestTrialReportExecution(NonAtomicBaseTest):
             assert accepted is not None and report.self_driving_funding == accepted
             assert report.status == SignalReport.Status.IN_PROGRESS
 
-    def test_accepted_signal_finishes_report_after_trial_exhaustion(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_accepted_signal_finishes_report_after_trial_exhaustion(self, admitted_at_emission: bool) -> None:
         grant = self.claim()
         signal_id = str(uuid4())
+        if admitted_at_emission:
+            admit_signal(team=self.team, signal_id=signal_id)
         record_llm_spend(
             "accepted-signal",
             team_id=self.team.id,
@@ -563,6 +567,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         assert report.self_driving_funding is not None
         assert report.self_driving_funding["grant_id"] == str(grant.id)
         SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.READY)
+        finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=signal_id)
         with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False):
             with self.assertRaises(TrialRefused):
                 prepare_report_pass(
@@ -692,8 +697,8 @@ class TestTrialReportExecution(NonAtomicBaseTest):
                 )
         generation.assert_not_awaited()
 
-    @parameterized.expand([(True,), (False,)])
-    def test_generation_preserves_existing_signal_funding(self, trial: bool) -> None:
+    @parameterized.expand([(trial, admitted) for trial in (True, False) for admitted in (True, False)])
+    def test_generation_preserves_existing_signal_funding(self, trial: bool, admitted: bool) -> None:
         grant = self.claim() if trial else None
         signal_id = str(uuid4())
         record_llm_spend(
@@ -707,6 +712,8 @@ class TestTrialReportExecution(NonAtomicBaseTest):
             self.flag_mock.return_value = False
         else:
             self.claim()
+        if admitted:
+            admit_signal(team=self.team, signal_id=signal_id)
         assert requires_trial_accounting(self.team.id, signal_id) is trial
         execution = TrialLLMExecution.prepare(
             team_id=self.team.id,

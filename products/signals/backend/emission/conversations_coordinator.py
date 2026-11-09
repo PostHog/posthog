@@ -23,9 +23,6 @@ from products.signals.backend.emission import InternalSourceType, get_signal_con
 from products.signals.backend.emission.pipeline import run_signal_pipeline
 from products.signals.backend.emission.steering import afetch_source_config
 from products.signals.backend.models import SignalSourceConfig
-from products.signals.backend.quota import is_team_signals_quota_limited
-
-from ee.billing.quota_limiting import self_driving_quota_resource
 
 logger = structlog.get_logger(__name__)
 
@@ -79,10 +76,6 @@ async def emit_conversations_signals_activity(inputs: EmitConversationsSignalsIn
         except Team.DoesNotExist:
             log.warning("Team no longer exists, skipping")
             return {"status": "skipped", "reason": "team_deleted", "signals_emitted": 0}
-        if await database_sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(
-            team.api_token, self_driving_quota_resource(team.organization)
-        ):
-            return {"status": "skipped", "reason": "quota_limited", "signals_emitted": 0}
         # Before the record fetch: the conversations fetcher records emission optimistically, so a
         # failure after it returns would permanently skip this batch on the Temporal retry.
         source_config = await afetch_source_config(team.id, config.source_product, config.source_type)

@@ -112,7 +112,7 @@ def report_pass_admission(
     elif report is not None and report["billing_exempt_reason"]:
         parent = TrialFunding(funding="existing")
     else:
-        parent = signal_funding(team.id, signal_id, for_report=True) if previous is None else None
+        parent = signal_funding(team.id, signal_id, for_report=True)
         if parent is not None and parent.funding == "existing":
             from products.signals.backend.free_trial import (  # noqa: PLC0415 -- legacy gate reads report funding
                 self_driving_free_trial_enabled,

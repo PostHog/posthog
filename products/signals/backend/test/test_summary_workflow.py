@@ -22,7 +22,6 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalReport
-from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.startup_failure import RESEARCH_STARTUP_FAILURE, ResearchStartupFailure
@@ -113,19 +112,21 @@ def test_legacy_quota_gate_payload_requires_admission() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("enforced", [True, False])
-async def test_check_activity_returns_enforced(ateam, enforced):
+async def test_summary_entry_does_not_recheck_billing_limit(ateam):
     with (
         patch(
-            f"{SUMMARY_MODULE_PATH}.self_driving_quota_gate",
-            return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
+            "products.signals.backend.quota.is_team_signals_quota_limited",
+            return_value=True,
         ),
-        patch("products.signals.backend.quota.posthoganalytics.capture"),
+        patch(
+            f"{SUMMARY_MODULE_PATH}.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=False, limit=3, reports_today=0),
+        ),
     ):
         result = await check_report_quota_gate_activity(
             CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="summary_entry")
         )
-    assert result is enforced
+    assert result is False
 
 
 @pytest.mark.asyncio
@@ -164,10 +165,6 @@ async def test_check_activity_pauses_on_daily_limit_with_billing_clear(ateam):
 )
 async def test_limits_only_block_admission_not_later_stages(ateam, stage, admitted, paused):
     with (
-        patch(
-            f"{SUMMARY_MODULE_PATH}.self_driving_quota_gate",
-            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
-        ),
         patch(
             f"{SUMMARY_MODULE_PATH}.daily_report_limit_gate",
             return_value=DailyReportLimitGate(limited=True, limit=3, reports_today=3),
