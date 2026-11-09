@@ -3247,12 +3247,12 @@ export const WorkflowViewsCreateBody = /* @__PURE__ */ zod.object({
                 .array(
                     zod.object({
                         facet: zod
-                            .enum(['status', 'kind', 'trigger', 'owner', 'health', 'createdBy', 'tag'])
+                            .enum(['status', 'kind', 'trigger', 'owner', 'health', 'createdBy', 'tag', 'in'])
                             .describe(
-                                '\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag'
+                                '\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag\n\* `in` - In'
                             )
                             .describe(
-                                'Supported workflow list facet.\n\n\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag'
+                                'Supported workflow list facet. The in facet takes a folder path and must be negated.\n\n\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag\n\* `in` - In'
                             ),
                         value: zod
                             .string()
@@ -3308,12 +3308,12 @@ export const WorkflowViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .array(
                     zod.object({
                         facet: zod
-                            .enum(['status', 'kind', 'trigger', 'owner', 'health', 'createdBy', 'tag'])
+                            .enum(['status', 'kind', 'trigger', 'owner', 'health', 'createdBy', 'tag', 'in'])
                             .describe(
-                                '\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag'
+                                '\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag\n\* `in` - In'
                             )
                             .describe(
-                                'Supported workflow list facet.\n\n\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag'
+                                'Supported workflow list facet. The in facet takes a folder path and must be negated.\n\n\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag\n\* `in` - In'
                             ),
                         value: zod
                             .string()

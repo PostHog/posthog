@@ -3278,6 +3278,7 @@ export interface WorkflowSetupStatusApi {
  * * `health` - Health
  * * `createdBy` - Created By
  * * `tag` - Tag
+ * * `in` - In
  */
 export type WorkflowViewFacetEnumApi = (typeof WorkflowViewFacetEnumApi)[keyof typeof WorkflowViewFacetEnumApi]
 
@@ -3289,10 +3290,11 @@ export const WorkflowViewFacetEnumApi = {
     Health: 'health',
     CreatedBy: 'createdBy',
     Tag: 'tag',
+    In: 'in',
 } as const
 
 export interface WorkflowViewFilterApi {
-    /** Supported workflow list facet.
+    /** Supported workflow list facet. The in facet takes a folder path and must be negated.
      *
      * * `status` - Status
      * * `kind` - Kind
@@ -3300,7 +3302,8 @@ export interface WorkflowViewFilterApi {
      * * `owner` - Owner
      * * `health` - Health
      * * `createdBy` - Created By
-     * * `tag` - Tag */
+     * * `tag` - Tag
+     * * `in` - In */
     facet: WorkflowViewFacetEnumApi
     /**
      * Facet value; createdBy accepts me for the current viewer.

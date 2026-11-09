@@ -57,6 +57,7 @@ class TestWorkflowViewAPI(APIBaseTest):
                 {"facet": "createdBy", "value": "me", "negated": False},
                 {"facet": "kind", "value": "messaging", "negated": True},
                 {"facet": "tag", "value": "growth", "negated": False},
+                {"facet": "in", "value": "Billing/Cards", "negated": True},
             ],
             "text": "welcome",
             "columns": ["created_by", "health", "owner"],
@@ -338,6 +339,7 @@ class TestWorkflowViewAPI(APIBaseTest):
             ("invalid_filter", {"filters": [{"facet": "status", "negated": False}]}),
             ("filter_limit", {"filters": [{"facet": "status", "value": "active", "negated": False}] * 101}),
             ("duplicate_column", {"columns": ["owner", "owner"]}),
+            ("open_folder", {"filters": [{"facet": "in", "value": "Billing", "negated": False}]}),
             ("text_limit", {"text": "x" * 1001}),
         ]
     )
