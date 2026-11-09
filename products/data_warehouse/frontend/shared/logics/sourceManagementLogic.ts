@@ -211,11 +211,11 @@ export interface sourceManagementLogicActions {
     schemaLoadingFinished: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
     }
-    setFingerprintedSources: (fingerprintedSources: FingerprintedSources | null) => {
-        fingerprintedSources: FingerprintedSources | null
-    }
     setDirectSearchTerm: (directSearchTerm: string) => {
         directSearchTerm: string
+    }
+    setFingerprintedSources: (fingerprintedSources: FingerprintedSources | null) => {
+        fingerprintedSources: FingerprintedSources | null
     }
     setManagedSearchTerm: (managedSearchTerm: string) => {
         managedSearchTerm: string
