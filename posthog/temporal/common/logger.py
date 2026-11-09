@@ -867,14 +867,15 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str, str]:
     This function is used to resolve parameters for ingesting logs into the
     `log_entries` table.
 
-    When a new product/feature needs its own `log_source`, add a branch in this function.
+    When a new product/feature is developed, a new branch should be added in this
+    function if logs are to be produced correctly to `log_entries`.
 
     The resolution is fairly hard-coded as every product/feature defines its own
     `log_source` and `log_source_id`. So, we concentrate the hard-coded resolution here
     to make it easy to find and update.
 
-    A workflow type with no branch here gets `temporal_workflow`, with the workflow type as
-    its `log_source_id`, so its lines still reach the team's logs.
+    A workflow type without a branch falls back to `temporal_workflow`, so its lines are not
+    lost, but no product UI reads that source.
 
     Returns:
         A tuple of `log_source` and `log_source_id`.
