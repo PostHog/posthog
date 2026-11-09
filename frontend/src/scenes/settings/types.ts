@@ -71,6 +71,7 @@ export type SettingSectionId =
     | 'environment-tracing'
     | 'environment-web-analytics'
     | 'environment-workflows'
+    | 'environment-data-deletion'
     | 'environment-danger-zone'
     // Project (backward compat – remove when Environments are rolled out)
     | 'project-details'
@@ -169,6 +170,7 @@ export type SettingId =
     | 'data-theme'
     | 'datacapture'
     | 'date-and-time'
+    | 'data-deletion-requests'
     | 'dead-clicks-autocapture'
     | 'details'
     | 'discussion-mention-integrations'
