@@ -2947,48 +2947,79 @@ describe('Cyclotron V2', () => {
             expect(await droppedClientCount('worker')).toBe(before + 1)
         })
 
-        it('a check-in on a dropped client commits nothing, and the janitor hands the job back once', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const worker = createWorker(QUEUE, { pool: { dbUrl: DROP_DB_URL } })
-            stops.push(() => worker.disconnect())
-            const [job] = await dequeueOneBatch(worker)
+        async function lockWaitingBackends(): Promise<number[]> {
+            const waiting = await assertPool.query<{ pid: number }>(
+                `SELECT pid FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock'`,
+                [DROP_APP]
+            )
+            return waiting.rows.map((row) => row.pid)
+        }
 
-            const holder = await assertPool.connect()
-            try {
-                await holder.query('BEGIN')
-                await holder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
-                const checkIn = expect(
+        it.each([
+            {
+                write: 'ack',
+                run: (job: CyclotronV2DequeuedJob) => job.ack(),
+                jobsAfter: 1,
+            },
+            {
+                write: 'bulkCreateAndCheckIn',
+                run: (job: CyclotronV2DequeuedJob) =>
                     job.bulkCreateAndCheckIn({
                         newJobs: [{ teamId: 1, queueName: QUEUE }],
                         selfDisposition: { kind: 'ack' },
-                    })
-                ).rejects.toThrow()
-                await waitForExpect(
-                    async () => {
-                        const waiting = await assertPool.query(
-                            `SELECT 1 FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock'`,
-                            [DROP_APP]
-                        )
-                        expect(waiting.rowCount).toBeGreaterThan(0)
-                    },
-                    2000,
-                    10
-                )
-                await terminateDropTestBackends()
-                await checkIn
-            } finally {
-                await holder.query('ROLLBACK')
-                holder.release()
-            }
+                    }),
+                jobsAfter: 2,
+            },
+        ])(
+            '$write retries on a fresh connection when its connection drops mid-write, and lands once',
+            async ({ run, jobsAfter }) => {
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+                const worker = createWorker(QUEUE, { pool: { dbUrl: DROP_DB_URL } })
+                stops.push(() => worker.disconnect())
+                const [job] = await dequeueOneBatch(worker)
 
-            expect(await totalJobCount()).toBe(1)
-            expect((await queryJob(id)).status).toBe('running')
+                const holder = await assertPool.connect()
+                let outcome: Promise<unknown>
+                try {
+                    await holder.query('BEGIN')
+                    await holder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+                    outcome = run(job).then(
+                        () => 'landed',
+                        (error) => error
+                    )
+                    let droppedPids: number[] = []
+                    await waitForExpect(
+                        async () => {
+                            droppedPids = await lockWaitingBackends()
+                            expect(droppedPids).not.toHaveLength(0)
+                        },
+                        2000,
+                        10
+                    )
+                    await terminateDropTestBackends()
+                    await waitForExpect(
+                        async () => {
+                            const retrying = await lockWaitingBackends()
+                            expect(retrying.filter((pid) => !droppedPids.includes(pid))).not.toHaveLength(0)
+                        },
+                        2000,
+                        10
+                    )
+                } finally {
+                    await holder.query('ROLLBACK')
+                    holder.release()
+                }
 
-            const janitor = createJanitor()
-            stops.push(() => janitor.stop())
-            await janitor.runOnce()
-            const retried = await dequeueOneBatch(worker)
-            expect(retried.map((j) => j.id)).toEqual([id])
-        })
+                expect(await outcome).toBe('landed')
+                expect(await totalJobCount()).toBe(jobsAfter)
+                expect(await queryJob(id)).toMatchObject({
+                    status: 'completed',
+                    lock_id: null,
+                    janitor_touch_count: 0,
+                    transition_count: 2,
+                })
+            },
+            6000
+        )
     })
 })
