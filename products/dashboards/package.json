@@ -14,7 +14,7 @@
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:",
         "react-grid-layout": "^2.3.0",
-        "react-intersection-observer": "^9.16.0"
+        "react-intersection-observer": "^11.0.1"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",

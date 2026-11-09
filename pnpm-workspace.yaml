@@ -214,12 +214,12 @@ catalog:
     '@storybook/react-vite': ^10.6.1
     storybook: ^10.6.1
     # Common utilities
-    fast-equals: ^6.0.0
+    fast-equals: ^6.2.2
     fuse.js: ^7.1.0
     query-selector-shadow-dom: ^1.0.0
     '@types/query-selector-shadow-dom': ^1.0.4
     ts-pattern: '4.3'
-    use-debounce: ^9.0.4
+    use-debounce: ^10.1.1
     # React types
     '@types/react': ^18.3.31
     '@types/react-dom': ^18.3.7
