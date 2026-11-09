@@ -62,6 +62,13 @@ class TestWrapClickhouseQueryError:
             ),
             (38, "CANNOT_PARSE_DATE", "Cannot parse a date. Check your date values and their format."),
             (41, "CANNOT_PARSE_DATETIME", "Cannot parse a date and time. Check your datetime values and their format."),
+            (
+                48,
+                "NOT_IMPLEMENTED",
+                "ClickHouse doesn't support something in this query. A subquery that refers to a column of the "
+                "outer query is the most common cause, so rewrite it as a JOIN. Decimal values with different scales in "
+                "if() or CASE also cause this, so cast them to one type.",
+            ),
             (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
             (
                 70,
