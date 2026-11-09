@@ -69,8 +69,8 @@ METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
 # Gates the suggested dashboards menu, and the background analysis and AI generation for a team.
 METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG = "metrics-suggested-dashboards"
 
-# Gates recording rules, on top of METRICS_FEATURE_FLAG. The schedule evaluates only rules that exist,
-# so the API gate is the whole rollout gate.
+# Gates recording rules, on top of METRICS_FEATURE_FLAG. It gates both the API and the evaluation, so turning it
+# off for a project also stops the rules that project already has.
 METRICS_RECORDING_RULES_FEATURE_FLAG = "metrics-recording-rules"
 
 # Each rule runs one PromQL query a minute, one after another inside the team's evaluation budget.

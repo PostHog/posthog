@@ -164,6 +164,9 @@ class MetricRecordingRule(TeamScopedRootMixin, UUIDModel):
     description = models.TextField(blank=True, default="")
     enabled = models.BooleanField(default=True)
     last_evaluated_at = models.DateTimeField(null=True, blank=True)
+    # When an evaluation last ran, whether or not it wrote. Scheduling goes by this, so a rule that keeps failing
+    # does not hold the front of the queue.
+    last_attempted_at = models.DateTimeField(null=True, blank=True)
     last_series_count = models.IntegerField(null=True, blank=True)
     last_error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

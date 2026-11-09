@@ -29,7 +29,7 @@ from products.metrics.backend.recording_rules.evaluation import (
     evaluate_team_recording_rules,
     teams_with_recording_rules,
 )
-from products.metrics.backend.recording_rules.logic import validate_rule
+from products.metrics.backend.recording_rules.logic import update_rule, validate_rule
 from products.metrics.backend.recording_rules.otlp import RecordedSample, export_request
 from products.metrics.backend.temporal.recording_rules import (
     MetricsRecordingRulesWorkflow,
@@ -153,6 +153,20 @@ class TestRecordingRuleAPI(APIBaseTest):
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         assert self.client.get(f"{self.url}{rule['id']}/").status_code == status.HTTP_404_NOT_FOUND
 
+    def test_an_edit_does_not_overwrite_what_an_evaluation_recorded_meanwhile(self) -> None:
+        rule = MetricRecordingRule.objects.unscoped().create(team=self.team, metric_name="job:x:rate5m", query=_QUERY)
+        stale = MetricRecordingRule.objects.unscoped().get(id=rule.id)
+        recorded_at = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
+        MetricRecordingRule.objects.unscoped().filter(id=rule.id).update(
+            last_evaluated_at=recorded_at, last_series_count=3
+        )
+
+        with patch("products.metrics.backend.recording_rules.logic._get", return_value=stale):
+            update_rule(self.team.id, str(rule.id), description="edited")
+
+        rule.refresh_from_db()
+        assert (rule.description, rule.last_evaluated_at, rule.last_series_count) == ("edited", recorded_at, 3)
+
     def test_the_metric_name_cannot_change_after_create(self) -> None:
         rule = self._create().json()
 
@@ -184,6 +198,7 @@ class TestRecordingRuleAPI(APIBaseTest):
         other = MetricRecordingRule.objects.unscoped().create(team=other_team, metric_name="job:x:rate5m", query=_QUERY)
 
         assert self.client.get(f"{self.url}{other.id}/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"{self.url}{'-' * 36}/").status_code == status.HTTP_404_NOT_FOUND
 
     def test_a_project_without_the_flag_cannot_use_recording_rules(self) -> None:
         self.flags.side_effect = lambda key, *args, **kwargs: key != "metrics-recording-rules"
@@ -202,12 +217,14 @@ class TestRecordingRuleEvaluation(APIBaseTest):
         )
         self.ingest = MagicMock(return_value=_response(200, {}))
         self.enterContext(patch("products.metrics.backend.recording_rules.otlp.internal_requests.post", self.ingest))
+        # Ingestion is five seconds behind the evaluation's clock.
         self.checkpoint = self.enterContext(
-            patch("products.metrics.backend.recording_rules.evaluation.fetch_partition_checkpoint", return_value=None)
+            patch(
+                "products.metrics.backend.recording_rules.evaluation.fetch_partition_checkpoint",
+                side_effect=lambda *args, **kwargs: self.now - timedelta(seconds=5),
+            )
         )
-        self.enterContext(
-            patch("products.metrics.backend.recording_rules.evaluation.fetch_metrics_freshness", return_value=None)
-        )
+        self.flags = self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.rule = MetricRecordingRule.objects.unscoped().create(
             team=self.team, metric_name="job:http_errors:rate5m", query=_QUERY
         )
@@ -223,8 +240,6 @@ class TestRecordingRuleEvaluation(APIBaseTest):
         return _points(request)
 
     def test_a_rule_writes_its_result_into_the_project_at_the_minute_ingestion_reached(self) -> None:
-        self.checkpoint.return_value = self.now - timedelta(seconds=5)
-
         assert self._evaluate() == 1
 
         at = datetime(2026, 11, 6, 12, 0, 0, tzinfo=UTC)
@@ -262,6 +277,13 @@ class TestRecordingRuleEvaluation(APIBaseTest):
                 "instant vector",
             ),
             (
+                "series_differing_only_by_name",
+                _response(
+                    200, _vector(({"__name__": "a", "route": "/x"}, "1"), ({"__name__": "b", "route": "/x"}, "2"))
+                ),
+                "differ only by metric name",
+            ),
+            (
                 "too_many_series",
                 _response(200, _vector(*(({"route": f"/{index}"}, "1") for index in range(MAX_SERIES + 1)))),
                 "more than",
@@ -280,26 +302,52 @@ class TestRecordingRuleEvaluation(APIBaseTest):
         assert error in (self.rule.last_error or "")
         assert self.rule.last_evaluated_at is None
 
-    def test_a_team_over_its_budget_serves_the_rule_that_waited_longest_first(self) -> None:
-        first_alphabetically = MetricRecordingRule.objects.unscoped().create(
-            team=self.team, metric_name="job:a_first:rate5m", query=_QUERY
+    def test_a_rule_that_keeps_failing_does_not_take_every_turn_from_the_others(self) -> None:
+        failing = MetricRecordingRule.objects.unscoped().create(
+            team=self.team, metric_name="job:a_failing:rate5m", query=_QUERY
         )
         clock = [0.0]
 
         def slow_query(*args: Any, **kwargs: Any) -> requests.Response:
             clock[0] += 39
+            if kwargs["data"]["query"] == "failing":
+                return _response(500, {})
             return _response(200, _vector(({"route": "/a"}, "1")))
 
+        failing.query = "failing"
+        failing.save()
         self.snuffle.side_effect = slow_query
         with patch("products.metrics.backend.recording_rules.evaluation.time.monotonic", lambda: clock[0]):
-            assert self._evaluate() == 1
+            assert self._evaluate() == 0
             self.now += timedelta(minutes=1)
             assert self._evaluate() == 1
 
         self.rule.refresh_from_db()
-        first_alphabetically.refresh_from_db()
         assert self.rule.last_evaluated_at is not None
-        assert first_alphabetically.last_evaluated_at is not None
+
+    def test_projects_whose_rules_waited_longest_are_evaluated_first(self) -> None:
+        other_team = self.create_team_with_organization(organization=self.organization)
+        MetricRecordingRule.objects.unscoped().create(team=other_team, metric_name="job:x:rate5m", query=_QUERY)
+        MetricRecordingRule.objects.unscoped().filter(id=self.rule.id).update(last_attempted_at=self.now)
+
+        assert teams_with_recording_rules() == [other_team.id, self.team.id]
+
+    def test_nothing_is_recorded_until_ingestion_reports_how_far_it_has_reached(self) -> None:
+        self.checkpoint.side_effect = None
+        self.checkpoint.return_value = None
+
+        assert self._evaluate() == 0
+
+        assert self.snuffle.call_count == 0
+        self.rule.refresh_from_db()
+        assert self.rule.last_evaluated_at is None
+        assert self.rule.last_error
+
+    def test_a_project_that_loses_the_flag_stops_being_evaluated(self) -> None:
+        self.flags.return_value = False
+
+        assert self._evaluate() == 0
+        assert self.snuffle.call_count == 0
 
     def test_a_result_with_nothing_to_write_marks_the_minute_without_a_request(self) -> None:
         self.snuffle.return_value = _response(200, _vector(({"route": "/a"}, "NaN")))

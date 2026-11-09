@@ -3,7 +3,8 @@
 import re
 from typing import Final
 
-from django.db import IntegrityError, transaction
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection, transaction
 
 from products.metrics.backend.facade.contracts import (
     MAX_PROMQL_LENGTH,
@@ -57,7 +58,7 @@ def list_rules(team_id: int) -> list[RecordingRule]:
 def _get(team_id: int, rule_id: str) -> MetricRecordingRule:
     try:
         return MetricRecordingRule.objects.get(team_id=team_id, id=rule_id)
-    except (MetricRecordingRule.DoesNotExist, ValueError):
+    except (MetricRecordingRule.DoesNotExist, ValueError, ValidationError):
         raise RecordingRuleNotFound("Recording rule not found.")
 
 
@@ -70,6 +71,10 @@ def create_rule(
 ) -> RecordingRule:
     validate_rule(metric_name, query)
     with transaction.atomic():
+        # The count and the insert are two statements, and the name constraint does not see a concurrent create
+        # of another name, so creates for one project wait for each other here.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"metrics-recording-rules:{team_id}"])
         if MetricRecordingRule.objects.filter(team_id=team_id).count() >= MAX_RECORDING_RULES_PER_TEAM:
             raise RecordingRuleError(f"A project can have at most {MAX_RECORDING_RULES_PER_TEAM} recording rules.")
         try:
@@ -96,16 +101,22 @@ def update_rule(
     enabled: bool | None = None,
 ) -> RecordingRule:
     rule = _get(team_id, rule_id)
+    fields = ["updated_at"]
     if query is not None:
         validate_rule(rule.metric_name, query)
         rule.query = query
         # The last error belongs to the old query.
         rule.last_error = None
+        fields += ["query", "last_error"]
     if description is not None:
         rule.description = description
+        fields.append("description")
     if enabled is not None:
         rule.enabled = enabled
-    rule.save()
+        fields.append("enabled")
+    # Only the edited fields, so an evaluation that finished meanwhile keeps the minute it recorded.
+    rule.save(update_fields=fields)
+    rule.refresh_from_db()
     return to_contract(rule)
 
 

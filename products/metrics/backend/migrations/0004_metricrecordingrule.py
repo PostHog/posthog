@@ -32,6 +32,7 @@ class Migration(migrations.Migration):
                 ("description", models.TextField(blank=True, default="")),
                 ("enabled", models.BooleanField(default=True)),
                 ("last_evaluated_at", models.DateTimeField(blank=True, null=True)),
+                ("last_attempted_at", models.DateTimeField(blank=True, null=True)),
                 ("last_series_count", models.IntegerField(blank=True, null=True)),
                 ("last_error", models.TextField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
