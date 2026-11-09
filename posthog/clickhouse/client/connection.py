@@ -464,20 +464,51 @@ LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
         ClickHouseUser.ALERTS_PLATFORM_METRICS,
     }
 )
+# Named users that exist on the metrics cluster. Keep this a subset of LOGS_CLUSTER_USERS: the metrics
+# host falls back to the logs host, so a user listed here must also work there.
+METRICS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset({ClickHouseUser.ALERTS_PLATFORM_METRICS})
+
+_PINNED_CLUSTER_USERS: Mapping[Workload, frozenset[ClickHouseUser]] = {
+    Workload.LOGS: LOGS_CLUSTER_USERS,
+    Workload.METRICS: METRICS_CLUSTER_USERS,
+}
 
 
 def connection_creds(workload: Workload, ch_user: ClickHouseUser) -> ClickHouseCredentials | None:
-    """The credentials a connection authenticates with, or None when it uses the logs cluster's own user.
+    """The credentials a connection authenticates with, or None when it uses the pinned cluster's own user.
 
-    A logs connection uses a named user only when the user exists on the logs cluster and is
+    A logs or metrics connection uses a named user only when the user exists on that cluster and is
     registered. get_clickhouse_creds falls back to the default user, whose credentials belong to
     the main cluster.
     """
-    if workload != Workload.LOGS:
+    cluster_users = _PINNED_CLUSTER_USERS.get(workload)
+    if cluster_users is None:
         return get_clickhouse_creds(ch_user)
-    if ch_user not in LOGS_CLUSTER_USERS:
+    if ch_user not in cluster_users:
         return None
     return _registered_users().get(ch_user)
+
+
+def _pinned_cluster_kwargs(workload: Workload) -> dict[str, Any] | None:
+    if workload == Workload.LOGS:
+        return {
+            "host": settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
+            "port": settings.CLICKHOUSE_LOGS_CLUSTER_PORT,
+            "database": settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+            "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
+            "user": settings.CLICKHOUSE_LOGS_CLUSTER_USER,
+            "password": settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
+        }
+    if workload == Workload.METRICS:
+        return {
+            "host": settings.CLICKHOUSE_METRICS_CLUSTER_HOST,
+            "port": settings.CLICKHOUSE_METRICS_CLUSTER_PORT,
+            "database": settings.CLICKHOUSE_METRICS_CLUSTER_DATABASE,
+            "secure": settings.CLICKHOUSE_METRICS_CLUSTER_SECURE,
+            "user": settings.CLICKHOUSE_METRICS_CLUSTER_USER,
+            "password": settings.CLICKHOUSE_METRICS_CLUSTER_PASSWORD,
+        }
+    return None
 
 
 def get_kwargs_for_client(
@@ -486,20 +517,10 @@ def get_kwargs_for_client(
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
-    if workload == Workload.LOGS:
-        logs_kwargs = {
-            "host": settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
-            "port": settings.CLICKHOUSE_LOGS_CLUSTER_PORT,
-            "database": settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
-            "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
-        }
+    if (pinned_kwargs := _pinned_cluster_kwargs(workload)) is not None:
         if named := connection_creds(workload, ch_user):
-            return {**logs_kwargs, "user": named.user, "password": named.password}
-        return {
-            **logs_kwargs,
-            "user": settings.CLICKHOUSE_LOGS_CLUSTER_USER,
-            "password": settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
-        }
+            return {**pinned_kwargs, "user": named.user, "password": named.password}
+        return pinned_kwargs
 
     creds = get_clickhouse_creds(ch_user)
     base_kwargs = {"user": creds.user, "password": creds.password}
