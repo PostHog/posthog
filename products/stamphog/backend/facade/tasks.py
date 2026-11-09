@@ -13,9 +13,9 @@ from products.stamphog.backend.tasks.tasks import (
     process_inbox_pr_review,
     process_installation_event,
     process_pull_request_event,
+    queue_silent_review,
     request_rereview_after_external_review,
     route_pull_request_reviewers,
-    silent_review_after_clean_external_review,
 )
 from products.stamphog.backend.tasks.trigger_label import create_trigger_label
 
@@ -58,18 +58,4 @@ def queue_inbox_pr_review(
         acting_user_id=acting_user_id,
         signal_report_id=signal_report_id,
         task_run_id=task_run_id,
-    )
-
-
-def queue_silent_review(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> None:
-    """Queue a silent stamphog review of ``head_sha``, without waiting for it.
-
-    For review_hog, when a Standard review of a PR that opened or was marked ready finished clean.
-    Stamphog decides whether anything happens: the repo's ``review_on_clean_external_review`` switch
-    must be on, and every webhook gate except the review mode must pass for the PR as it is now,
-    with ``head_sha`` still its head. A head that already has a review is left alone. The review posts
-    an approval as usual and keeps every other verdict off the PR. ``team_id`` may be an environment.
-    """
-    silent_review_after_clean_external_review.delay(
-        team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha
     )

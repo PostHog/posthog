@@ -1988,6 +1988,20 @@ ROUTING_BUSY_RETRY_SECONDS = 60
 ROUTING_SAFETY_NET_SECONDS = 30 * 60
 
 
+def queue_silent_review(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> None:
+    """Queue a silent stamphog review of ``head_sha``, without waiting for it.
+
+    For review_hog, when a Standard review of a PR that opened or was marked ready finished clean.
+    Stamphog decides whether anything happens: the repo's ``review_on_clean_external_review`` switch
+    must be on, and every webhook gate except the review mode must pass for the PR as it is now,
+    with ``head_sha`` still its head. A head that already has a review is left alone. The review posts
+    an approval as usual and keeps every other verdict off the PR. ``team_id`` may be an environment.
+    """
+    silent_review_after_clean_external_review.delay(
+        team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha
+    )
+
+
 def _stamphog_will_review(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
     """Whether the review path is expected to give a verdict on this head.
 
