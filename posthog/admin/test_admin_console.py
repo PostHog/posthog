@@ -294,6 +294,7 @@ class TestAdminConsoleViews(BaseTest):
             "Group types",
             "Email sending",
             "AI gateway",
+            "Experiments",
             "Project API token",
         ):
             assert title in content
