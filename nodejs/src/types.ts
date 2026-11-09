@@ -95,7 +95,6 @@ export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
     healthcheck: () => HealthCheckResult | Promise<HealthCheckResult>
-    /** Checked by `/_ready` only, after `healthcheck`: fail it to leave the pool without failing liveness. */
     readinessCheck?: () => HealthCheckResult | Promise<HealthCheckResult>
 }
 
