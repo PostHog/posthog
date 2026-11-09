@@ -24,8 +24,8 @@ from .values import (
     is_number,
     is_object_like,
     parse_json_text,
-    to_json_text,
     to_json_value,
+    to_text,
 )
 
 logger = structlog.get_logger(__name__)
@@ -91,6 +91,7 @@ class SlotCoercer:
         if emit.tool_call_id is not None:
             tool_call_id = emit.tool_call_id.eval(scope)
             if isinstance(tool_call_id, str):
+                charge_output(nodes=1, chars=len(tool_call_id))
                 stamped["tool_call_id"] = tool_call_id
         return stamped
 
@@ -176,15 +177,7 @@ class RecipePipeline:
         role = Scope.for_node(value, inherited_role).role
         content = value.get("content") if is_mapping(value) else None
         charge_messages(1)
-        return [{"role": role, "content": content if isinstance(content, str) else _stringify_content(value)}]
-
-
-def _stringify_content(value: Value) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    return to_json_text(value)
+        return [{"role": role, "content": to_text(content if isinstance(content, str) else value)}]
 
 
 def _tool_calls(value: Value) -> Value:
