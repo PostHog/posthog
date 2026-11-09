@@ -11625,16 +11625,16 @@ Note: The dev.splunk.com reference is a client-rendered SPA; the full API index 
 
 ## SpotIo — gaps
 
-Today (4): `elastigroup_costs`, `elastigroups`, `ocean_clusters`, `stateful_nodes`
+Today (7): `accounts`, `elastigroup_costs`, `elastigroup_events`, `elastigroups`, `ocean_cluster_nodes`, `ocean_clusters`, `stateful_nodes`
 
 Diffed against: <https://docs.spot.io/api/?version=v3>
 
-- [ ] `GET /setup/account (List Accounts)` — lookup table resolving the accountId carried by every elastigroup, ocean cluster and cost row (high)
-- [ ] `GET /ocean/aws/k8s/cluster/{oceanClusterId}/nodes (also gcp/k8s and azure/np variants)` — the per-node fact table under the ocean_clusters we already sync (high)
+- [x] `GET /setup/account (List Accounts)` — lookup table resolving the accountId carried by every elastigroup, ocean cluster and cost row (high). Added as `accounts` (full refresh; listing every account needs an Organization Admin token).
+- [x] `GET /ocean/aws/k8s/cluster/{oceanClusterId}/nodes (also gcp/k8s and azure/np variants)` — the per-node fact table under the ocean_clusters we already sync (high). Added as `ocean_cluster_nodes` (fan-out over `ocean_clusters`; full refresh). The GKE and AKS variants are left out: the source syncs only Ocean AWS clusters, so it has no parent for them.
 - [ ] `GET /ocean/aws/k8s/launchSpec (Virtual Node Groups)` — lookup resolving the launchSpec/VNG id attached to Ocean nodes (high)
-- [ ] `GET /aws/ec2/group/{groupId}/events (Activity Events)` — scale-up/down and spot-interruption state transition history for groups we already sync (high)
+- [x] `GET /aws/ec2/group/{groupId}/events (Activity Events)` — scale-up/down and spot-interruption state transition history for groups we already sync (high). Added as `elastigroup_events` (fan-out over `elastigroups`; incremental on `createdAt` through `fromDate`).
 - [ ] `GET /ocean/insights/k8s/cluster (Ocean Insights)` — Spot's headline cluster efficiency/waste metric (high)
-- [ ] `GET /ocean/{oceanId}/rightSizing/namespaces/{ns}/{type}/{name}/recommendation-history` — rightsizing recommendations over time - the savings number customers report on (high)
+- [ ] `GET /ocean/{oceanId}/rightSizing/namespaces/{ns}/{type}/{name}/recommendation-history` — rightsizing recommendations over time - the savings number customers report on (high). Skipped: it takes one request per workload, and only a `POST /rightSizing/recommendations` call lists the workloads. It also requires a `containerNames` list, and its items carry no container name, so a row has no stable key.
 - [ ] `GET /aws/ec2/managedInstance/{MI_ID}/costs` — stateful_nodes are synced but their cost series is not, unlike elastigroups (medium)
 - [ ] `GET /aws/ec2/group/{groupId}/roll and /roll/{rollId}/status` — deployment (roll) history per elastigroup (medium)
 - [ ] `GET /mcs/ecs/cluster/{clusterName}/costs` — Ocean ECS cluster cost breakdown, the ECS analogue of elastigroup_costs (medium)
