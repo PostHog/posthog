@@ -30,7 +30,7 @@ export function McpInternalUsersFilter({ dataAttr }: { dataAttr: string }): JSX.
     return (
         <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="outline" data-attr={dataAttr} />}>
-                {excluded ? 'Internal users excluded' : 'Internal users included'}
+                <span>{excluded ? 'Internal users excluded' : 'Internal users included'}</span>
                 <IconChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-64">

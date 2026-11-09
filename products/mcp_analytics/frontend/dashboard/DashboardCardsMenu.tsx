@@ -23,7 +23,7 @@ export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: Mcp
             <DropdownMenuTrigger
                 render={<Button variant="outline" className="whitespace-nowrap" data-attr="mcp-dashboard-customize" />}
             >
-                {hiddenCards.length > 0 ? `${hiddenCards.length} hidden` : 'Customize'}
+                <span>{hiddenCards.length > 0 ? `${hiddenCards.length} hidden` : 'Customize'}</span>
                 <IconChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-56">
