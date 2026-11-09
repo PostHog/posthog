@@ -18,7 +18,7 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.smaily._config import SmailySourceConfig
-from products.warehouse_sources.sources.smaily.settings import ENDPOINTS, SMAILY_ENDPOINTS
+from products.warehouse_sources.sources.smaily.settings import ENDPOINTS, INCREMENTAL_FIELDS, SMAILY_ENDPOINTS
 from products.warehouse_sources.sources.smaily.smaily import SmailyResumeConfig, smaily_source, validate_credentials
 
 
@@ -106,14 +106,14 @@ Create an API user in [Smaily](https://smaily.com) under **Account preferences â
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only â€” Smaily's list endpoints expose no server-side
-        # timestamp filter, so there is no incremental cursor to advance.
+        # Only the action logs have a server-side cursor (`since_seq_id`). The list endpoints expose
+        # no timestamp filter, so they are full refresh only.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
+                supports_incremental=endpoint in INCREMENTAL_FIELDS,
+                supports_append=endpoint in INCREMENTAL_FIELDS,
+                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in ENDPOINTS
         ]
@@ -151,4 +151,6 @@ Create an API user in [Smaily](https://smaily.com) under **Account preferences â
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

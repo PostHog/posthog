@@ -18,8 +18,8 @@ case "${1:-}" in
             "" | *[!a-z0-9-]*) ;;
             *) printf '%s\n' "$2" >"$(git rev-parse --absolute-git-dir)/hogli-worktree-source" 2>/dev/null ;;
         esac
-        # Python stays off the path of everyone who has not run `devbox:worktree --auto`.
-        grep -qs '"worktree_auto_box"' "$HOME/.config/posthog/hogli_devbox.json" || exit 0
+        # Python stays off the path of everyone who has not run `devbox:worktree` with `--auto` or `--on-clean`.
+        grep -qsE '"worktree_(auto_box|box_cleanup)"' "$HOME/.config/posthog/hogli_devbox.json" || exit 0
         set -- devbox:worktree:auto --source "${2:-other}"
         ;;
     removing | archiving)

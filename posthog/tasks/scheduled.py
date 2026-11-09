@@ -48,6 +48,7 @@ from posthog.tasks.tasks import (
     clickhouse_row_count,
     delete_expired_delegation_invites,
     delete_expired_exported_assets,
+    delete_scheduled_event_definitions,
     fail_stuck_video_exports,
     find_flags_with_enriched_analytics,
     ingestion_lag,
@@ -59,6 +60,7 @@ from posthog.tasks.tasks import (
     redis_heartbeat,
     redispatch_orphaned_queued_task_runs,
     refresh_activity_log_fields_cache,
+    report_upcoming_events_deletions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -125,6 +127,7 @@ from products.signals.backend.facade.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
+    recover_incomplete_spend,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
     sweep_first_report_notifications,
@@ -151,6 +154,7 @@ from products.tasks.backend.facade.tasks import (
     sweep_inactive_tasks_task,
     sweep_queued_gateway_usage,
 )
+from products.ui_customization.backend.facade.tasks import delete_orphaned_fragments
 from products.visual_review.backend.facade.tasks import (
     send_visual_review_debt_digests,
     sweep_visual_review_artifacts,
@@ -279,6 +283,9 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
+    )
     add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
     add_periodic_task_with_expiry(
         sender,
@@ -518,6 +525,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="4", minute="40"),
         reconcile_report_inbox_state_cache.s(),
         name="reconcile signals report inbox state",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        recover_incomplete_spend.s(),
+        name="recover signals spend",
+        expires_seconds=10 * 60,
     )
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
@@ -889,6 +904,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # Sync all Organization.available_product_features every hour, only for billing v1 orgs
     sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_product_features.s())
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="15", minute="0"),
+        report_upcoming_events_deletions.s(),
+        name="report upcoming events deletions",
+    )
+
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
 
     if settings.INGESTION_LAG_METRIC_TEAM_IDS:
@@ -1024,13 +1046,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*/12", minute="26"),
         update_survey_iteration.s(),
         name="update survey iteration based on date",
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*/12", minute="28"),
         update_survey_adaptive_sampling.s(),
         name="update survey's sampling feature flag rollout  based on date",
     )
@@ -1069,6 +1091,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             crontab(minute="33"),
             fail_stuck_video_exports.s(),
             name="fail stuck video exports",
+        )
+
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="*/15"),
+            delete_scheduled_event_definitions.s(),
+            name="delete scheduled event definitions",
         )
 
         # Daily cleanup of expired onboarding delegation invites. `pre_delete` re-enables
@@ -1298,12 +1327,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # AEO citation-tracking POC: daily citation checks for allowlisted, flag-enabled teams.
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="7", minute="30"),
+        # Hourly through the morning: the first dispatch starts the day's run and the later
+        # ones resume it if a worker rollout killed it. The runner skips the prompts already
+        # checked that day and the per-team lease makes a dispatch during a live run a no-op.
+        crontab(hour="7-15", minute="30"),
         run_aeo_citation_checks_task.s(),
         name="AEO citation checks",
-        # Well under the daily interval, so a backed-up queue drops the stale dispatch
-        # instead of fanning out a second day's checks and paying for them twice.
-        expires_seconds=60 * 60,
+        # Under the dispatch interval, so a backed-up queue drops the stale dispatch
+        # instead of the next one finding it still queued.
+        expires_seconds=50 * 60,
     )
 
     # MCP registry daily sync: crawl the official registry, aggregate measured servers,

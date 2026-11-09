@@ -375,6 +375,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     SelectQueryBuilder,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -406,6 +407,7 @@ __all__ = [
     "BearerTokenAuthConfig",
     "BoundaryCheckpoint",
     "BoundedRetry",
+    "CERTIFICATE_ERRORS",
     "CHUNK_SIZE",
     "CLOUDFLARE_TRANSIENT_STATUSES",
     "CanonicalDescriptions",

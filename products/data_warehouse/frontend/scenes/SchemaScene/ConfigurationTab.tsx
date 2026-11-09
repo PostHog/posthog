@@ -19,7 +19,9 @@ import {
 
 import api, { ApiConfig } from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -53,8 +55,14 @@ import {
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
-import { externalDataSourcesBulkUpdateSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
-import type { ExternalDataSchemaApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import {
+    externalDataSchemasPartialUpdate,
+    externalDataSourcesBulkUpdateSchemasPartialUpdate,
+} from 'products/warehouse_sources/frontend/generated/api'
+import type {
+    ExternalDataSchemaApi,
+    IncrementalFieldTypeEnumApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
@@ -62,6 +70,7 @@ import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from '
 import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
 import { columnAnnotationsLogic } from './columnAnnotationsLogic'
+import { confirmHistoryAccessRules, turnsHistoryOn } from './confirmHistoryAccessRules'
 import { DestinationsSection } from './DestinationsSection'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
@@ -105,8 +114,16 @@ export function ConfigurationTab({
 }: ConfigurationTabProps): JSX.Element {
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
     const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
-    const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
-        useActions(logic)
+    const {
+        setIsProjectTime,
+        updateSchema,
+        reloadSchema,
+        resyncSchema,
+        cancelSchema,
+        deleteTable,
+        deleteHistoryTable,
+        refreshSchemas,
+    } = useActions(logic)
     const { openReplaceFile } = useActions(replaceFileLogic({ sourceId }))
     const fileUpload: FileUploadDetails | undefined = isFileUploadSource(source)
         ? {
@@ -169,6 +186,7 @@ export function ConfigurationTab({
                     resyncSchema={resyncSchema}
                     resyncingSchema={resyncingSchema}
                     deleteTable={deleteTable}
+                    deleteHistoryTable={deleteHistoryTable}
                 />
             )
     }
@@ -424,6 +442,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     const formRef = useRef<SyncMethodFormHandle>(null)
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
     const [saving, setSaving] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentProjectId } = useValues(teamLogic)
 
     const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
 
@@ -452,36 +472,109 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
           }))
         : []
 
-    const persistSyncMethod = async (
+    const persistSyncMethod = (
         syncType: ExternalDataSourceSchema['sync_type'],
         incrementalField: string | null,
         incrementalFieldType: string | null,
         primaryKeyColumns: string[] | null,
         cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
         incrementalFieldLookbackSeconds?: number | null
-    ): Promise<void> => {
+    ): void => {
         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
 
-        const applyUpdate = async (): Promise<void> => {
+        const applyUpdate = async ({
+            dropHistoryTable = false,
+            copyAccessRulesToHistory = false,
+        }: { dropHistoryTable?: boolean; copyAccessRulesToHistory?: boolean } = {}): Promise<void> => {
             setSaving(true)
             try {
-                await api.externalDataSchemas.update(schema.id, {
+                const saved = await externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), schema.id, {
                     should_sync: true,
                     sync_type: syncType,
                     incremental_field: noIncrementalField ? null : incrementalField,
-                    incremental_field_type: noIncrementalField ? null : incrementalFieldType,
+                    // The form picks it from the field types this API returned.
+                    incremental_field_type: noIncrementalField
+                        ? null
+                        : (incrementalFieldType as IncrementalFieldTypeEnumApi | null),
                     incremental_field_lookback_seconds:
                         syncType === 'incremental' ? (incrementalFieldLookbackSeconds ?? null) : null,
                     primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
                     ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
+                    ...(dropHistoryTable ? { drop_history_table: true } : {}),
+                    ...(copyAccessRulesToHistory ? { copy_access_rules_to_history: true } : {}),
                 })
-                lemonToast.success('Sync method saved')
+                if (dropHistoryTable && saved.registered_history_table_name) {
+                    lemonToast.warning(
+                        `Sync method saved, but ${saved.registered_history_table_name} was kept. A sync was still running or its files couldn't be deleted. Delete it from the danger zone later.`
+                    )
+                } else {
+                    lemonToast.success(
+                        dropHistoryTable ? 'Sync method saved and history table deleted' : 'Sync method saved'
+                    )
+                }
                 loadSchema()
             } catch (e: any) {
                 lemonToast.error(e?.message || "Can't save sync method at this time")
             } finally {
                 setSaving(false)
             }
+        }
+
+        // Asked after the xmin and self-managed confirmations, right before the save.
+        const askAboutHistoryThenApply = (): void => {
+            const table = schema.table
+            if (
+                table &&
+                currentProjectId &&
+                featureFlags[FEATURE_FLAGS.WAREHOUSE_HISTORY_ACCESS_RULES] &&
+                turnsHistoryOn(schema, syncType, cdcTableMode)
+            ) {
+                // Disables Save through the lookup and the dialog, so a second click can't send another update.
+                setSaving(true)
+                void confirmHistoryAccessRules(
+                    currentProjectId,
+                    table.id,
+                    (copy) => void applyUpdate({ copyAccessRulesToHistory: copy }),
+                    () => setSaving(false)
+                )
+                return
+            }
+            const historyTableName = schema.registered_history_table_name
+            const stopsWritingHistory =
+                writesHistoryTable(schema.sync_type, schema.cdc_table_mode) &&
+                !writesHistoryTable(syncType, cdcTableMode ?? schema.cdc_table_mode)
+            if (!historyTableName || !stopsWritingHistory) {
+                void applyUpdate()
+                return
+            }
+            LemonDialog.open({
+                title: 'Delete the history table too?',
+                content: (
+                    <div className="text-sm text-secondary deprecated-space-y-2">
+                        <p>
+                            After this change, <strong>{historyTableName}</strong> stops recording new versions of each
+                            row.
+                        </p>
+                        <p>
+                            Delete it to remove the table, every past version in it, and the joins that use it. This
+                            can't be undone. Keep it to go on querying the versions recorded so far. You can delete it
+                            later from the danger zone.
+                        </p>
+                    </div>
+                ),
+                primaryButton: {
+                    children: 'Delete history table',
+                    status: 'danger',
+                    onClick: () => void applyUpdate({ dropHistoryTable: true }),
+                    'data-attr': 'schema-sync-method-delete-history-table',
+                },
+                secondaryButton: {
+                    children: 'Keep history table',
+                    type: 'secondary',
+                    onClick: () => void applyUpdate(),
+                    'data-attr': 'schema-sync-method-keep-history-table',
+                },
+            })
         }
 
         // Switching to or from xmin changes the table's physical schema (the `_ph_xmin` control
@@ -501,18 +594,18 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                         <p>The existing synced data is replaced. This can take a while for large tables.</p>
                     </div>
                 ),
-                primaryButton: { children: 'Resync now', onClick: () => void applyUpdate() },
+                primaryButton: { children: 'Resync now', onClick: askAboutHistoryThenApply },
                 secondaryButton: { children: 'Cancel', type: 'tertiary' },
             })
             return
         }
 
         if (!schema.should_sync && schema.pending_self_managed_table) {
-            confirmPendingSelfManagedSync(1, () => void applyUpdate())
+            confirmPendingSelfManagedSync(1, askAboutHistoryThenApply)
             return
         }
 
-        await applyUpdate()
+        askAboutHistoryThenApply()
     }
 
     return (
@@ -1419,24 +1512,36 @@ function AnchorTimeField({
     )
 }
 
+function writesHistoryTable(
+    syncType: ExternalDataSourceSchema['sync_type'],
+    cdcTableMode: ExternalDataSourceSchema['cdc_table_mode']
+): boolean {
+    return syncType === 'cdc' && (cdcTableMode ?? 'consolidated') !== 'consolidated'
+}
+
 function DangerZoneSection({
     source,
     schema,
     resyncSchema,
     resyncingSchema,
     deleteTable,
+    deleteHistoryTable,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     resyncSchema: (schema: ExternalDataSourceSchema) => void
     resyncingSchema: boolean
     deleteTable: (schema: ExternalDataSourceSchema) => void
+    deleteHistoryTable: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const hasFullCdcResync = schema.sync_type === 'cdc'
     const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook' || schema.sync_type === 'xmin'
     const canDeleteTable = !!schema.table
+    const retiredHistoryTableName = writesHistoryTable(schema.sync_type, schema.cdc_table_mode)
+        ? null
+        : schema.registered_history_table_name
 
-    if (!hasFullCdcResync && !hasDeleteAndResync && !canDeleteTable) {
+    if (!hasFullCdcResync && !hasDeleteAndResync && !canDeleteTable && !retiredHistoryTableName) {
         return (
             <div>
                 <SectionHeader title="Danger zone" />
@@ -1541,6 +1646,31 @@ function DangerZoneSection({
                                         disabledReason={disabledReason}
                                     >
                                         Delete table from PostHog
+                                    </LemonButton>
+                                </Tooltip>
+                            )}
+                            {retiredHistoryTableName && (
+                                <Tooltip title="Delete the history table this table no longer writes, with every past version of each row in it.">
+                                    <LemonButton
+                                        type="secondary"
+                                        status="danger"
+                                        data-attr="schema-delete-history-table"
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: `Delete ${retiredHistoryTableName}?`,
+                                                description:
+                                                    "This deletes the history table, every past version of each row in it, and the joins that use it. This can't be undone.",
+                                                primaryButton: {
+                                                    children: 'Delete history table',
+                                                    status: 'danger',
+                                                    onClick: () => deleteHistoryTable(schema),
+                                                },
+                                                secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                            })
+                                        }}
+                                        disabledReason={disabledReason}
+                                    >
+                                        Delete history table
                                     </LemonButton>
                                 </Tooltip>
                             )}

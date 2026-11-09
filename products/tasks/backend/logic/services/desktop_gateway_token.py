@@ -101,7 +101,7 @@ def record_gateway_token_refusal(surface: GatewayRefusalSurface, reason: str, *,
 def _team_credit_refusal(team_id: int, bucket: str) -> str | None:
     from posthog.models import Team  # noqa: PLC0415
 
-    from ee.billing.quota_limiting import QuotaResource, is_team_over_credit_budget  # noqa: PLC0415
+    from ee.billing.quota_limiting import QuotaResource, get_fresh_team_limited_resources  # noqa: PLC0415
 
     row = Team.objects.filter(id=team_id).values_list("api_token", "organization__is_active").first()
     if not row:
@@ -109,7 +109,7 @@ def _team_credit_refusal(team_id: int, bucket: str) -> str | None:
     api_token, org_active = row
     if org_active is False:
         return "org_deactivated"
-    if api_token and is_team_over_credit_budget(api_token, QuotaResource(bucket)):
+    if api_token and get_fresh_team_limited_resources(api_token)[QuotaResource(bucket)]:
         return f"{bucket}_exhausted"
     return None
 

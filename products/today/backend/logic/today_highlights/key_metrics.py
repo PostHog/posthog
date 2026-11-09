@@ -22,7 +22,11 @@ PULSE_DAYS = 28
 
 
 def find(context: Context) -> Found:
-    slots = [contracts.PulseSlot(key=key, name=name) for key, name in get_key_metric_names(team=context.team).items()]
+    slots = [
+        contracts.PulseSlot(key=key, name=name)
+        for key, name in get_key_metric_names(team=context.team).items()
+        if key not in context.hidden
+    ]
     context.publish_pulse(Found(), slots)
     metrics = get_key_metrics(team=context.team, user=context.user)
     deadline = monotonic() + 20
@@ -34,7 +38,9 @@ def find(context: Context) -> Found:
         raise DailyValueNotReady("key_metrics")
     shown = [metric for metric in metrics if metric.this_week or metric.last_week]
     candidates = [candidate for metric in shown if (candidate := _same_weekday(context, metric)) is not None]
-    found = Found(items=tuple(candidates), pulse=tuple(tile(metric) for metric in shown))
+    found = Found(
+        items=tuple(candidates), pulse=tuple(tile(metric) for metric in shown if metric.key not in context.hidden)
+    )
     keys = {metric.key for metric in found.pulse}
     context.publish_pulse(
         found,

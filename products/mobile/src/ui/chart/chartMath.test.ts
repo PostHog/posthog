@@ -124,13 +124,15 @@ describe('chartMath', () => {
     test.each([
         [false, '4:07 PM'],
         [true, '16:07'],
-    ])('hourly chart labels follow the 24-hour preference %s', (uses24hourClock, clock) => {
+    ])('hourly and minute chart labels follow the 24-hour preference %s', (uses24hourClock, clock) => {
         jest.mocked(getCalendars).mockReturnValue([{ ...getCalendars()[0], uses24hourClock }])
         const at = new Date(2026, 9, 13, 16, 7).getTime()
         expect(formatPagerDate(at, 'hour')).toBe(`Oct 13, ${clock}`)
         expect(formatAxisDate(at, 'hour')).toBe(clock)
         expect(formatTooltipDate(at, 'hour', true)).toBe(clock)
         expect(formatTooltipDate(at, 'hour')).toBe(`Tue, Oct 13, ${clock}`)
+        expect(formatAxisDate(at, 'minute')).toBe(clock)
+        expect(formatTooltipDate(at, 'minute')).toBe(clock)
     })
 
     test.each<[string, Date, boolean, string]>([
@@ -161,4 +163,26 @@ describe('chartMath', () => {
         expect(span.top).toBeCloseTo(top)
         expect(span.height).toBeCloseTo(height)
     })
+})
+
+test('mixed lines and bars on separate axes never add to one another’s stacks', () => {
+    const series: ChartSeries[] = [
+        { key: 'one', label: 'One', color: '#111111', kind: 'bar', points: [{ at: 0, value: 100 }] },
+        {
+            key: 'growth',
+            label: 'Growth',
+            color: '#222222',
+            kind: 'line',
+            axis: 'right',
+            points: [{ at: 0, value: 25 }],
+        },
+        { key: 'two', label: 'Two', color: '#333333', kind: 'bar', points: [{ at: 0, value: 50 }] },
+        { key: 'right', label: 'Right', color: '#444444', kind: 'bar', axis: 'right', points: [{ at: 0, value: 5 }] },
+    ]
+    expect(barSegments(series, 'stacked')).toEqual([
+        { starts: [0], ends: [100] },
+        { starts: [0], ends: [25] },
+        { starts: [100], ends: [150] },
+        { starts: [0], ends: [5] },
+    ])
 })

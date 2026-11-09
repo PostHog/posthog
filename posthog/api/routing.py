@@ -8,6 +8,7 @@ from uuid import UUID
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models.query import QuerySet
 
+import structlog
 from opentelemetry import trace
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -31,6 +32,7 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.dataclasses import frozen
+from posthog.ip_restrictions import IPRestrictionsPermission
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
@@ -223,6 +225,9 @@ class RouterRegistry:
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
 class TeamAndOrgViewSetMixin(_GenericViewSet):
+    # Defer early IP checks so permissions can resolve token and organization overrides after authentication.
+    _ip_restrictions_use_view_scope = True
+
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
@@ -366,6 +371,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             request_span = trace.get_current_span()
             if request_span.is_recording():
                 request_span.set_attribute("team_id", team_id)
+            # Bind the same team to the log context. `user_logging_context_middleware` binds a
+            # team from `request.user`, but DRF authenticates inside the view, so `request.user`
+            # is anonymous while that middleware runs and every API-key request logs with no team
+            # at all. This is also the team being acted on, which the user's current team is not.
+            structlog.contextvars.bind_contextvars(team_id=team_id)
             # Compute canonical team_id. self.team is a @cached_property
             # (line ~297) usually loaded by the permission checks above, so
             # this is free. Reading via __dict__ rather than attribute access
@@ -412,6 +422,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 VerifiedDomainEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
+                IPRestrictionsPermission(),
             ]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
@@ -442,6 +453,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         permission_classes.append(VerifiedDomainEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
         permission_classes.append(ActiveOrganizationPermission)
+        permission_classes.append(IPRestrictionsPermission)
 
         permission_classes.extend(self.permission_classes)
         return [permission() for permission in permission_classes]
@@ -882,7 +894,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
-        return UserPermissions(user=cast(User, self.request.user), team=self.team)
+        return UserPermissions(
+            user=cast(User, self.request.user),
+            team=self.team,
+            organization_membership=self.user_access_control.organization_membership,
+        )
 
     @cached_property
     def user_access_control(self) -> "UserAccessControl":

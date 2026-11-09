@@ -1,3 +1,4 @@
+import { useSegments } from 'expo-router'
 import { NativeTabs } from 'expo-router/native-tabs'
 import { type ReactElement, useRef } from 'react'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
@@ -7,8 +8,9 @@ import { nativeIcons } from '@/ui/icons/nativeIcons'
 import { useNavigationOverlayStore } from '@/ui/overlayDismiss'
 import { useColors } from '@/ui/theme'
 import { useNativeRail } from '@/ui/useNativeRail'
-import { useNavPins } from './navPinStore'
+import { isNavPin, NAV_PINS, useNavPins } from './navPinStore'
 import { type TabKey, useTabHeaderStore } from './tabHeaderStore'
+import { tabForRoute, tabRouteName } from './tabRoutes'
 import { visibleNavPins } from './visibleNavPins'
 
 const LABELS: Record<TabKey, string> = {
@@ -17,6 +19,8 @@ const LABELS: Record<TabKey, string> = {
     views: 'Views',
     errors: 'Errors',
     replay: 'Sessions',
+    web_analytics: 'Web analytics',
+    live: 'Live',
 }
 const ICONS = {
     inbox: nativeIcons.home,
@@ -24,13 +28,17 @@ const ICONS = {
     views: nativeIcons.views,
     errors: nativeIcons.errors,
     replay: nativeIcons.replay,
-}
-const TEST_IDS = {
+    web_analytics: nativeIcons.webAnalytics,
+    live: nativeIcons.live,
+} satisfies Record<TabKey, unknown>
+const TEST_IDS: Record<TabKey, string> = {
     inbox: 'inbox-nav-home',
     chats: 'inbox-nav-chat',
     views: 'inbox-nav-views',
     errors: 'nav-pin-errors',
     replay: 'nav-pin-replay',
+    web_analytics: 'nav-pin-web_analytics',
+    live: 'nav-pin-live',
 }
 
 export function NativeTabsLayout(): ReactElement {
@@ -41,8 +49,11 @@ export function NativeTabsLayout(): ReactElement {
     const focused = useTabHeaderStore((state) => state.focused)
     const pins = useNavPins()
     const flags = useMobileProductFlags()
-    const shownPins = visibleNavPins(pins, focused, flags)
-    const tabs: TabKey[] = ['inbox', 'chats', 'views', ...new Set([...shownPins, 'errors', 'replay'] as const)]
+    const segments: readonly string[] = useSegments()
+    const [group, route] = segments
+    const shownPins = visibleNavPins(pins, group === '(tabs)' ? tabForRoute(route) : focused, flags)
+    // Every pinnable tab stays registered, the shown pin first so it takes the slot after Views.
+    const tabs: TabKey[] = ['inbox', 'chats', 'views', ...new Set([...shownPins, ...NAV_PINS])]
     useViewsOpenedEvent(focused === 'views')
     return (
         <NativeTabs
@@ -53,7 +64,7 @@ export function NativeTabsLayout(): ReactElement {
             preferredPlacement="tabBar"
             screenListeners={({ route }) => ({
                 focus: () => {
-                    const tab = route.name as TabKey
+                    const tab = tabForRoute(route.name)
                     useTabHeaderStore.getState().setFocused(tab)
                     if (lastFocused.current === tab) return
                     lastFocused.current = tab
@@ -65,9 +76,9 @@ export function NativeTabsLayout(): ReactElement {
             {tabs.map((tab) => (
                 <NativeTabs.Trigger
                     key={tab}
-                    name={tab}
+                    name={tabRouteName(tab)}
                     disabled={blocked}
-                    hidden={(tab === 'errors' || tab === 'replay') && !shownPins.includes(tab)}
+                    hidden={isNavPin(tab) && !shownPins.includes(tab)}
                     testID={TEST_IDS[tab]}
                     accessibilityLabel={LABELS[tab]}
                     disableAutomaticContentInsets
