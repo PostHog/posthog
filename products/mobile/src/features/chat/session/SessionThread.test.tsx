@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import * as Clipboard from 'expo-clipboard'
+import type { ReactElement } from 'react'
 import { ActivityIndicator, ScrollView } from 'react-native'
 import { setAnalyticsClient } from '@/lib/analytics'
 
+import * as markdown from '../ChatMarkdown'
 import { SessionThread } from './SessionThread'
 import type { Session, SessionThreadItem, SessionToolInvocation } from './types'
 
@@ -144,6 +146,33 @@ describe('SessionThread', () => {
         expect(copy).toHaveBeenCalledWith('Final reply')
         expect(screen.getByLabelText('Good answer')).toBeTruthy()
         expect(screen.getByLabelText('Bad answer')).toBeTruthy()
+    })
+
+    test('keeps completed answers from rerendering while the next answer streams', () => {
+        const renderMarkdown = jest.spyOn(markdown, 'ChatMarkdown')
+        const history: SessionThreadItem[] = [
+            { kind: 'user', id: 'first-prompt', text: 'Find the error' },
+            { kind: 'assistant', id: 'first-answer', text: 'The request timed out.', complete: true },
+            { kind: 'turn_end', id: 'first-end', traceId: 'trace-1', runId: 'run-1' },
+            { kind: 'user', id: 'next-prompt', text: 'How can we retry?' },
+        ]
+        const thread = (text: string): ReactElement => (
+            <SessionThread
+                session={session({
+                    items: [...history, { kind: 'assistant', id: 'next-answer', text, complete: false }],
+                })}
+                onRetryHistory={jest.fn()}
+                feedbackContext={{ sessionId: 'task-1', runtime: 'sandbox' }}
+            />
+        )
+
+        const { rerender } = render(thread('Retry'))
+        expect(screen.getByLabelText('Good answer')).toBeTruthy()
+        renderMarkdown.mockClear()
+
+        rerender(thread('Retry the request.'))
+
+        expect(renderMarkdown.mock.calls.map(([props]) => props.text)).toEqual(['Retry the request.'])
     })
 
     test.each(['rejected', 'false'] as const)(

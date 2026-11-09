@@ -42,31 +42,42 @@ interface SessionThreadProps {
     feedbackContext?: ChatFeedbackContext
 }
 
-const AssistantRow = memo(function AssistantRow({
-    item,
-    feedback,
-}: {
-    item: SessionAssistantItem
-    feedback?: ChatFeedbackTarget
-}): ReactElement {
-    const styles = useStyles()
-    return (
-        <View style={item.complete ? undefined : styles.assistant} testID="session-assistant">
-            <ChatMarkdown text={item.text} streaming={!item.complete} projectUrl={item.projectUrl} />
-            {item.complete ? (
-                <View style={styles.actions}>
-                    <CopyMessageButton text={item.text} messageRole="assistant" />
-                    {feedback ? (
-                        <MessageFeedbackActions
-                            key={`${feedback.sessionId}:${feedback.traceId ?? feedback.turnIndex}`}
-                            target={feedback}
-                        />
-                    ) : null}
-                </View>
-            ) : null}
-        </View>
-    )
-})
+const AssistantRow = memo(
+    function AssistantRow({
+        item,
+        feedback,
+    }: {
+        item: SessionAssistantItem
+        feedback?: ChatFeedbackTarget
+    }): ReactElement {
+        const styles = useStyles()
+        return (
+            <View style={item.complete ? undefined : styles.assistant} testID="session-assistant">
+                <ChatMarkdown text={item.text} streaming={!item.complete} projectUrl={item.projectUrl} />
+                {item.complete ? (
+                    <View style={styles.actions}>
+                        <CopyMessageButton text={item.text} messageRole="assistant" />
+                        {feedback ? (
+                            <MessageFeedbackActions
+                                key={`${feedback.sessionId}:${feedback.traceId ?? feedback.turnIndex}`}
+                                target={feedback}
+                            />
+                        ) : null}
+                    </View>
+                ) : null}
+            </View>
+        )
+    },
+    (previous, next) =>
+        previous.item.text === next.item.text &&
+        previous.item.complete === next.item.complete &&
+        previous.item.projectUrl === next.item.projectUrl &&
+        previous.feedback?.sessionId === next.feedback?.sessionId &&
+        previous.feedback?.runtime === next.feedback?.runtime &&
+        previous.feedback?.traceId === next.feedback?.traceId &&
+        previous.feedback?.runId === next.feedback?.runId &&
+        previous.feedback?.turnIndex === next.feedback?.turnIndex
+)
 
 const ErrorRow = memo(function ErrorRow({ item }: { item: SessionErrorItem }): ReactElement {
     return <ChatErrorBubble text={errorItemText(item)} />
