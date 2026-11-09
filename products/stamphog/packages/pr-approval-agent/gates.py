@@ -546,15 +546,15 @@ def detect_deny_categories(
 ) -> list[str]:
     """Categories hard-denied by the changed file paths. Titles never deny.
 
-    `lifted_files` maps a deny category to files that do not count toward that category only.
+    `lifted_files` maps a deny category to files that do not count toward that category only. A lift
+    matches the exact path, because Git paths are case-sensitive: `SDK/x` is a different file from `sdk/x`.
     """
     hits: set[str] = set()
-    all_paths_lower = [f.lower() for f in files]
-    lifted_lower = {category: {f.lower() for f in lifted} for category, lifted in (lifted_files or {}).items()}
+    lifted_by_category = lifted_files or {}
 
     for category, scopes in DENY_PATTERNS.items():
-        lifted_for_category = lifted_lower.get(category, set())
-        paths_lower = [p for p in all_paths_lower if p not in lifted_for_category]
+        lifted_for_category = lifted_by_category.get(category, ())
+        paths_lower = [f.lower() for f in files if f not in lifted_for_category]
         path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
         exceptions = DENY_EXCEPTIONS.get(category, {}) if apply_exceptions else {}
         if any(

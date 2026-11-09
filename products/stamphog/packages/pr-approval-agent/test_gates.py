@@ -450,6 +450,12 @@ def test_disabling_deny_exceptions_keeps_lifted_files(deny_exceptions) -> None:
             ["stamphog_policy"],
             id="lift-never-reaches-another-category",
         ),
+        pytest.param(
+            ["Posthog/migrations/0001_add_col.py"],
+            {"migrations": {"posthog/migrations/0001_add_col.py"}},
+            ["migrations"],
+            id="lift-matches-exact-case",
+        ),
     ],
 )
 def test_lifted_files_bypass_only_their_category(

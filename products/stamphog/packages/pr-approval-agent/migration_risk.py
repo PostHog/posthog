@@ -31,8 +31,7 @@ import json
 from pathlib import Path
 
 CHECK_NAME = "Migration risk"
-# The tests-posthog App, whose token the analyzer job mints to publish the check. Any workflow can
-# create a check run with this name as github-actions, so a run from another App is not the analyzer's.
+# The tests-posthog App, whose token the analyzer job mints to publish the check.
 PUBLISHER_APP_ID = 2492437
 
 _MARKER_RE = re.compile(r"<!--\s*stamphog:v1\s+(\[[^\]]*\])\s*-->")
@@ -109,7 +108,9 @@ def _latest_completed(check_runs: list[dict], name: str) -> dict | None:
     ]
     if not completed:
         return None
-    return max(completed, key=lambda cr: cr.get("completed_at") or "")
+    # GitHub assigns check run ids in creation order. `completed_at` is set by the publisher, so it
+    # cannot order runs.
+    return max(completed, key=lambda cr: cr.get("id") or 0)
 
 
 def _is_migration_file(path: str) -> bool:
