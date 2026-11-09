@@ -25,6 +25,7 @@ from products.warehouse_sources.sources.surveymonkey.settings import (
     DEFAULT_DATA_CENTER,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SURVEYMONKEY_ENDPOINTS,
 )
 from products.warehouse_sources.sources.surveymonkey.surveymonkey import (
     SurveyMonkeyResumeConfig,
@@ -101,6 +102,11 @@ Make sure to grant the following read scopes:
             ),
             releaseStatus=ReleaseStatus.BETA,
         )
+
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        # A collector-scoped chain carries no resume state, so a retry reads it again from the start.
+        config = SURVEYMONKEY_ENDPOINTS.get(schema_name) if schema_name else None
+        return config is None or not config.is_collector_fanout
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.sources.surveymonkey.canonical_descriptions import CANONICAL_DESCRIPTIONS
