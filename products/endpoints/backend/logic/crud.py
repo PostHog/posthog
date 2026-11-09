@@ -384,7 +384,7 @@ class EndpointCrudService:
         new_version = endpoint.create_new_version(query=new_query_dict, user=self.user)
         # The "current" version changed — its cached throttle readiness no longer applies.
         team_id, endpoint_name = self.team.pk, endpoint.name
-        transaction.on_commit(lambda: clear_endpoint_materialization_cache(team_id, endpoint_name))
+        transaction.on_commit(lambda: clear_endpoint_materialization_cache(team_id, endpoint_name), robust=True)
         return _QueryChange(
             target_version=new_version,
             version_was_created=True,
