@@ -205,7 +205,7 @@ describe('broadcastsLogic', () => {
             expected: {
                 latestBatchJob: RUN,
                 hasPendingSchedule: undefined,
-                totals: expect.any(Object),
+                totals: { email_sent: 120, failed: 3 },
                 batchJobStatuses: ['completed'],
             },
         },
