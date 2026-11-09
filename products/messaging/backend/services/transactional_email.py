@@ -639,8 +639,9 @@ def _queue(
             "The email is larger than PostHog can send. Make its content or data smaller, and link to "
             "large images and files instead of embedding them."
         )
+    answer = _answer(response)
     if response.status_code != 202:
-        refusal_code = _refusal_code(response)
+        refusal_code = _refusal_code(answer)
         unknown_field = _send_field_an_older_pipeline_refused(refusal_code) if response.status_code == 400 else None
         if unknown_field is not None:
             logger.warning(
@@ -650,7 +651,7 @@ def _queue(
                 field=unknown_field,
             )
             raise FieldNotAccepted(unknown_field)
-        if attachment_refusal := _attachment_refusal(response, refusal_code):
+        if attachment_refusal := _attachment_refusal(response.status_code, refusal_code, answer):
             raise attachment_refusal
         refusal = PIPELINE_REFUSALS.get(refusal_code or "")
         if refusal is None and response.status_code == 400:
@@ -667,41 +668,34 @@ def _queue(
             raise DeliveryUnavailable()
         error_class, message = refusal
         error = error_class(message)
-        error.attachment_bytes = _attachment_bytes(response)
+        error.attachment_bytes = _attachment_bytes(answer)
         raise error
 
-    body = response.json()
     return QueuedEmail(
-        message_id=str(body["invocation_id"]),
-        replayed=bool(body.get("replayed", False)),
-        attachment_bytes=_attachment_bytes(response),
+        message_id=str(answer["invocation_id"]),
+        replayed=bool(answer.get("replayed", False)),
+        attachment_bytes=_attachment_bytes(answer),
     )
 
 
-def _attachment_refusal(response: requests.Response, refusal_code: str | None) -> TransactionalEmailError | None:
-    if response.status_code != 400 or refusal_code not in {"attachment_not_uploaded", "message_too_large"}:
+def _attachment_refusal(
+    status_code: int, refusal_code: str | None, answer: dict[str, Any]
+) -> TransactionalEmailError | None:
+    if status_code != 400 or refusal_code not in {"attachment_not_uploaded", "message_too_large"}:
         return None
-    sha256 = _answer_field(response, "sha256")
+    sha256 = answer.get("sha256")
     error = (
         AttachmentNotUploaded(sha256 if isinstance(sha256, str) else None)
         if refusal_code == "attachment_not_uploaded"
         else MessageTooLarge(sha256 if isinstance(sha256, str) else None)
     )
-    error.attachment_bytes = _attachment_bytes(response)
+    error.attachment_bytes = _attachment_bytes(answer)
     return error
 
 
-def _attachment_bytes(response: requests.Response) -> int | None:
-    total = _answer_field(response, "attachment_bytes")
+def _attachment_bytes(answer: dict[str, Any]) -> int | None:
+    total = answer.get("attachment_bytes")
     return total if isinstance(total, int) and not isinstance(total, bool) and total >= 0 else None
-
-
-def _answer_field(response: requests.Response, name: str) -> Any:
-    try:
-        body = response.json()
-    except ValueError:
-        return None
-    return body.get(name) if isinstance(body, dict) else None
 
 
 def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
@@ -717,12 +711,16 @@ def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
     return None
 
 
-def _refusal_code(response: requests.Response) -> str | None:
+def _answer(response: requests.Response) -> dict[str, Any]:
     try:
         body = response.json()
     except ValueError:
-        return None
-    code = body.get("error") if isinstance(body, dict) else None
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _refusal_code(answer: dict[str, Any]) -> str | None:
+    code = answer.get("error")
     return code if isinstance(code, str) else None
 
 
@@ -735,11 +733,12 @@ def prepare_attachment_uploads(team: Team, files: Sequence[AttachmentUploadReque
         raise DeliveryUnavailable() from e
     if response.status_code == 200:
         return _answered_slots(team, files, response)
-    refusal_code = _refusal_code(response)
+    answer = _answer(response)
+    refusal_code = _refusal_code(answer)
     if refusal_code == "field_not_accepted":
         raise FieldNotAccepted("attachments")
     if refusal_code == "message_too_large":
-        sha256 = response.json().get("sha256")
+        sha256 = answer.get("sha256")
         raise MessageTooLarge(sha256 if isinstance(sha256, str) else None)
     if refusal_code == "upload_quota_exceeded":
         raise UploadQuotaExceeded("This project uploaded as many file bytes as it can today.")
