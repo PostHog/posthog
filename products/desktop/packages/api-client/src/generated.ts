@@ -15673,6 +15673,38 @@ export namespace Schemas {
         | "posthog_web"
         | "slack";
     /**
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done
+     */
+    export type TaskStatusEnum = "queued" | "running" | "idle" | "done";
+    /**
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled
+     */
+    export type TaskStatusReasonEnum =
+        | "turn_closed"
+        | "user_stopped"
+        | "provision_failed"
+        | "unexpected_failure"
+        | "timed_out"
+        | "budget_spent"
+        | "credit_spent"
+        | "access_changed"
+        | "finished"
+        | "closed"
+        | "cancelled";
+    /**
      * Detail response for a task.
      *
      * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
@@ -15793,6 +15825,30 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         repository_integration?: (number | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        status?: (TaskStatusEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        status_reason?: (TaskStatusReasonEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        status_detail?: (string | null) | undefined;
     };
     /**
      * Basic list response for a task, returned when the list is asked for ``basic=true``.
@@ -15951,6 +16007,39 @@ export namespace Schemas {
          */
         repository_integration?: (number | null) | undefined;
         /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        status?: (TaskStatusEnum | NullEnum) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        status_reason?: (TaskStatusReasonEnum | NullEnum) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        status_detail?: (string | null) | undefined;
+        /**
          * First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text.
          */
         description_preview: string;
@@ -16052,6 +16141,14 @@ export namespace Schemas {
          * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
          */
         latest_run?: (TaskRunSummary | null) | undefined;
+        /**
+         * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
+         */
+        status?: (TaskStatusEnum | NullEnum) | undefined;
+        /**
+         * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
+         */
+        status_reason?: (TaskStatusReasonEnum | NullEnum) | undefined;
     };
     export type PaginatedTaskSummaryDTOList = {
         count: number;
@@ -18545,6 +18642,30 @@ export namespace Schemas {
          * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
+        status?: (TaskStatusEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        status_reason?: (TaskStatusReasonEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        status_detail?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
         run_error?: string | undefined;
     };
     export type TaskReviewFile = {
@@ -18754,6 +18875,27 @@ export namespace Schemas {
          * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         repository_integration?: (number | null) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        status?: (TaskStatusEnum | NullEnum) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        status_reason?: (TaskStatusReasonEnum | NullEnum) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        status_detail?: (string | null) | undefined;
         /**
          * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
@@ -20268,6 +20410,7 @@ export namespace Endpoints {
                     | "completed"
                     | "failed"
                     | "cancelled";
+                task_status: "queued" | "running" | "idle" | "done";
             }>;
             path: { project_id: string };
         };
