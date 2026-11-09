@@ -777,9 +777,16 @@ class TestAllValuesBucketLimit(SimpleTestCase):
 
         self.assertEqual(
             str(context.exception),
-            "This date range splits into 100,001 minute intervals, and a query can use at most 100,000. "
+            "This date range splits into 250,001 minute intervals, and a query can use at most 250,000. "
             "Choose a shorter date range or a longer interval.",
         )
+
+    def test_hour_interval_from_the_earliest_timestamp_floor_is_allowed(self):
+        date_range = self._query_date_range(
+            DateRange(date_from="2015-01-01", date_to="2040-01-01", explicitDate=True), IntervalType.HOUR
+        )
+
+        self.assertEqual(len(date_range.all_values()), 219_145)
 
     @parameterized.expand(
         [

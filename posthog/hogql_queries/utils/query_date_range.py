@@ -20,9 +20,9 @@ from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_
 CALENDAR_DAY_RE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{8}")
 
 # The most date buckets that all_values() can return for one query. The date range and the interval
-# come from the request, and all_values() creates one datetime for each bucket. At this limit, a minute
-# interval covers more than 69 days and an hour interval covers more than 11 years.
-MAX_DATE_BUCKETS = 100_000
+# come from the request, and all_values() creates one datetime for each bucket. The limit must stay above
+# an hour interval over "all time", which starts at the 2015-01-01 floor of the earliest event timestamp.
+MAX_DATE_BUCKETS = 250_000
 
 
 @frozen
