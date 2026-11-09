@@ -170,6 +170,9 @@ importers:
       '@biomejs/biome':
         specifier: 2.2.4
         version: 2.2.4
+      '@posthog/brand':
+        specifier: 0.17.0
+        version: 0.17.0(react@19.3.0)
       '@react-native/jest-preset':
         specifier: 0.88.1
         version: 0.88.1(@babel/core@7.29.7)(react@19.3.0)
@@ -188,6 +191,9 @@ importers:
       '@types/react':
         specifier: ~19.2.4
         version: 19.2.18
+      '@xmldom/xmldom':
+        specifier: 0.9.12
+        version: 0.9.12
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@26.6.4)
@@ -1347,6 +1353,15 @@ packages:
   '@pkgr/core@0.3.6':
     resolution: {integrity: sha512-SEeaJLb3qBNF/OaXnaR1NmmBbFYk1zC0ZH/52fATcRPLFg/p791YrcyFFy44Bo9sLaGuSuLp5Q6axbb/O+v/RA==}
     engines: {node: ^14.18.0 || >=16.0.0}
+
+  '@posthog/brand@0.17.0':
+    resolution: {integrity: sha512-zso8ODYQIaTHZduy12WO/whwevFypAU5JLkpfnIl1TC0uroPcoPWRmTvVjG8ADNagrk7+t1TFCWFU5TcDPMJjw==}
+    engines: {node: '>=22.18'}
+    peerDependencies:
+      react: '>=18'
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@posthog/core@1.61.1':
     resolution: {integrity: sha512-qyMTxPfjeJkHIhpcukOgBN3BWXbCyFRPz8/Voy5qZtVh9NZqj3EhC6LLeYZuJhL3WpqhQTgn2FMIwAo/ag6fmw==}
@@ -6478,6 +6493,10 @@ snapshots:
     optional: true
 
   '@pkgr/core@0.3.6': {}
+
+  '@posthog/brand@0.17.0(react@19.3.0)':
+    optionalDependencies:
+      react: 19.3.0
 
   '@posthog/core@1.61.1':
     dependencies:
