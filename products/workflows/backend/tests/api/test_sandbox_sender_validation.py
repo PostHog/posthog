@@ -615,13 +615,15 @@ class TestSandboxSenderValidation(APIBaseTest):
 
         assert response.status_code == 200, response.json()
 
-    def _stored_templated_workflow(self, action_type: str) -> tuple[HogFlow, list[dict[str, Any]]]:
+    def _stored_templated_workflow(
+        self, action_type: str, templated_from: object = None
+    ) -> tuple[HogFlow, list[dict[str, Any]]]:
         workflow = self._workflow()
         action = workflow["actions"][1]
         action["type"] = action_type
         if action_type == "function":
             action["config"]["template_id"] = "template-email"
-        action["config"]["inputs"]["email"]["value"]["from"] = {"integrationId": "{inputs.sender}"}
+        action["config"]["inputs"]["email"]["value"]["from"] = templated_from or {"integrationId": "{inputs.sender}"}
         action["config"]["inputs"]["email"]["value"]["replyTo"] = "stored-reply@example.com"
         stored = HogFlow.objects.create(
             team=self.team, name="Templated workflow", actions=workflow["actions"], edges=workflow["edges"]
@@ -630,15 +632,16 @@ class TestSandboxSenderValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("email_step_renamed", "subject", "Renamed subject", "function_email"),
-            ("generic_step_renamed", "subject", "Renamed subject", "function"),
-            ("reply_to_cleared", "replyTo", "", "function_email"),
+            ("email_step_renamed", "subject", "Renamed subject", "function_email", None),
+            ("generic_step_renamed", "subject", "Renamed subject", "function", None),
+            ("reply_to_cleared", "replyTo", "", "function_email", None),
+            ("string_from_template_renamed", "subject", "Renamed subject", "function_email", "{inputs.from_address}"),
         ]
     )
     def test_stored_templated_sender_survives_edits_that_keep_it(
-        self, _name: str, field: str, value: str, action_type: str
+        self, _name: str, field: str, value: str, action_type: str, templated_from: str | None
     ) -> None:
-        stored, actions = self._stored_templated_workflow(action_type)
+        stored, actions = self._stored_templated_workflow(action_type, templated_from)
         actions[1]["config"]["inputs"]["email"]["value"][field] = value
 
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{stored.id}", {"actions": actions})
