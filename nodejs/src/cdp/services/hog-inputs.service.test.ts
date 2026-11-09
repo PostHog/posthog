@@ -843,6 +843,42 @@ describe('Hog Inputs', () => {
             expect(hogInputsService.acceptedAccessTokenPlaceholders(integrationId2)).toContain(inputs.auth.access_token)
         })
 
+        it('renders a credential input as a handle and resolves the credential only for the fetch step', async () => {
+            hogFunction = createHogFunction({
+                ...hogFunction,
+                inputs: { oauth: { value: integrationId1 } },
+                encrypted_inputs: {
+                    api_key: {
+                        value: 'sk_secret',
+                        bytecode: await compileHog("return 'sk_secret'"),
+                        auth: { scheme: 'bearer', origins: ['https://api.example.com'] },
+                    } as any,
+                },
+                inputs_schema: [
+                    { key: 'oauth', type: 'integration', required: true, auth: { scheme: 'bearer' } },
+                    { key: 'api_key', type: 'string', secret: true, required: true },
+                ],
+            })
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs).toEqual({
+                oauth: { $integration_id: integrationId1, team: 'foobar', $credential: 'oauth' },
+                api_key: { $credential: 'api_key' },
+            })
+            expect(await hogInputsService.resolveCredential(hogFunction, 'oauth')).toEqual({
+                credential: {
+                    inputKey: 'oauth',
+                    declaration: { scheme: 'bearer' },
+                    origins: ['https://slack.com'],
+                    secret: 'token',
+                },
+            })
+            expect(await hogInputsService.resolveCredential(hogFunction, 'api_key')).toMatchObject({
+                credential: { secret: 'sk_secret', origins: ['https://api.example.com'] },
+            })
+        })
+
         it('should coerce string results to booleans for boolean schema fields', async () => {
             hogFunction.inputs = {
                 is_enabled: {

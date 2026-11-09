@@ -12,6 +12,13 @@ import {
     HogFunctionType,
     IntegrationType,
 } from '../types'
+import {
+    CredentialAuthDeclaration,
+    INTEGRATION_AUTH,
+    ResolvedCredential,
+    credentialHandle,
+    publicIntegrationConfig,
+} from '../utils/credential-auth'
 import { throwIfDeadlinePassed } from '../utils/deadline'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
@@ -163,6 +170,11 @@ export class HogInputsService {
 
         for (const [key, input] of orderedInputs) {
             if (!input) {
+                continue
+            }
+
+            if (boundSecretDeclaration(input)) {
+                newGlobals.inputs[key] = credentialHandle(key)
                 continue
             }
 
@@ -387,8 +399,24 @@ export class HogInputsService {
         const decryptFailures = await this.integrationManager.getDecryptFailures(allIds)
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
-        const resolveIntegration = (id: number): Record<string, any> | null =>
-            this.resolveIntegration(integrations[id], hogFunction.team_id, (decryptFailures[id]?.length ?? 0) > 0)
+        const handleKeys = new Set(allSchemas.filter((schema) => schema.auth).map((schema) => schema.key))
+
+        const resolveIntegration = (id: number, handleKey?: string): Record<string, any> | null => {
+            const resolved = this.resolveIntegration(
+                integrations[id],
+                hogFunction.team_id,
+                (decryptFailures[id]?.length ?? 0) > 0
+            )
+            if (!resolved || !handleKey) {
+                return resolved
+            }
+            const integration = integrations[id]!
+            return markServerResolvedIntegration({
+                $integration_id: integration.id,
+                ...publicIntegrationConfig(integration.config, integration.sensitive_config),
+                ...credentialHandle(handleKey),
+            })
+        }
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
             // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
@@ -404,7 +432,7 @@ export class HogInputsService {
             if (isUsed && (decryptFailures[id]?.length ?? 0) > 0) {
                 throw new HogConfigurationError(decryptIntegrationMessage(key))
             }
-            returnInputs[key] = { value: resolveIntegration(id) }
+            returnInputs[key] = { value: resolveIntegration(id, handleKeys.has(key) ? key : undefined) }
         })
 
         Object.entries(multiInputsToLoad).forEach(([key, ids]) => {
@@ -421,7 +449,7 @@ export class HogInputsService {
             ) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
             }
-            returnInputs[key] = { value: ids.map(resolveIntegration).filter((v) => v !== null) }
+            returnInputs[key] = { value: ids.map((id) => resolveIntegration(id)).filter((v) => v !== null) }
         })
 
         if (newGlobals) {
@@ -431,6 +459,99 @@ export class HogInputsService {
 
         return returnInputs
     }
+
+    // Only the fetch step calls this, so the credential never reaches a value that code can read.
+    public async resolveCredential(
+        hogFunction: HogFunctionType,
+        inputKey: string
+    ): Promise<{ credential: ResolvedCredential } | { error: string }> {
+        const schemas = [
+            ...(hogFunction.inputs_schema ?? []),
+            ...(hogFunction.mappings?.flatMap((m) => m.inputs_schema ?? []) ?? []),
+        ]
+        const schema = schemas.find((s) => s.key === inputKey)
+        if (schema?.type === 'integration') {
+            return this.resolveIntegrationCredential(hogFunction, inputKey)
+        }
+
+        const input = ownInput(hogFunction.encrypted_inputs, inputKey) ?? ownInput(hogFunction.inputs, inputKey)
+        const declaration = input ? boundSecretDeclaration(input) : null
+        if (!input || !declaration || typeof input.value !== 'string') {
+            return {
+                error: `Input ${inputKey} holds no credential bound to an address. Enter the secret again and save.`,
+            }
+        }
+        const usernameInput = declaration.username_input
+        const username = usernameInput ? ownInput(hogFunction.inputs, usernameInput)?.value : undefined
+        return {
+            credential: {
+                inputKey,
+                declaration,
+                origins: declaration.origins ?? [],
+                secret: input.value,
+                ...(typeof username === 'string' ? { username } : {}),
+            },
+        }
+    }
+
+    private async resolveIntegrationCredential(
+        hogFunction: HogFunctionType,
+        inputKey: string
+    ): Promise<{ credential: ResolvedCredential } | { error: string }> {
+        const mergedInputs: Record<string, CyclotronInputType | null | undefined> = { ...hogFunction.inputs }
+        for (const mapping of hogFunction.mappings ?? []) {
+            Object.assign(mergedInputs, mapping.inputs)
+        }
+        const id = ownInput(mergedInputs, inputKey)?.value
+        const integration = typeof id === 'number' ? (await this.integrationManager.getMany([id]))[id] : undefined
+        if (
+            !integration ||
+            integration.team_id !== hogFunction.team_id ||
+            integration.kind === 'posthog' ||
+            isWarehouseSourceIntegration(integration)
+        ) {
+            return { error: `The integration for input ${inputKey} can't be used. Select a connected integration.` }
+        }
+        const rule = INTEGRATION_AUTH[integration.kind]
+        if (!rule) {
+            return { error: `PostHog can't apply the credentials of a ${integration.kind} connection to a request.` }
+        }
+        const fields = { ...integration.config, ...integration.sensitive_config }
+        const { declaration } = rule
+        const secret = fields[declaration.password_field ?? declaration.field ?? 'access_token']
+        const username = declaration.username_field ? fields[declaration.username_field] : undefined
+        if (typeof secret !== 'string') {
+            return { error: `The integration for input ${inputKey} has no credential. Connect it again.` }
+        }
+        return {
+            credential: {
+                inputKey,
+                declaration,
+                origins: rule.origins(integration.config ?? {}),
+                secret,
+                ...(typeof username === 'string' ? { username } : {}),
+            },
+        }
+    }
+}
+
+// Reads only own entries, because `inputs['__proto__']` on an object without that key returns `Object.prototype`.
+function ownInput(
+    inputs: Record<string, CyclotronInputType | null | undefined> | null | undefined,
+    key: string
+): CyclotronInputType | undefined {
+    return inputs && Object.hasOwn(inputs, key) ? (inputs[key] ?? undefined) : undefined
+}
+
+// Django stores a declaration with a secret when someone types it, with its origins resolved, and a workflow binds one
+// from its template. Code can't set either, so a secret that carries one resolves to a handle.
+function boundSecretDeclaration(input: CyclotronInputType): CredentialAuthDeclaration | null {
+    const auth: unknown = (input as { auth?: unknown }).auth
+    if (typeof auth !== 'object' || auth === null || Array.isArray(auth)) {
+        return null
+    }
+    const declaration = auth as CredentialAuthDeclaration
+    return typeof declaration.scheme === 'string' && Array.isArray(declaration.origins) ? declaration : null
 }
 
 const allInputSchemas = (hogFunction: HogFunctionType): NonNullable<HogFunctionType['inputs_schema']> => [

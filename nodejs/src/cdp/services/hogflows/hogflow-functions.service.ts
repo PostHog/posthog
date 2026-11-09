@@ -1,8 +1,10 @@
+import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
+    HogFunctionInputSchemaType,
     HogFunctionInvocationGlobals,
     HogFunctionType,
 } from '~/cdp/types'
@@ -43,7 +45,7 @@ export class HogFlowFunctionsService {
             deleted: false,
             hog: '<<TEMPLATE>>',
             bytecode: template.bytecode,
-            inputs,
+            inputs: bindTemplateSecrets(inputs, template.inputs_schema),
             inputs_schema: template.inputs_schema,
             template_id: template.template_id,
             mappings,
@@ -172,4 +174,24 @@ export class HogFlowFunctionsService {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         return this.hogFunctionExecutor.executeWithAsyncFunctions(invocation, hogExecutorOptions)
     }
+}
+
+// A workflow step runs its template's code and schema, which nobody can edit, so a secret takes its binding from there.
+// A binding from a URL input would follow later edits of that input, so such a secret stays unbound.
+function bindTemplateSecrets(
+    inputs: HogFunctionType['inputs'],
+    schemas: HogFunctionInputSchemaType[] | undefined
+): HogFunctionType['inputs'] {
+    if (!inputs) {
+        return inputs
+    }
+    const bound = { ...inputs }
+    for (const schema of schemas ?? []) {
+        const input = Object.hasOwn(bound, schema.key) ? bound[schema.key] : null
+        if (schema.secret && schema.auth?.origins && input) {
+            const { origin_input: _originInput, ...declaration } = schema.auth
+            bound[schema.key] = { ...input, auth: declaration } as CyclotronInputType
+        }
+    }
+    return bound
 }

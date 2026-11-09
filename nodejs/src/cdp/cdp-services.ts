@@ -199,6 +199,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
         | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
+        | 'CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
@@ -548,6 +549,7 @@ export function createCdpCoreServices(
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
             siteUrl: config.SITE_URL,
             internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
+            credentialAuthEnforceTeams: config.CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS,
         },
         {
             teamManager: deps.teamManager,

@@ -38,6 +38,7 @@ import {
     insertIntegration,
 } from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
+import { credentialAuthCounter } from '../utils/credential-auth'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { signIntegrationRef } from '../utils/integration-input-refs'
 import { buildHogFunctionInvocations } from '../utils/invocation-utils'
@@ -72,7 +73,10 @@ describe('Hog Executor', () => {
     let executor: HogExecutorAsyncService
     let hub: Hub
 
-    const createExecutor = (encryptedFields: EncryptedFields): HogExecutorAsyncService => {
+    const createExecutor = (
+        encryptedFields: EncryptedFields,
+        credentialAuthEnforceTeams = ''
+    ): HogExecutorAsyncService => {
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
@@ -107,6 +111,7 @@ describe('Hog Executor', () => {
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
                 internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
+                credentialAuthEnforceTeams,
             },
             {
                 teamManager: hub.teamManager,
@@ -2441,6 +2446,142 @@ describe('Hog Executor', () => {
             const [, options] = jest.mocked(fetch).mock.calls[0] as any
             expect(options.headers).toEqual({ Authorization: `Bearer ${placeholder}` })
             expect(options.body).not.toContain('warehouse_secret_token')
+        })
+
+        describe('auth_input', () => {
+            const received: { url: string; authorization: string | string[] | undefined }[] = []
+            let localOrigin: string
+            let foreignOrigin: string
+
+            beforeEach(() => {
+                const actualRequest = jest.requireActual('~/common/utils/request') as { fetch: typeof fetch }
+                jest.mocked(fetch).mockImplementation((url, options) => actualRequest.fetch(url, options))
+                received.length = 0
+                localOrigin = baseUrl
+                foreignOrigin = baseUrl.replace('localhost', '127.0.0.1')
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    received.push({ url: req.url, authorization: req.headers['authorization'] })
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+            })
+
+            const fetchWithApiKey = async (
+                params: Partial<CyclotronInvocationQueueParametersFetchType>
+            ): Promise<CyclotronJobInvocationHogFunction> => {
+                const invocation = await createFetchInvocation({
+                    url: `${localOrigin}/`,
+                    method: 'POST',
+                    body: '{}',
+                    auth_input: 'api_key',
+                    ...params,
+                })
+                invocation.hogFunction.encrypted_inputs = {
+                    api_key: { value: 'sk_victim', auth: { scheme: 'bearer', origins: [localOrigin] } },
+                } as any
+                return invocation
+            }
+
+            const mismatches = async (mode: string): Promise<number> =>
+                (await credentialAuthCounter.get()).values.find(
+                    (v) => v.labels.outcome === 'mismatch' && v.labels.mode === mode
+                )?.value ?? 0
+
+            it('overwrites an Authorization header the code set and keeps the credential out of the queue payload', async () => {
+                let callCount = 0
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    received.push({ url: req.url, authorization: req.headers['authorization'] })
+                    res.writeHead(++callCount === 1 ? 500 : 200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+                const invocation = await fetchWithApiKey({ headers: { authorization: 'Bearer sk_attacker' } })
+
+                let result = await executor.executeFetch(invocation)
+                expect(JSON.stringify(result.invocation.queueParameters)).not.toContain('sk_victim')
+                result = await executor.executeFetch(result.invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(received.map((r) => r.authorization)).toEqual(['Bearer sk_victim', 'Bearer sk_victim'])
+            })
+
+            it.each([
+                ['a host the credential is not bound to', () => ({ url: `${foreignOrigin}/` })],
+                ['a Host header that names another origin', () => ({ headers: { Host: 'attacker.example' } })],
+            ])('refuses to send the credential to %s in enforce mode', async (_name, params) => {
+                executor = createExecutor(hub.encryptedFields, '*')
+                const result = await executor.executeFetch(await fetchWithApiKey(params()))
+
+                expect(result.finished).toBe(true)
+                expect(result.error?.message).toContain('Refused to send the credential in input api_key')
+                expect(received).toEqual([])
+            })
+
+            it('sends the credential to a foreign host in observe mode and counts the mismatch', async () => {
+                const before = await mismatches('observe')
+                const result = await executor.executeFetch(await fetchWithApiKey({ url: `${foreignOrigin}/` }))
+
+                expect(result.error).toBeUndefined()
+                expect(received.map((r) => r.authorization)).toEqual(['Bearer sk_victim'])
+                expect(await mismatches('observe')).toBe(before + 1)
+            })
+
+            it('does not follow a redirect, so the credential never reaches its target', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    received.push({ url: req.url, authorization: req.headers['authorization'] })
+                    res.writeHead(302, { Location: `${foreignOrigin}/collect` })
+                    res.end()
+                })
+                const result = await executor.executeFetch(await fetchWithApiKey({}))
+
+                expect(received).toEqual([{ url: '/', authorization: 'Bearer sk_victim' }])
+                expect(result.execResult).toMatchObject({ status: 302 })
+            })
+
+            it('gives code a Slack handle that holds no token, so the token cannot reach a message body', async () => {
+                const team = (await createTestTeamFixture(hub.postgres)).team
+                const slack = await insertIntegration(hub.postgres, team.id, {
+                    kind: 'slack',
+                    config: { team: 'victim-workspace' },
+                    sensitive_config: { access_token: hub.encryptedFields.encrypt('xoxb-victim') },
+                })
+                const bytecode = await compileHog(`
+                    fetch('https://slack.com/api/chat.postMessage', {
+                        'method': 'POST',
+                        'auth': inputs.slack,
+                        'headers': {'Authorization': 'Bearer xoxb-attacker'},
+                        'body': {'text': f'{inputs.slack} {inputs.slack.access_token} {inputs.slack.access_token_raw}'}
+                    })
+                `)
+                const invocation = createExampleInvocation({
+                    ...hogFunction,
+                    team_id: team.id,
+                    bytecode,
+                    inputs: { slack: { value: slack.id } },
+                    inputs_schema: [
+                        { key: 'slack', type: 'integration', integration: 'slack', auth: { scheme: 'bearer' } },
+                    ],
+                })
+
+                const executed = await executor.execute(invocation)
+                expect(executed.invocation.queueParameters).toMatchObject({ auth_input: 'slack' })
+                expect(JSON.stringify(executed.invocation.queueParameters)).not.toContain('xoxb-victim')
+
+                jest.mocked(fetch).mockImplementationOnce(() =>
+                    Promise.resolve({
+                        status: 200,
+                        headers: {},
+                        json: () => Promise.resolve({ ok: true }),
+                        text: () => Promise.resolve('{"ok": true}'),
+                        dump: () => Promise.resolve(),
+                    } as any)
+                )
+                const result = await executor.executeFetch(executed.invocation)
+
+                expect(result.error).toBeUndefined()
+                const [, options] = jest.mocked(fetch).mock.calls[0] as any
+                expect(options.headers).toEqual({ Authorization: 'Bearer xoxb-victim' })
+                expect(options.body).not.toContain('xoxb-victim')
+            })
         })
 
         describe('with non_failure_status_codes', () => {

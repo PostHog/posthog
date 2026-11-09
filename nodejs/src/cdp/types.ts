@@ -14,6 +14,7 @@ import {
     Team,
 } from '../types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
+import type { CredentialAuthDeclaration } from './utils/credential-auth'
 import type { HogErrorClass } from './utils/hog-error-classification'
 import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
 
@@ -671,6 +672,8 @@ export type HogFunctionInputSchemaType = {
      * it can be set to 'hog' or 'liquid' to specify the default templating engine to use.
      */
     templating?: boolean | 'hog' | 'liquid'
+    /** How the worker applies this input's credential to a fetch that passes the input as `auth`. */
+    auth?: CredentialAuthDeclaration
 }
 
 export type HogFunctionTypeType =

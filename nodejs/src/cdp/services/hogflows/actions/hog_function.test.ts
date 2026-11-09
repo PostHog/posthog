@@ -251,6 +251,35 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain('[Action:function] Function completed')
     })
 
+    it('binds a secret to the origins its template declares, so the step code only sees a handle', async () => {
+        const authTemplate = await insertHogFunctionTemplate(hub.postgres, {
+            id: `template-test-hogflow-auth-${team.id}`,
+            name: 'Auth Template',
+            code: `fetch('https://api.example.com/send', { 'method': 'POST', 'auth': inputs.api_key, 'body': inputs })`,
+            inputs_schema: [
+                {
+                    key: 'api_key',
+                    type: 'string',
+                    secret: true,
+                    required: true,
+                    auth: { scheme: 'bearer', origins: ['https://api.example.com'] },
+                },
+            ],
+        })
+        action.config = { template_id: authTemplate.template_id, inputs: { api_key: { value: 'sk-workflow' } } }
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        const [url, options] = mockFetch.mock.calls[0]
+        expect(url).toBe('https://api.example.com/send')
+        expect(options.headers.Authorization).toBe('Bearer sk-workflow')
+        expect(parseJSON(options.body)).toEqual({ api_key: { $credential: 'api_key' } })
+    })
+
     describe('with groups', () => {
         beforeEach(() => {
             invocation.groups = {
