@@ -54,6 +54,7 @@ SCHEMAS_PER_PAGE = 50
 class SchemaStaffReads:
     @staticmethod
     def schema(schema_id: UUID) -> StaffSchemaSummary | None:
+        # nosemgrep: idor-lookup-without-team -- staff-only console lookup by id behind admin_view
         schema = ExternalDataSchema.objects.select_related("source", "team", "table").filter(id=schema_id).first()
         if schema is None:
             return None
@@ -112,6 +113,7 @@ class SchemaStaffReads:
     @staticmethod
     def source(source_id: UUID) -> StaffSourceSummary | None:
         source = (
+            # nosemgrep: idor-lookup-without-team -- staff-only console lookup by id behind admin_view
             ExternalDataSource.objects.select_related(None)
             .select_related("team")
             .defer("job_inputs")
@@ -269,6 +271,7 @@ class SchemaStaffActions:
 
     @classmethod
     def repartition(cls, schema_id: UUID, request: RepartitionRequest) -> StaffActionResult:
+        # nosemgrep: idor-lookup-without-team -- staff-only console lookup by id behind admin_view
         schema = ExternalDataSchema.objects.select_related("source").filter(id=schema_id).first()
         if schema is None:
             return _failed(f"Schema {schema_id} not found.")
@@ -378,6 +381,7 @@ class SchemaStaffActions:
     def trigger_sync(schema_id: UUID, *, billable: bool, reset_pipeline: bool) -> StaffActionResult:
         # Bypasses the schedule because the schedule's stored input cannot override `billable` per trigger.
         # `trigger_ad_hoc_sync` pauses the schedule first and lets `resume_schedule_after_ad_hoc_run` resume it.
+        # nosemgrep: idor-lookup-without-team -- staff-only console lookup by id behind admin_view
         schema = ExternalDataSchema.objects.select_related("source").filter(id=schema_id).first()
         if schema is None:
             return _failed(f"Schema {schema_id} not found.")
@@ -438,6 +442,7 @@ class SchemaStaffActions:
         # soft-delete). Safe on an existing schedule too: sync_external_data_job_workflow falls back to updating it
         # in place. Deliberately does NOT trigger a run: the schedule's stored action is always billable, so staff
         # start an immediate run with "Trigger sync" instead, which is non-billable by default.
+        # nosemgrep: idor-lookup-without-team -- staff-only console lookup by id behind admin_view
         schema = ExternalDataSchema.objects.select_related("source").filter(id=schema_id).first()
         if schema is None:
             return _failed(f"Schema {schema_id} not found.")
