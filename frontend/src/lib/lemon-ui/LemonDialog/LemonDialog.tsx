@@ -49,6 +49,7 @@ export type LemonDialogProps = Pick<
 
 type LemonDialogRef = {
     closeDialog: () => void
+    clickPrimaryButton: () => Promise<void>
 }
 
 type LemonDialogMethods = {
@@ -78,16 +79,6 @@ const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(functi
     const [isOpen, setIsOpen] = useState(true)
     const [isLoading, setIsLoading] = useState(false)
 
-    useImperativeHandle(
-        ref,
-        () => ({
-            closeDialog: () => {
-                setIsOpen(false)
-            },
-        }),
-        []
-    )
-
     primaryButton =
         primaryButton ||
         (primaryButton === null
@@ -100,12 +91,57 @@ const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(functi
         primaryButton.type = primaryButton.type || 'primary'
     }
 
+    const clickButton = async (button: LemonButtonProps, e?: React.MouseEvent<HTMLElement>): Promise<void> => {
+        if (button === primaryButton && shouldAwaitSubmit) {
+            setIsLoading(true)
+            isLoadingCallback?.(true)
+            try {
+                // eslint-disable-next-line @typescript-eslint/await-thenable
+                await button.onClick?.(e as React.MouseEvent<HTMLElement>)
+            } catch (error) {
+                // The submit handler is responsible for surfacing the error to the user
+                // (e.g. via a toast). Keep the dialog open so they can correct and retry,
+                // and capture genuine bugs so they aren't silently swallowed.
+                captureUnexpectedSubmitError(error)
+                return
+            } finally {
+                setIsLoading(false)
+                isLoadingCallback?.(false)
+            }
+        } else {
+            button.onClick?.(e as React.MouseEvent<HTMLElement>)
+        }
+
+        if (!button.preventClosing) {
+            setIsOpen(false)
+        }
+    }
+
+    // Enter in a form field submits through the primary button, so it shows the same loading state as a click.
+    const clickPrimaryButtonRef = useRef<() => Promise<void>>(async () => {})
+    clickPrimaryButtonRef.current = async () => {
+        if (primaryButton && !isLoading) {
+            await clickButton(primaryButton)
+        }
+    }
+
+    useImperativeHandle(
+        ref,
+        () => ({
+            closeDialog: () => {
+                setIsOpen(false)
+            },
+            clickPrimaryButton: () => clickPrimaryButtonRef.current(),
+        }),
+        []
+    )
+
     const renderButton = (button: LemonButtonProps | null | undefined): JSX.Element | null => {
         if (!button) {
             return null
         }
 
-        const { preventClosing, ...buttonProps } = button
+        const { preventClosing: _preventClosing, ...buttonProps } = button
 
         return (
             <LemonButton
@@ -113,31 +149,7 @@ const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(functi
                 {...buttonProps}
                 loading={button === primaryButton && shouldAwaitSubmit ? isLoading : undefined}
                 // eslint-disable-next-line @typescript-eslint/no-misused-promises
-                onClick={async (e) => {
-                    if (button === primaryButton && shouldAwaitSubmit) {
-                        setIsLoading(true)
-                        isLoadingCallback?.(true)
-                        try {
-                            // eslint-disable-next-line @typescript-eslint/await-thenable
-                            await button.onClick?.(e)
-                        } catch (error) {
-                            // The submit handler is responsible for surfacing the error to the user
-                            // (e.g. via a toast). Keep the dialog open so they can correct and retry,
-                            // and capture genuine bugs so they aren't silently swallowed.
-                            captureUnexpectedSubmitError(error)
-                            return
-                        } finally {
-                            setIsLoading(false)
-                            isLoadingCallback?.(false)
-                        }
-                    } else {
-                        button.onClick?.(e)
-                    }
-
-                    if (!preventClosing) {
-                        setIsOpen(false)
-                    }
-                }}
+                onClick={async (e) => await clickButton(button, e)}
             />
         )
     }
@@ -250,16 +262,7 @@ export const LemonFormDialog = ({
                 props.shouldAwaitSubmit
                     ? async (e: React.KeyboardEvent<HTMLFormElement>): Promise<void> => {
                           if (isSubmitKey(e)) {
-                              try {
-                                  await onSubmit(form)
-                              } catch (error) {
-                                  // Mirror the button path: keep the dialog open on failure so the
-                                  // user can correct and retry, and capture instead of leaking an
-                                  // unhandled rejection.
-                                  captureUnexpectedSubmitError(error)
-                                  return
-                              }
-                              ref?.current?.closeDialog()
+                              await ref.current?.clickPrimaryButton()
                           }
                       }
                     : (e: React.KeyboardEvent<HTMLFormElement>): void => {
