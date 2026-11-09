@@ -1,3 +1,5 @@
+import labPatterns from '../shared/ai_labs.json'
+
 export type AiLab = 'Anthropic' | 'OpenAI' | 'Google' | 'xAI' | 'Cursor' | 'Open weights'
 export type ModelLab = AiLab | 'Other'
 
@@ -6,18 +8,9 @@ export const LAB_ORDER: ModelLab[] = ['Anthropic', 'OpenAI', 'xAI', 'Google', 'O
 const UNKNOWN = 'Unknown'
 
 // The first matching pattern wins. The SQL for the users query is built from the same list, so the
-// two cannot disagree on which lab a model belongs to.
-const LAB_PATTERNS: [AiLab, RegExp][] = [
-    [
-        'Open weights',
-        /gpt-oss|deepseek|glm|kimi|qwen|llama|mistral|minimax|gemma|nemotron|olmo|devstral|codestral|mimo|^phi/,
-    ],
-    ['Anthropic', /claude|opus|sonnet|haiku|fable|anthropic/],
-    ['OpenAI', /gpt|(?:^|[^a-z0-9_])o[1-9]|codex|openai|chatgpt/],
-    ['Google', /gemini|google/],
-    ['xAI', /grok|xai/],
-    ['Cursor', /composer/],
-]
+// two cannot disagree on which lab a model belongs to. The server builds the dashboard's lab SQL from
+// the same file, so each pattern must mean the same in JavaScript and in ClickHouse's re2.
+const LAB_PATTERNS: [AiLab, RegExp][] = labPatterns.map(({ lab, pattern }) => [lab as AiLab, new RegExp(pattern)])
 
 export function modelLab(model: string): ModelLab {
     const m = model.toLowerCase()

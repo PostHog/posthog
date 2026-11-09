@@ -1279,6 +1279,10 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
+    tasks_facade.record_task_client(
+        task_id=str(mapping.task_id), team_id=task_run.team_id, client=tasks_facade.TaskClient.SLACK
+    )
+
     # Message queued; the agent picks it up next, so leave the :eyes: reaction
     # up. relayAgentResponse posts the agent's response once it finishes.
     _delete_followup_progress(
@@ -1670,6 +1674,10 @@ def _resume_task_with_new_run(
             text=_RESUME_ERROR_MSG,
         )
         return True
+
+    tasks_facade.record_task_client(
+        task_id=str(mapping.task_id), team_id=previous_run.team_id, client=tasks_facade.TaskClient.SLACK
+    )
 
     # The carried mode can pin BOT after the creator connected GitHub, because the live-sandbox
     # promotion in _refresh_sandbox_github never sees a successor's first turn. Re-check here so

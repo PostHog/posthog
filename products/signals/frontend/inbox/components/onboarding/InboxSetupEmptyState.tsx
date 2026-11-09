@@ -15,7 +15,7 @@ const HedgehogSelfDriving = pngHoggie(selfDrivingPng)
 
 const INBOX_SETUP_EMPTY_STATE: ProductEmptyStateConfig = {
     productKey: ProductKey.SELF_DRIVING,
-    productName: 'Self-Driving',
+    productName: 'Self-driving',
     icon: <IconSelfDriving />,
     accentColor: 'var(--color-product-self-driving-light)',
     accentColorDark: 'var(--color-product-self-driving-dark)',
