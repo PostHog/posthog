@@ -168,6 +168,12 @@ function trackedHealthCheck({
     return [key, status, status === 'not_checked' ? (reason ?? '') : ''].join(':')
 }
 
+function trackedHealthChecks(
+    checks: (ExperimentHealthCheckResultApi | ExperimentExposureHealthCheck)[] | null | undefined
+): string[] | null {
+    return checks ? checks.map(trackedHealthCheck) : null
+}
+
 // pinned: `code:subcode`, the key the health panel gives a finding.
 function healthFindingKeys(health: ExperimentHealthApi): string[] {
     return health.findings.map(({ code, subcode }) => `${code}:${subcode ?? ''}`)
@@ -300,7 +306,7 @@ export function captureExperimentHealthChecked(
             findings?.flatMap(({ code, subcode }) => (subcode ? [`${code}:${subcode}`] : [])) ?? null,
         health_findings: findings?.map(trackedHealthFinding) ?? null,
         health_finding_count: findings?.length ?? null,
-        health_checks: health?.checks.map(trackedHealthCheck) ?? null,
+        health_checks: trackedHealthChecks(health?.checks),
         flag_state_browser: browserWarning?.key ?? null,
         // The server sends the warning key as the subcode. A finding without one still differs from no finding.
         flag_state_server: flagStateFinding ? (flagStateFinding.subcode ?? flagStateFinding.code) : null,
@@ -309,15 +315,12 @@ export function captureExperimentHealthChecked(
     })
 }
 
-/**
- * A fix made on another page, such as the flag page, does not reach this event. It shows on the next
- * `experiment health checked` instead.
- */
 export function captureExperimentHealthRechecked(
     experiment: Experiment,
     before: ExperimentHealthApi | null,
     after: ExperimentHealthApi | null,
-    healthUi: ExperimentHealthUi
+    healthUi: ExperimentHealthUi,
+    changedInputs: string[] | null
 ): void {
     const keysBefore = before ? healthFindingKeys(before) : null
     const keysAfter = after ? healthFindingKeys(after) : null
@@ -327,6 +330,7 @@ export function captureExperimentHealthRechecked(
         experiment_status: getExperimentStatus(experiment),
         health_ui: healthUi,
         request_failed: after === null,
+        changed_inputs: changedInputs,
         health_findings: after?.findings.map(trackedHealthFinding) ?? null,
         resolved_findings: keysBefore && keysAfter ? keysBefore.filter((key) => !keysAfter.includes(key)) : null,
         new_findings: keysBefore && keysAfter ? keysAfter.filter((key) => !keysBefore.includes(key)) : null,
@@ -368,7 +372,7 @@ function exposureHealthServerProperties(
         // pinned: analytics property, so renaming it breaks insights. Its values are `code:subcode:severity:reason`.
         exposure_health_findings: findings?.map(trackedHealthFinding) ?? null,
         // pinned: analytics property, so renaming it breaks insights. Its values are `key:status:reason`.
-        exposure_health_checks: checks?.map(trackedHealthCheck) ?? null,
+        exposure_health_checks: trackedHealthChecks(checks),
     }
 }
 

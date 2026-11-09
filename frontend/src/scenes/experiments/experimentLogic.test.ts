@@ -2833,6 +2833,7 @@ describe('experimentLogic', () => {
             expect(recheckedEvents).toHaveLength(1)
             expect(recheckedEvents[0][1]).toMatchObject({
                 request_failed: false,
+                changed_inputs: ['feature_flag'],
                 health_findings: ['forced_variant_release_condition:some_conditions_pinned:warning:'],
                 resolved_findings: ['no_metric:'],
                 new_findings: ['forced_variant_release_condition:some_conditions_pinned'],

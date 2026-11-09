@@ -240,6 +240,13 @@ function healthCheckInputs(experiment: Experiment): Partial<Experiment> {
     return Object.fromEntries(HEALTH_CHECK_INPUTS.map((field) => [field, experiment[field]]))
 }
 
+function changedHealthCheckInputs(
+    before: Partial<Experiment> | undefined,
+    after: Partial<Experiment>
+): string[] | null {
+    return before ? HEALTH_CHECK_INPUTS.filter((field) => !objectsEqual(before[field], after[field])) : null
+}
+
 type ExperimentHealthLoadTrigger = 'experiment_load' | 'experiment_update'
 
 function generateRefreshId(): string {
@@ -2579,10 +2586,12 @@ export const experimentLogic = kea<experimentLogicType>([
                         // as metrics do because the server recomputes their fingerprints.
                         await breakpoint(300)
                     }
-                    cache.healthCheckInputs = healthCheckInputs(values.experiment)
+                    const inputs = healthCheckInputs(values.experiment)
+                    cache.healthCheckInputs = inputs
                     // The loader keeps the previous answer until this request succeeds, so this is the health
-                    // before the edit.
+                    // before the edit, and `cache.answeredHealthCheckInputs` holds the inputs it answered.
                     const healthBefore = values.experimentHealth
+                    const inputsBefore = cache.answeredHealthCheckInputs
                     // Timed here rather than in the success listener, which would have to read a start time off
                     // `cache` that a superseded request can overwrite.
                     const startedAt = performance.now()
@@ -2594,6 +2603,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                     // Kept outside the `try`: a superseded request throws here and is not a failure.
                     breakpoint()
+                    cache.answeredHealthCheckInputs = inputs
                     // One comparison per experiment load. A reload after a write would compare unsaved edits in the
                     // page with the saved experiment on the server.
                     if (trigger === 'experiment_load') {
@@ -2606,7 +2616,13 @@ export const experimentLogic = kea<experimentLogicType>([
                             Math.round(performance.now() - startedAt)
                         )
                     } else {
-                        captureExperimentHealthRechecked(values.experiment, healthBefore, health, values.healthUi)
+                        captureExperimentHealthRechecked(
+                            values.experiment,
+                            healthBefore,
+                            health,
+                            values.healthUi,
+                            changedHealthCheckInputs(inputsBefore, inputs)
+                        )
                     }
                     return health
                 },
