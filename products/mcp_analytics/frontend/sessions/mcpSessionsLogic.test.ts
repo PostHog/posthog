@@ -178,6 +178,29 @@ describe('mcpSessionsLogic', () => {
         expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).not.toContain('a2')
     })
 
+    it.each([
+        ['unchanged filters', () => {}, 0, ['a1']],
+        ['changed filters', () => mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER]), 1, ['again']],
+    ])('revisiting a session after another failed, with %s', async (_label, change, refetches, expectedCalls) => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+        toolCallsMock.mockResolvedValueOnce({ results: [toolCall('a1')], has_next: false })
+        await expectLogic(logic, () => logic.actions.selectSession('A')).toDispatchActions(['loadToolCallsSuccess'])
+        toolCallsMock.mockRejectedValueOnce(new Error('Unavailable'))
+        await expectLogic(logic, () => logic.actions.selectSession('B')).toDispatchActions(['loadToolCallsFailure'])
+        change()
+        await expectLogic(logic).toFinishAllListeners()
+        toolCallsMock.mockClear()
+        toolCallsMock.mockResolvedValue({ results: [toolCall('again')], has_next: false })
+
+        logic.actions.selectSession('A')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toolCallsMock).toHaveBeenCalledTimes(refetches)
+        expect(logic.values.selectedSessionToolCalls).toMatchObject({ loading: false, error: false })
+        expect(logic.values.selectedSessionToolCalls.calls.map((call) => call.event_id)).toEqual(expectedCalls)
+        consoleErrorSpy.mockRestore()
+    })
+
     it('drops a session page when a refresh starts with the same filters', async () => {
         listMock.mockResolvedValueOnce({
             results: [{ session_id: 'old', session_start: '2026-01-01T00:00:00Z' }],
@@ -246,7 +269,7 @@ describe('mcpSessionsLogic', () => {
         })
 
         it.each([false, true])("reloads the selected session's calls with failure=%s", async (fails) => {
-            const consoleErrorSpy = fails ? jest.spyOn(console, 'error').mockImplementation(() => {}) : null
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
             listMock.mockResolvedValue({
                 results: [{ session_id: 'A', session_start: '2026-01-01T00:05:00Z' }],
                 has_next: true,
@@ -291,10 +314,8 @@ describe('mcpSessionsLogic', () => {
             expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).toEqual(
                 fails ? [] : ['filtered']
             )
-            if (consoleErrorSpy) {
-                expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
-                consoleErrorSpy.mockRestore()
-            }
+            expect(consoleErrorSpy).toHaveBeenCalledTimes(fails ? 1 : 0)
+            consoleErrorSpy.mockRestore()
         })
 
         it('drops a load-more page fetched under the previous filters', async () => {
