@@ -8,7 +8,7 @@ finds missing tables, type errors and functions the deployed Trino lacks. Nothin
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import nullcontext
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -76,9 +76,14 @@ def check_trino_compile(
     saved_query_ids: Sequence[str] | None = None,
     explain: bool = False,
     limit: int | None = None,
-) -> TrinoCompileCheckReport:
-    """Compile each non-deleted saved query of ``team`` for Trino, and with ``explain`` let Trino plan it."""
-    saved_queries = _load_saved_queries(team.pk, saved_query_ids, limit)
+    skip_ids: Iterable[str] = (),
+) -> Iterator[TrinoCompileCheckRow]:
+    """Compile each non-deleted saved query of ``team`` for Trino, and with ``explain`` let Trino plan it.
+
+    Yields one row per saved query as soon as it is checked, so a caller can keep partial results.
+    """
+    skipped = set(skip_ids)
+    saved_queries = [sq for sq in _load_saved_queries(team.pk, saved_query_ids, limit) if str(sq.id) not in skipped]
     connection_context = (
         connect_managed_warehouse_trino(
             str(team.organization_id), principal=f"posthog:trino-compile-check:team:{team.pk}"
@@ -87,8 +92,8 @@ def check_trino_compile(
         else nullcontext()
     )
     with connection_context as connection:
-        rows = tuple(_check(team, saved_query, connection) for saved_query in saved_queries)
-    return TrinoCompileCheckReport(rows=rows)
+        for saved_query in saved_queries:
+            yield _check(team, saved_query, connection)
 
 
 def _load_saved_queries(

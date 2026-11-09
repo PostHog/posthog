@@ -1,5 +1,11 @@
+import json
+import tempfile
+from pathlib import Path
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from django.core.management import call_command
 
 from trino.exceptions import TrinoQueryError
 
@@ -8,7 +14,12 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
 )
-from products.managed_warehouse.backend.trino_compile_check import TrinoCompileCheckStage, check_trino_compile
+from products.managed_warehouse.backend.trino_compile_check import (
+    TrinoCompileCheckReport,
+    TrinoCompileCheckStage,
+    check_trino_compile,
+)
+from products.managed_warehouse.backend.trino_materialization import compile_trino_shadow_query
 
 
 class TestTrinoCompileCheck(BaseTest):
@@ -44,7 +55,7 @@ class TestTrinoCompileCheck(BaseTest):
         )
 
     def test_compile_stage_reports_trino_refusals_per_model(self) -> None:
-        report = check_trino_compile(self.team)
+        report = TrinoCompileCheckReport(rows=tuple(check_trino_compile(self.team)))
 
         assert [(row.name, row.stage, row.error_code) for row in report.rows] == [
             ("a_good", TrinoCompileCheckStage.COMPILE, None),
@@ -67,7 +78,9 @@ class TestTrinoCompileCheck(BaseTest):
         connection.cursor.return_value = cursor
         with patch("products.managed_warehouse.backend.trino_compile_check.connect_managed_warehouse_trino") as connect:
             connect.return_value.__enter__.return_value = connection
-            report = check_trino_compile(self.team, saved_query_ids=[str(self.good.id)], explain=True)
+            report = TrinoCompileCheckReport(
+                rows=tuple(check_trino_compile(self.team, saved_query_ids=[str(self.good.id)], explain=True))
+            )
 
         assert [(row.name, row.stage, row.error_code, row.message) for row in report.rows] == [
             (
@@ -79,3 +92,21 @@ class TestTrinoCompileCheck(BaseTest):
         ]
         statements = [call.args[0] for call in cursor.execute.call_args_list]
         assert all(s.startswith("EXPLAIN ") for s in statements)
+
+    def test_command_appends_rows_and_resumes_from_its_output_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "rows.jsonl"
+            call_command("check_trino_compile", team_id=self.team.pk, limit=1, output=output)
+            assert [json.loads(line)["name"] for line in output.read_text().splitlines()] == ["a_good"]
+
+            with (
+                patch(
+                    "products.managed_warehouse.backend.trino_compile_check.compile_trino_shadow_query",
+                    wraps=compile_trino_shadow_query,
+                ) as compile_query,
+                self.assertRaises(SystemExit),
+            ):
+                call_command("check_trino_compile", team_id=self.team.pk, output=output)
+
+            assert compile_query.call_count == 1
+            assert [json.loads(line)["name"] for line in output.read_text().splitlines()] == ["a_good", "b_refused"]
