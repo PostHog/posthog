@@ -860,8 +860,7 @@ BATCH_EXPORT_WORKFLOW_TYPES = {
 }
 
 
-# nosemgrep: tuple-return-prefer-dataclass -- one caller unpacks it straight into the log_source and log_source_id columns
-def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str, str]:
+def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None, str | None]:
     """Resolves `log_source` and `log_source_id` from workflow parameters.
 
     This function is used to resolve parameters for ingesting logs into the
