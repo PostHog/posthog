@@ -24,7 +24,7 @@ export interface SandboxEmailTestClient {
     send(options: ActionHandlerOptions<SandboxEmailAction>): Promise<SandboxEmailStepResult>
 }
 
-const SANDBOX_QUEUE = 'emailsandbox'
+export const SANDBOX_QUEUE = 'emailsandbox'
 const SENDING_DISABLED: SandboxEmailOutcome = { outcome: 'skipped', reason: 'sending_disabled' }
 const WORKER_UNAVAILABLE: SandboxEmailOutcome = { outcome: 'failed', reason: 'sandbox_worker_unavailable' }
 

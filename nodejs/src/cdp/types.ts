@@ -755,7 +755,7 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns' | 'posthog'
+    kind: 'slack' | 'email' | 'email_sandbox' | 'oauth' | 'firebase' | 'apns' | 'posthog'
     config: Record<string, any>
     sensitive_config: Record<string, any>
 }

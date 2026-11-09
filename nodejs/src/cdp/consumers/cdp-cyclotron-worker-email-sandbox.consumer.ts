@@ -20,14 +20,26 @@ export class CdpCyclotronWorkerEmailSandbox extends CdpCyclotronWorkerHogFlow {
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationResult[]> {
         const { loadedInvocations, canceledResults } = await this.loadHogFlows(invocations)
-        const results = await Promise.all(
-            loadedInvocations.map((invocation) =>
-                isStillOnSandboxEmailStep(invocation)
-                    ? this.hogFlowExecutor.execute(invocation)
-                    : Promise.resolve(routeBackToHogFlowQueue(invocation))
-            )
-        )
+        const results = await Promise.all(loadedInvocations.map((invocation) => this.runSandboxEmailStep(invocation)))
         return [...canceledResults, ...results]
+    }
+
+    private async runSandboxEmailStep(
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
+        if (!isStillOnSandboxEmailStep(invocation)) {
+            return routeBackToHogFlowQueue(
+                createInvocationResult<CyclotronJobInvocationHogFlow>(
+                    invocation,
+                    { queuePriority: invocation.queuePriority },
+                    { finished: false }
+                )
+            )
+        }
+        const result = await this.hogFlowExecutor.execute(invocation)
+        return result.finished || isStillOnSandboxEmailStep(result.invocation)
+            ? result
+            : routeBackToHogFlowQueue(result)
     }
 }
 
@@ -37,13 +49,11 @@ function isStillOnSandboxEmailStep(invocation: CyclotronJobInvocationHogFlow): b
 }
 
 function routeBackToHogFlowQueue(
-    invocation: CyclotronJobInvocationHogFlow
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
 ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> {
-    const result = createInvocationResult<CyclotronJobInvocationHogFlow>(
-        invocation,
-        { queue: 'hogflow', queuePriority: invocation.queuePriority, queueScheduledAt: DateTime.now() },
-        { finished: false }
-    )
+    result.invocation.queue = 'hogflow'
+    result.invocation.queueParameters = null
+    result.invocation.queueScheduledAt = DateTime.now()
     if (result.invocation.state?.currentAction) {
         result.invocation.state.currentAction.routingOnlyReschedule = true
     }

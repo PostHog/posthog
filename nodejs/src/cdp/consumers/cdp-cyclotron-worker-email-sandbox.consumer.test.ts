@@ -1,6 +1,6 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
@@ -28,18 +28,18 @@ describe('CdpCyclotronWorkerEmailSandbox', () => {
         await closeHub(hub)
     })
 
-    beforeEach(async () => {
-        const { team } = await createTestTeamFixture(hub.postgres)
-        hogFlow = await insertHogFlow(
+    const insertSandboxFlow = async (teamId: number, emailFields: Partial<HogFlowAction> = {}): Promise<HogFlow> =>
+        insertHogFlow(
             hub.postgres,
             new FixtureHogFlowBuilder()
-                .withTeamId(team.id)
+                .withTeamId(teamId)
                 .withStatus('active')
                 .withExitCondition('exit_only_at_end')
                 .withWorkflow({
                     actions: {
                         trigger: { type: 'trigger', config: { type: 'api' } },
                         email: {
+                            ...emailFields,
                             type: 'email_sandbox',
                             config: {
                                 inputs: {
@@ -61,6 +61,10 @@ describe('CdpCyclotronWorkerEmailSandbox', () => {
                 })
                 .build()
         )
+
+    beforeEach(async () => {
+        const { team } = await createTestTeamFixture(hub.postgres)
+        hogFlow = await insertSandboxFlow(team.id)
     })
 
     const jobAt = (currentActionId: string): CyclotronJobInvocation => ({
@@ -104,6 +108,24 @@ describe('CdpCyclotronWorkerEmailSandbox', () => {
         ])
 
         expect(currentAction(finished)?.id).toBe('wait')
+    })
+
+    it('hands a step whose filter stopped matching back to the hogflow queue before the next action runs', async () => {
+        hogFlow = await insertSandboxFlow(hogFlow.team_id, {
+            filters: {
+                properties: [{ key: 'plan', value: 'pro', operator: 'exact', type: 'person' }],
+                bytecode: ['_H', 1, 30],
+            },
+        } as Partial<HogFlowAction>)
+        const sandboxWorker = new CdpCyclotronWorkerEmailSandbox(hub, createCdpConsumerDeps(hub), createMockJobQueue())
+
+        const [result] = await sandboxWorker.processInvocations([jobAt('email')])
+
+        expect(result.finished).toBe(false)
+        expect(result.invocation.queue).toBe('hogflow')
+        expect(result.invocation.queueScheduledAt!.toMillis()).toBeLessThanOrEqual(Date.now())
+        expect(currentAction(result)?.id).toBe('wait')
+        expect(result.logs.map((log) => log.message)).not.toContainEqual(expect.stringContaining('Executing action'))
     })
 
     it('routes a job whose step is no longer a sandbox email back to the hogflow queue without running it', async () => {

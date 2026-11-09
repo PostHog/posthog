@@ -37,7 +37,12 @@ import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler, counterHogflowCohortLookupFailure } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
-import { SandboxEmailActionHandler, SandboxEmailStep, SandboxEmailTestClient } from './actions/email_sandbox'
+import {
+    SANDBOX_QUEUE,
+    SandboxEmailActionHandler,
+    SandboxEmailStep,
+    SandboxEmailTestClient,
+} from './actions/email_sandbox'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
@@ -364,6 +369,8 @@ export class HogFlowExecutorService {
             logs.push(this.logExecutionTriggerInfo(invocation))
         }
 
+        const runsOneActionOnly = invocation.queue === SANDBOX_QUEUE
+
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
 
@@ -387,7 +394,7 @@ export class HogFlowExecutorService {
             messageAssets.push(...result.messageAssets)
             conversionWatchers.push(...result.conversionWatchers)
 
-            if (this.shouldEndHogFlowExecution(result, logs)) {
+            if (runsOneActionOnly || this.shouldEndHogFlowExecution(result, logs)) {
                 break
             }
         }
