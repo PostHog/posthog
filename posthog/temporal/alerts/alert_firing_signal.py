@@ -101,7 +101,6 @@ def alert_firing_skip_reason(
     if new_state != AlertState.FIRING or previous_state == AlertState.FIRING:
         return AlertFiringSkipReason.NOT_NEW_EPISODE
     if investigates(alert, firing=True):
-        # The agent's verdict decides for these alerts, in both scopes.
         return AlertFiringSkipReason.INVESTIGATED
     return None
 
@@ -142,61 +141,43 @@ def prepare_alert_firing_signal(
     Call it from a thread, after the check is committed and outside the alert row lock.
     It charges the cap, and `dispatch_alert_firing_signal` refunds the charge when nothing is sent.
     """
-
-    def prepare() -> tuple[AlertFiringSkipReason | None, AlertFiringSignal | None]:
-        skip_reason = alert_firing_skip_reason(alert, previous_state=previous_state, new_state=alert_check.state)
-        if skip_reason is not None:
-            return skip_reason, None
-        return _prepare(
-            _legacy_episode(alert, alert_check),
-            breaches or [],
-            resumes_interrupted_episode=lambda: (
-                previous_state == AlertState.ERRORED and _resumes_interrupted_episode(alert, alert_check)
-            ),
-        )
-
-    return _prepared(alert.team_id, str(alert.id), str(alert_check.id), lambda: alert.team, prepare)
-
-
-def prepare_episode_firing_signal(
-    load_episode: Callable[[], AlertFiringEpisode | None],
-    *,
-    team_id: int,
-    alert_id: str,
-    alert_check_id: str,
-    breaches: list[str],
-) -> AlertFiringSignal | None:
-    """`prepare_alert_firing_signal` for a check that its caller already knows started a firing episode,
-    such as one the alerts platform evaluated. `load_episode` returns None for an alert that is gone.
-    """
-
-    def prepare() -> tuple[AlertFiringSkipReason | None, AlertFiringSignal | None]:
-        episode = load_episode()
-        if episode is None:
-            return None, None
-        if episode.investigated:
-            return AlertFiringSkipReason.INVESTIGATED, None
-        return _prepare(episode, breaches, resumes_interrupted_episode=lambda: False)
-
-    return _prepared(team_id, alert_id, alert_check_id, lambda: Team.objects.get(id=team_id), prepare)
-
-
-def _prepared(
-    team_id: int,
-    alert_id: str,
-    alert_check_id: str,
-    team: Callable[[], Team],
-    prepare: Callable[[], tuple[AlertFiringSkipReason | None, AlertFiringSignal | None]],
-) -> AlertFiringSignal | None:
+    alert_id, alert_check_id = str(alert.id), str(alert_check.id)
     try:
-        skip_reason, signal = prepare()
+        signal: AlertFiringSignal | None = None
+        skip_reason = alert_firing_skip_reason(alert, previous_state=previous_state, new_state=alert_check.state)
+        if skip_reason is None:
+            skip_reason, signal = _prepare(
+                _legacy_episode(alert, alert_check),
+                breaches or [],
+                resumes_interrupted_episode=lambda: (
+                    previous_state == AlertState.ERRORED and _resumes_interrupted_episode(alert, alert_check)
+                ),
+            )
     except Exception:
         logger.exception("alert_firing.signal_prepare_failed", alert_id=alert_id, alert_check_id=alert_check_id)
         return None
-    if skip_reason is not None and skip_reason not in _UNLOGGED_SKIP_REASONS:
-        _log_skip(team_id, alert_id, alert_check_id, skip_reason)
-        _record_outcome(team(), alert_id, alert_check_id, skip_reason)
+    _record_skip(alert.team, alert_id, alert_check_id, skip_reason)
     return signal
+
+
+def prepare_episode_firing_signal(episode: AlertFiringEpisode, *, breaches: list[str]) -> AlertFiringSignal | None:
+    """`prepare_alert_firing_signal` for a check its caller already knows started a firing episode,
+    such as one the alerts platform evaluated. Never raises."""
+    try:
+        skip_reason, signal = _prepare(episode, breaches)
+    except Exception:
+        logger.exception(
+            "alert_firing.signal_prepare_failed", alert_id=episode.alert_id, alert_check_id=episode.alert_check_id
+        )
+        return None
+    _record_skip(episode.team, episode.alert_id, episode.alert_check_id, skip_reason)
+    return signal
+
+
+def _record_skip(team: Team, alert_id: str, alert_check_id: str, skip_reason: AlertFiringSkipReason | None) -> None:
+    if skip_reason is not None and skip_reason not in _UNLOGGED_SKIP_REASONS:
+        _log_skip(team.id, alert_id, alert_check_id, skip_reason)
+        _record_outcome(team, alert_id, alert_check_id, skip_reason)
 
 
 async def dispatch_alert_firing_signal(signal: AlertFiringSignal) -> bool:
@@ -328,15 +309,21 @@ def _legacy_episode(alert: AlertConfiguration, alert_check: AlertCheck) -> Alert
 
 
 def _prepare(
-    episode: AlertFiringEpisode, breaches: list[str], *, resumes_interrupted_episode: Callable[[], bool]
+    episode: AlertFiringEpisode,
+    breaches: list[str],
+    *,
+    resumes_interrupted_episode: Callable[[], bool] | None = None,
 ) -> tuple[AlertFiringSkipReason | None, AlertFiringSignal | None]:
+    if episode.investigated:
+        # The agent's verdict decides for these alerts, in both scopes.
+        return AlertFiringSkipReason.INVESTIGATED, None
     team = episode.team
     source = get_source_config(team_id=team.id, source_product=SIGNAL_SOURCE_PRODUCT, source_type=_SOURCE_CONFIG_TYPE)
     if source is None or not source.enabled:
         return AlertFiringSkipReason.SOURCE_DISABLED, None
     if get_analytics_alert_scope(team_id=team.id) != _ALL_FIRING_ALERTS:
         return AlertFiringSkipReason.SCOPE, None
-    if resumes_interrupted_episode():
+    if resumes_interrupted_episode is not None and resumes_interrupted_episode():
         return AlertFiringSkipReason.NOT_NEW_EPISODE, None
     filter_outcome = evaluate_alert_filter(
         get_analytics_alert_name_patterns(team_id=team.id),

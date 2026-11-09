@@ -28,11 +28,10 @@ from products.alerts_platform.backend.facade.api import get_configuration
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     PlatformAlertCheckInput,
-    PlatformAlertConfigurationView,
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.lifecycle import AlertState
+from products.alerts_platform.backend.facade.lifecycle import FIRING_STATES, AlertState
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -64,7 +63,7 @@ def _was_firing(check: PlatformAlertCheckInput) -> bool:
     skips its errored checks to find the last real state.
     """
     return any(
-        instance.state == AlertState.FIRING.value
+        instance.state in FIRING_STATES
         or (instance.state == AlertState.ERRORED.value and instance.firing_started_at is not None)
         for instance in check.instances
     )
@@ -73,34 +72,24 @@ def _was_firing(check: PlatformAlertCheckInput) -> bool:
 def prepare_platform_firing_signal(request: FiringSignalRequest) -> AlertFiringSignal | None:
     """Run the gates and build the signal, or return None to skip it. Never raises. Call it from a thread."""
     try:
-        configuration = get_configuration(
-            team_id=request.team_id,
-            source_kinds=[SourceKind.INSIGHT.value],
-            configuration_id=UUID(request.configuration_id),
-        )
+        episode = _episode(request)
     except Exception:
         logger.exception("alert_firing.platform_signal_read_failed", configuration_id=request.configuration_id)
         return None
+    if episode is None:
+        return None
+    return prepare_episode_firing_signal(episode, breaches=list(request.breaches))
+
+
+def _episode(request: FiringSignalRequest) -> AlertFiringEpisode | None:
+    configuration = get_configuration(
+        team_id=request.team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        configuration_id=UUID(request.configuration_id),
+    )
+    # As the insight stack: switching an alert off or deleting it since the check stops the signal.
     if configuration is None or not configuration.enabled:
         return None
-    alert_id = str(configuration.destination_alert_id)
-    alert_check_id = f"{configuration.id}:{request.evaluation_key}"
-    return prepare_episode_firing_signal(
-        lambda: _episode(request, configuration, alert_id=alert_id, alert_check_id=alert_check_id),
-        team_id=request.team_id,
-        alert_id=alert_id,
-        alert_check_id=alert_check_id,
-        breaches=list(request.breaches),
-    )
-
-
-def _episode(
-    request: FiringSignalRequest,
-    configuration: PlatformAlertConfigurationView,
-    *,
-    alert_id: str,
-    alert_check_id: str,
-) -> AlertFiringEpisode | None:
     insight_id = configuration.source_config.get("insight_id")
     if insight_id is None:
         return None
@@ -113,7 +102,9 @@ def _episode(
         return None
     # The agent investigates only a firing of an alert the insight stack also keeps, so one without a row is never investigated.
     legacy = (
-        AlertConfiguration.objects.filter(team_id=request.team_id, id=configuration.legacy_configuration_id).first()
+        AlertConfiguration.objects.filter(team_id=request.team_id, id=configuration.legacy_configuration_id)
+        .only("id", "investigation_agent_enabled", "detector_config")
+        .first()
         if configuration.legacy_configuration_id is not None
         else None
     )
@@ -121,8 +112,9 @@ def _episode(
     started_at = request.episode_started_at
     return AlertFiringEpisode(
         team=Team.objects.select_related("organization").get(id=request.team_id),
-        alert_id=alert_id,
-        alert_check_id=alert_check_id,
+        alert_id=str(configuration.destination_alert_id),
+        # The platform has no check row, so the evaluation names the check that started the episode.
+        alert_check_id=f"{configuration.id}:{request.evaluation_key}",
         alert_name=configuration.name,
         insight=insight,
         detector_config=condition.get("detector"),
