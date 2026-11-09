@@ -241,6 +241,12 @@ def resend_signing_email(document_id: UUID, organization_id: UUID) -> StaffResen
     return StaffResendOutcome.SENT
 
 
+def get_organization_id_for_staff(document_id: UUID) -> UUID | None:
+    """The organization of a document, for staff links that only carry the document ID."""
+    document = logic.get_by_id(document_id)
+    return document.organization_id if document is not None else None
+
+
 def delete_as_staff(document_id: UUID, organization_id: UUID) -> bool:
     """
     Staff delete, including signed documents, which the self-serve delete refuses.

@@ -72,7 +72,7 @@ class TestLegalDocumentsConsolePanel(BaseTest):
     def test_refetch_stores_the_pandadoc_pdf_and_marks_the_row_stored(self, mock_download: MagicMock) -> None:
         document = self._document(signed_pdf_stored=False)
 
-        response = self._post("refetch-pdf", {"document": str(document.id)})
+        response = self._post("refetch-pdf", {"document": str(document.id), "reason": "Counter-signed copy"})
 
         assert response.status_code == 302
         mock_download.assert_called_once()
@@ -83,7 +83,7 @@ class TestLegalDocumentsConsolePanel(BaseTest):
     def test_refetch_failure_leaves_the_stored_copy_alone(self, _mock_download: MagicMock) -> None:
         document = self._document(signed_pdf_stored=False)
 
-        response = self._post("refetch-pdf", {"document": str(document.id)})
+        response = self._post("refetch-pdf", {"document": str(document.id), "reason": "Counter-signed copy"})
 
         assert response.status_code == 502
         assert "Could not refetch" in " ".join(str(message) for message in get_messages(response.wsgi_request))
@@ -97,7 +97,7 @@ class TestLegalDocumentsConsolePanel(BaseTest):
         self._document(document_type="DPA")
         unsigned = self._document(status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE)
 
-        response = self._post("refetch-pdf", {"document": str(unsigned.id)})
+        response = self._post("refetch-pdf", {"document": str(unsigned.id), "reason": "Counter-signed copy"})
 
         assert response.status_code == 400
         mock_download.assert_not_called()
@@ -169,3 +169,13 @@ class TestLegalDocumentsConsolePanel(BaseTest):
 
         assert response.status_code == 400
         assert LegalDocument.objects.filter(id=document.id).exists()
+
+    def test_the_old_refetch_url_lands_on_the_panel_of_the_document_organization(self) -> None:
+        document = self._document()
+
+        response = self.client.get(f"/admin/legal_documents/legaldocument/{document.id}/refetch-pdf/?from=bookmark")
+
+        assert response.status_code == 302
+        assert response["Location"] == (
+            f"/admin/console/organizations/{self.organization.pk}/?from=bookmark#panel-legal-documents"
+        )

@@ -1,10 +1,15 @@
+from uuid import UUID
+
 from django.contrib import admin
+from django.http import Http404, HttpRequest, HttpResponse
 from django.urls import path, re_path
 
 from posthog.admin.console import views
 from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.constants import GROUP_TYPES_LIMIT
+
+from products.legal_documents.backend.facade.api import get_organization_id_for_staff
 
 # Old Django admin URLs of team actions that moved. Staff keep bookmarks to them, query parameters included.
 MOVED_TEAM_ACTIONS = {
@@ -37,6 +42,15 @@ MOVED_DELETION_REQUEST_ACTIONS = {
     "fetch-stats": "#panel-stats",
     "preview-stats": "#panel-stats",
 }
+
+
+def legal_document_refetch_redirect(request: HttpRequest, pk: UUID) -> HttpResponse:
+    # The old refetch URL carries only the document ID, so the organization is looked up to find the panel.
+    organization_id = get_organization_id_for_staff(pk)
+    if organization_id is None:
+        raise Http404("Unknown legal document")
+    return MovedToConsole.record_redirect("organizations", "#panel-legal-documents")(request, organization_id)
+
 
 # Every route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up, and admin_view
 # adds the staff check, the login redirect and CSRF protection. The console needs no auth of its own.
@@ -127,6 +141,10 @@ urlpatterns = [
     path(
         "admin/posthog/organization/ai-observability-dataset-retention/",
         MovedToConsole.page_redirect("AI observability dataset retention", "/admin/console/tools/ai-observability/"),
+    ),
+    path(
+        "admin/legal_documents/legaldocument/<uuid:pk>/refetch-pdf/",
+        admin.site.admin_view(legal_document_refetch_redirect),
     ),
     path(
         "admin/posthog/organization/send-usage-report/",

@@ -134,9 +134,11 @@ class LegalDocumentsPanel(Panel):
                     key="refetch-pdf",
                     label="Refetch PDF from PandaDoc",
                     handler=refetch_pdf,
-                    form_class=_document_form(refetchable, with_reason=False),
+                    danger=True,
+                    form_class=_document_form(refetchable, with_reason=True),
                     description="Replaces the stored PDF with the one PandaDoc serves now. The customer downloads "
                     "the new copy.",
+                    undo_hint="The old stored copy cannot be restored. Refetch again, or upload the right PDF.",
                 )
             )
         if sendable:
