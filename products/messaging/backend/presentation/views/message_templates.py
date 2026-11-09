@@ -846,17 +846,19 @@ class TransactionalEmailSendMixin:
         return response
 
     def _refuse_body_over_the_cap(self) -> exceptions.APIException:
-        # Django raises RequestDataTooBig again on every read of the body. The team lookup reads the body for a
-        # token, so the body is set to empty, as DRF does after a parse error.
+        self._empty_the_body_django_refuses_to_read_again()
+        return self._denial_from_the_interrupted_permission_checks() or RequestBodyTooLarge()
+
+    def _empty_the_body_django_refuses_to_read_again(self) -> None:
         self.request._full_data = self.request._data = {}
         self.request._files = MultiValueDict()
-        # The refusal can come before the permission checks end, so they run again before the refusal reports
-        # the team.
+
+    def _denial_from_the_interrupted_permission_checks(self) -> exceptions.APIException | None:
         try:
             cast(Any, super()).check_permissions(self.request)
         except exceptions.APIException as denied:
             return denied
-        return RequestBodyTooLarge()
+        return None
 
     def _report_refused_request(self, response: Response, *, body_read: bool) -> None:
         self._report_transactional_email_send(
