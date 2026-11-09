@@ -400,8 +400,8 @@ class TestAdminConsoleViews(BaseTest):
                 "approve/?from=ticket",
                 "workflow/approve/?from=ticket",
             ),
-            ("project_deletion", "project", "trigger-deletion/?from=ticket", "deletion/delete/?from=ticket"),
-            ("project_delete_now", "project", "delete-now/", "deletion/delete-now/"),
+            ("project_deletion", "project", "trigger-deletion/?from=ticket", "?from=ticket#panel-deletion"),
+            ("project_delete_now", "project", "delete-now/", "#panel-deletion"),
             ("user_deletion", "user", "delete/?from=ticket", "deletion/delete/?from=ticket"),
             ("user_password_lands_on_sign_in", "user", "password/", "#panel-sign-in"),
         ]
@@ -796,6 +796,7 @@ class TestAdminConsoleProjectDeletion(BaseTest):
 
     @parameterized.expand(
         [
+            ("form_page_only", "get", None, 200, False, False),
             ("staff_outside_the_deletion_group", "other_staff", None, 403, False, False),
             ("bulk_deletes_disabled", "bulk_deletes_disabled", None, 503, False, False),
             ("already_pending", "already_pending", None, 404, False, True),
@@ -818,7 +819,10 @@ class TestAdminConsoleProjectDeletion(BaseTest):
             self._mark_pending(hours=48)
 
         with override_settings(DISABLE_BULK_DELETES=state == "bulk_deletes_disabled"):
-            response = self._post("delete", start_side_effect)
+            if state == "get":
+                response = self.client.get(f"/admin/console/projects/{self.project.pk}/deletion/delete/")
+            else:
+                response = self._post("delete", start_side_effect)
 
         assert response.status_code == expected_status
         assert self.start.called == expect_started

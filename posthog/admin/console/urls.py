@@ -25,9 +25,10 @@ MOVED_ORGANIZATION_ACTIONS = {
     "sync-to-billing": "#panel-billing",
 }
 
+# The panel, not the form: each deletion operation is offered only in one deletion state, so its form would 404.
 MOVED_PROJECT_ACTIONS = {
-    "trigger-deletion": "deletion/delete/",
-    "delete-now": "deletion/delete-now/",
+    "trigger-deletion": "#panel-deletion",
+    "delete-now": "#panel-deletion",
 }
 
 MOVED_USER_ACTIONS = {
