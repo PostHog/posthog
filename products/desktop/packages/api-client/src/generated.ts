@@ -11088,6 +11088,7 @@ export namespace Schemas {
     export type ExperimentExposureQueryResponse = {
         bias_risk?: (BiasRisk | null) | undefined;
         date_range: DateRange;
+        exposed_by_library?: (Record<string, number> | null) | undefined;
         health_checks?:
             | (Array<ExperimentExposureHealthCheck> | null)
             | undefined;
