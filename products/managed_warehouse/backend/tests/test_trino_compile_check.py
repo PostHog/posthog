@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 
+from parameterized import parameterized
 from trino.exceptions import TrinoQueryError
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -93,13 +94,17 @@ class TestTrinoCompileCheck(BaseTest):
         statements = [call.args[0] for call in cursor.execute.call_args_list]
         assert all(s.startswith("EXPLAIN ") for s in statements)
 
-    def test_command_appends_rows_and_resumes_from_its_output_file(self) -> None:
+    @parameterized.expand([("partial_last_record",), ("missing_final_newline",)])
+    def test_command_appends_rows_and_resumes_from_its_output_file(self, damage: str) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "rows.jsonl"
             call_command("check_trino_compile", team_id=self.team.pk, limit=1, output=output)
             assert [json.loads(line)["name"] for line in output.read_text().splitlines()] == ["a_good"]
-            with output.open("a") as file:
-                file.write('{"saved_query_id": "trunc')
+            if damage == "partial_last_record":
+                with output.open("a") as file:
+                    file.write('{"saved_query_id": "trunc')
+            else:
+                output.write_text(output.read_text().rstrip("\n"))
 
             with (
                 patch(

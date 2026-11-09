@@ -107,24 +107,32 @@ def _row_json(row: TrinoCompileCheckRow) -> dict[str, Any]:
 
 def _read_rows(path: Path) -> list[TrinoCompileCheckRow]:
     rows: dict[str, TrinoCompileCheckRow] = {}
-    lines = path.read_text().splitlines()
-    for index, line in enumerate(lines):
-        if not line.strip():
-            continue
-        try:
-            data = json.loads(line)
-        except json.JSONDecodeError:
-            if index != len(lines) - 1:
-                raise
-            # An interrupted write leaves a partial last record. Drop it so the run can append again.
-            path.write_text("".join(f"{kept}\n" for kept in lines[:index]))
-            break
-        # A model checked again later, such as by an explain run, keeps only its latest row.
-        rows[data["saved_query_id"]] = TrinoCompileCheckRow(
-            saved_query_id=data["saved_query_id"],
-            name=data["name"],
-            stage=TrinoCompileCheckStage(data["stage"]),
-            error_code=data["error_code"],
-            message=data["message"],
-        )
+    data = path.read_bytes()
+    lines = data.split(b"\n")
+    offset = 0
+    for index, raw in enumerate(lines):
+        end = offset + len(raw) + 1
+        if raw.strip():
+            try:
+                record = json.loads(raw)
+            except json.JSONDecodeError:
+                if index != len(lines) - 1:
+                    raise
+                # An interrupted write leaves a partial last record. Cut only that record off, in place.
+                with path.open("r+b") as handle:
+                    handle.truncate(offset)
+                return list(rows.values())
+            # A model checked again later, such as by an explain run, keeps only its latest row.
+            rows[record["saved_query_id"]] = TrinoCompileCheckRow(
+                saved_query_id=record["saved_query_id"],
+                name=record["name"],
+                stage=TrinoCompileCheckStage(record["stage"]),
+                error_code=record["error_code"],
+                message=record["message"],
+            )
+        offset = end
+    if data and not data.endswith(b"\n"):
+        # A complete last record without its newline would join the next appended row.
+        with path.open("ab") as handle:
+            handle.write(b"\n")
     return list(rows.values())
