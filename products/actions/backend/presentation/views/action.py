@@ -42,7 +42,7 @@ from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.models import Team
-from posthog.models.event.event import Selector
+from posthog.models.event.event import MAX_SELECTOR_LENGTH, Selector, SelectorTooLongError
 from posthog.models.property.util import build_selector_regex
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
@@ -275,9 +275,12 @@ class ActionSerializer(
     def validate_steps(self, steps: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
         # ClickHouse compiles these with RE2 at query time, so one pattern RE2 rejects fails
         # every insight that uses the action. steps_to_expr runs this same check on stored steps.
-        # The check runs here and not on the step serializer because the error renderer turns an
+        # These checks run here and not on the step serializer because the error renderer turns an
         # error nested inside one list item into a Python repr instead of a readable message.
         for step in steps or []:
+            selector = step.get("selector")
+            if isinstance(selector, str) and len(selector) > MAX_SELECTOR_LENGTH:
+                raise serializers.ValidationError(str(SelectorTooLongError(len(selector))), code="max_length")
             for value_field, matching_field in (
                 ("url", "url_matching"),
                 ("href", "href_matching"),
