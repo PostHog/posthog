@@ -123,14 +123,14 @@ class TestApplyFollowupModelOverride:
 
 class TestStopRunForRuntimeHandoff:
     @pytest.mark.parametrize(
-        "override,flag_enabled,cancel_outcome,expected",
+        "override,flag_enabled,cancel_outcome,expected,captured_outcome",
         [
-            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "accepted", True),
-            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "already_terminal", True),
-            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "unavailable", False),
-            (SlackAppModelOverride(model="gpt-5.6-sol"), False, "accepted", False),
-            (SlackAppModelOverride(model="claude-fable-5"), True, "accepted", False),
-            (SlackAppModelOverride(reasoning_effort="high"), True, "accepted", False),
+            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "accepted", True, None),
+            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "already_terminal", True, None),
+            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "unavailable", False, "stop_failed"),
+            (SlackAppModelOverride(model="gpt-5.6-sol"), False, "accepted", False, "flag_off"),
+            (SlackAppModelOverride(model="claude-fable-5"), True, "accepted", False, None),
+            (SlackAppModelOverride(reasoning_effort="high"), True, "accepted", False, None),
         ],
         ids=[
             "stopped",
@@ -142,7 +142,7 @@ class TestStopRunForRuntimeHandoff:
         ],
     )
     def test_hands_off_only_when_the_live_run_is_stopped(
-        self, catalogue, override, flag_enabled, cancel_outcome, expected
+        self, catalogue, override, flag_enabled, cancel_outcome, expected, captured_outcome
     ):
         slack = _slack()
         with (
@@ -154,6 +154,7 @@ class TestStopRunForRuntimeHandoff:
                 "products.tasks.backend.facade.cancellation.cancel_task_run",
                 return_value=(cancel_outcome, None),
             ) as cancel,
+            patch("products.slack_app.backend.analytics.capture_slack_event") as capture,
         ):
             handed_off = _stop_run_for_runtime_handoff(
                 MagicMock(),
@@ -163,9 +164,11 @@ class TestStopRunForRuntimeHandoff:
                 task_run=_run(),
                 override=override,
                 actor_user=SimpleNamespace(id=42, distinct_id="user-42"),
+                slack_user_id="U1",
             )
 
-        assert handed_off is expected
+        assert bool(handed_off) is expected
+        assert [c.kwargs["outcome"] for c in capture.call_args_list] == ([captured_outcome] if captured_outcome else [])
         if expected:
             assert cancel.call_args.kwargs["source"] == "slack_runtime_handoff"
             assert "*GPT-5.6 Sol*" in _posted_text(slack)
