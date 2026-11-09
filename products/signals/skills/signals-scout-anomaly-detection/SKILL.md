@@ -33,7 +33,7 @@ If `scout-project-profile-get` shows no recent dashboard access (`recent_dashboa
 That proves low saved-analytics use. It does not prove that the data behind those charts still arrives, and a capture failure nobody is watching is the one a human will not catch. So check two things before you close out:
 
 1. **Due watchlist items.** Read the watchlist first (see Get oriented). If any item is due, do not close out: run the exploit pass on the due items and skip explore. Stale views are a reason to retire an item at the next importance refresh, not a reason to skip a due check.
-2. **Source liveness.** Run the bounded probe in [`references/source-liveness.md`](references/source-liveness.md). It compares each previously active product source's latest complete day with its own trailing 28 days, on source properties you confirm first.
+2. **Source liveness.** Run the bounded probe in [`references/source-liveness.md`](references/source-liveness.md). It screens each previously active product source's latest complete day against its own trailing 28 days, on source properties you confirm first, and confirms a drop only against the source's weekly rhythm.
 
 Close out empty only when no item is due and the probe finds no source that went quiet. Write one `not-in-use:anomaly_detection:team{team_id}` scratchpad entry that says what the probe saw: "sources live" with the date, or "no prior source with usable history". A project with no usable history is not broken, so it keeps the quiet exit. Re-running with the same key idempotently refreshes the timestamp.
 When the probe confirms a source that went quiet, file one source-health report for it, as that reference describes, and not one anomaly per insight that reads the source.
