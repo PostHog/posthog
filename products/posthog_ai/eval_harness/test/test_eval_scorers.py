@@ -340,6 +340,24 @@ def test_tool_order_requires_the_lookup_before_the_guarded_call(
 
 
 @pytest.mark.parametrize(
+    "calls,expected_score",
+    [
+        # The guarded query also matches the prerequisite, but it cannot come before itself.
+        ([_SQL_ANSWER], 0.0),
+        ([("execute-sql", {"query": "SELECT 1"}, "1"), _SQL_ANSWER], 1.0),
+    ],
+)
+def test_tool_order_needs_a_strictly_earlier_call(calls: list[tuple], expected_score: float) -> None:
+    scorer = ToolOrder(
+        before=ToolMatch(names=frozenset({"execute-sql"})),
+        after=ToolMatch(names=frozenset({"execute-sql"}), query_pattern=r"\bfrom\s+crm_deals\b"),
+        name="any_sql_before_crm_sql",
+    )
+
+    assert scorer._run_eval_sync({"raw_log": _raw_tool_log(calls)}).score == expected_score
+
+
+@pytest.mark.parametrize(
     "calls,spec,expected_score",
     [
         ([_SQL_ANSWER], {"tables": ["crm_deals", "slack_messages"]}, 0.5),
@@ -376,7 +394,8 @@ _V3_INSPECTION = ("execute-sql", {"query": "SELECT count() FROM crm_deals_v3"}, 
     [
         ([_V3_INSPECTION, _SQL_ANSWER], "answer", 1.0),
         ([_V3_INSPECTION, _SQL_ANSWER], None, 0.0),
-        ([_SQL_ANSWER, _V3_INSPECTION], "answer", 0.0),
+        ([_SQL_ANSWER, _V3_INSPECTION], "answer", 1.0),
+        ([_V3_INSPECTION], "answer", 0.0),
         ([_SQL_ANSWER], None, 1.0),
     ],
 )
@@ -404,3 +423,12 @@ def test_server_used_requires_a_successful_call_on_that_server(calls: list[tuple
     score = ServerUsed()._run_eval_sync({"raw_log": _raw_tool_log(calls)}, {"server_used": {"server": "slack"}})
 
     assert score.score == expected_score
+
+
+@pytest.mark.parametrize("tables", [[{"name": "crm_deals_v3"}], [[]], [""], [["crm_deals_v3", ""]]])
+def test_sources_avoided_rejects_malformed_tables(tables: list[object]) -> None:
+    score = SourcesAvoided()._run_eval_sync(
+        {"raw_log": _raw_tool_log([_V3_INSPECTION])}, {"sources_avoided": {"tables": tables}}
+    )
+
+    assert (score.score, score.metadata["reason"]) == (0.0, "invalid expected metadata")
