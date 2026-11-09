@@ -1834,7 +1834,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         """
         canvas = self._canvas()
         user = self._state_actor(request)
-        if user is None:
+        # A sandbox token authenticates as its user, so the user check alone lets an agent through.
+        if user is None or self._is_sandbox_authenticated(request):
             return Response(
                 {"detail": "Canvas actions are invoked by viewers; sandbox tokens cannot use them."},
                 status=status.HTTP_403_FORBIDDEN,

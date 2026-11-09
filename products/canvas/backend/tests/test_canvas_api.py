@@ -2749,7 +2749,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
         Canvas.objects.unscoped().filter(id=canvas_id).update(generation_task_id=task.id)
-        client = self._sandbox_client(task.id)
+        client = self._sandbox_client(task.id, scope="canvas:read canvas:write task:read task:write")
 
         response = client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/actions/invoke/",
