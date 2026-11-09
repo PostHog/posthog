@@ -5,6 +5,15 @@ An internal tool for now: it opens posthog.com docs pull requests for changes me
 - `KNOWLEDGE_WRITER_TEAM_ID`, `KNOWLEDGE_WRITER_USER_ID` and `KNOWLEDGE_WRITER_DOCS_REPOSITORY` configure the one writer. `writer_settings()` in `backend/settings.py` is their only reader, and nothing runs while any of them is unset.
 - Turning it into a customer feature means replacing `writer_settings()` with a team-scoped model and triggering from the GitHub App webhook, since a customer can't add a workflow and a secret to every repository.
 
+## Review before merge
+
+A person reviews every writer pull request before it merges, and that review is the control the writer relies on.
+Never auto-merge a writer pull request.
+
+Publish checks the branch once, when the run finishes: it must be the branch the server issued, and it may only change files under `KNOWLEDGE_WRITER_DOCS_PATHS` (default `contents/docs/`).
+A push that arrives after that check is not checked again, so it reaches the pull request and shows up in its diff for the reviewer.
+The checks are a second layer under the review, not a replacement for it.
+
 ## Rollout
 
 Every gate below fails closed without an error, so a missing one looks like a quiet day of merges rather than a failure.
