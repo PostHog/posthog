@@ -337,7 +337,7 @@ class TestWorkflowViewAPI(APIBaseTest):
             ("unsupported_column", {"columns": ["folder"]}),
             ("invalid_filter", {"filters": [{"facet": "status", "negated": False}]}),
             ("filter_limit", {"filters": [{"facet": "status", "value": "active", "negated": False}] * 101}),
-            ("column_limit", {"columns": ["owner"] * 7}),
+            ("duplicate_column", {"columns": ["owner", "owner"]}),
             ("text_limit", {"text": "x" * 1001}),
         ]
     )
