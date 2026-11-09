@@ -215,7 +215,7 @@ describe('SandboxFeedbackService', () => {
             expect(writes()).toEqual({})
         })
 
-        it('verifies again once a failed certificate download recovers', async () => {
+        it('asks SNS to retry while the signing certificate cannot be downloaded', async () => {
             mockFetch.mockResolvedValueOnce({
                 status: 503,
                 headers: {},
@@ -224,7 +224,11 @@ describe('SandboxFeedbackService', () => {
             } as FetchResponse)
             const body = notification(sesRecord(TEAM_ID, complaint()))
 
-            expect((await service.handle({ body })).status).toBe(403)
+            expect(await service.handle({ body })).toEqual({
+                status: 503,
+                message: 'SNS signing certificate unavailable',
+            })
+            expect(suppression.recordComplaints).not.toHaveBeenCalled()
             expect((await service.handle({ body })).status).toBe(200)
             expect(suppression.recordComplaints).toHaveBeenCalledTimes(1)
         })

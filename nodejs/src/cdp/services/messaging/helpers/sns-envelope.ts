@@ -47,7 +47,9 @@ const plainTextPrefix = (message: string): string | undefined =>
 export type SnsEnvelopeVerdict =
     | { kind: 'records'; records: SesEventRecord[]; fromEnvelope: boolean }
     | { kind: 'ack' }
-    | { kind: 'reject'; status: number; error: string }
+    | { kind: 'reject'; status: number; error: string; certificateUnavailable?: boolean }
+
+class SnsCertificateUnavailableError extends Error {}
 
 export class SnsEnvelopeVerifier {
     certCache: Record<string, Promise<string> | undefined> = {}
@@ -172,9 +174,16 @@ export class SnsEnvelopeVerifier {
      * Best practice: verify the signature unless you're behind a trusted ALB / private VPC.
      */
     private async verifySnsSignature(envelope: SnsEnvelope): Promise<boolean> {
+        if (!this.isValidSnsCertUrl(envelope.SigningCertURL)) {
+            return false
+        }
+        let cert: string
         try {
-            // 1) Fetch cert
-            const cert = await this.fetchCert(envelope.SigningCertURL)
+            cert = await this.fetchCert(envelope.SigningCertURL)
+        } catch (error) {
+            throw new SnsCertificateUnavailableError(String(error))
+        }
+        try {
             // 2) Build string to sign (per SNS docs)
             const stringToSign = this.buildStringToSign(envelope)
             // 3) Verify
@@ -238,7 +247,16 @@ export class SnsEnvelopeVerifier {
                 type: parsed.envelope.Type,
                 messageId: parsed.envelope.MessageId,
             })
-            const ok = await this.verifySnsSignature(parsed.envelope)
+            let ok: boolean
+            try {
+                ok = await this.verifySnsSignature(parsed.envelope)
+            } catch (error) {
+                if (!(error instanceof SnsCertificateUnavailableError)) {
+                    throw error
+                }
+                logger.warn('[SnsEnvelopeVerifier] signing certificate unavailable', { error: error.message })
+                return { kind: 'reject', status: 403, error: 'Invalid SNS signature', certificateUnavailable: true }
+            }
             logger.info('[SnsEnvelopeVerifier] signature verified', { ok })
             if (!ok) {
                 return { kind: 'reject', status: 403, error: 'Invalid SNS signature' }

@@ -160,6 +160,9 @@ export class SandboxFeedbackService {
             }
             throw error
         }
+        if (verdict.kind === 'reject' && verdict.certificateUnavailable) {
+            return { status: 503, message: 'SNS signing certificate unavailable' }
+        }
         if (verdict.kind === 'reject') {
             return { status: verdict.status, message: verdict.error }
         }
