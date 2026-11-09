@@ -200,7 +200,9 @@ fn write_output_file(
     relative: impl AsRef<Path>,
     mut contents: impl Read,
 ) -> Result<()> {
-    let mut path = output.to_path_buf();
+    // Rebuilt from components so a trailing `/` or `/.` cannot make the
+    // check below see through a symlinked `output`.
+    let mut path: PathBuf = output.components().collect();
     let mut parts = relative.as_ref().components();
     loop {
         if path.is_symlink() {
@@ -335,16 +337,23 @@ mod tests {
             .unwrap(),
         );
 
-        // (symlink under the temp root, its target, artifact)
+        // (symlink under the temp root, its target, output directory, artifact)
         let cases = [
-            ("out", "outside", &dsym),
-            ("out/bundle", "outside", &dsym),
-            ("out/bundle/__source", "outside", &dsym),
-            ("out/bundle/dwarf", "outside/existing.txt", &dsym),
-            ("out/bundle.js.map", "outside/existing.txt", &sourcemap),
+            ("out", "outside", "out", &dsym),
+            ("out", "outside", "out/", &dsym),
+            ("out", "outside", "out/.", &dsym),
+            ("out/bundle", "outside", "out", &dsym),
+            ("out/bundle/__source", "outside", "out", &dsym),
+            ("out/bundle/dwarf", "outside/existing.txt", "out", &dsym),
+            (
+                "out/bundle.js.map",
+                "outside/existing.txt",
+                "out",
+                &sourcemap,
+            ),
         ];
 
-        for (link, target, (artifact_name, artifact)) in cases {
+        for (link, target, output, (artifact_name, artifact)) in cases {
             let root = tempfile::tempdir().unwrap();
             let outside = root.path().join("outside");
             fs::create_dir(&outside).unwrap();
@@ -357,19 +366,19 @@ mod tests {
 
             let result = extract(&ExtractArgs {
                 file,
-                output: root.path().join("out"),
+                output: root.path().join(output),
             });
 
-            assert!(result.is_err(), "{link}");
+            assert!(result.is_err(), "{link} {output}");
             let outside_files: Vec<_> = fs::read_dir(&outside)
                 .unwrap()
                 .map(|entry| entry.unwrap().file_name())
                 .collect();
-            assert_eq!(outside_files, ["existing.txt"], "{link}");
+            assert_eq!(outside_files, ["existing.txt"], "{link} {output}");
             assert_eq!(
                 fs::read_to_string(outside.join("existing.txt")).unwrap(),
                 "original",
-                "{link}"
+                "{link} {output}"
             );
         }
 
