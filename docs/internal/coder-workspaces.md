@@ -117,6 +117,8 @@ This does the host-side setup only:
 - installs the `coder` CLI at the version matching the server and the `mutagen` binary (pinned v0.18.1) that powers `devbox:sync`
 - links `coder` into `~/.local/bin` (or `~/bin`) when that directory is on your PATH, so you can run `coder` yourself; otherwise it prints the PATH line to add
 - logs you into the Coder deployment. Login asks you to paste a token from the browser, so run setup in a terminal that takes input. In a shell without one, setup stops and tells you to run `coder login` in a terminal first
+  - Without a terminal, set `CODER_SESSION_TOKEN` to a token from `https://coder.dev.posthog.dev/cli-auth` and `CODER_URL` to `https://coder.dev.posthog.dev`. The Coder CLI uses that token before any stored login, so login and every `hogli devbox:*` command work with no `coder login`. Setup still prompts for each configuration step you have not saved, so pass its `--skip-configure-*` flag. If login with the token fails, hogli shows the Coder error instead of asking you to log in
+  - The Coder SSH entries read the login stored on disk, so a program that doesn't inherit `CODER_SESSION_TOKEN`, such as an editor or a mutagen daemon started from another shell, can't connect. When only the variable holds the login, setup prints the command that stores it: `coder login --use-token-as-session <url>`. Store it again after the token changes
 - configures `~/.ssh/config` with Coder workspace entries (use `--skip-configure-ssh` to skip)
 - shows a compact "Currently configured:" status block with your saved settings
 - prompts for Git identity, an optional dotfiles repo, a preferred region, and an optional Claude OAuth token (stored as a Coder user secret)
