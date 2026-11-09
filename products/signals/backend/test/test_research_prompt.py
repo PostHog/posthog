@@ -585,6 +585,8 @@ class TestBuildReportPresentationPrompt:
         assert ("posthog-assignee-evidence" in prompt) == (selection and evidence and code)
         if selection and evidence and code:
             assert "--paths-file" in prompt
+            assert "`owners.yaml`, and standard CODEOWNERS rules" in prompt
+            assert "organization-qualified GitHub teams" in prompt
             assert "without a GitHub account" in prompt
             assert "not an eligibility list" in prompt
             assert "If absent in an older image" in prompt

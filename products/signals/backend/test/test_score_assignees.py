@@ -17,9 +17,7 @@ TARGET = "src/player/filter.py"
 def repository(tmp_path: Path) -> Path:
     (tmp_path / "src/player").mkdir(parents=True)
     (tmp_path / "src/other").mkdir()
-    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\n")
-    (tmp_path / "src/owners.yaml").write_text("version: 1\nowners: other-team\n")
-    (tmp_path / "src/player/owners.yaml").write_text("version: 1\nowners: player-team\n")
+    (tmp_path / "CODEOWNERS").write_text("/src/ @example-org/other-team\n/src/player/ @example-org/player-team\n")
     for path in [TARGET, "src/player/play.py", "src/other/api.py"]:
         (tmp_path / path).write_text("pass\n")
     return tmp_path
@@ -29,7 +27,11 @@ def member(
     login: str, team: str = "player-team", *, excluded_paths: tuple[str, ...] = (), active: bool = True
 ) -> Member:
     return Member(
-        login=login, emails=(f"{login}@example.com",), teams=(team,), excluded_paths=excluded_paths, active=active
+        login=login,
+        emails=(f"{login}@example.com",),
+        teams=(f"example-org/{team}",),
+        excluded_paths=excluded_paths,
+        active=active,
     )
 
 
@@ -90,7 +92,7 @@ def test_ranks_team_contributors_without_claiming_personal_ownership(
         assert result.candidates[0].matches_owner_team
         assert not result.candidates[0].is_named_owner
         assert "unverified_responsibility" in result.agent_decision.reason_codes
-    assert result.owners == ("player-team",)
+    assert result.owners == ("@example-org/player-team",)
     assert result.scopes == (TARGET, "src/player")
     assert all(candidate.login != "former" for candidate in result.candidates)
 
@@ -123,7 +125,7 @@ def test_directory_uses_its_own_ownership_and_ignores_other_teams(repository: Pa
         History(commits=(commit("owner", 5), commit("unrelated", 1, "src/other/api.py")), complete=True),
         NOW,
     )
-    assert result.owners == ("player-team",)
+    assert result.owners == ("@example-org/player-team",)
     assert result.recommended_assignee is None
     assert "unverified_responsibility" in result.agent_decision.reason_codes
     assert next(candidate for candidate in result.candidates if candidate.login == "unrelated").evidence_shas == ()
@@ -132,8 +134,11 @@ def test_directory_uses_its_own_ownership_and_ignores_other_teams(repository: Pa
 
 
 @pytest.mark.parametrize("has_recent_work", [False, True])
-def test_named_ownership_takes_precedence_over_team_contribution(repository: Path, has_recent_work: bool) -> None:
-    (repository / "src/player/owners.yaml").write_text("version: 1\nowners: [player-team, '@named']\n")
+@pytest.mark.parametrize("owner", ["@named", "@Named", "NAMED@example.com"])
+def test_named_ownership_takes_precedence_over_team_contribution(
+    repository: Path, has_recent_work: bool, owner: str
+) -> None:
+    (repository / "CODEOWNERS").write_text(f"/src/player/ @example-org/player-team {owner}\n")
     result = rank_assignees(
         repository,
         TARGET,
@@ -150,6 +155,140 @@ def test_named_ownership_takes_precedence_over_team_contribution(repository: Pat
     assert not result.candidates[0].matches_owner_team
     assert result.candidates[1].matches_owner_team
     assert not result.candidates[1].is_named_owner
+
+
+@pytest.mark.parametrize(
+    "rules,expected_owners,expected_pattern,expected_line",
+    [
+        ("* @other\n/src/player/ @named # current owner\n", ("@named",), "/src/player/", 2),
+        ("/src/player/ @named\n/src/player/filter.py\n", (), "/src/player/filter.py", 2),
+        ("*.py @named\n", ("@named",), "*.py", 1),
+        ("player/ @named\n", ("@named",), "player/", 1),
+        ("/player/ @named\n", (), None, None),
+        ("src/* @named\n", (), None, None),
+        ("src/**/filter.py @named\n", ("@named",), "src/**/filter.py", 1),
+        ("/SRC/ @named\n", (), None, None),
+        ("* @named\n!src/player/ @other\n", ("@named",), "*", 1),
+        ("* @named\n/src/player/[f]ilter.py @other\n", ("@named",), "*", 1),
+        ("* @named\n*** @other\n", ("@named",), "*", 1),
+        ("* @named\n/src/player/ invalid-owner\n", ("@named",), "*", 1),
+        (
+            "# ignored\n\\#ignored @other\n/src/player/filter.py @named @other\n",
+            ("@named", "@other"),
+            "/src/player/filter.py",
+            3,
+        ),
+    ],
+)
+def test_codeowners_rules_follow_github_precedence(
+    repository: Path,
+    rules: str,
+    expected_owners: tuple[str, ...],
+    expected_pattern: str | None,
+    expected_line: int | None,
+) -> None:
+    (repository / "CODEOWNERS").write_text(rules)
+    result = rank_assignees(
+        repository,
+        TARGET,
+        Roster(generated_at=NOW, members=(member("named"),)),
+        History(commits=(), complete=True),
+        NOW,
+    )
+    assert result.owners == expected_owners
+    assert result.ownership_pattern == expected_pattern
+    assert result.ownership_line == expected_line
+    assert result.ownership_source == ("CODEOWNERS" if expected_line else None)
+    assert result.recommended_assignee == ("named" if "@named" in expected_owners else None)
+
+
+@pytest.mark.parametrize(
+    "locations",
+    [
+        (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"),
+        ("CODEOWNERS", "docs/CODEOWNERS"),
+        ("docs/CODEOWNERS",),
+    ],
+)
+@pytest.mark.parametrize("first_matches", [False, True])
+def test_codeowners_uses_only_the_first_file(repository: Path, locations: tuple[str, ...], first_matches: bool) -> None:
+    (repository / "CODEOWNERS").unlink()
+    for index, location in enumerate(locations):
+        path = repository / location
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(("* @named\n" if first_matches else "") if index == 0 else "* @other\n")
+    result = rank_assignees(
+        repository,
+        TARGET,
+        Roster(generated_at=NOW, members=(member("named"), member("other"))),
+        History(commits=(), complete=True),
+        NOW,
+    )
+    assert result.ownership_source == (locations[0] if first_matches else None)
+    assert result.recommended_assignee == ("named" if first_matches else None)
+
+
+@pytest.mark.parametrize(
+    "team", ["example-org/player-team", "@Example-Org/Player-Team", "other-org/player-team", "player-team"]
+)
+def test_codeowners_team_membership_preserves_organization(repository: Path, team: str) -> None:
+    result = rank_assignees(
+        repository,
+        TARGET,
+        Roster(generated_at=NOW, members=(Member(login="owner", teams=(team,)),)),
+        History(commits=(), complete=True),
+        NOW,
+    )
+    assert bool(result.candidates) == (team.lower().lstrip("@") == "example-org/player-team")
+    assert all(candidate.matches_owner_team and not candidate.is_named_owner for candidate in result.candidates)
+    assert result.recommended_assignee is None
+
+
+@pytest.mark.parametrize(
+    "declaration,expected_owners,expected_source,expected_assignee",
+    [
+        (None, ("@codeowner",), "CODEOWNERS", "codeowner"),
+        ("owners: ['@named']\n", ("@named",), "src/player/owners.yaml", "named"),
+        ("owners: null\n", (), "src/player/owners.yaml", None),
+        ("owners: []\n", ("@parent",), "src/owners.yaml", "parent"),
+        ("owners: []\ninherit: false\n", ("@codeowner",), "CODEOWNERS", "codeowner"),
+        (
+            "owners: []\nrules:\n  - match: filter.py\n    owners: ['@named']\n",
+            ("@named",),
+            "src/player/owners.yaml",
+            "named",
+        ),
+        ("owners: player-team\n", ("player-team",), "src/player/owners.yaml", None),
+    ],
+)
+def test_owners_yaml_preserves_resolution_before_codeowners_fallback(
+    repository: Path,
+    declaration: str | None,
+    expected_owners: tuple[str, ...],
+    expected_source: str,
+    expected_assignee: str | None,
+) -> None:
+    (repository / "CODEOWNERS").write_text("/src/player/ @codeowner\n")
+    if declaration is not None:
+        (repository / "src/owners.yaml").write_text("version: 1\nowners: ['@parent']\n")
+        (repository / "src/player/owners.yaml").write_text(f"version: 1\n{declaration}")
+    result = rank_assignees(
+        repository,
+        TARGET,
+        Roster(
+            generated_at=NOW,
+            members=(Member(login="named", teams=("player-team",)), member("parent"), member("codeowner")),
+        ),
+        History(commits=(), complete=True),
+        NOW,
+    )
+    assert result.owners == expected_owners
+    assert result.ownership_source == expected_source
+    assert result.recommended_assignee == expected_assignee
+    if expected_owners == ("player-team",):
+        assert result.candidates[0].login == "named"
+        assert result.candidates[0].matches_owner_team
+        assert not result.candidates[0].is_named_owner
 
 
 def test_commit_is_not_counted_twice_and_unknown_authors_are_not_guessed(repository: Path) -> None:
@@ -203,13 +342,13 @@ def test_roster_json_rejects_invalid_identity_fields(entry: dict) -> None:
 def test_cli_preserves_valid_paths_and_reports_individual_errors(
     repository: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], input_mode: str
 ) -> None:
-    (repository / "src/player/owners.yaml").write_text("version: 1\nowners: [player-team, '@owner']\n")
+    (repository / "CODEOWNERS").write_text("/src/player/ @example-org/player-team @owner\n")
     roster = repository / "roster.json"
     roster.write_text(
         json.dumps(
             {
                 "generated_at": NOW.isoformat(),
-                "members": [{"login": "owner", "emails": ["owner@example.com"], "teams": ["player-team"]}],
+                "members": [{"login": "owner", "emails": ["owner@example.com"], "teams": ["example-org/player-team"]}],
             }
         )
     )
@@ -236,17 +375,21 @@ def test_cli_preserves_valid_paths_and_reports_individual_errors(
     output = json.loads(capsys.readouterr().out)
     if input_mode == "single":
         assert output["recommended_assignee"] == "owner"
-        assert output["schema_version"] == 3
+        assert output["schema_version"] == 4
     else:
         assert [result["path"] for result in output["results"]] == [TARGET, "src/player"]
         assert all(result["recommended_assignee"] == "owner" for result in output["results"])
         assert [error["path"] for error in output["errors"]] == ["missing.py", "../outside.py"]
 
 
-def test_unowned_paths_only_produce_provisional_candidates(repository: Path) -> None:
+@pytest.mark.parametrize("manifest", [None, "product.yaml", "component.yaml"])
+def test_unowned_paths_only_produce_provisional_candidates(repository: Path, manifest: str | None) -> None:
     target = repository / "unowned/file.py"
     target.parent.mkdir()
     target.write_text("pass\n")
+    if manifest:
+        (repository / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [component.yaml]\n")
+        (target.parent / manifest).write_text("version: 1\nowners: ['@other']\n")
     result = rank_assignees(
         repository,
         "unowned/file.py",
@@ -258,6 +401,7 @@ def test_unowned_paths_only_produce_provisional_candidates(repository: Path) -> 
     )
     assert [candidate.login for candidate in result.candidates] == ["contributor", "other"]
     assert result.recommended_assignee is None
+    assert result.ownership_source is None
     assert result.scopes == ("unowned/file.py",)
     assert result.agent_decision.case == "needs_investigation"
     assert "no_declared_owner" in result.agent_decision.reason_codes
@@ -297,8 +441,9 @@ def test_inherited_owner_with_parent_activity_preserves_direct_investigation_lea
         ),
         NOW,
     )
-    assert result.ownership_is_inherited
-    assert result.ownership_source == "src/player/owners.yaml"
+    assert result.ownership_source == "CODEOWNERS"
+    assert result.ownership_pattern == "/src/player/"
+    assert result.ownership_line == 2
     assert result.recommended_assignee is None
     assert result.agent_decision.case == "needs_investigation"
     assert "parent_only_evidence" in result.agent_decision.reason_codes
@@ -341,7 +486,7 @@ def test_unknown_direct_identity_blocks_parent_only_recommendation(repository: P
 @pytest.mark.parametrize("mode", ["tie", "multiple_teams"])
 def test_ambiguous_direct_owners_require_investigation(repository: Path, mode: str) -> None:
     if mode == "multiple_teams":
-        (repository / "src/player/owners.yaml").write_text("version: 1\nowners: [player-team, other-team]\n")
+        (repository / "CODEOWNERS").write_text("/src/player/ @example-org/player-team @example-org/other-team\n")
     result = rank_assignees(
         repository,
         TARGET,

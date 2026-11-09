@@ -1443,15 +1443,19 @@ The team's most-used report tags, most-used first: {json.dumps(list(team_tags))}
 _ASSIGNEE_EVIDENCE_GUIDANCE = """### Repository assignee evidence
 
 Use the bundled `posthog-assignee-evidence` command as an additional source for code-related reviewer selection.
-It reads local git history and `owners.yaml` (including configured manifest aliases) and makes no assignments or network requests.
-If the repository uses only CODEOWNERS, inspect that separately; the helper's contributors remain provisional.
+It reads local git history, `owners.yaml`, and standard CODEOWNERS rules and makes no assignments or network requests.
+An applicable `owners.yaml` declaration takes precedence, including explicitly unowned paths; otherwise it falls back to CODEOWNERS.
+It does not interpret product manifests or other alias files as ownership metadata.
+It uses the first CODEOWNERS file found in `.github/`, the repository root, or `docs/`, with the last matching rule taking precedence.
 First check `command -v posthog-assignee-evidence`. If absent in an older image, or if it fails, continue with other evidence; do not install packages.
 Choose the smallest affected files or component directories from your findings, not a broad repository root.
 Run separately for each repository. Pass paths relative to that repository root, with at most 20 paths per call.
 Read `scout-members-list` for current project membership, linked GitHub logins, and team slugs.
 Write a temporary roster JSON object with these fields:
 `{"generated_at":"<current timezone-aware ISO timestamp>","members":[{"login":"<verified GitHub login>","emails":[],"teams":[],"excluded_paths":[],"active":true}]}`.
-Include only verified linked human GitHub accounts. Populate `teams` with current team slugs, not display names.
+Include only verified linked human GitHub accounts. Populate `teams` with verified organization-qualified GitHub teams such as `example-org/platform`.
+The member list supplies bare team slugs; verify their organization before adding them. Do not infer an organization from a matching slug or display name.
+For bare team names declared in `owners.yaml`, supply those exact names after verifying membership in the repository's team context.
 Populate `emails` only from verified identity evidence, such as the author login and git email returned together by GitHub's commit API.
 Do not infer email aliases or logins from similar names. Unknown identities must stay unmapped.
 Apply relevant human corrections to `excluded_paths` only when their scope can be expressed as repository path patterns. Keep checking behavior-level corrections separately.
@@ -1459,7 +1463,7 @@ Do not treat an unavailable team roster as an empty team, or give an old snapsho
 Run `posthog-assignee-evidence --repo <repository-root> --roster <roster.json> -- <path> [<path> ...]`.
 For a JSON list, use `--paths-file <paths.json>` instead of positional paths; `--paths-file -` reads the list from stdin.
 One positional path returns its ranking directly. Multiple paths or `--paths-file` return `results` and per-path `errors`.
-Read ownership source, direct versus parent evidence, dates, exclusions, warnings, and `agent_decision`; scores rank evidence, not responsibility.
+Read ownership source, rule pattern and line, direct versus parent evidence, dates, exclusions, warnings, and `agent_decision`; scores rank evidence, not responsibility.
 `is_named_owner` means the ownership rule names that person. `matches_owner_team` means team membership only.
 Team membership, implementation authorship, and review alone do not establish current individual responsibility.
 Before selecting anyone, find current responsibility evidence for the affected work: an applicable individual ownership rule, an entity owner, or a current scoped handoff or responsibility statement.

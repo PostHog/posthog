@@ -22,6 +22,76 @@ MAX_COMMITS = 5000
 MAX_PARENT_LEVELS = 4
 MAX_ROSTER_AGE = timedelta(days=7)
 MECHANICAL_CHANGE = re.compile(r"^(?:style(?:\([^)]*\))?:|chore(?:\([^)]*\))?:\s*(?:format|lint|sort imports)\b)", re.I)
+CODEOWNERS_LOCATIONS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
+MAX_CODEOWNERS_BYTES = 3 * 1024 * 1024
+CODEOWNER = re.compile(r"(?:@[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:/[A-Za-z0-9][A-Za-z0-9_.-]*)?|[^@\s]+@[^@\s]+)")
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Ownership:
+    owners: tuple[str, ...]
+    source: str | None
+    pattern: str | None = None
+    line: int | None = None
+
+
+def parse_codeowner_rule(line: str, source: str, number: int) -> Ownership | None:
+    if line.lstrip().startswith(("#", "\\#")):
+        return None
+    parts = re.findall(r"(?:\\.|[^\s])+", line.partition("#")[0])
+    if not parts or parts[0].startswith("!") or "[" in parts[0]:
+        return None
+    pattern, *owners = parts
+    if any(CODEOWNER.fullmatch(owner) is None for owner in owners):
+        return None
+    try:
+        compile_pattern(pattern)
+    except ValueError:
+        return None
+    return Ownership(pattern=pattern, owners=tuple(owner.lower() for owner in owners), source=source, line=number)
+
+
+def load_codeowners(repo: Path) -> tuple[Ownership, ...]:
+    for location in CODEOWNERS_LOCATIONS:
+        path = repo / location
+        if path.is_file():
+            break
+    else:
+        return ()
+    if not path.resolve().is_relative_to(repo.resolve()):
+        raise ValueError("CODEOWNERS must be inside the repository")
+    with path.open("rb") as stream:
+        content = stream.read(MAX_CODEOWNERS_BYTES)
+    if len(content) >= MAX_CODEOWNERS_BYTES:
+        raise ValueError("CODEOWNERS must be smaller than 3 MB")
+    return tuple(
+        rule
+        for number, line in enumerate(content.decode("utf-8").splitlines(), start=1)
+        if (rule := parse_codeowner_rule(line, location, number)) is not None
+    )
+
+
+class RepositoryOwnership(OwnersResolver):
+    def __init__(self, repo: Path) -> None:
+        super().__init__(repo_root=repo)
+        self.codeowners = load_codeowners(repo)
+
+    def alias_files(self) -> tuple[str, ...]:
+        # Repository manifests can use an unrelated owners field, so only read ownership files.
+        return ()
+
+    def ownership_for(self, path: str) -> Ownership:
+        ownership = self.resolve(path)
+        if ownership.source is not None:
+            return Ownership(owners=tuple(owner.lower() for owner in ownership.owners or ()), source=ownership.source)
+        return next(
+            (rule for rule in reversed(self.codeowners) if rule.pattern and compile_pattern(rule.pattern).test(path)),
+            Ownership(owners=(), source=None),
+        )
+
+
+def is_team_owner(owner: str) -> bool:
+    return "@" not in owner or (owner.startswith("@") and "/" in owner)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -172,7 +242,8 @@ class AssigneeRanking:
     path: str
     owners: tuple[str, ...]
     ownership_source: str | None
-    ownership_is_inherited: bool
+    ownership_pattern: str | None
+    ownership_line: int | None
     scopes: tuple[str, ...]
     candidates: tuple[Candidate, ...]
     investigation_candidates: tuple[Candidate, ...]
@@ -219,12 +290,12 @@ def path_in_scope(path: str, scope: str) -> bool:
     return path == scope or path.startswith(f"{scope}/")
 
 
-def traversal_scopes(path: str, owners: set[str], resolver: OwnersResolver) -> tuple[str, ...]:
+def traversal_scopes(path: str, owners: set[str], resolver: RepositoryOwnership) -> tuple[str, ...]:
     scopes = [path]
     parent = Path(path).parent
     while parent != Path(".") and len(scopes) <= MAX_PARENT_LEVELS:
         probe = (parent / "__assignee_scope__").as_posix()
-        if owners and not owners.intersection(resolver.resolve(probe).owners or []):
+        if owners and not owners.intersection(resolver.ownership_for(probe).owners):
             break
         if not owners and len(parent.parts) < 2:
             break
@@ -242,7 +313,12 @@ def is_path_excluded(member: Member, path: str, *, is_directory: bool = False) -
 
 
 def collect_evidence(
-    roster: Roster, history: History, scopes: tuple[str, ...], owners: set[str], resolver: OwnersResolver, now: datetime
+    roster: Roster,
+    history: History,
+    scopes: tuple[str, ...],
+    owners: set[str],
+    resolver: RepositoryOwnership,
+    now: datetime,
 ) -> EvidenceIndex:
     by_email = {email.lower(): member for member in roster.members for email in member.emails}
     evidence: dict[str, list[ScopedCommit]] = defaultdict(list)
@@ -258,7 +334,7 @@ def collect_evidence(
         eligible_paths = [
             changed
             for changed in commit.paths
-            if (not owners or owners.intersection(resolver.resolve(changed).owners or []))
+            if (not owners or owners.intersection(resolver.ownership_for(changed).owners))
             and (member is None or not is_path_excluded(member, changed))
         ]
         depth = next(
@@ -366,7 +442,7 @@ def decide_agent_action(
         reasons.append("stale_roster")
     if not owners:
         reasons.append("no_declared_owner")
-    if len([owner for owner in owners if not owner.startswith("@")]) > 1:
+    if len([owner for owner in owners if is_team_owner(owner)]) > 1:
         reasons.append("multiple_owner_teams")
     if owners and candidates and not named_owner:
         reasons.append("unverified_responsibility")
@@ -425,9 +501,9 @@ def rank_assignees(repo: Path, path: str, roster: Roster, history: History, now:
     if not target.is_relative_to(repo) or not target.exists() or target == repo:
         raise ValueError("Path must exist inside the repository and cannot be the repository root")
     path = target.relative_to(repo).as_posix()
-    resolver = OwnersResolver(repo_root=repo)
-    ownership = resolver.resolve(f"{path}/__assignee_scope__" if target.is_dir() else path)
-    owners = set(ownership.owners or [])
+    resolver = RepositoryOwnership(repo)
+    ownership = resolver.ownership_for(f"{path}/__assignee_scope__" if target.is_dir() else path)
+    owners = set(ownership.owners)
     scopes = traversal_scopes(path, owners, resolver)
     evidence = collect_evidence(roster, history, scopes, owners, resolver, now)
     roster_current = timedelta(minutes=-5) <= now - roster.generated_at <= MAX_ROSTER_AGE
@@ -435,10 +511,11 @@ def rank_assignees(repo: Path, path: str, roster: Roster, history: History, now:
     candidates = []
     investigation_candidates = []
     excluded = []
+    owner_teams = {owner.removeprefix("@") for owner in owners if is_team_owner(owner)}
     for member in roster.members:
         login = member.login.lower()
-        matches_owner_team = bool(owners.intersection(member.teams))
-        is_named_owner = f"@{login}" in owners
+        matches_owner_team = bool(owner_teams.intersection(team.removeprefix("@").lower() for team in member.teams))
+        is_named_owner = f"@{login}" in owners or bool(owners.intersection(email.lower() for email in member.emails))
         changes = evidence.by_login.get(login, [])
         reason = exclusion_reason(member, path, is_directory=target.is_dir())
         if reason:
@@ -482,13 +559,12 @@ def rank_assignees(repo: Path, path: str, roster: Roster, history: History, now:
     if evidence.unmatched_author_count:
         warnings.append(f"{evidence.unmatched_author_count} git author email(s) have no explicit roster mapping")
     return AssigneeRanking(
-        schema_version=3,
+        schema_version=4,
         path=path,
         owners=tuple(sorted(owners)),
         ownership_source=ownership.source,
-        ownership_is_inherited=bool(
-            ownership.source and Path(ownership.source).parent != (Path(path) if target.is_dir() else Path(path).parent)
-        ),
+        ownership_pattern=ownership.pattern,
+        ownership_line=ownership.line,
         scopes=scopes,
         candidates=tuple(candidates),
         investigation_candidates=tuple(investigation_candidates),
@@ -526,7 +602,7 @@ def main() -> None:
             raise ValueError("Supply between 1 and 20 distinct paths")
         repo = Path(git(args.repo, "rev-parse", "--show-toplevel").strip()).resolve()
         roster = Roster.from_json(args.roster.read_text())
-        resolver = OwnersResolver(repo_root=repo)
+        resolver = RepositoryOwnership(repo)
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         parser.error(str(error))
     results = []
@@ -539,7 +615,7 @@ def main() -> None:
             path = target.relative_to(repo).as_posix()
             if not target.exists() or path == ".":
                 raise ValueError("Path must exist below the repository root")
-            owners = set(resolver.resolve(f"{path}/__assignee_scope__" if target.is_dir() else path).owners or [])
+            owners = set(resolver.ownership_for(f"{path}/__assignee_scope__" if target.is_dir() else path).owners)
             scope = traversal_scopes(path, owners, resolver)[-1]
             if scope not in histories:
                 histories[scope] = load_history(repo, scope, now)
