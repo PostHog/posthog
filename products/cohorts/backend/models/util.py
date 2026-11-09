@@ -108,6 +108,7 @@ class CohortErrorCode(StrEnum):
     NO_PROPERTIES = "no_properties"
     FLAG_CHANGED = "flag_changed"
     FLAG_EVALUATION_FAILED = "flag_evaluation_failed"
+    EMPTY_REPLACE = "empty_replace"
     UNKNOWN = "unknown"
 
 
@@ -128,6 +129,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
     CohortErrorCode.FLAG_EVALUATION_FAILED: "We couldn't evaluate the feature flag for some people, so this cohort may be missing people who match it. Create a new cohort from the flag to try again.",
+    CohortErrorCode.EMPTY_REPLACE: "The replace was stopped because the query matched no persons. The cohort kept its existing members.",
     CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
 }
 
@@ -179,6 +181,8 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
             return CohortErrorCode.QUERY_SIZE
         case PydanticValidationError() | ValidationError():
             return CohortErrorCode.VALIDATION_ERROR
+        case PopulationEmptyResult():
+            return CohortErrorCode.EMPTY_REPLACE
 
     code_name = (getattr(e, "code_name", None) or "").lower()
     if code_name in _CLICKHOUSE_ERROR_MAPPING:
@@ -1557,6 +1561,13 @@ class PopulationSuperseded(Exception):
 
 class PopulationMarkerClockSkew(Exception):
     """The cohort holds rows stamped too far ahead of this host's clock to mint a marker after them."""
+
+
+class PopulationEmptyResult(Exception):
+    """A replace query matched nobody, so the run stops before the prune and the cohort keeps its members.
+
+    It's the user's outcome, not a fault: the run isn't retried, because the same query matches nobody again.
+    """
 
 
 def population_timestamp_now() -> datetime:

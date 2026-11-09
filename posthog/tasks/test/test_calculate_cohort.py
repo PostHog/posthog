@@ -2,6 +2,7 @@ from collections.abc import Callable
 from contextlib import nullcontext, suppress
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -1760,8 +1761,9 @@ class TestCohortCalculationTasks(APIBaseTest):
         insert_cohort_from_query.push_request(retries=retries, called_directly=False, is_eager=True)
         try:
             with (
-                patch(QUERY_CH_INSERT_PATH, return_value=0) as mock_insert_ch,
-                patch(PG_SYNC_PATH, return_value=0, side_effect=_rpc_error(sync_error) if sync_error else None),
+                # One match: a replace that matches nobody is refused before the sync.
+                patch(QUERY_CH_INSERT_PATH, return_value=1) as mock_insert_ch,
+                patch(PG_SYNC_PATH, return_value=1, side_effect=_rpc_error(sync_error) if sync_error else None),
                 suppress(Retry),
             ):
                 insert_cohort_from_query.run(cohort.id, self.team.pk)
@@ -1802,9 +1804,9 @@ class TestCohortCalculationTasks(APIBaseTest):
             Cohort.objects.filter(pk=cohort.pk).update(
                 pending_population_mode=CohortPopulationMode.REPLACE, population_marker=newer_marker
             )
-            return 0
+            return 1
 
-        with patch(QUERY_CH_INSERT_PATH, return_value=0), patch(PG_SYNC_PATH, side_effect=newer_attempt_takes_over):
+        with patch(QUERY_CH_INSERT_PATH, return_value=1), patch(PG_SYNC_PATH, side_effect=newer_attempt_takes_over):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
         cohort.refresh_from_db()
@@ -1848,7 +1850,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
         try:
             with (
-                patch(QUERY_CH_INSERT_PATH, return_value=0),
+                patch(QUERY_CH_INSERT_PATH, return_value=1),
                 patch(PG_SYNC_PATH, side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE)),
                 self.assertRaises(Retry) as scheduled,
             ):
@@ -1861,7 +1863,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             stored_before_retry = Cohort.objects.values_list(*run_state).get(pk=cohort.pk)
             history_rows_before_retry = CohortCalculationHistory.objects.filter(cohort=cohort).count()
 
-            with patch(QUERY_CH_INSERT_PATH) as mock_insert_ch, patch(PG_SYNC_PATH, return_value=0) as mock_sync:
+            with patch(QUERY_CH_INSERT_PATH) as mock_insert_ch, patch(PG_SYNC_PATH, return_value=1) as mock_sync:
                 insert_cohort_from_query.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
         finally:
             insert_cohort_from_query.pop_request()
@@ -1877,6 +1879,36 @@ class TestCohortCalculationTasks(APIBaseTest):
         else:
             self.assertEqual(mock_sync.call_args.kwargs["replace_marker"], first_marker)
             self.assertEqual((cohort.is_calculating, cohort.population_marker), (False, None))
+
+    def test_query_replace_that_matches_nobody_keeps_every_member(self) -> None:
+        # A misspelled property is the likely cause. Pruning to an empty result would drop every member, and every
+        # flag and survey built on the cohort would change at once.
+        member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'nobody has this'"},
+        )
+        cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
+        )
+
+        # Past the member's row, so the marker mints without waiting out the second it was stamped in.
+        with time_machine.travel(timezone.now() + timedelta(seconds=10), tick=False):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        cohort.refresh_from_db()
+        history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [member.id])
+        # Refused, not retried: the run ends, and the user sees why on the cohort.
+        self.assertEqual(
+            (cohort.is_calculating, cohort.pending_population_mode, cohort.population_marker, history.error_code),
+            (False, None, None, "empty_replace"),
+        )
+        assert history.error is not None
+        self.assertIn("kept its existing members", history.error)
 
     @parameterized.expand(
         [
