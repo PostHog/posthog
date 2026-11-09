@@ -699,7 +699,7 @@ def prepare_attachment_uploads(team: Team, files: Sequence[AttachmentUploadReque
         logger.exception("transactional_email_attachment_uploads_failed", team_id=team.id)
         raise DeliveryUnavailable() from e
     if response.status_code == 200:
-        return [_upload_slot(slot) for slot in response.json()["files"]]
+        return _answered_slots(team, files, response)
     refusal_code = _refusal_code(response)
     if refusal_code == "field_not_accepted":
         raise FieldNotAccepted("attachments")
@@ -718,9 +718,25 @@ def prepare_attachment_uploads(team: Team, files: Sequence[AttachmentUploadReque
     raise DeliveryUnavailable()
 
 
+def _answered_slots(
+    team: Team, files: Sequence[AttachmentUploadRequest], response: requests.Response
+) -> list[AttachmentUploadSlot]:
+    try:
+        slots = [_upload_slot(slot) for slot in response.json()["files"]]
+    except (ValueError, KeyError, TypeError) as e:
+        logger.exception("transactional_email_attachment_uploads_unreadable", team_id=team.id)
+        raise DeliveryUnavailable() from e
+    if [slot.sha256 for slot in slots] != [file.sha256 for file in files]:
+        logger.error("transactional_email_attachment_uploads_mismatched", team_id=team.id)
+        raise DeliveryUnavailable()
+    return slots
+
+
 def _upload_slot(slot: dict[str, Any]) -> AttachmentUploadSlot:
     if slot["status"] == "present":
         return PresentAttachment(sha256=slot["sha256"], expires_at=datetime.fromisoformat(slot["expires_at"]))
+    if slot["status"] != "upload":
+        raise ValueError(f"Unknown attachment upload status: {slot['status']}")
     return AttachmentUploadTarget(
         sha256=slot["sha256"],
         url=slot["url"],

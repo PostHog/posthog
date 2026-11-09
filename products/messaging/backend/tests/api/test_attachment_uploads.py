@@ -125,6 +125,20 @@ class TestAttachmentUploads(APIBaseTest):
             ),
             ("storage_down", _cdp_answers(503, {"error": "delivery_unavailable"}), 503, "delivery_unavailable", None),
             ("pipeline_unreachable", {"side_effect": requests.ConnectTimeout()}, 503, "delivery_unavailable", None),
+            (
+                "an_answer_missing_fields",
+                _cdp_answers(200, {"files": [{"sha256": INVOICE, "status": "upload"}, PRESENT_LOGO]}),
+                503,
+                "delivery_unavailable",
+                None,
+            ),
+            (
+                "an_answer_for_other_files",
+                _cdp_answers(200, {"files": [PRESENT_LOGO, UPLOAD_INVOICE]}),
+                503,
+                "delivery_unavailable",
+                None,
+            ),
         ]
     )
     def test_refuses_what_the_pipeline_refuses_with_a_reason_and_a_fix(
