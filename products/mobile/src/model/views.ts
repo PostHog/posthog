@@ -323,6 +323,82 @@ export interface WebOverviewSnapshot extends Freshness {
     computed: boolean
 }
 
+/** The overview metrics the web analytics trend can chart, by their `WebOverviewItem` key. */
+export type WebTrendMetric = 'visitors' | 'views' | 'sessions' | 'session duration' | 'bounce rate'
+
+/** The web's `WebStatsBreakdown` values that the phone's breakdown tiles show. */
+export type WebBreakdown =
+    | 'Page'
+    | 'InitialPage'
+    | 'ExitPage'
+    | 'ExitClick'
+    | 'InitialChannelType'
+    | 'InitialReferringDomain'
+    | 'InitialUTMSource'
+    | 'InitialUTMMedium'
+    | 'InitialUTMCampaign'
+    | 'DeviceType'
+    | 'Browser'
+    | 'OS'
+    | 'Viewport'
+    | 'Country'
+    | 'Region'
+    | 'City'
+    | 'Timezone'
+    | 'Language'
+
+export type WebTileId = 'pages' | 'sources' | 'devices' | 'locations'
+
+/** One property filter, in the shape of the web's `WebAnalyticsPropertyFilters`. */
+export interface WebPropertyFilter {
+    key: string
+    type: 'event' | 'session'
+    operator: 'exact' | 'is_not_set' | 'regex'
+    /** Left out for `is_not_set`. */
+    value?: string | number
+}
+
+/** One filter chip: a breakdown value that the queries filter by. A viewport sets its width and its height. */
+export interface WebFilter {
+    /** One chip per id, such as `$pathname`. A new value for the same id replaces the old one. */
+    id: string
+    label: string
+    value: string
+    properties: WebPropertyFilter[]
+}
+
+export interface WebBreakdownRow {
+    key: string
+    label: string
+    /** True for a missing value, such as "(not set)", which the row shows in a muted style. */
+    placeholder: boolean
+    /** Visitors in the range. */
+    value: number
+    previous: number | null
+    /** Views, or clicks for outbound links. Null when the response has no second column. */
+    secondary: number | null
+    filter: WebFilter | null
+}
+
+export interface WebBreakdownSnapshot extends Freshness {
+    breakdown: WebBreakdown
+    rows: WebBreakdownRow[]
+    /** "Views" or "Clicks", from the response's columns. Null without a second column. */
+    secondaryLabel: string | null
+    hasMore: boolean
+    resolvedRange: ResolvedRange | null
+    computed: boolean
+}
+
+export interface WebActiveHoursSnapshot extends Freshness {
+    /** Seven rows, Monday first. Each row has 24 hours, midnight first. */
+    cells: number[][]
+    total: number
+    resolvedRange: ResolvedRange | null
+    timezone: string | null
+    computed: boolean
+}
+
 /** A person at a chart point. */
 export interface ActorRow {
     id: string
