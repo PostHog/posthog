@@ -22,22 +22,31 @@ from products.aeo.backend.facade.api import (
     MAX_PROMPT_LENGTH,
     MAX_STATS_WORDS,
     archive_prompt,
+    get_brand,
     get_prompt,
     get_prompt_set_overview,
     get_prompt_stats,
     get_prompt_suggestions,
     import_prompts,
+    list_brands,
     list_prompt_checks,
     list_prompt_topics,
     list_prompt_versions,
     list_prompts,
     start_prompt_suggestions,
+    update_brand,
     update_prompt,
 )
 from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
+    BRAND_NAME_MAX_LENGTH,
     PROMPT_TOPIC_MAX_LENGTH,
     PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
+    Brand,
+    BrandKind,
+    BrandNotFoundError,
+    BrandStatus,
+    BrandUpdate,
     Prompt,
     PromptAuthor,
     PromptCheck,
@@ -71,6 +80,8 @@ MAX_PROMPTS_PER_IMPORT = 2000
 MAX_SUGGESTED_PROMPTS = 50
 DEFAULT_PAGE_SIZE = 100
 DEFAULT_CHECKS_PAGE_SIZE = 20
+DEFAULT_BRANDS_PAGE_SIZE = 100
+MAX_BRAND_ALIASES = 20
 MAX_CHECKS_PAGE_SIZE = 100
 STATS_DAYS = 30
 MAX_OVERVIEW_DAYS = 90
@@ -100,6 +111,9 @@ class AEOPromptEngineCheckSerializer(DataclassSerializer):
             "cited": {"help_text": "Whether the answer cited a URL on one of the target domains."},
             "check_failed": {
                 "help_text": "The engine did not answer. When true, 'cited' is false and says nothing about citations."
+            },
+            "target_best_position": {
+                "help_text": "1-based rank of the first target-domain URL among the answer's cited URLs. Null when the answer did not cite one."
             },
             "checked_at": {"help_text": "When the check ran."},
         }
@@ -237,6 +251,9 @@ MENTIONED_HELP = (
 )
 
 
+AVG_POSITION_HELP = "Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain."
+
+
 class AEOPromptEngineStatsSerializer(DataclassSerializer):
     citation_rate = serializers.FloatField(
         read_only=True,
@@ -258,6 +275,7 @@ class AEOPromptEngineStatsSerializer(DataclassSerializer):
             "cited": {"help_text": "Checks whose answer cited a target domain."},
             "mentioned": {"help_text": MENTIONED_HELP},
             "failed": {"help_text": "Checks where the engine did not answer."},
+            "avg_position": {"help_text": AVG_POSITION_HELP},
             "first_checked_at": {"help_text": "When the engine first ran the prompt."},
             "last_checked_at": {"help_text": "When the engine last ran the prompt."},
         }
@@ -274,6 +292,7 @@ class AEOPromptDailyEngineStatsSerializer(DataclassSerializer):
             "cited": {"help_text": "Checks that day whose answer cited a target domain."},
             "mentioned": {"help_text": "Checks that day whose answer names the brand. " + MENTIONED_HELP},
             "failed": {"help_text": "Checks that day where the engine did not answer."},
+            "avg_position": {"help_text": AVG_POSITION_HELP},
         }
 
 
@@ -360,6 +379,7 @@ SET_COUNTS_HELP = {
     "prompts_cited": {
         "help_text": "Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited."
     },
+    "avg_position": {"help_text": AVG_POSITION_HELP},
 }
 
 
@@ -596,6 +616,31 @@ class AEOPromptImportResultSerializer(DataclassSerializer):
         }
 
 
+class AEOBrandSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = Brand
+        ref_name = "AEOBrand"
+        extra_kwargs = {
+            "id": {"help_text": "Brand id."},
+            "name": {
+                "help_text": "Brand name as people say it. Starts as a guess from the domain until someone edits it."
+            },
+            "domain": {
+                "help_text": "Registrable domain, for example 'amplitude.com'. Citations on its subdomains count for the brand."
+            },
+            "kind": {
+                "help_text": "What the brand is to the project: 'own' (the project's site), 'competitor', 'publisher' (a review, community or media site) or 'unknown' (not labeled yet)."
+            },
+            "status": {
+                "help_text": "'suggested' (added from citations, not reviewed), 'confirmed' or 'ignored'. Only people change it."
+            },
+            "source": {"help_text": "How the brand entered the catalog: 'citations' or 'manual'."},
+            "aliases": {"help_text": "Other names for the brand, used to find it in answer text."},
+            "created_at": {"help_text": "When the brand entered the catalog."},
+            "updated_at": {"help_text": "When a person last changed the brand."},
+        }
+
+
 class AEOPromptSuggestRequestSerializer(serializers.Serializer):
     domain = serializers.CharField(
         max_length=200,
@@ -669,7 +714,48 @@ class AEOPromptSuggestionJobSerializer(DataclassSerializer):
         }
 
 
-class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class AEOBrandListQuerySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=BrandKind.choices, required=False, help_text="Only list brands of this kind."
+    )
+    status = serializers.ChoiceField(
+        choices=BrandStatus.choices, required=False, help_text="Only list brands with this review status."
+    )
+
+
+class AEOBrandUpdateRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        required=False, max_length=BRAND_NAME_MAX_LENGTH, help_text="Brand name as people say it."
+    )
+    kind = serializers.ChoiceField(
+        choices=BrandKind.choices,
+        required=False,
+        help_text="What the brand is to the project: 'own', 'competitor', 'publisher' or 'unknown'.",
+    )
+    status = serializers.ChoiceField(
+        choices=BrandStatus.choices,
+        required=False,
+        help_text="'confirmed' to accept the brand, 'ignored' to hide it, 'suggested' to put it back for review.",
+    )
+    aliases = serializers.ListField(
+        child=serializers.CharField(max_length=BRAND_NAME_MAX_LENGTH, help_text="One other name for the brand."),
+        required=False,
+        max_length=MAX_BRAND_ALIASES,
+        help_text="Replaces the brand's other names. Names are trimmed, and repeated names are dropped.",
+    )
+
+
+class _AEOFlagGateMixin(TeamAndOrgViewSetMixin):
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        distinct_id = getattr(request.user, "distinct_id", None)
+        if not distinct_id or not posthog_feature_flag_enabled(
+            AEO_CITATION_TRACKING_FLAG, distinct_id, organization_id=self.organization_id
+        ):
+            raise PermissionDenied("This feature is not available.")
+
+
+class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
     scope_object_read_actions = [
         "list",
@@ -684,14 +770,6 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # suggest saves nothing, but it spends model credits, so it needs write access.
     scope_object_write_actions = ["partial_update", "destroy", "bulk_import", "suggest"]
     pagination_class = PrecountedLimitOffsetPagination
-
-    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        super().initial(request, *args, **kwargs)
-        distinct_id = getattr(request.user, "distinct_id", None)
-        if not distinct_id or not posthog_feature_flag_enabled(
-            AEO_CITATION_TRACKING_FLAG, distinct_id, organization_id=self.organization_id
-        ):
-            raise PermissionDenied("This feature is not available.")
 
     @validated_request(
         query_serializer=AEOPromptListQuerySerializer,
@@ -922,3 +1000,66 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except PromptSuggestionJobNotFoundError:
             raise NotFound()
         return Response(AEOPromptSuggestionJobSerializer(job).data)
+
+
+class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
+    scope_object = "web_analytics"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["partial_update"]
+    pagination_class = PrecountedLimitOffsetPagination
+
+    @validated_request(
+        query_serializer=AEOBrandListQuerySerializer,
+        operation_id="aeo_brands_list",
+        summary="List AEO brands",
+        description="Lists the project's brand catalog by domain: the project itself, competitors, publishers and domains nobody has labeled yet. Each daily run adds the domains its answers cited for the first time.",
+        responses={200: AEOBrandSerializer(many=True)},
+        tags=["web_analytics"],
+    )
+    def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
+        page_brands, count = list_brands(
+            self.team_id,
+            limit=paginator.get_limit(request) or DEFAULT_BRANDS_PAGE_SIZE,
+            offset=paginator.get_offset(request),
+            kind=request.validated_query_data.get("kind"),
+            status=request.validated_query_data.get("status"),
+        )
+        paginator.set_count(count)
+        page = self.paginate_queryset(page_brands)
+        return self.get_paginated_response(AEOBrandSerializer(page, many=True).data)
+
+    @validated_request(
+        operation_id="aeo_brands_retrieve",
+        summary="Get an AEO brand",
+        description="Gets one brand from the project's brand catalog.",
+        responses={200: OpenApiResponse(response=AEOBrandSerializer)},
+        tags=["web_analytics"],
+    )
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        try:
+            return Response(AEOBrandSerializer(get_brand(self.team_id, pk)).data)
+        except BrandNotFoundError:
+            raise NotFound()
+
+    @validated_request(
+        request_serializer=AEOBrandUpdateRequestSerializer,
+        operation_id="aeo_brands_partial_update",
+        summary="Update an AEO brand",
+        description="Renames, relabels, confirms or ignores a brand, or replaces its other names. The daily run keeps these edits; it only adds newly cited domains.",
+        responses={200: OpenApiResponse(response=AEOBrandSerializer)},
+        tags=["web_analytics"],
+    )
+    def partial_update(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        data = request.validated_data
+        change = BrandUpdate(
+            name=data.get("name"),
+            kind=data.get("kind"),
+            status=data.get("status"),
+            aliases=tuple(data["aliases"]) if "aliases" in data else None,
+        )
+        try:
+            brand = update_brand(self.team_id, pk, change)
+        except BrandNotFoundError:
+            raise NotFound()
+        return Response(AEOBrandSerializer(brand).data)
