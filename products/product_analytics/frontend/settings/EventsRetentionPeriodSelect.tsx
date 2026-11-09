@@ -20,6 +20,21 @@ export interface EventsRetentionPeriodSelectProps extends RetentionPeriods, Even
     onSave: (months: number | null) => void
 }
 
+function PlanCapWarning({
+    retentionMonths,
+    planMonths,
+}: Pick<EventsRetentionPeriodSelectProps, 'retentionMonths' | 'planMonths'>): JSX.Element | null {
+    if (retentionMonths === null || retentionMonths <= planMonths) {
+        return null
+    }
+    return (
+        <span className="flex items-center gap-1">
+            <IconWarning className="shrink-0 text-lg text-warning" />
+            {`Your plan limits this to ${retentionPeriodLabel(planMonths)}`}
+        </span>
+    )
+}
+
 export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectProps): JSX.Element {
     const {
         retentionMonths,
@@ -38,7 +53,6 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
     const [changingSupportPeriod, setChangingSupportPeriod] = useState(false)
     const options = eventsRetentionPeriodOptions(props)
     const supportMonths = retentionMonths !== null && !choices.includes(retentionMonths) ? retentionMonths : null
-    const abovePlan = retentionMonths !== null && retentionMonths > planMonths
 
     const confirm = (months: number | null): void => {
         const period = retentionPeriodLabel(months ?? defaultMonths)
@@ -94,16 +108,11 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
                         </LemonButton>
                     </>
                 )}
-                {abovePlan && (
-                    <span className="flex items-center gap-1">
-                        <IconWarning className="shrink-0 text-lg text-warning" />
-                        {`Your plan limits this to ${retentionPeriodLabel(planMonths)}`}
-                    </span>
-                )}
+                <PlanCapWarning retentionMonths={retentionMonths} planMonths={planMonths} />
             </div>
             <p className="mb-0 text-xs text-secondary">
                 <span>{note}</span>
-                {retentionMonths !== null && !abovePlan && (
+                {retentionMonths !== null && retentionMonths <= planMonths && (
                     <span> Older events are deleted once a month, so some are kept up to about a month longer.</span>
                 )}
             </p>
