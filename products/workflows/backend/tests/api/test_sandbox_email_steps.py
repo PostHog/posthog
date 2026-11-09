@@ -139,13 +139,24 @@ class TestSandboxEmailSteps(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert HogFlow.objects.get(id=flow.id).actions[1]["config"]["inputs"]["email"]["value"]["subject"] == "Edited"
 
-    def test_a_workflow_owned_by_another_product_cannot_hold_a_sandbox_step(self) -> None:
+    @parameterized.expand([("create",), ("test_run_override",)])
+    def test_a_workflow_owned_by_another_product_cannot_hold_a_sandbox_step(self, path: str) -> None:
         with _flag(True):
-            response = self.client.post(self._url(), _flow(_sandbox_step(), origin_product="loops"), format="json")
+            if path == "create":
+                response = self.client.post(self._url(), _flow(_sandbox_step(), origin_product="loops"), format="json")
+            else:
+                owned = HogFlow.objects.create(
+                    team=self.team, name="Loop", status="draft", origin_product="loops", actions=[_trigger()]
+                )
+                response = self.client.post(
+                    f"{self._url(str(owned.id))}/invocations",
+                    {"configuration": _flow(_sandbox_step()), "globals": {}},
+                    format="json",
+                )
 
         assert response.status_code == 400, response.json()
         assert "Only workflows can use the sandbox sender" in response.json()["detail"]
-        assert not HogFlow.objects.exists()
+        assert not HogFlow.objects.filter(actions__contains=[{"type": "email_sandbox"}]).exists()
 
     @parameterized.expand(
         [

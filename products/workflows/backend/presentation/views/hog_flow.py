@@ -3809,15 +3809,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if duplicate_ids:
                 raise serializers.ValidationError({"actions": f"Duplicate action id(s): {', '.join(duplicate_ids)}"})
 
+        # A test run's configuration override binds no instance and passes the flow through the context.
+        stored = instance or self.context.get("instance")
         actions = data.get("actions", instance.actions if instance else [])
-        origin_product = data.get("origin_product", instance.origin_product if instance else None)
+        origin_product = data.get("origin_product", stored.origin_product if stored else None)
         if origin_product and any(
-            isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE for action in actions or []
+            isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+            for action in data.get("actions", stored.actions if stored else None) or []
         ):
             raise serializers.ValidationError(
                 {"actions": "Only workflows can use the sandbox sender. Choose a verified email sender for this step."}
             )
-        stored = instance or self.context.get("instance")
         require_viewer_access_to_added_actions(
             self.context,
             {"actions": submitted_actions, "conversion": data.get("conversion")},

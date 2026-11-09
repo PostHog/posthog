@@ -195,6 +195,9 @@ class TestSandboxEmailActionValidation(SimpleTestCase):
             ("recipient_string", {"to": "member@example.com"}),
             ("recipient_name_number", {"to": {"email": "member@example.com", "name": 1}}),
             ("subject_number", {"subject": 1}),
+            # The sender's renderer takes a missing optional field, never a null one.
+            ("recipient_name_null", {"to": {"email": "member@example.com", "name": None}}),
+            ("preheader_null", {"preheader": None}),
         ]
     )
     def test_rejects_wrongly_typed_email_fields_even_in_a_draft(self, _name: str, value: dict[str, Any]) -> None:

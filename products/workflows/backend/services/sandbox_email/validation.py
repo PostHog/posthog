@@ -100,14 +100,12 @@ def _validate_email_value(value: dict[str, Any], *, require_complete: bool) -> N
         _reject_unknown_keys(recipient, _RECIPIENT_KEYS)
     recipient = recipient or {}
 
+    # A key that is present must hold text: the sender's renderer accepts a missing optional field,
+    # never a null one.
     wrong_types = [
-        f"'to.{key}'"
-        for key in ("email", "name")
-        if recipient.get(key) is not None and not isinstance(recipient[key], str)
+        f"'to.{key}'" for key in ("email", "name") if key in recipient and not isinstance(recipient[key], str)
     ]
-    wrong_types += [
-        f"'{key}'" for key in _STRING_VALUE_KEYS if value.get(key) is not None and not isinstance(value[key], str)
-    ]
+    wrong_types += [f"'{key}'" for key in _STRING_VALUE_KEYS if key in value and not isinstance(value[key], str)]
     if wrong_types:
         raise ValidationError({"config": f"Expected text for {', '.join(wrong_types)}."})
     if value.get("design") is not None and not isinstance(value["design"], dict):
