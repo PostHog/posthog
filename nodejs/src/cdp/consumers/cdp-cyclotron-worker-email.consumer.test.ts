@@ -1,6 +1,7 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -239,32 +240,63 @@ describe('CdpCyclotronWorkerEmail', () => {
         })
 
         it.each([
-            ['a send with files fails while the plain sends still run', 'send'],
-            ['the plain sends fail while a send with files still runs', 'plain'],
-        ])('reports the failure only once both settled when %s', async (_, failing) => {
-            const { worker, queue } = workerWith(roomFor(1))
-            const [plain, send] = [job(), withFiles()]
-            let release!: () => void
-            const released = new Promise<void>((resolve) => (release = resolve))
-            jest.spyOn(worker, 'processInvocations').mockImplementation(async (invocations) => {
-                const failsNow = (invocations[0].id === send.id) === (failing === 'send')
-                if (failsNow) {
-                    throw new Error(`${failing} failed`)
-                }
-                await released
-                return resultsOf(invocations)
-            })
+            [
+                'a send with files fails while the plain sends still run',
+                { send: 'fails', plain: 'ok' },
+                'send failed',
+                0,
+            ],
+            [
+                'the plain sends fail while a send with files still runs',
+                { send: 'ok', plain: 'fails' },
+                'plain failed',
+                0,
+            ],
+            [
+                'both fail, counting the send that failed beside the batch',
+                { send: 'fails later', plain: 'fails' },
+                'plain failed',
+                1,
+            ],
+        ] as const)(
+            'reports the failure only once both settled when %s',
+            async (_, outcomes, reported, countedBeside) => {
+                const { worker, queue } = workerWith(roomFor(1))
+                const [plain, send] = [job(), withFiles()]
+                const kindOf = (invocation: CyclotronJobInvocation) => (invocation.id === send.id ? 'send' : 'plain')
+                const writeFailures = async () =>
+                    (
+                        await register.getSingleMetric('cdp_cyclotron_v2_result_write_failures_total')?.get()
+                    )?.values.find((sample) => sample.labels.queue === 'email')?.value ?? 0
+                const failuresBefore = await writeFailures()
+                let release!: () => void
+                const released = new Promise<void>((resolve) => (release = resolve))
+                jest.spyOn(worker, 'processInvocations').mockImplementation(async (invocations) => {
+                    const kind = kindOf(invocations[0])
+                    if (outcomes[kind] === 'fails') {
+                        throw new Error(`${kind} failed`)
+                    }
+                    await released
+                    if (outcomes[kind] === 'fails later') {
+                        throw new Error(`${kind} failed`)
+                    }
+                    return resultsOf(invocations)
+                })
 
-            const batch = worker.processBatch([plain, send]).then(({ backgroundTask }) => backgroundTask)
-            let settled = false
-            void batch.catch(() => undefined).finally(() => (settled = true))
-            await new Promise(setImmediate)
-            expect(settled).toBe(false)
-            release()
+                const batch = worker.processBatch([plain, send]).then(({ backgroundTask }) => backgroundTask)
+                let settled = false
+                void batch.catch(() => undefined).finally(() => (settled = true))
+                await new Promise(setImmediate)
+                expect(settled).toBe(false)
+                release()
 
-            await expect(batch).rejects.toThrow(`${failing} failed`)
-            expect(written(queue)).toEqual([failing === 'send' ? plain.id : send.id])
-        })
+                await expect(batch).rejects.toThrow(reported)
+                expect(written(queue)).toEqual(
+                    [plain, send].filter((invocation) => outcomes[kindOf(invocation)] === 'ok').map(({ id }) => id)
+                )
+                expect((await writeFailures()) - failuresBefore).toBe(countedBeside)
+            }
+        )
 
         it('writes the result of a send whose abandoned call never settles, and keeps its reservation', async () => {
             jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] })

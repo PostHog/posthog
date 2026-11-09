@@ -1,6 +1,7 @@
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
+import { reportResultWriteFailure } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import {
     InFlightRegistry,
@@ -11,6 +12,7 @@ import {
     inFlightLimitsFor,
 } from '../services/messaging/in-flight-registry'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
+import { settleAllThenThrowFirst } from '../utils/settle-all'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
 
@@ -62,20 +64,28 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                 deferrals.push(deferral(invocation))
             }
         }
-        const deferring = deferrals.length ? this.deferWithHeartbeat(deferrals) : Promise.resolve()
+        const besideTheBatch = [deferrals.length ? this.deferWithHeartbeat(deferrals) : Promise.resolve(), ...sends]
         // Settled results never reject, so a send that fails while the plain batch runs leaves no unhandled rejection.
-        const besideTheBatch = Promise.allSettled([deferring, ...sends])
+        const besideTheBatchSettled = Promise.allSettled(besideTheBatch)
 
         let batch: Awaited<ReturnType<CdpCyclotronWorkerHogFlow['processBatch']>>
         try {
             batch = await super.processBatch(plain)
         } catch (error) {
-            await besideTheBatch
+            this.reportFailures(await besideTheBatchSettled)
             throw error
         }
         return {
-            backgroundTask: settleAll([batch.backgroundTask, besideTheBatch.then(rethrowFirstFailure)]),
+            backgroundTask: settleAllThenThrowFirst([batch.backgroundTask, ...besideTheBatch]),
             invocationResults: batch.invocationResults,
+        }
+    }
+
+    private reportFailures(settled: PromiseSettledResult<unknown>[]): void {
+        for (const outcome of settled) {
+            if (outcome.status === 'rejected') {
+                reportResultWriteFailure(this.queue, outcome.reason)
+            }
         }
     }
 
@@ -142,17 +152,6 @@ function withoutDeferralState(invocation: CyclotronJobInvocation): CyclotronJobI
     }
     const { attachmentDeferrals: _, attachmentDueAt: __, ...queueMetadata } = invocation.queueMetadata
     return { ...invocation, queueMetadata }
-}
-
-function rethrowFirstFailure(settled: PromiseSettledResult<unknown>[]): void {
-    const failed = settled.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
-    if (failed) {
-        throw failed.reason
-    }
-}
-
-async function settleAll(work: Promise<unknown>[]): Promise<void> {
-    rethrowFirstFailure(await Promise.allSettled(work))
 }
 
 // The transactional email API queues its runs straight onto this queue, so this worker counts them as triggered.

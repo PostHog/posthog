@@ -8,6 +8,7 @@ import { logger } from '~/common/utils/logger'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { settleAllThenThrowFirst } from '../../utils/settle-all'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { JobQueue } from './job-queue.interface'
@@ -153,13 +154,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
             const { backgroundTask } = await consumeBatch(invocations)
             void this.trackWrite(backgroundTask)
-            void backgroundTask.catch((error) => {
-                resultWriteFailuresCounter.labels({ queue }).inc()
-                logger.warn('CyclotronV2 failed to write batch results', {
-                    queue,
-                    error: String(error),
-                })
-            })
+            void backgroundTask.catch((error) => reportResultWriteFailure(queue, error))
 
             pendingJobsGauge.set(this.pendingJobs.size)
         })
@@ -278,7 +273,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         const sanitizedResults = this.sanitizer.sanitizeResults(invocationResults)
 
-        await everyWrite(
+        await settleAllThenThrowFirst(
             sanitizedResults.map(async (result) => {
                 const job = this.pendingJobs.get(result.invocation.id)
                 if (!job) {
@@ -361,7 +356,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     public async deferInvocations(
         deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]
     ): Promise<void> {
-        await everyWrite(
+        await settleAllThenThrowFirst(
             deferrals.map(async ({ invocation, scheduledAt }) => {
                 const job = this.pendingJobs.get(invocation.id)
                 if (job) {
@@ -402,13 +397,9 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 }
 
-// The batch stops heartbeating once its writes settle, so a failed write is reported only after every other one landed.
-async function everyWrite(writes: Promise<unknown>[]): Promise<void> {
-    const settled = await Promise.allSettled(writes)
-    const failed = settled.find((write): write is PromiseRejectedResult => write.status === 'rejected')
-    if (failed) {
-        throw failed.reason
-    }
+export function reportResultWriteFailure(queue: string, error: unknown): void {
+    resultWriteFailuresCounter.labels({ queue }).inc()
+    logger.warn('CyclotronV2 failed to write batch results', { queue, error: String(error) })
 }
 
 // A deferral moves the job's scheduled time, so a deferred job is late from when it first became due.
