@@ -281,136 +281,6 @@ export interface PaginatedPlatformAlertConfigurationListApi {
 /**
  * Product whose data the alert evaluates. It cannot change after the create.
  */
-export type InsightPlatformAlertConfigurationCreateApiSourceKind =
-    (typeof InsightPlatformAlertConfigurationCreateApiSourceKind)[keyof typeof InsightPlatformAlertConfigurationCreateApiSourceKind]
-
-export const InsightPlatformAlertConfigurationCreateApiSourceKind = {
-    Insight: 'insight',
-} as const
-
-export interface InsightsThresholdBoundsApi {
-    /** Alert fires when the value drops below this number. */
-    lower?: number | null
-    /** Alert fires when the value exceeds this number. */
-    upper?: number | null
-}
-
-export type InsightThresholdTypeApi = (typeof InsightThresholdTypeApi)[keyof typeof InsightThresholdTypeApi]
-
-export const InsightThresholdTypeApi = {
-    Absolute: 'absolute',
-    Percentage: 'percentage',
-} as const
-
-export interface InsightThresholdApi {
-    bounds?: InsightsThresholdBoundsApi | null
-    /** Whether bounds are compared as absolute values or as percentage change from the previous interval. */
-    type: InsightThresholdTypeApi
-}
-
-export type AlertConditionTypeApi = (typeof AlertConditionTypeApi)[keyof typeof AlertConditionTypeApi]
-
-export const AlertConditionTypeApi = {
-    AbsoluteValue: 'absolute_value',
-    RelativeIncrease: 'relative_increase',
-    RelativeDecrease: 'relative_decrease',
-} as const
-
-export interface AlertConditionApi {
-    type: AlertConditionTypeApi
-}
-
-/**
- * The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API.
- */
-export type InsightPlatformAlertConditionApiDetector = { [key: string]: unknown } | null
-
-export interface InsightPlatformAlertConditionApi {
-    /** The bounds the insight's value is checked against, absolute or as a percentage change. */
-    threshold: InsightThresholdApi | null
-    /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
-    comparison: AlertConditionApi
-    /** The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API. */
-    detector?: InsightPlatformAlertConditionApiDetector
-}
-
-/**
- * Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API.
- */
-export type InsightPlatformAlertSourceConfigApiConfig = { [key: string]: unknown } | null
-
-export interface InsightPlatformAlertSourceConfigApi {
-    /** The insight the alert checks. It cannot change through this API. */
-    insight_id: number
-    /** The bound the insight's value is checked against. */
-    condition: InsightPlatformAlertConditionApi
-    /** Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API. */
-    config?: InsightPlatformAlertSourceConfigApiConfig
-    /** Whether checks skip Saturdays and Sundays. It can't change through this API. */
-    skip_weekend?: boolean
-    /**
-     * How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API.
-     * @minimum 0
-     */
-    evaluation_delay_intervals?: number
-}
-
-/**
- * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
- */
-export type InsightPlatformAlertConfigurationCreateApiLabels = { [key: string]: string }
-
-/**
- * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
- */
-export type InsightPlatformAlertConfigurationCreateApiAnnotations = { [key: string]: string }
-
-/**
- * The settings of a new alert. Every one but source_config has a default, which is stored.
- */
-export interface InsightPlatformAlertConfigurationCreateApi {
-    /** Product whose data the alert evaluates. It cannot change after the create. */
-    source_kind: InsightPlatformAlertConfigurationCreateApiSourceKind
-    /**
-     * Human-readable name of the alert. Defaults to 'Untitled alert'.
-     * @maxLength 255
-     */
-    name?: string
-    /** Whether the alert is evaluated on schedule. Defaults to true. */
-    enabled?: boolean
-    /** Settings for a insight alert. The bound the alert is evaluated against is under condition. */
-    source_config: InsightPlatformAlertSourceConfigApi
-    /** How the alert splits its results into instances. Defaults to mode single. */
-    grouping?: GroupingApi
-    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
-    schedule_restriction?: AlertScheduleRestrictionApi | null
-    /**
-     * Number of recent checks considered when deciding to fire. Defaults to 1.
-     * @minimum 1
-     * @maximum 10
-     */
-    evaluation_periods?: number
-    /**
-     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
-     * @minimum 1
-     * @maximum 10
-     */
-    datapoints_to_alarm?: number
-    /**
-     * Minimum minutes between notifications for the same alert. Defaults to 0.
-     * @minimum 0
-     * @maximum 2147483647
-     */
-    cooldown_minutes?: number
-    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
-    labels?: InsightPlatformAlertConfigurationCreateApiLabels
-    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
-    annotations?: InsightPlatformAlertConfigurationCreateApiAnnotations
-}
-
-/**
- * Product whose data the alert evaluates. It cannot change after the create.
- */
 export type LogsPlatformAlertConfigurationCreateApiSourceKind =
     (typeof LogsPlatformAlertConfigurationCreateApiSourceKind)[keyof typeof LogsPlatformAlertConfigurationCreateApiSourceKind]
 
@@ -1164,7 +1034,6 @@ export interface WarehouseSourcePlatformAlertConfigurationCreateApi {
 }
 
 export type PlatformAlertConfigurationCreateApi =
-    | InsightPlatformAlertConfigurationCreateApi
     | LogsPlatformAlertConfigurationCreateApi
     | MetricsPlatformAlertConfigurationCreateApi
     | WarehouseDestinationPlatformAlertConfigurationCreateApi
@@ -1179,6 +1048,73 @@ export type InsightPlatformAlertConfigurationEditApiSourceKind =
 export const InsightPlatformAlertConfigurationEditApiSourceKind = {
     Insight: 'insight',
 } as const
+
+export interface InsightsThresholdBoundsApi {
+    /** Alert fires when the value drops below this number. */
+    lower?: number | null
+    /** Alert fires when the value exceeds this number. */
+    upper?: number | null
+}
+
+export type InsightThresholdTypeApi = (typeof InsightThresholdTypeApi)[keyof typeof InsightThresholdTypeApi]
+
+export const InsightThresholdTypeApi = {
+    Absolute: 'absolute',
+    Percentage: 'percentage',
+} as const
+
+export interface InsightThresholdApi {
+    bounds?: InsightsThresholdBoundsApi | null
+    /** Whether bounds are compared as absolute values or as percentage change from the previous interval. */
+    type: InsightThresholdTypeApi
+}
+
+export type AlertConditionTypeApi = (typeof AlertConditionTypeApi)[keyof typeof AlertConditionTypeApi]
+
+export const AlertConditionTypeApi = {
+    AbsoluteValue: 'absolute_value',
+    RelativeIncrease: 'relative_increase',
+    RelativeDecrease: 'relative_decrease',
+} as const
+
+export interface AlertConditionApi {
+    type: AlertConditionTypeApi
+}
+
+/**
+ * The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API.
+ */
+export type InsightPlatformAlertConditionApiDetector = { [key: string]: unknown } | null
+
+export interface InsightPlatformAlertConditionApi {
+    /** The bounds the insight's value is checked against, absolute or as a percentage change. */
+    threshold: InsightThresholdApi | null
+    /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
+    comparison: AlertConditionApi
+    /** The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API. */
+    detector?: InsightPlatformAlertConditionApiDetector
+}
+
+/**
+ * Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API.
+ */
+export type InsightPlatformAlertSourceConfigApiConfig = { [key: string]: unknown } | null
+
+export interface InsightPlatformAlertSourceConfigApi {
+    /** The insight the alert checks. It cannot change through this API. */
+    insight_id: number
+    /** The bound the insight's value is checked against. */
+    condition: InsightPlatformAlertConditionApi
+    /** Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API. */
+    config?: InsightPlatformAlertSourceConfigApiConfig
+    /** Whether checks skip Saturdays and Sundays. It can't change through this API. */
+    skip_weekend?: boolean
+    /**
+     * How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API.
+     * @minimum 0
+     */
+    evaluation_delay_intervals?: number
+}
 
 /**
  * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.

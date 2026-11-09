@@ -25,6 +25,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
 from django.conf import settings
+from django.db.models import prefetch_related_objects
 
 import structlog
 from temporalio import activity
@@ -120,6 +121,7 @@ from products.alerts_platform.backend.facade.scheduling import (
     validate_and_normalize_schedule_start_time,
 )
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -655,12 +657,17 @@ def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutc
 
 def _alert_url(check: PlatformAlertCheckInput, alert_id: str) -> str | None:
     """The alert's page on its insight, so a native message links where the insight stack's does."""
-    insight_short_id = (
-        Insight.objects.filter(team_id=check.team_id, id=check.source_config.get("insight_id"))
-        .values_list("short_id", flat=True)
-        .first()
-    )
-    return insight_alert_url(check.team_id, insight_short_id, alert_id) if insight_short_id else None
+    insight = _insight_of(check)
+    return insight_alert_url(check.team_id, insight.short_id, alert_id) if insight is not None else None
+
+
+def _insight_of(check: PlatformAlertCheckInput) -> Insight | None:
+    """The insight a check reads, or None when it is gone or deleted."""
+    insight_id = check.source_config.get("insight_id")
+    if not isinstance(insight_id, int):
+        return None
+    found = insights_including_soft_deleted_for_team(team_id=check.team_id, insight_ids=[insight_id])
+    return found[0] if found and not found[0].deleted else None
 
 
 def _evaluation_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
@@ -675,15 +682,11 @@ def _alert_from_platform(check: PlatformAlertCheckInput) -> AlertConfiguration |
     """An unsaved insight alert with the platform alert's settings, so the insight evaluation runs it
     unchanged. None when its insight is gone."""
     source_config = check.source_config
-    insight = (
-        Insight.objects.select_related("team__organization")
-        # Prefetched for the same reason as `_legacy_alert`'s.
-        .prefetch_related("tagged_items__tag")
-        .filter(team_id=check.team_id, id=source_config.get("insight_id"))
-        .first()
-    )
+    insight = _insight_of(check)
     if insight is None:
         return None
+    # Prefetched for the same reason as `_legacy_alert`'s.
+    prefetch_related_objects([insight], "team__organization", "tagged_items__tag")
     condition = source_config.get(SOURCE_CONDITION_KEY) or {}
     threshold_config = condition.get("threshold")
     return AlertConfiguration(

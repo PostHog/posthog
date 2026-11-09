@@ -831,7 +831,15 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
 
             assert alert_2.get("code") == refused_code
 
-    def test_a_create_another_create_overtook_after_validation_is_refused_under_the_lock(self) -> None:
+    @parameterized.expand(
+        [
+            ("alert_count", "check_alert_limit", "alert"),
+            ("real_time_count", "real_time_alert_validation_error", "calculation_interval"),
+        ]
+    )
+    def test_a_create_another_create_overtook_after_validation_is_refused_under_the_lock(
+        self, _name: str, limit_check: str, field: str
+    ) -> None:
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -841,12 +849,11 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             "name": "alert name",
         }
         # Validation sees room; by the time the create holds the lock, another create took it.
-        with mock.patch.object(
-            AlertConfiguration, "check_alert_limit", side_effect=[None, "Your plan is limited to 1 alerts."]
-        ):
+        with mock.patch.object(AlertConfiguration, limit_check, side_effect=[None, "Your plan's limit is reached."]):
             response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
 
         assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == field
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
 
     def test_alert_is_deleted_on_insight_update(self) -> None:

@@ -14,11 +14,21 @@ if TYPE_CHECKING:
 import pydantic
 
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+
+
+@frozen
+class AlertLimitRefusal:
+    """A plan limit a write would break, and the request field the API reports it on."""
+
+    field: str
+    message: str
+
 
 ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
@@ -369,7 +379,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         organization: Organization,
         calculation_interval: str | AlertCalculationInterval | None,
         enabled: bool,
-    ) -> str | None:
+    ) -> AlertLimitRefusal | None:
         """The plan limit a new alert would break, or None. Call it inside the create's transaction:
         it holds the team's insight alert lock until the transaction ends, the lock the platform's own
         creates take, so two creates cannot both pass the count."""
@@ -378,9 +388,13 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
 
         hold_cap_lock(team_id=team_id, source_kind=SourceKind.INSIGHT)
-        return cls.check_alert_limit(team_id, organization) or cls.real_time_alert_validation_error(
+        if message := cls.check_alert_limit(team_id, organization):
+            return AlertLimitRefusal(field="alert", message=message)
+        if message := cls.real_time_alert_validation_error(
             team_id=team_id, organization=organization, calculation_interval=calculation_interval, enabled=enabled
-        )
+        ):
+            return AlertLimitRefusal(field="calculation_interval", message=message)
+        return None
 
     @classmethod
     def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
