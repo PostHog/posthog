@@ -11827,10 +11827,10 @@ Today (14): `BlockStorages`, `FirewallPolicies`, `Images`, `LoadBalancers`, `Mon
 
 Diffed against: <https://scp-api.strato.de/documentation/v1/en/api/documentation.html>
 
-- [ ] `Fixed instance sizes (GET /v1/servers/fixed_instance_sizes)` — resolve fixed_instance_size_id values in server hardware to named size specifications (high)
-- [ ] `Baremetal models (GET /v1/servers/baremetal_models)` — resolve baremetal_model_id values in server hardware to model specifications (high)
-- [ ] `Usages (GET /v1/usages)` — analyze resource consumption over time for servers, storage, images, and public IPs (high)
-- [ ] `Server monitoring (GET /v1/monitoring_center/{server_id})` — analyze historical resource utilization and network traffic for each server (high)
+- [x] `Fixed instance sizes (GET /v1/servers/fixed_instance_sizes)` — resolve fixed_instance_size_id values in server hardware to named size specifications (high)
+- [x] `Baremetal models (GET /v1/servers/baremetal_models)` — resolve baremetal_model_id values in server hardware to model specifications (high)
+- [x] `Usages (GET /v1/usages)` — analyze resource consumption over time for servers, storage, images, and public IPs (high)
+- [x] `Server monitoring (GET /v1/monitoring_center/{server_id})` — analyze historical resource utilization and network traffic for each server (high)
 - [ ] `Logs (GET /v1/logs)` — track resource changes, action durations, failures, and the users responsible (medium)
 - [ ] `Monitoring center (GET /v1/monitoring_center)` — track resource alerts and current utilization across monitored servers (medium)
 
