@@ -8,6 +8,8 @@ import { EditorFilterProps } from '~/types'
 
 import { pathsDataLogic } from 'products/product_analytics/frontend/insights/paths/pathsDataLogic'
 
+const NON_ESCAPED_COMMA = /(?<!\\),/
+
 export function PathsWildcardGroups({ insightProps }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
@@ -16,17 +18,20 @@ export function PathsWildcardGroups({ insightProps }: EditorFilterProps): JSX.El
     const onChange = (pathGroupings: string[]): void => updateInsightFilter({ pathGroupings })
 
     if (quillSurface) {
+        const current = pathsFilter?.pathGroupings || []
         return (
             <TagsCombobox
-                value={pathsFilter?.pathGroupings || []}
+                value={current}
                 onChange={(values) =>
                     onChange([
                         ...new Set(
                             values.flatMap((value) =>
-                                value
-                                    .split(',')
-                                    .map((part) => part.trim())
-                                    .filter(Boolean)
+                                current.includes(value)
+                                    ? [value]
+                                    : value
+                                          .split(NON_ESCAPED_COMMA)
+                                          .map((part) => part.replaceAll('\\,', ',').trim())
+                                          .filter(Boolean)
                             )
                         ),
                     ])
