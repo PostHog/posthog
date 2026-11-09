@@ -32,6 +32,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
+from posthog.models.user import User
 from posthog.query_cache.single_flight import skip_query_single_flight
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
@@ -212,7 +213,7 @@ _RECURRENCE: dict[str, tuple[int, str | None]] = {
 }
 
 # What an edit to an insight alert can change on its copy. The check refreshes these, and the due
-# time follows from them, so it is left to the next advance.
+# time follows from them, so it is left to the next advance. `take_ownership` changes the creator.
 SETTINGS_FIELDS: Final = (
     "name",
     "source_config",
@@ -220,6 +221,7 @@ SETTINGS_FIELDS: Final = (
     "check_interval_minutes",
     "recurrence_unit",
     "anchor_time",
+    "created_by_id",
 )
 
 
@@ -257,6 +259,7 @@ def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
         schedule_restriction=alert.schedule_restriction,
         next_check_at=alert.next_check_at,
         snooze_until=alert.snoozed_until,
+        created_by_id=alert.created_by_id,
     )
 
 
@@ -742,6 +745,7 @@ def _decide(
         unsnoozed = apply_unsnooze(snapshot)
         snapshot = replace(snapshot, state=unsnoozed.new_state, consecutive_failures=unsnoozed.consecutive_failures)
 
+    _run_as_copy_creator(check, alert)
     # Production's tags, so ClickHouse workload management treats the query the way it treats
     # production's and its cost is grouped the same way in the query log. The user is the
     # platform's own, so the parallel run never takes from production's per-user budget.
@@ -825,6 +829,16 @@ def _ai_detector_not_copied(check: PlatformAlertCheckInput, alert: AlertConfigur
     if check.owned_by_platform or not is_llm_detector_config(alert.detector_config):
         return False
     return not is_llm_detector_config(check.condition.get("detector"))
+
+
+def _run_as_copy_creator(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> None:
+    """Makes the creator the copy records the user the check's queries run as. A copy the creator
+    backfill has not reached records none, and one whose user is gone records an id that loads no
+    one. Both keep the alert row's, because a check with no user disables the alert."""
+    if check.created_by_id is None or check.created_by_id == alert.created_by_id:
+        return
+    if creator := User.objects.filter(id=check.created_by_id).first():
+        alert.created_by = creator
 
 
 def _following(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> PlatformAlertCheckInput:

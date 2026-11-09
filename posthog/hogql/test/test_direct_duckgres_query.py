@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
@@ -42,6 +43,8 @@ class TestDuckgresRawAdapterSelection(SimpleTestCase):
         flag = patch("posthoganalytics.feature_enabled", return_value=False)
         flag.start()
         self.addCleanup(flag.stop)
+        # The sources here are not saved, so they have no credentials row to read.
+        self.enterContext(read_unsaved_source_inputs_as_stored())
 
     def _source(self, **overrides: object) -> ExternalDataSource:
         source = ExternalDataSource(
@@ -323,10 +326,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         with (
             patch("posthog.hogql.direct_connection.Database.create_for", side_effect=AssertionError),
             patch.object(HogQLQueryExecutor, "_prepare_execution", side_effect=AssertionError),
-            patch(
-                "products.warehouse_sources.backend.facade.source_management.SourceRegistry.get_source",
-                side_effect=AssertionError,
-            ),
+            patch.object(PostgresAdapter, "validate_source_config", side_effect=AssertionError),
         ):
             response = HogQLQueryExecutor(
                 query="SELECT 1 AS value", team=self.team, connection_id=str(source.id), send_raw_query=True
