@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { Skeleton } from '@posthog/quill-primitives'
-
 import { useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,6 +14,7 @@ import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { ActivityChart } from '../dashboard/ActivityChart'
 import { Card } from '../dashboard/Card'
+import { ChartSkeleton } from '../dashboard/ChartSkeleton'
 import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
 import { KpiTiles } from '../dashboard/KpiTiles'
@@ -177,7 +176,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     />
                     {leaderboardModelRows.length === 0 && (loadingFacet('model') || loadingSections.modelRows) ? (
                         <Card title="Share of calls by model" className="min-w-0">
-                            <Skeleton className="h-48 w-full" />
+                            <div className="flex min-h-48 flex-col">
+                                <ChartSkeleton kind="shares" />
+                            </div>
                         </Card>
                     ) : (
                         <ModelBarChart
