@@ -259,8 +259,8 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         response = self.client.post(self._url(), {"default_slack_notification_min_priority": ""}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["default_slack_notification_min_priority"] is None
-        self.config.refresh_from_db()
-        assert self.config.default_slack_notification_min_priority is None
+        config = SignalTeamConfig.objects.get(pk=self.config.pk)
+        assert config.default_slack_notification_min_priority is None
         assert self.client.get(self._url()).json()["default_slack_notification_min_priority"] is None
 
     def test_partial_update_preserves_default_autostart_priority(self):
