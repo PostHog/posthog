@@ -48,7 +48,7 @@ export interface selfDrivingTrialLogicActions {
 export interface selfDrivingTrialLogicMeta {
     key: number
     __keaTypeGenInternalSelectorTypes: {
-        trialEnabled: (featureFlags: any) => boolean
+        trialEnabled: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
 
@@ -66,7 +66,10 @@ export const selfDrivingTrialLogic = kea<selfDrivingTrialLogicType>([
     connect({ values: [featureFlagLogic, ['featureFlags']] }),
     actions({ syncPolling: true }),
     selectors({
-        trialEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP]],
+        trialEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet) => !!featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP],
+        ],
     }),
     loaders(({ props, values }) => ({
         trial: [

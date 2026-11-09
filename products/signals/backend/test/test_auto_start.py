@@ -1534,28 +1534,31 @@ async def test_autostart_requires_admission_or_available_quota(
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("on_trial", "repository_autostart_eligible", "expect_task", "expect_pause_event", "funding"),
+    ("on_trial", "repository_autostart_eligible", "expect_task", "expect_pause_event", "funding", "allowed"),
     [
-        (True, True, False, True, None),
-        (True, True, False, True, "existing"),
-        (True, True, True, False, "trial"),
-        (True, True, True, False, "paid"),
-        (False, True, True, False, None),
+        (True, True, True, False, None, True),
+        (True, True, False, True, "existing", False),
+        (False, True, False, True, "existing", False),
+        (True, True, True, False, "existing", True),
+        (True, True, True, False, "trial", True),
+        (True, True, True, False, "paid", True),
+        (False, True, True, False, None, True),
         # An inferred repository blocks the reviewer-less fallback, so no runner resolves and the
         # report opens no pull request off the trial either. The trial held nothing back, so the
         # sales count must not carry it.
-        (True, False, False, False, None),
+        (True, False, False, False, None, True),
     ],
 )
-async def test_free_trial_gate_blocks_autostart(
+async def test_free_trial_gate_preserves_admitted_implementation_eligibility(
     on_trial: bool,
     repository_autostart_eligible: bool,
     expect_task: bool,
     expect_pause_event: bool,
     funding: Literal["trial", "paid", "existing"] | None,
+    allowed: bool,
 ) -> None:
-    # A trial org gets reports, not pull requests: the implementation task is the step that opens
-    # one, so auto-start creates none while the flag is on, and counts the held-back PR.
+    # Eligibility belongs to the accepted report. Later flag changes cannot interrupt it;
+    # older reports without a snapshot are allowed to implement.
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
 
@@ -1575,6 +1578,7 @@ async def test_free_trial_gate_blocks_autostart(
                 funding=funding,
                 grant_id=UUID("11111111-1111-1111-1111-111111111111") if funding == "trial" else None,
                 report_pass_key="accepted",
+                implementation_allowed=allowed,
             ).as_dict()
             report.save(update_fields=["self_driving_funding"])
             SignalUserAutonomyConfig.objects.create(user=enabler, autostart_priority=Priority.P2)
