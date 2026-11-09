@@ -358,12 +358,29 @@ class TestSandboxSenderValidation(APIBaseTest):
             "integrationId": self.sender.id
         }
 
-    @parameterized.expand([("exit",), ("function",), ("function_email",)])
-    def test_inert_email_data_is_not_an_existing_sandbox_sender(self, action_type: str) -> None:
+    @parameterized.expand(
+        [
+            ("exit", "exit", "missing-template"),
+            ("function", "function", "missing-template"),
+            ("function_email", "function_email", "missing-template"),
+            ("function_email_on_a_template_without_an_email_input", "function_email", "template-webhook"),
+        ]
+    )
+    def test_inert_email_data_is_not_an_existing_sandbox_sender(
+        self, _name: str, action_type: str, template_id: str
+    ) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="template-webhook",
+            name="Webhook",
+            type="destination",
+            status="hidden",
+            code="return 1;",
+            inputs_schema=[{"key": "url", "type": "string", "required": True}],
+        )
         workflow = self._workflow()
         action = workflow["actions"][1]
         action["type"] = action_type
-        action["config"]["template_id"] = "missing-template"
+        action["config"]["template_id"] = template_id
         email = action["config"]["inputs"]["email"]["value"]
         email["from"]["name"] = "New sender"
         email["replyTo"] = "reply@example.com"
