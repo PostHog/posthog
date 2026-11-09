@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -33,6 +34,7 @@ import {
 } from '~/types'
 
 import { PropertyValue } from './PropertyValue'
+import { QuillOperatorSelect } from './QuillOperatorSelect'
 
 const STARTS_ENDS_WITH_OPERATORS = [
     PropertyOperator.StartsWith,
@@ -507,13 +509,28 @@ export function OperatorSelect({
     size,
     startVisible,
 }: OperatorSelectProps): JSX.Element {
-    const hasSemver = operators.some(isOperatorSemver)
+    const quillSurface = useQuillSurface()
+    const semverOperators = operators.filter(isOperatorSemver)
+    const otherOperators = operators.filter((op) => !isOperatorSemver(op))
+    const hasSemver = semverOperators.length > 0
+
+    if (quillSurface) {
+        return (
+            <QuillOperatorSelect
+                operator={operator || PropertyOperator.Exact}
+                otherOperators={otherOperators}
+                semverOperators={semverOperators}
+                onChange={onChange}
+                className={className}
+                startVisible={startVisible}
+            />
+        )
+    }
+
     const options: LemonSelectSection<PropertyOperator>[] | { label: JSX.Element; value: PropertyOperator }[] =
         hasSemver
             ? [
-                  ...(operators.some((op) => !isOperatorSemver(op))
-                      ? [{ options: operators.filter((op) => !isOperatorSemver(op)).map(toOption) }]
-                      : []),
+                  ...(otherOperators.length > 0 ? [{ options: otherOperators.map(toOption) }] : []),
                   {
                       title: 'Semver operators',
                       footer: (
@@ -527,7 +544,7 @@ export function OperatorSelect({
                               </Link>
                           </div>
                       ),
-                      options: operators.filter(isOperatorSemver).map(toOption),
+                      options: semverOperators.map(toOption),
                   },
               ]
             : operators.map(toOption)
