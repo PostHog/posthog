@@ -6,12 +6,14 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { BUCKET_FORMAT } from 'lib/utils/timeBuckets'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { HARNESS_BY_LABEL, harnessMark } from './dashboard/harnessRegistry'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import {
     type ActivityRow,
     type BucketRow,
@@ -477,6 +479,13 @@ describe('mcpDashboardOverviewLogic', () => {
         // top level. This reads whichever shape a reload used.
         const filtersOf = (call: any): Record<string, any> => call.filters ?? call
 
+        const EVENT_FILTER: AnyPropertyFilter = {
+            key: '$mcp_tool_name',
+            value: ['create_insight'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+
         it('maps the period totals columns to the users and p95 metrics', async () => {
             mockApi.query.mockImplementation(async (node: any) =>
                 typeof node?.query === 'string' && node.query.includes('current_users')
@@ -668,6 +677,47 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
         })
 
+        it.each([
+            ['the test-account toggle', () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)],
+            [
+                "the team's test-account default",
+                () =>
+                    teamLogic.actions.loadCurrentTeamSuccess({
+                        ...teamLogic.values.currentTeam!,
+                        test_account_filters_default_checked: true,
+                    }),
+            ],
+        ])('reloads every tile once on %s', async (_label, change) => {
+            router.actions.push(urls.mcpAnalyticsDashboard())
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, change).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads).toHaveLength(9)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
+        })
+
+        it.each([
+            ['no URL params', {}],
+            ['shared filters', { filter_test_accounts: true, properties: [EVENT_FILTER] }],
+            [
+                'shared filters and a date range',
+                { filter_test_accounts: true, properties: [EVENT_FILTER], date_from: '-30d' },
+            ],
+        ])('loads every tile once when mounting with %s', async (_label, searchParams) => {
+            router.actions.push(urls.mcpAnalyticsDashboard(), searchParams)
+
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockApi.query).toHaveBeenCalledTimes(9)
+        })
+
         it('defaults the filter from the team test_account_filters_default_checked setting', async () => {
             initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
             jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
@@ -681,12 +731,6 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
         })
 
-        const EVENT_FILTER: AnyPropertyFilter = {
-            key: '$mcp_tool_name',
-            value: ['create_insight'],
-            operator: PropertyOperator.Exact,
-            type: PropertyFilterType.Event,
-        }
         it('reloads tiles once when the URL hydrates both shared filters', async () => {
             router.actions.push(urls.mcpAnalyticsDashboard())
             const logic = mcpDashboardOverviewLogic()
