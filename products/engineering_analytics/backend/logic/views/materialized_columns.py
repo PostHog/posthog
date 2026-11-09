@@ -13,6 +13,6 @@ def materialized_select(fields: Mapping[str, FieldOrTable], table: str) -> str:
     if() condition. A Bool column is stored as a Delta boolean and reads back as Bool.
     """
     return ", ".join(
-        f"toBool({table}.{name}) AS {name}" if isinstance(field, BooleanDatabaseField) else name
+        f"toBool({table}.{name}) AS {name}" if isinstance(field, BooleanDatabaseField) else f"{table}.{name} AS {name}"
         for name, field in fields.items()
     )
