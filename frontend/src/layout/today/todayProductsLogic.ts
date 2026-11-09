@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
@@ -140,11 +140,7 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
         search: ['', { setSearch: (_, { search }) => search }],
         // pinned: storage keys for persisted state. Renaming them resets everyone's sections.
         starredOpen: [true, { persist: true }, { setStarredOpen: (_, { open }) => open }],
-        allProductsOpen: [
-            inStorybook() || inStorybookTestRunner(),
-            { persist: true },
-            { setAllProductsOpen: (_, { open }) => open },
-        ],
+        allProductsOpen: [inStorybook(), { persist: true }, { setAllProductsOpen: (_, { open }) => open }],
     }),
     selectors({
         // The same list as the Products tab of the current navigation, less Home, which is the rail's Home item. Never
