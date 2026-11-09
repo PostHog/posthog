@@ -1467,12 +1467,11 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # An alert with no logs row has no row in the queryset, so the page is merged here. Both kinds
         # page on their sort keys alone, and only the page's alerts are loaded.
         rows = self.filter_queryset(self.get_queryset())
+        # An alert with no logs row records no creator, so a creator filter matches none of them.
+        native_keys = () if self._list_created_by else native_alert_keys(self.team_id)
         keys: list[tuple[datetime, UUID, bool]] = [
             *((created_at, alert_id, False) for created_at, alert_id in rows.values_list("created_at", "id")),
-            *(
-                (created_at, alert_id, True)
-                for created_at, alert_id in native_alert_keys(self.team_id, created_by_uuid=self._list_created_by)
-            ),
+            *((created_at, alert_id, True) for created_at, alert_id in native_keys),
         ]
         keys.sort(key=lambda key: (key[0], key[1]), reverse=True)
         page = self.paginate_queryset(keys)
