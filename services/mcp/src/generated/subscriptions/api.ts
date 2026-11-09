@@ -16,6 +16,8 @@ export const SubscriptionsListParams = () => zod.object({
         ),
 })
 
+export const subscriptionsListQueryLimitMax = 1000
+
 export const SubscriptionsListQueryParams = () => zod.object({
     created_by: zod.string().optional().describe('Filter by creator user UUID.'),
     dashboard: zod.number().optional().describe('Filter by dashboard ID.'),
@@ -25,7 +27,11 @@ export const SubscriptionsListQueryParams = () => zod.object({
         .describe('Filter to subscriptions on insights that are tiles of the given dashboard ID.'),
     insight: zod.number().optional().describe('Filter by insight ID.'),
     insights: zod.string().optional().describe('Filter by a comma-separated list of insight IDs.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(subscriptionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe('Which field to use when ordering the results.'),
     resource_type: zod
@@ -225,7 +231,7 @@ export const SubscriptionsCreateBody = () => zod
                     .boolean()
                     .default(subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
-                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                        "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message."
                     ),
                 include_images: zod
                     .boolean()
@@ -455,7 +461,7 @@ export const SubscriptionsPartialUpdateBody = () => zod
                     .boolean()
                     .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
-                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                        "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message."
                     ),
                 include_images: zod
                     .boolean()

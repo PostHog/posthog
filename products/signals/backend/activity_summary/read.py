@@ -12,18 +12,19 @@ from django.db import models
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.signals.backend.activity_summary.computed import COMPUTED_SCHEMA_VERSION
+from products.signals.backend.activity_summary.computed import READABLE_COMPUTED_SCHEMA_VERSIONS
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, read_config
 from products.signals.backend.activity_summary.logic import is_stale
 from products.signals.backend.activity_summary.queue import is_team_enrolled_for_read
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 
 DEFAULT_VERSIONS_LIMIT = 5
+SKIPPED_REBUILD_STATUSES = frozenset({UserActivitySummary.Status.SKIPPED, UserActivitySummary.Status.EMPTY_PROFILE})
 
 
 class ActivitySummaryStatus(models.TextChoices):
     READY = "ready"
-    # No row, or no update succeeded yet.
+    # No row, no update succeeded yet, or the rebuild of a stale summary skipped.
     NOT_READY = "not_ready"
 
 
@@ -100,23 +101,38 @@ def _themes(summary: dict[str, Any]) -> tuple[ActivitySummaryTheme, ...]:
 
 
 def _computed(value: Any) -> dict[str, Any] | None:
-    # A row from before the field existed has none. A row from another schema version has another shape.
-    return value if isinstance(value, dict) and value.get("schema_version") == COMPUTED_SCHEMA_VERSION else None
+    # A row from before the field existed has none. A row from an unknown schema version has another shape.
+    # A version 1 row has no task or MCP refs, so it gets empty lists.
+    if not isinstance(value, dict) or value.get("schema_version") not in READABLE_COMPUTED_SCHEMA_VERSIONS:
+        return None
+    return {"tasks": [], "mcp_sessions": [], **value}
 
 
-def _readable_config(team: Team) -> ActivitySummaryConfig | None:
+def readable_config(team: Team) -> ActivitySummaryConfig | None:
     config = read_config()
     return config if is_team_enrolled_for_read(config, team) else None
 
 
 def get_summary(team: Team, user_id: int) -> ActivitySummaryView | None:
-    """The user's current summary. A failed later update keeps the last good summary, so it is still ready."""
-    config = _readable_config(team)
+    """The user's current summary. A failed later update keeps the last good summary, so it is still ready.
+
+    A stale summary whose rebuild skipped is not ready, because the current inputs gave no summary.
+    """
+    config = readable_config(team)
     if config is None:
         return None
     row = UserActivitySummary.objects.for_team(team.id).filter(user_id=user_id).first()
-    if row is None or not isinstance(row.summary, dict) or row.generated_at is None:
+    if row is None or (view := ready_view(row, config)) is None:
         return ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
+    if view.stale and row.status in SKIPPED_REBUILD_STATUSES:
+        return ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
+    return view
+
+
+def ready_view(row: UserActivitySummary, config: ActivitySummaryConfig) -> ActivitySummaryView | None:
+    """The view of a stored summary, or `None` when no update succeeded yet."""
+    if not isinstance(row.summary, dict) or row.generated_at is None:
+        return None
     return ActivitySummaryView(
         status=ActivitySummaryStatus.READY,
         headline=_headline(row.summary),
@@ -154,7 +170,7 @@ def list_versions(
 
     With `version`, the list holds only that version, with its profile, or nothing when it does not exist.
     """
-    config = _readable_config(team)
+    config = readable_config(team)
     if config is None:
         return None
     rows = UserActivitySummaryVersion.objects.for_team(team.id).filter(summary_row__user_id=user_id)

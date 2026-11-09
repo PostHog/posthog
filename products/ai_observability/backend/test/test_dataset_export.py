@@ -1,7 +1,10 @@
 import json
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -15,7 +18,7 @@ from products.ai_observability.backend.dataset_service import (
     create_dataset_item,
     update_dataset_item,
 )
-from products.ai_observability.backend.models.datasets import Dataset
+from products.ai_observability.backend.models.datasets import Dataset, DatasetRevision
 from products.exports.backend.facade.api import DATASET_EXPORT_KIND, ExportedAsset, RetryableExportError
 from products.exports.backend.tasks.failure_handler import EXCEPTIONS_TO_RETRY
 
@@ -199,6 +202,29 @@ class TestDatasetExport(APIBaseTest):
             ),
             self.assertRaisesRegex(DatasetExportError, expected_error),
         ):
+            export_dataset_jsonl(asset)
+
+        asset.refresh_from_db()
+        self.assertFalse(asset.has_content)
+
+    @parameterized.expand([("expired", 1), ("missing", 2)])
+    @time_machine.travel("2026-11-03T12:00:00Z", tick=False)
+    @patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_value", return_value=True)
+    def test_export_rejects_unavailable_revisions(self, _name: str, revision: int, _feature_flag: object) -> None:
+        dataset, _result = self._create_dataset_and_item()
+        DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset.id).update(expired_at=timezone.now())
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": str(dataset.id),
+                "dataset_revision": revision,
+            },
+        )
+
+        with self.assertRaisesRegex(DatasetExportError, "The selected dataset revision is no longer available"):
             export_dataset_jsonl(asset)
 
         asset.refresh_from_db()

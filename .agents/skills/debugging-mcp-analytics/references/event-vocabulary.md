@@ -34,7 +34,7 @@ On `$mcp_tool_call` unless noted. These are the properties any instrumented serv
 
 | Property                                        | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `$mcp_tool_name`                                | The tool the agent called. In single-exec mode this holds the resolved inner tool, or the literal `exec` when unrecognized — see exec-mode below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `$mcp_tool_name`                                | The tool the agent called. In single-exec mode this holds the inner tool a `call` named, or the literal `exec` for discovery verbs and unknown tools — see exec-mode below.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `$mcp_tool_description`                         | The description the agent saw. In single-exec mode this is the dispatcher's static text on every call.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `$mcp_tool_category`                            | Server-assigned grouping. Used by the Signals scout to group problem tools.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `$mcp_intent`                                   | Why the agent made the call — the product's differentiator. Populated from the injected `context` argument, or a configured fallback.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -108,9 +108,8 @@ reads as alias-free.
 A `learn` call also carries `exec_learn_kind` (`search`, `load`, `list` for `learn skills` and a bare `learn`, `describe`, `guide`),
 stamped before the availability check so a rejected skill command still records its form, plus
 the raw `exec_search_query` for `search` (and for a `load` that searches inside the skill with `-s`) and `exec_learn_target` (the qualified skill) for `load`.
-A successful call carries `mcp_result_empty: true` when the handler returned zero rows, and
-`mcp_discovery_hint` (`empty_state` or `related_capability`) when the response builder appended a
-hint footer (`services/mcp/src/lib/discovery-hints.ts`). `execute-sql` calls additionally emit a separate `$ai_generation` event
+A successful call carries `mcp_result_empty: true` when the handler returned zero rows.
+`execute-sql` calls additionally emit a separate `$ai_generation` event
 carrying `$ai_trace_id`, `$ai_input`, `$ai_output_choices`, and `$ai_latency`.
 
 ## Exec-mode properties
@@ -121,8 +120,8 @@ recovered from the exec command's `call <tool> ...` form.
 **Read this before writing an exec-mode query.** These properties are registered in
 `posthog/taxonomy/taxonomy.py` and coalesced by the read path, but **no producer on master emits
 them**. `services/mcp`'s `ToolExecutor.callExecTool()` resolves the inner tool itself and passes
-it to `trackToolCall()` as the tool name, falling back to the literal `exec` when the command
-isn't recognized — so in current data the inner tool arrives in `$mcp_tool_name`, and these
+it to `trackToolCall()` as the tool name, falling back to the literal `exec` for discovery verbs
+and unknown tools — so in current data the inner tool arrives in `$mcp_tool_name`, and these
 dedicated fields are empty. A query built only on them returns nothing.
 
 | Property                          | Notes                                                                                                                                                   |
@@ -255,7 +254,7 @@ intentionally omitted, matching TS `instrument()`.
 - Take failures from `$mcp_is_error` (with `$mcp_error_type` / `$mcp_error_status` for the
   reason), never from `$exception`, which can be absent by design and so returns nothing
   rather than erroring.
-- Group clients by the resolved **harness** label, not raw `$mcp_client_name`.
+- Group clients by the resolved **harness** label, not raw `$mcp_client_name`. In SQL, select `properties.$virt_mcp_harness`: it is that label, including the team's custom harness names.
 - Zombie tools = `arrayJoin($mcp_listed_tool_names)` from `$mcp_tools_list`, minus the distinct
   effective tool names seen on `$mcp_tool_call`. `$mcp_exec_inner_tool_names` is the intended
   single-exec equivalent but is unemitted today, so a query resting on it returns nothing.

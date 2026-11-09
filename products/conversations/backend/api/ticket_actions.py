@@ -636,7 +636,7 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
             # delete would skip it. The trigger context attributes every resulting entry
             # to the workflow that made the change.
             # Only a removed TaggedItem can orphan a tag, so the cleanup checks just those tags.
-            removed_tag_ids: set[int] = set()
+            removed_tag_ids: set[uuid.UUID] = set()
             with ActivityTriggerContext(workflow_trigger):
                 if tags_mode == "remove":
                     for tagged_item in (

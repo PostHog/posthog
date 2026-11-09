@@ -1,6 +1,6 @@
 from contextlib import ExitStack
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
@@ -12,13 +12,17 @@ from parameterized import parameterized
 
 from posthog.utils import absolute_uri
 
-from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook, recipients
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
-from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
-from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_BODY_FLAG
+from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+from products.alerts_platform.backend.delivery.legacy_webhook import (
+    ALERTMANAGER_WEBHOOK_BODY_FLAG,
+    LEGACY_WEBHOOK_BODY_FLAG,
+)
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.facade.api import create_alert_destinations
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -31,10 +35,11 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     LegacyEventEmission,
     MessageLink,
+    NewAlertDestination,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease
-from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
+from products.alerts_platform.backend.facade.enums import HoldRelease, PlatformAlertOwner
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
@@ -91,6 +96,13 @@ class PagingTransport(RecordingTransport):
         return str(target.get("pagerduty_routing_key", ""))
 
 
+class EmailingTransport(RecordingTransport):
+    provider = "email"
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        return ",".join(target.get("email_addresses", []))
+
+
 class RefusingTransport(RecordingTransport):
     provider = "webhook"
 
@@ -111,7 +123,7 @@ def _request(
     configuration_id: str = CONFIGURATION_ID,
     sends_messages: bool = True,
     incident_actions: dict[str, IncidentAction] | None = None,
-    owned_by_platform: bool = False,
+    owned_by_platform: bool = True,
     overflowed: int = 0,
     overflow_is_lower_bound: bool = False,
     parts: int = 1,
@@ -176,25 +188,20 @@ class TestDeliverEvaluation(APIBaseTest):
         self,
         announced: Any,
         by_event: dict[str, list[AlertDestinationGroup]],
-        live: bool | Exception = True,
         transports: dict[DestinationType, type] | None = None,
         sends_messages: bool = True,
         incident_actions: dict[str, IncidentAction] | None = None,
-        owned_by_platform: bool = False,
         overflowed: int = 0,
         overflow_is_lower_bound: bool = False,
         parts: int = 1,
         part: int = 0,
+        source_alert_url: str | None = None,
         kinds: dict[str, AlertEventKind] | None = None,
     ) -> Any:
         def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
             return by_event.get(allowed_event_ids[0], [])
 
         with (
-            patch(
-                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
-                **({"side_effect": live} if isinstance(live, Exception) else {"return_value": live}),
-            ),
             patch(f"{_MODULE}.announcement", return_value=announced),
             patch(f"{_MODULE}.announced_kinds", return_value=kinds or {}),
             patch(f"{_MODULE}.list_alert_destination_groups", side_effect=groups),
@@ -210,18 +217,16 @@ class TestDeliverEvaluation(APIBaseTest):
                 },
             ),
         ):
-            return deliver_evaluation(
-                _request(
-                    self.team.id,
-                    sends_messages=sends_messages,
-                    incident_actions=incident_actions,
-                    owned_by_platform=owned_by_platform,
-                    overflowed=overflowed,
-                    overflow_is_lower_bound=overflow_is_lower_bound,
-                    parts=parts,
-                    part=part,
-                )
+            request = _request(
+                self.team.id,
+                sends_messages=sends_messages,
+                incident_actions=incident_actions,
+                overflowed=overflowed,
+                overflow_is_lower_bound=overflow_is_lower_bound,
+                parts=parts,
+                part=part,
             )
+            return deliver_evaluation(replace(request, source_alert_url=source_alert_url))
 
     def test_a_destination_hears_only_about_the_kinds_it_subscribed_to(self) -> None:
         # One group fires while another resolves. A destination that asked for firings must not
@@ -371,18 +376,67 @@ class TestDeliverEvaluation(APIBaseTest):
         assert [m.headline for channel, m in RecordingTransport.sends if channel == "C-1"] == chat_headlines
         assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
 
-    @parameterized.expand([("owned_by_the_platform", True, "posthog-alert-legacy-1"), ("live_delivery", False, None)])
-    def test_only_an_alert_the_platform_owns_resolves_under_its_source_incident_key(
-        self, _name: str, owned_by_platform: bool, expected: str | None
+    @parameterized.expand(
+        [
+            ("firing", AlertEventKind.FIRING, IncidentAction.TRIGGER, "Log alert 'API errors' is firing"),
+            ("resolved", AlertEventKind.RESOLVED, IncidentAction.RESOLVE, "Log alert 'API errors' is resolved"),
+        ]
+    )
+    def test_an_alert_whose_destinations_the_platform_owns_sends_to_its_enabled_rows(
+        self, _name: str, kind: AlertEventKind, action: IncidentAction, headline: str
     ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=SourceKind.LOGS,
+            check_interval_minutes=5,
+            destinations_owner=PlatformAlertOwner.PLATFORM,
+        )
+        both = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=configuration.id,
+            destinations=(
+                NewAlertDestination(data=SLACK, event_kinds=both),
+                NewAlertDestination(
+                    data=cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-off"}),
+                    event_kinds=both,
+                    enabled=False,
+                ),
+                NewAlertDestination(data=PAGERDUTY, event_kinds=(AlertEventKind.FIRING,)),
+            ),
+        )
+        hog_function = [_group(cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-hog"}))]
+
+        def project_members(*, team_id: int, configuration_id: UUID) -> list[str]:
+            return ["b@example.com", "a@example.com", "b@example.com"]
+
+        with patch.dict(recipients._recipients, {SourceKind.LOGS: project_members}):
+            self._run(
+                _announcement(_transition(kind)),
+                {FIRING_EVENT: hog_function, RESOLVED_EVENT: hog_function, OPENED_EVENT: hog_function},
+                incident_actions={"": action},
+                transports={DestinationType.EMAIL: EmailingTransport},
+            )
+
+        # The source's recipients read the message once, and never the incident edge.
+        assert [(channel, m.headline) for channel, m in RecordingTransport.sends if channel != "R-1"] == [
+            ("C-1", headline),
+            ("a@example.com,b@example.com", headline),
+        ]
+        assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
+
+    def test_a_resolve_closes_the_incident_under_its_source_incident_key(self) -> None:
         self._run(
             _announcement(_transition(AlertEventKind.RESOLVED)),
             {CLOSED_EVENT: [_group(PAGERDUTY)]},
             incident_actions={"": IncidentAction.RESOLVE},
-            owned_by_platform=owned_by_platform,
         )
 
-        assert [m.source_incident_key for channel, m in RecordingTransport.sends if channel == "R-1"] == [expected]
+        assert [m.source_incident_key for channel, m in RecordingTransport.sends if channel == "R-1"] == [
+            "posthog-alert-legacy-1"
+        ]
 
     def test_a_destination_with_no_transport_is_skipped_rather_than_failing_the_send(self) -> None:
         outcome = self._run(
@@ -423,17 +477,9 @@ class TestDeliverEvaluation(APIBaseTest):
     def test_every_message_links_to_the_alert_page_the_request_names_and_to_its_project(self) -> None:
         url = "https://app.example.com/project/7/logs/alerts/legacy-1"
 
-        with (
-            patch(
-                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
-                return_value=True,
-            ),
-            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
-            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK)]),
-            patch(f"{_MODULE}.DatabaseThreadStore"),
-            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
-        ):
-            deliver_evaluation(replace(_request(self.team.id), source_alert_url=url))
+        self._run(
+            _announcement(_transition(AlertEventKind.FIRING)), {FIRING_EVENT: [_group(SLACK)]}, source_alert_url=url
+        )
 
         assert [(m.alert_url, m.project) for _, m in RecordingTransport.sends] == [
             (url, MessageLink(label=self.team.name, url=absolute_uri(f"/project/{self.team.id}")))
@@ -470,70 +516,98 @@ class TestDeliverEvaluation(APIBaseTest):
             release_action=release,
         )
 
-        outcome = self._run(
-            _announcement(_transition(AlertEventKind.FIRING)), {FIRING_EVENT: [_group(SLACK)]}, owned_by_platform=True
-        )
+        outcome = self._run(_announcement(_transition(AlertEventKind.FIRING)), {FIRING_EVENT: [_group(SLACK)]})
 
         assert outcome.sent == sent
 
-    def test_a_team_without_the_flag_is_not_contacted(self) -> None:
-        outcome = self._run(
-            _announcement(_transition(AlertEventKind.FIRING)), {FIRING_EVENT: [_group(SLACK)]}, live=False
+    @parameterized.expand(
+        [
+            ("still_firing", "firing", FIRING, FIRING, [IncidentAction.TRIGGER]),
+            # ClickHouse returns the episode start without a zone.
+            (
+                "still_firing_read_without_a_zone",
+                "firing",
+                FIRING,
+                FIRING.replace(tzinfo=None),
+                [IncidentAction.TRIGGER],
+            ),
+            ("resolved_since", "not_firing", None, FIRING, []),
+            ("firing_again_since", "firing", FIRING + timedelta(hours=1), FIRING, []),
+        ]
+    )
+    def test_a_released_hold_opens_an_incident_only_inside_the_firing_it_held(
+        self,
+        _name: str,
+        state: str,
+        firing_started_at: datetime | None,
+        episode_started_at: datetime,
+        incident: list[IncidentAction],
+    ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+            check_interval_minutes=10,
         )
+        PlatformAlert.objects.for_team(self.team.id).create(
+            team=self.team, configuration=configuration, state=state, firing_started_at=firing_started_at
+        )
+        PlatformAlertDeliveryHold.objects.for_team(self.team.id).create(
+            team=self.team,
+            configuration=configuration,
+            evaluation_key="eval-1",
+            reason="investigation",
+            request={},
+            held_at=FIRING,
+            release_after=FIRING,
+            released_at=FIRING,
+            release_action=HoldRelease.SEND,
+        )
+
+        self._run(
+            _announcement(_transition(AlertEventKind.FIRING, episode_started_at=episode_started_at)),
+            {FIRING_EVENT: [_group(SLACK)], OPENED_EVENT: [_group(PAGERDUTY)]},
+            incident_actions={"": IncidentAction.TRIGGER},
+        )
+
+        assert [channel for channel, _ in RecordingTransport.sends if channel == "C-1"] == ["C-1"]
+        assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == incident
+
+    def test_an_alert_its_source_still_owns_is_not_contacted(self) -> None:
+        outcome = deliver_evaluation(_request(self.team.id, owned_by_platform=False))
 
         assert RecordingTransport.sends == []
         assert outcome.live is False
 
-    def test_the_flag_is_read_against_the_project(self) -> None:
-        # Without the project group the condition never matches, and the platform stays silent
-        # with nothing to say why.
-        with (
-            patch(
-                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
-                return_value=False,
-            ) as flag,
-            patch(f"{_MODULE}.announcement", return_value=None),
-        ):
-            deliver_evaluation(_request(self.team.id))
-
-        assert flag.call_args.args[0] == LIVE_DELIVERY_FLAG
-        assert flag.call_args.kwargs["groups"]["project"] == str(self.team.id)
-        assert flag.call_args.kwargs["group_properties"]["project"]["uuid"] == str(self.team.uuid)
-
-    @parameterized.expand([("owned_by_the_source", False), ("owned_by_the_platform", True)])
-    def test_a_flag_that_cannot_be_read_silences_only_alerts_the_source_still_delivers(
-        self, _name: str, delivers: bool
-    ) -> None:
-        outcome = self._run(
-            _announcement(_transition(AlertEventKind.FIRING)),
-            {FIRING_EVENT: [_group(SLACK)]},
-            live=RuntimeError("flags unreachable"),
-            owned_by_platform=delivers,
-        )
-
-        assert (outcome.live, len(RecordingTransport.sends)) == (delivers, int(delivers))
-
     @parameterized.expand(
         [
-            ("keeps_the_legacy_body", True, "1", "legacy"),
-            ("moved_to_alertmanager", False, "2", "4"),
-            ("flag_unreadable", RuntimeError("flags unreachable"), None, None),
+            ("keeps_the_legacy_body", True, True, "1", "legacy"),
+            ("moved_to_alertmanager", False, True, "2", "4"),
+            ("alertmanager_body_not_turned_on", False, False, "1", "legacy"),
+            ("flag_unreadable", RuntimeError("flags unreachable"), True, None, None),
             # The SDK swallows a failed lookup and answers None.
-            ("flag_lookup_swallowed", None, None, None),
+            ("flag_lookup_swallowed", None, True, None, None),
+            ("alertmanager_flag_lookup_swallowed", False, None, None, None),
         ]
     )
     def test_a_webhook_gets_the_body_its_team_still_receives(
-        self, _name: str, keeps_legacy: bool | Exception | None, header: str | None, body_version: str | None
+        self,
+        _name: str,
+        listed: bool | Exception | None,
+        alertmanager_body: bool | None,
+        header: str | None,
+        body_version: str | None,
     ) -> None:
         flag_reads: list[str] = []
 
         def flag(key: str, *_args: Any, **_kwargs: Any) -> bool | None:
             flag_reads.append(key)
-            if key == LIVE_DELIVERY_FLAG:
-                return True
-            if isinstance(keeps_legacy, Exception):
-                raise keeps_legacy
-            return keeps_legacy
+            if key == ALERTMANAGER_WEBHOOK_BODY_FLAG:
+                return alertmanager_body
+            if isinstance(listed, Exception):
+                raise listed
+            return listed
 
         def legacy_body(**kwargs: Any) -> dict[str, Any]:
             return {"version": "legacy", "alert_id": kwargs["alert_id"]}
@@ -546,6 +620,8 @@ class TestDeliverEvaluation(APIBaseTest):
             patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
             patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(WEBHOOK), _group(SECOND_WEBHOOK)]),
             patch(f"{_MODULE}.DatabaseThreadStore"),
+            # The path is covered by `TestDeliveryPath`. Without an emitter every alert delivers natively.
+            patch.dict(delivery_paths._emitters, clear=True),
             patch.dict(f"{_LEGACY_MODULE}._bodies", {SourceKind.LOGS: legacy_body}),
             patch(f"{_WEBHOOK_URL_MODULE}.post_json") as post,
             patch(f"{_MODULE}.record_delivery") as recorded,
@@ -564,19 +640,19 @@ class TestDeliverEvaluation(APIBaseTest):
         assert post.call_args.kwargs["headers"] == {"X-PostHog-Webhook-Version": header}
         assert post.call_args.args[1]["version"] == body_version
 
-    @parameterized.expand([("registered_a_body", True, True), ("registered_none", False, False)])
-    def test_native_delivery_keeps_the_webhook_body_only_for_a_source_that_registered_one(
-        self, _name: str, registered: bool, keeps: bool
-    ) -> None:
-        bodies: dict[SourceKind, Any] = {SourceKind.INSIGHT: lambda **_kwargs: {}} if registered else {}
-        with (
-            patch.dict(f"{_LEGACY_MODULE}._bodies", bodies, clear=True),
-            patch(
-                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
-                return_value=True,
-            ),
+    def test_a_flag_refresh_between_the_two_reads_keeps_a_newly_listed_team_on_the_legacy_body(self) -> None:
+        before = {LEGACY_WEBHOOK_BODY_FLAG: False, ALERTMANAGER_WEBHOOK_BODY_FLAG: False}
+        after = {LEGACY_WEBHOOK_BODY_FLAG: True, ALERTMANAGER_WEBHOOK_BODY_FLAG: True}
+        reads: list[str] = []
+
+        def flag(key: str, *_args: Any, **_kwargs: Any) -> bool:
+            reads.append(key)
+            return (before if len(reads) == 1 else after)[key]
+
+        with patch(
+            "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled", side_effect=flag
         ):
-            assert legacy_webhook.native_sends_legacy_body(SourceKind.INSIGHT, self.team) is keeps
+            assert legacy_webhook.keeps_legacy_webhook_body(self.team) is True
 
     def test_logs_registers_its_legacy_webhook_body_at_startup(self) -> None:
         # Every other case here patches the registry, so none of them notices a missing registration,
@@ -596,6 +672,23 @@ class TestDeliverEvaluation(APIBaseTest):
             == []
         )
 
+    def test_a_second_recipient_lookup_for_a_source_is_refused(self) -> None:
+        def first(*, team_id: int, configuration_id: UUID) -> list[str]:
+            return []
+
+        def second(*, team_id: int, configuration_id: UUID) -> list[str]:
+            return ["someone@example.com"]
+
+        with patch.dict(recipients._recipients, clear=True):
+            recipients.register(SourceKind.LOGS, first)
+            # A second `ready()` registers the same lookup again, which is not a conflict.
+            recipients.register(SourceKind.LOGS, first)
+
+            with pytest.raises(RuntimeError, match="already registered"):
+                recipients.register(SourceKind.LOGS, second)
+
+            assert recipients._recipients == {SourceKind.LOGS: first}
+
 
 class TestDeliveryPath(APIBaseTest):
     def setUp(self) -> None:
@@ -614,7 +707,6 @@ class TestDeliveryPath(APIBaseTest):
         announced: EvaluationAnnouncement,
         chooser: Any,
         *,
-        owned_by_platform: bool = True,
         incident_actions: dict[str, IncidentAction] | None = None,
         emitter: Any = None,
         groups: list[AlertDestinationGroup] | None = None,
@@ -622,12 +714,6 @@ class TestDeliveryPath(APIBaseTest):
         real_thread_store: bool = False,
     ) -> Any:
         with ExitStack() as stack:
-            stack.enter_context(
-                patch(
-                    "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
-                    return_value=True,
-                )
-            )
             stack.enter_context(patch(f"{_MODULE}.announcement", return_value=announced))
             stack.enter_context(
                 patch(f"{_MODULE}.list_alert_destination_groups", return_value=groups or [HOG_FUNCTION_SLACK])
@@ -641,7 +727,6 @@ class TestDeliveryPath(APIBaseTest):
                 _request(
                     self.team.id,
                     configuration_id=str(self.configuration.id),
-                    owned_by_platform=owned_by_platform,
                     incident_actions=incident_actions,
                 )
             )
@@ -657,27 +742,46 @@ class TestDeliveryPath(APIBaseTest):
     # The subscriber group stands in for email and in-app, which are no HogFunction and never see an emitted event.
     @parameterized.expand(
         [
-            ("stock_destinations_send_natively", True, DeliveryPath.NATIVE, 0, ["C-1", "C-2"]),
-            ("customized_destinations_emit_for_their_hog_functions", True, DeliveryPath.HOG_FUNCTION, 1, ["C-2"]),
-            # The source's own stack still emits these events, so emitting them here would send twice.
-            ("an_alert_the_source_owns_never_emits", False, DeliveryPath.HOG_FUNCTION, 0, ["C-1", "C-2"]),
-            ("a_chooser_that_fails_emits", True, None, 1, ["C-2"]),
+            ("stock_destinations_send_natively", DeliveryPath.NATIVE, 0, ["C-1", "C-2"]),
+            ("customized_destinations_emit_for_their_hog_functions", DeliveryPath.HOG_FUNCTION, 1, ["C-2"]),
+            ("a_chooser_that_fails_emits", None, 1, ["C-2"]),
         ]
     )
     def test_an_alert_delivers_through_the_path_its_destinations_allow(
-        self, _name: str, owned_by_platform: bool, path: DeliveryPath | None, emitted: int, native_channels: list[str]
+        self, _name: str, path: DeliveryPath | None, emitted: int, native_channels: list[str]
     ) -> None:
         chooser = self._chooses(path) if path else self._fails
         outcome = self._run(
             _announcement(_transition(AlertEventKind.FIRING)),
             chooser,
-            owned_by_platform=owned_by_platform,
             groups=[HOG_FUNCTION_SLACK, SUBSCRIBER],
         )
 
         assert len(self.emitted) == emitted
         assert sorted(channel for channel, _ in RecordingTransport.sends) == native_channels
         assert (outcome.emitted_transitions, outcome.emitted_events) == (emitted, emitted)
+
+    def test_an_alert_whose_destinations_the_platform_keeps_emits_for_its_hog_functions(self) -> None:
+        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(
+            destinations_owner=PlatformAlertOwner.PLATFORM
+        )
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=self.configuration.id,
+            destinations=(
+                NewAlertDestination(
+                    data=cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-native"}),
+                    event_kinds=(AlertEventKind.FIRING, AlertEventKind.RESOLVED),
+                ),
+            ),
+        )
+
+        # The lookup lists no HogFunction, as for one built from a custom template, and the event still goes out.
+        # A failing chooser would also emit, so the native send shows the path choice is never read here.
+        self._run(_announcement(_transition(AlertEventKind.FIRING)), self._fails, groups=[SUBSCRIBER])
+
+        assert len(self.emitted) == 1
+        assert [channel for channel, _ in RecordingTransport.sends] == ["C-native"]
 
     def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
         fired = self._run(

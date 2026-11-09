@@ -105,6 +105,58 @@ describe('SkillCatalog and exec learn', () => {
         })
     })
 
+    it('overlays a second archive, keeps the product skill on a shared name, and rejects duplicates within one archive', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        try {
+            const catalog = SkillCatalog.fromZip(
+                makeArchive({
+                    'funnels/SKILL.md': makeSkill('funnels', 'Product funnels.', '# Funnels'),
+                    'retention-analysis/SKILL.md': makeSkill('retention-analysis', 'Retention.', '# Retention'),
+                }),
+                makeArchive({
+                    'funnels/SKILL.md': makeSkill('funnels', 'Overlay funnels.', '# Overlay funnels'),
+                    'instrument-logs/SKILL.md': makeSkill('instrument-logs', 'Add logs.', '# Add logs'),
+                })
+            )
+
+            expect(catalog.listNames()).toEqual(['funnels', 'instrument-logs', 'retention-analysis'])
+            expect(catalog.describe('funnels')).toBe('Product funnels.')
+            expect(warn).toHaveBeenCalledTimes(1)
+            expect(() =>
+                SkillCatalog.fromZip(
+                    makeArchive({
+                        'a/SKILL.md': makeSkill('twice', 'One.', '# One'),
+                        'b/SKILL.md': makeSkill('twice', 'Two.', '# Two'),
+                    })
+                )
+            ).toThrow('Duplicate skill name')
+        } finally {
+            warn.mockRestore()
+        }
+    })
+
+    it('scores an omnibus instrument skill by its entry point only, never its references', () => {
+        const catalog = SkillCatalog.fromZip(
+            makeArchive({
+                'instrument-logs/SKILL.md': makeSkill(
+                    'instrument-logs',
+                    'Add PostHog log capture to an app.',
+                    '# Add logs\n\nInstall the SDK and ship logs.'
+                ),
+                'instrument-logs/references/go.md': '# Go\n\nConfigure the zerolog adapter.',
+                'investigating-logs/SKILL.md': makeSkill(
+                    'investigating-logs',
+                    'Find failing requests in logs.',
+                    '# Investigating logs\n\nFilter zerolog output by severity.'
+                ),
+            })
+        )
+
+        expect(catalog.searchResults('zerolog').map((result) => result.identifier)).toEqual(['investigating-logs'])
+        expect(catalog.searchResults('capture').map((result) => result.identifier)).toEqual(['instrument-logs'])
+        expect(catalog.read('instrument-logs', 'references/go.md')).toContain('zerolog adapter')
+    })
+
     it('ranks an exact name before substring matches at the result limit', () => {
         const names = [
             ...Array.from({ length: MAX_GLOBAL_SKILLS }, (_, index) => `${String.fromCharCode(97 + index)}-support`),

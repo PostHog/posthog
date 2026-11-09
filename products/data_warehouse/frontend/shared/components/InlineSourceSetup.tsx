@@ -5,10 +5,9 @@ import { useEffect, useState } from 'react'
 import { IconDatabase, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
-import {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { ExternalDataSourceType } from '~/types'
+
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { AvailableSourcesError, NewSourcesWizard } from '../../scenes/NewSourceScene/NewSourceScene'
@@ -19,7 +18,7 @@ import { SourceIcon } from './SourceIcon'
 export type InlineSourceSetupView = 'selection' | 'connecting'
 
 interface SourceItem {
-    id: ExternalDataSourceTypeEnumApi
+    id: ExternalDataSourceType
     label: string
 }
 
@@ -40,8 +39,8 @@ export interface InlineSourceSetupProps {
 
 interface InternalInlineSourceSetupProps extends InlineSourceSetupProps {
     currentView: InlineSourceSetupView
-    selectedSource: ExternalDataSourceTypeEnumApi | null
-    onSourceSelect: (sourceId: ExternalDataSourceTypeEnumApi) => void
+    selectedSource: ExternalDataSourceType | null
+    onSourceSelect: (sourceId: ExternalDataSourceType) => void
     onBack: () => void
     onFormSuccess: () => void
 }
@@ -200,7 +199,7 @@ export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
     const { onClear } = useActions(sourceWizardLogic)
 
     const [currentView, setCurrentView] = useState<InlineSourceSetupView>('selection')
-    const [selectedSource, setSelectedSource] = useState<ExternalDataSourceTypeEnumApi | null>(null)
+    const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
 
     // Defined once here and bound as the logic's `onComplete` below, so the wizard's step-5
     // completion listener always sees this same callback — never the logic's unbound default —
@@ -213,7 +212,7 @@ export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
         props.onComplete?.()
     }
 
-    const handleSourceSelect = (sourceId: ExternalDataSourceTypeEnumApi): void => {
+    const handleSourceSelect = (sourceId: ExternalDataSourceType): void => {
         setSelectedSource(sourceId)
         setCurrentView('connecting')
     }

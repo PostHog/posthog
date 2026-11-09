@@ -61,6 +61,7 @@ from products.tasks.backend.logic.services.sandbox import (
     health_check_timeout_seconds,
     wait_for_health_check,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError, raise_startup_failure
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -648,6 +649,13 @@ class AgentServerLaunchMixin(SandboxBase):
         start_and_health_ms = int((time.perf_counter() - start_time) * 1000)
         if launch_result.exit_code != 0:
             health_duration_ms = _health_duration_ms(launch_result.stdout)
+            try:
+                raise_startup_failure(launch_result.stdout, self.id)
+            except AgentServerStartupError as error:
+                error.context.update(start_and_health_ms=start_and_health_ms)
+                if wait_for_health and health_duration_ms is not None:
+                    error.context.update(health_poll_ms=health_duration_ms)
+                raise
             if wait_for_health and health_duration_ms is not None:
                 diagnostics = self._diagnose_startup_failure(allowed_domains)
                 credential_error = self._credential_unavailable_error(
@@ -719,6 +727,7 @@ class AgentServerLaunchMixin(SandboxBase):
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
         sandbox_runtime: str | None = None,
+        before_launch: Callable[[], None] | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -734,6 +743,9 @@ class AgentServerLaunchMixin(SandboxBase):
         verify_eval_skills(self)
         if preflight.reused:
             return 0 if wait_for_health else None
+
+        if before_launch:
+            before_launch()
 
         repo_path: str | None = None
         if repository:

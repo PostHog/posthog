@@ -234,7 +234,6 @@ async def prepare_observation_media_activity(inputs: ObservationMediaInputs) -> 
                 small_media_asset_id=small_media_asset.id,
                 object_id=object_id,
                 video_start_ms=int(video_time_s * 1000),
-                rec_start_ms=source.clock.video_s_to_session_ms(video_time_s) if source.clock else None,
             )
         )
 

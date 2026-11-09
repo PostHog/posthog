@@ -15,7 +15,7 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.clickhouse.client import sync_execute
-from posthog.kafka_client.client import ClickhouseProducer
+from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, EVENTS_JSON_DATA_TABLE, INSERT_EVENT_SQL
@@ -87,6 +87,7 @@ def create_event(
     group3_created_at: Optional[Union[datetime, str]] = None,
     group4_created_at: Optional[Union[datetime, str]] = None,
     person_mode: Literal["full", "propertyless", "force_upgrade"] = "full",
+    delivery_timeout_seconds: float | None = None,
 ) -> str:
     if properties is None:
         properties = {}
@@ -126,15 +127,20 @@ def create_event(
         "person_mode": person_mode,
     }
     p = ClickhouseProducer()
+    results: list[ProduceResult] = []
     if TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         json_data = {
             **data,
             "properties": _json_dumps_for_clickhouse(properties),
             "person_properties": _json_dumps_for_clickhouse(person_properties),
         }
-        p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE), data=json_data)
+        results.append(
+            p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE), data=json_data)
+        )
     if not (TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and _events_only_in_active_schema.get()):
-        p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
+        results.append(p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data))
+    if delivery_timeout_seconds is not None:
+        p.wait_for_delivery(results, delivery_timeout_seconds)
 
     return str(event_uuid)
 
