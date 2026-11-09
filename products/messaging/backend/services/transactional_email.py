@@ -559,7 +559,7 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
             {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
         ),
         "from": _without_empty(_code_send_sender(team_id, email.sender)),
-        "tracking": {"captureEngagement": email.capture_engagement},
+        "tracking": _accepted_tracking(email),
     }
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
@@ -570,6 +570,14 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
     return accepted
+
+
+def _accepted_tracking(email: CodeEmail) -> dict[str, bool]:
+    tracking = {"captureEngagement": email.capture_engagement}
+    # Only an untracked send names the field, so a default send keeps the shape every pipeline version accepts.
+    if not email.track_opens_and_clicks:
+        tracking["trackOpensAndClicks"] = False
+    return tracking
 
 
 def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:

@@ -464,6 +464,7 @@ CODE_SEND_FIELDS = (
     "from",
     "reply_to",
     "capture_engagement",
+    "track_opens_and_clicks",
     *CODE_SEND_EXTRA_FIELDS,
 )
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
@@ -543,6 +544,13 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
         "rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned "
         "engagement capture off captures nothing, whatever the send says.",
+    )
+    track_opens_and_clicks = serializers.BooleanField(
+        required=False,
+        help_text="Whether the email your code rendered carries open and click tracking: a tracking pixel, and links "
+        "rewritten to count clicks. Defaults to true. With false, the email goes out without either, so PostHog "
+        "can't count its opens and clicks. Independent of `capture_engagement`, which decides whether engagement "
+        "events are captured on the recipient's person.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -844,6 +852,7 @@ class TransactionalEmailSendMixin:
         *,
         route: str,
         addressed: dict[str, str],
+        usage: Mapping[str, Any] | None = None,
         unavailable: type[TransactionalEmailUnavailable] = TransactionalEmailUnavailable,
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
@@ -866,7 +875,7 @@ class TransactionalEmailSendMixin:
             raise unavailable() from None
         finally:
             with transactional_email_stage("usage_event"):
-                self._report_transactional_email_send(request, {**addressed, **outcome})
+                self._report_transactional_email_send(request, {**addressed, **(usage or {}), **outcome})
         if not queued.replayed:
             self._report_first_code_send_after_commit(request, route, addressed.get("addressed_by", "template_id"))
         return Response(
@@ -1323,6 +1332,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             sender=data.get("from"),
             reply_to=tuple(data.get("reply_to", ())),
             capture_engagement=data.get("capture_engagement", True),
+            track_opens_and_clicks=data.get("track_opens_and_clicks", True),
             cc=tuple(data.get("cc") or ()),
             bcc=tuple(data.get("bcc") or ()),
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
@@ -1338,6 +1348,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             ),
             route="send_email",
             addressed={"addressed_by": "template_key"},
+            usage={"track_opens_and_clicks": email.track_opens_and_clicks},
             unavailable=UnconfirmedEmailSend,
         )
 

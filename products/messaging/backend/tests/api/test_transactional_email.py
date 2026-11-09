@@ -663,6 +663,22 @@ class TestTransactionalEmail(APIBaseTest):
                 },
             ),
             (
+                "without_open_and_click_tracking",
+                {"track_opens_and_clicks": False},
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "tracking": {"captureEngagement": True, "trackOpensAndClicks": False},
+                },
+            ),
+            (
+                "with_open_and_click_tracking",
+                {"track_opens_and_clicks": True},
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "tracking": {"captureEngagement": True},
+                },
+            ),
+            (
                 "text_only",
                 {"html": "", "text": "Hi"},
                 {"content": {"subject": "Welcome, Jane", "text": "Hi"}, "tracking": {"captureEngagement": True}},
@@ -698,7 +714,7 @@ class TestTransactionalEmail(APIBaseTest):
             ),
         ]
     )
-    def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, _capture, _name, fields, sent):
+    def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, capture, _name, fields, sent):
         self._cdp_accepts(mock_post)
         newer_default = Integration.objects.create(
             team=self.team, kind="email", integration_id="news@example.com", config={"verified": True}
@@ -712,6 +728,8 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         sent = {**sent, "from": {**sent.get("from", {}), "integrationId": newer_default.id}}
         assert json.loads(mock_post.call_args.kwargs["data"])["send"] == sent
+        reported = capture.call_args.kwargs["properties"]
+        assert reported["track_opens_and_clicks"] == fields.get("track_opens_and_clicks", True)
 
     @parameterized.expand(
         [
@@ -776,6 +794,7 @@ class TestTransactionalEmail(APIBaseTest):
     @parameterized.expand(
         [
             ("subject", "Hi", "validation_error"),
+            ("track_opens_and_clicks", False, "validation_error"),
             ("cc", "copy@example.com", "invalid_request"),
             ("bcc", ["audit@example.com"], "invalid_request"),
             ("attachments", [{"filename": "notes.txt", "content": "aGk="}], "invalid_request"),

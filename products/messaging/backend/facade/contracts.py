@@ -148,6 +148,7 @@ class CodeEmail:
     sender: str | None
     reply_to: tuple[str, ...]
     capture_engagement: bool
+    track_opens_and_clicks: bool = True
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
