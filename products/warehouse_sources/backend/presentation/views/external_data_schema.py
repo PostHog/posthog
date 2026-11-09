@@ -1148,8 +1148,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Name of the history table registered for this schema, whether or not its mode still writes it, "
             "or `null` when none is registered. One the schema no longer writes can be removed with the "
             "`history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, "
-            "`null` elsewhere. After an update that sent `drop_history_table`, a name means the history "
-            "table was kept, for example because a sync started meanwhile."
+            "`null` elsewhere. After an update that sent `drop_history_table` to stop writing history, a name "
+            "means the history table was kept, for example because a sync started meanwhile. An update that "
+            "adds a mask with `drop_history_table` keeps the table and its access rules, and deletes only its "
+            "contents."
         ),
     )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;

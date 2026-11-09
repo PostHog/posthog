@@ -398,8 +398,9 @@ def assert_history_table_droppable(schema: ExternalDataSchema, *, keeps_history:
 def drop_history_table(schema: ExternalDataSchema, *, rebuilding: bool = False) -> DataWarehouseTable | None:
     """Delete the schema's registered history table: its files, its record and the schema's state for it.
 
-    `rebuilding` is for a schema that keeps history through a rebuild that starts a new history table, such
-    as a new mask, so the mode alone does not refuse the delete. A sync in flight still does.
+    `rebuilding` is for a schema that keeps history through a rebuild, such as a new mask, so the mode alone
+    does not refuse the delete. A sync in flight still does. It deletes the files but keeps the record, so the
+    rebuild registers the same table again and the access rules set on it stay in force.
 
     Returns the dropped table, or None when the schema has no history table. Raises
     `HistoryTableDropRefusedError` while the schema's mode writes the table, or while a sync could still
@@ -424,29 +425,31 @@ def drop_history_table(schema: ExternalDataSchema, *, rebuilding: bool = False) 
         assert_history_table_droppable(locked, keeps_history=locked.keeps_history and not rebuilding)
         _delete_history_files(schema, folder_name, staging_folder_name)
         config = locked.sync_type_config or {}
-        config.pop(HISTORY_NAMING_OPTION, None)
+        if not rebuilding:
+            config.pop(HISTORY_NAMING_OPTION, None)
         states = config.get(QUERY_FOLDER_STATE_KEY)
         if isinstance(states, dict):
             states.pop(query_folder_prefix, None)
         locked.sync_type_config = config
         update_fields = ["sync_type_config", "updated_at"]
         # cdc_only links the schema to its history table.
-        if locked.table_id == table.id:
+        if locked.table_id == table.id and not rebuilding:
             locked.table = None
             update_fields.append("table")
         locked.save(update_fields=update_fields, skip_activity_log=True)
-        table.soft_delete()
-        # As the table view logs a deleted table: the name only, because a reader may be denied the table.
-        log_activity(
-            organization_id=table.team.organization_id,
-            team_id=table.team_id,
-            user=get_current_user(),
-            was_impersonated=get_was_impersonated(),
-            item_id=table.id,
-            scope="DataWarehouseTable",
-            activity="deleted",
-            detail=Detail(name=table.name),
-        )
+        if not rebuilding:
+            table.soft_delete()
+            # As the table view logs a deleted table: the name only, because a reader may be denied the table.
+            log_activity(
+                organization_id=table.team.organization_id,
+                team_id=table.team_id,
+                user=get_current_user(),
+                was_impersonated=get_was_impersonated(),
+                item_id=table.id,
+                scope="DataWarehouseTable",
+                activity="deleted",
+                detail=Detail(name=table.name),
+            )
     schema.sync_type_config = locked.sync_type_config
     schema.table = locked.table
     return table

@@ -772,18 +772,18 @@ def test_a_switch_off_history_drops_the_history_table_only_when_asked(
 
 
 @pytest.mark.parametrize(
-    ("sync_type", "mode", "drop", "expected_status", "dropped"),
+    ("sync_type", "mode", "drop", "expected_status"),
     [
         # A table that stopped writing history keeps it, and a new mask can't reach its past values.
-        (ExternalDataSchema.SyncType.CDC, "consolidated", False, 400, False),
-        (ExternalDataSchema.SyncType.CDC, "consolidated", True, 200, True),
-        # An incremental table that keeps history starts a new history table from the masking rebuild.
-        (ExternalDataSchema.SyncType.INCREMENTAL, "both", False, 400, False),
-        (ExternalDataSchema.SyncType.INCREMENTAL, "both", True, 200, True),
+        (ExternalDataSchema.SyncType.CDC, "consolidated", False, 400),
+        (ExternalDataSchema.SyncType.CDC, "consolidated", True, 200),
+        # An incremental table that keeps history fills the same table again from the masking rebuild.
+        (ExternalDataSchema.SyncType.INCREMENTAL, "both", False, 400),
+        (ExternalDataSchema.SyncType.INCREMENTAL, "both", True, 200),
     ],
 )
-def test_masking_a_table_with_a_history_table_deletes_it_only_when_asked(
-    team, user, client: HttpClient, sync_type, mode, drop, expected_status, dropped
+def test_masking_a_table_with_a_history_table_empties_it_only_when_asked(
+    team, user, client: HttpClient, sync_type, mode, drop, expected_status
 ):
     _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=mode)
     config = {
@@ -813,10 +813,13 @@ def test_masking_a_table_with_a_history_table_deletes_it_only_when_asked(
     else:
         history = _history_table(schema)
     client.force_login(user)
+    folder = f"bucket/{schema.folder_path()}/{history.name.removeprefix('postgres_')}"
+    s3 = mock.MagicMock(**{"ls.return_value": [folder, f"{folder}_ph_staging"]})
 
     with ExitStack() as stack:
         for patcher in _history_drop_mocks():
             stack.enter_context(patcher)
+        stack.enter_context(mock.patch(_GET_S3_CLIENT, return_value=s3))
         response = client.patch(
             f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
             data={"masked_columns": ["email"], "drop_history_table": drop},
@@ -826,7 +829,10 @@ def test_masking_a_table_with_a_history_table_deletes_it_only_when_asked(
     assert response.status_code == expected_status, response.content
     history.refresh_from_db()
     schema.refresh_from_db()
-    assert history.deleted is dropped
+    # The record stays, so the rebuild registers the same table and its access rules stay in force.
+    assert not history.deleted
+    deleted = sorted(s3.rm.call_args.args[0]) if s3.rm.called else []
+    assert deleted == ([folder, f"{folder}_ph_staging"] if expected_status == 200 else [])
     assert (schema.masked_columns or []) == (["email"] if expected_status == 200 else [])
 
 

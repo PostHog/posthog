@@ -931,16 +931,10 @@ function ColumnsAndRowFiltersSection({
                 ...(masksChanged ? { masked_columns: draftMasked } : {}),
                 ...(masksDropHistory ? { drop_history_table: true } : {}),
             })
-                .then((saved) => {
+                .then(() => {
                     updateSchema(next)
                     if (!masksChanged) {
                         resyncSchema(next)
-                    }
-                    if (masksDropHistory && saved.registered_history_table_name) {
-                        lemonToast.warning(
-                            `Saved, but ${saved.registered_history_table_name} was kept because a sync was still running. It still has the unmasked values. Delete it from the danger zone.`
-                        )
-                        return
                     }
                     // The backend only stages the rebuild of a table that does not sync.
                     lemonToast.success(
@@ -981,10 +975,11 @@ function ColumnsAndRowFiltersSection({
                         )}
                         {masksDropHistory && (
                             <span>
-                                Masking also deletes the history table{' '}
+                                Masking also deletes everything in the history table{' '}
                                 <code>{schema.registered_history_table_name}</code>, because its past versions keep the
-                                unmasked values. Its history is lost and can't be restored. If the table keeps history,
-                                the rebuild starts a new history table with the column masked.
+                                unmasked values. Its history is lost and can't be restored. The table and its access
+                                rules stay, and if the table keeps history, the rebuild fills it again with the column
+                                masked.
                             </span>
                         )}
                         {newlyMasked.length > 0 && newlyMasked.length <= 6 && (
