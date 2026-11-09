@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError
 
@@ -55,6 +55,28 @@ from products.signals.backend.temporal.types import SignalData, SignalReportSumm
 
 SUMMARY_MODULE_PATH = "products.signals.backend.temporal.summary"
 TASK_QUEUE = "test-summary-workflow-queue"
+
+
+@pytest.mark.asyncio
+async def test_admission_refusal_preserves_failure_before_signals_are_fetched() -> None:
+    inputs = SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()), signal_id=str(uuid.uuid4()))
+    with (
+        patch(
+            f"{SUMMARY_MODULE_PATH}.workflow.patched", side_effect=lambda name: name == "signals-spend-explicit-owner"
+        ),
+        patch(
+            f"{SUMMARY_MODULE_PATH}.workflow.execute_activity",
+            new_callable=AsyncMock,
+            side_effect=[ApplicationError("report_limit", non_retryable=True), None],
+        ) as execute_activity,
+        pytest.raises(ApplicationError, match="report_limit"),
+    ):
+        await SignalReportSummaryWorkflow()._run_once(inputs, Mock())
+    failure = execute_activity.call_args.args[1]
+    assert isinstance(failure, MarkReportFailedInput)
+    assert failure.report_id == inputs.report_id
+    assert failure.signal_count == 0
+    assert failure.source_products == []
 
 
 @pytest_asyncio.fixture
@@ -307,7 +329,7 @@ def test_legacy_agentic_activity_payload_defaults_metrics_to_preserve() -> None:
     assert decoded.checks_monitoring_enabled is False
 
 
-async def _run_summary_workflow(recorder: _Recorder) -> None:
+async def _run_summary_workflow(recorder: _Recorder, *, operator_rerun: bool = False) -> None:
     @activity.defn(name="github_optional_pilot_activity")
     async def fake_pilot(team_id: int) -> bool:
         return recorder.github_optional
@@ -315,7 +337,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="check_report_quota_gate_activity")
     async def fake_quota(input: CheckReportQuotaGateInput) -> bool:
         recorder.gate_checks.append(input.stage)
-        return recorder.gate_answers.get(input.stage, False)
+        return False if input.operator_rerun else recorder.gate_answers.get(input.stage, False)
 
     @activity.defn(name="fetch_signals_for_report_activity")
     async def fake_fetch(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
@@ -342,6 +364,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
 
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
+        assert input.operator_rerun == operator_rerun
         recorder.marks_in_progress += 1
         recorder.preserved_pending.append(input.preserve_pending_refresh)
 
@@ -454,7 +477,9 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             await asyncio.wait_for(
                 env.client.execute_workflow(
                     SignalReportSummaryWorkflow.run,
-                    SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4())),
+                    SignalReportSummaryWorkflowInputs(
+                        team_id=1, report_id=str(uuid.uuid4()), operator_rerun=operator_rerun
+                    ),
                     id=f"summary-workflow-{uuid.uuid4()}",
                     task_queue=TASK_QUEUE,
                 ),
@@ -712,3 +737,11 @@ async def test_report_has_assigned_signals_reads_postgres_signal_count(ateam, si
         ReportHasAssignedSignalsInput(team_id=ateam.id, report_id=str(report.id))
     )
     assert result is expected
+
+
+@pytest.mark.asyncio
+async def test_operator_summary_runs_with_customer_quota_exhausted():
+    recorder = _Recorder(gate_answers={"summary_entry": True})
+    await _run_summary_workflow(recorder, operator_rerun=True)
+    assert recorder.marks_in_progress == 1
+    assert recorder.researches == 1

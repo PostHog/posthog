@@ -1,1 +1,1 @@
-1426_events_plan_deletion
+1431_squash_2026_11_02_schema_addons

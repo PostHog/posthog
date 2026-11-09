@@ -1982,7 +1982,7 @@ export interface FeatureFlagTestEvaluationRequestApi {
 }
 
 /**
- * Person properties at the time of evaluation (for historical evaluations)
+ * Person properties at the time of evaluation (for historical evaluations). Properties that property access control hides from the requesting user are omitted.
  */
 export type FeatureFlagTestEvaluationResponseApiPersonProperties = { [key: string]: unknown }
 
@@ -1995,7 +1995,7 @@ export interface FeatureFlagConditionPropertyAnalysisApi {
     value: unknown
     /** Property type (person, group, etc.) */
     type: string
-    /** Actual property value from user */
+    /** Actual property value from user. Null when the property is not set, or when property access control hides it from the requesting user. */
     actual_value: unknown
     /** Whether this property condition matched */
     matched: boolean
@@ -2044,7 +2044,7 @@ export interface FeatureFlagTestEvaluationResponseApi {
     condition_index: number | null
     /** Payload associated with the flag result, if any */
     payload: unknown
-    /** Person properties at the time of evaluation (for historical evaluations) */
+    /** Person properties at the time of evaluation (for historical evaluations). Properties that property access control hides from the requesting user are omitted. */
     person_properties: FeatureFlagTestEvaluationResponseApiPersonProperties
     /**
      * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
