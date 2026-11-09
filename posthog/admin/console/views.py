@@ -24,6 +24,7 @@ from posthog.admin.console.registry import console
 from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
 from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -153,8 +154,18 @@ def _search_teams(query: str) -> list[Team]:
     return list(matches.order_by("-id")[:SEARCH_LIMIT])
 
 
+def _find_user(query: str) -> User | None:
+    # Team and organization names rarely hold an @, so a query with one is an email address and opens that user.
+    if "@" not in query:
+        return None
+    return EmailLookupHandler.get_user_by_email(query, is_active=None)
+
+
 def console_home(request: HttpRequest) -> HttpResponse:
     query = request.GET.get("q", "").strip()
+    user = _find_user(query)
+    if user is not None:
+        return redirect("admin_console_user", pk=user.pk)
     teams = _search_teams(query)
     if len(teams) == 1:
         if not query.isdigit():

@@ -80,6 +80,8 @@ class ConsoleRegistry:
             return
         # Core panels register first, so they lead each page.
         import posthog.admin.console.team_panels  # noqa: F401, PLC0415 — registers the core Team panels
+        import posthog.admin.console.user_panels  # noqa: F401, PLC0415 — registers the core User panels
+        import posthog.admin.console.project_panels  # noqa: F401, PLC0415 — registers the core Project panels
         import posthog.admin.console.health_checks_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.organization_tools  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.remote_config_tool  # noqa: F401, PLC0415 — registers a core tool

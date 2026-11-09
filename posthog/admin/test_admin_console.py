@@ -25,7 +25,7 @@ from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, P
 from posthog.csp_middleware import CSPMiddleware
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.fake_client import get_active_fake
@@ -37,6 +37,8 @@ from products.workflows.backend.facade.api import get_email_sending_state
 from ee.billing.quota_limiting import QuotaResource
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
+PROJECT_PANEL_TITLES = ("Overview",)
+USER_PANEL_TITLES = ("Overview", "Organizations")
 CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
 REBUILD = "pnpm --filter=@posthog/frontend build:admin-console"
 
@@ -283,6 +285,9 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 403
 
     def test_team_page_shows_core_and_product_panels(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
         response = self.client.get(f"/admin/console/teams/{self.team.pk}/")
 
         assert response.status_code == 200
@@ -301,6 +306,8 @@ class TestAdminConsoleViews(BaseTest):
             assert len(panel.facts(self.team)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
 
         assert f"/admin/console/organizations/{self.organization.pk}/" in content
+        assert f"/admin/console/projects/{self.project.pk}/" in content
+        assert f"/admin/console/users/{self.user.pk}/" in content
 
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
         assert organization_page.status_code == 200
@@ -308,6 +315,24 @@ class TestAdminConsoleViews(BaseTest):
         for title in ("Overview", "Teams", "Billing"):
             assert title in organization_content
         assert f"/admin/console/teams/{self.team.pk}/" in organization_content
+
+        for record, path, titles in (
+            ("project", f"/admin/console/projects/{self.project.pk}/", PROJECT_PANEL_TITLES),
+            ("user", f"/admin/console/users/{self.user.pk}/", USER_PANEL_TITLES),
+        ):
+            record_page = self.client.get(path)
+            assert record_page.status_code == 200
+            record_content = record_page.content.decode()
+            for title in titles:
+                assert title in record_content, f"{title} is missing from the {record} page"
+            assert f"/admin/console/organizations/{self.organization.pk}/" in record_content
+            obj = self.project if record == "project" else self.user
+            for panel in console.panels_for(record):
+                assert len(panel.facts(obj)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
+        assert (
+            f"/admin/console/teams/{self.team.pk}/"
+            in self.client.get(f"/admin/console/projects/{self.project.pk}/").content.decode()
+        )
 
         home = self.client.get("/admin/console/").content.decode()
         assert "Recently opened" in home
@@ -325,11 +350,17 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 302
         assert response["Location"] == expected
 
-    def test_a_name_with_one_match_opens_the_team(self) -> None:
-        response = self.client.get("/admin/console/", {"q": self.team.name})
+    @parameterized.expand([("team_name", "team"), ("user_email_in_another_case", "user")])
+    def test_a_lookup_with_one_match_opens_its_page(self, _name: str, record: str) -> None:
+        if record == "team":
+            query, expected = self.team.name, f"/admin/console/teams/{self.team.pk}/"
+        else:
+            query, expected = self.user.email.upper(), f"/admin/console/users/{self.user.pk}/"
+
+        response = self.client.get("/admin/console/", {"q": query})
 
         assert response.status_code == 302
-        assert response["Location"] == f"/admin/console/teams/{self.team.pk}/"
+        assert response["Location"] == expected
 
     @parameterized.expand(
         [
