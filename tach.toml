@@ -1056,6 +1056,7 @@ depends_on = [
     "products.feature_flags",
     "products.product_analytics",
     "products.product_tours", "products.access_control",
+    "products.exports",
 ]
 layer = "modules"
 
