@@ -548,10 +548,10 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     )
     track_opens_and_clicks = OmittableBooleanField(
         required=False,
-        help_text="Whether the email your code rendered carries open and click tracking: a tracking pixel, and links "
-        "rewritten to count clicks. Defaults to true. With false, the email goes out without either, so PostHog "
-        "can't count its opens and clicks. Independent of `capture_engagement`, which decides whether engagement "
-        "events are captured on the recipient's person.",
+        help_text="Whether PostHog tracks opens and clicks of the email your code rendered. Defaults to true. With "
+        "false, the email goes out without PostHog's open pixel, so PostHog can't count its opens. PostHog doesn't "
+        "track clicks on emails sent from code, so their links are never rewritten either way. Independent of "
+        "`capture_engagement`, which decides whether engagement events are captured on the recipient's person.",
     )
 
     def to_internal_value(self, data: Any) -> Any:

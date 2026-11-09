@@ -78,7 +78,7 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .boolean()
         .optional()
         .describe(
-            "Whether the email your code rendered carries open and click tracking: a tracking pixel, and links rewritten to count clicks. Defaults to true. With false, the email goes out without either, so PostHog can't count its opens and clicks. Independent of `capture_engagement`, which decides whether engagement events are captured on the recipient's person."
+            "Whether PostHog tracks opens and clicks of the email your code rendered. Defaults to true. With false, the email goes out without PostHog's open pixel, so PostHog can't count its opens. PostHog doesn't track clicks on emails sent from code, so their links are never rewritten either way. Independent of `capture_engagement`, which decides whether engagement events are captured on the recipient's person."
         ),
     from: zod
         .string()
