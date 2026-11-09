@@ -5,7 +5,7 @@ from typing import Any, ClassVar, Optional
 from urllib.parse import urlencode
 
 import requests
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.blueshift.settings import (
     BLUESHIFT_ENDPOINTS,
@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.blueshift.settings import (
     DEFAULT_REGION,
     PAGE_SIZE,
     STATS_BACKFILL_DAYS,
+    STATS_REQUEST_INTERVAL_SECONDS,
     STATS_REREAD_DAYS,
     BlueshiftEndpointConfig,
 )
@@ -27,6 +28,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceCursorManager,
     SourceResponse,
     frozen,
+    interruptible_wait,
     make_tracked_session,
     parse_datetime_value,
     rest_api_resource,
@@ -37,15 +39,18 @@ from products.warehouse_sources.sources.sdk import (
 
 STATS_REQUEST_TIMEOUT = 120
 _ISO_UTC = "%Y-%m-%dT%H:%M:%S.000Z"
-# The v1 stats endpoint has no documented rate limit, but it 429s under heavy per-day polling
-# (one request per UTC day of backfill). It's fetched with a raw `session.get`, not
-# `rest_api_resource`, so it needs its own retry-with-backoff before giving up, same as every
-# other hand-rolled source transport in this tree.
-MAX_STATS_RETRY_ATTEMPTS = 5
+# Blueshift documents no rate limit, but it returns 429 when the account sends too many requests,
+# and every table of the source counts against the same account. The stats walk is fetched with a
+# raw `session.get`, not `rest_api_resource`, so it needs its own retry-with-backoff before giving
+# up, same as every other hand-rolled source transport in this tree.
+MAX_STATS_RETRY_ATTEMPTS = 8
+MAX_STATS_RETRY_WAIT_SECONDS = 60
 
 
 class BlueshiftRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 @frozen
@@ -96,11 +101,16 @@ def _list_endpoint(config: BlueshiftEndpointConfig) -> Endpoint:
     endpoint: Endpoint = {"path": config.path}
     if config.pagination == "page":
         endpoint["params"] = {"per_page": PAGE_SIZE}
-        endpoint["paginator"] = PageNumberPaginator(base_page=1, page_param="page")
+        endpoint["paginator"] = PageNumberPaginator(
+            base_page=1, page_param="page", page_size=PAGE_SIZE, raise_on_repeated_page=True
+        )
     else:
         endpoint["paginator"] = SinglePagePaginator()
     if config.data_selector is not None:
         endpoint["data_selector"] = config.data_selector
+    # A body of another shape fails the sync with its keys, and is not synced as 0 rows or as one envelope row per page.
+    endpoint["data_selector_required"] = True
+    endpoint["data_selector_empty_ok"] = True
     return endpoint
 
 
@@ -121,10 +131,37 @@ def _stats_window(day: date) -> dict[str, str]:
     return {"start_time": start.strftime(_ISO_UTC), "end_time": end.strftime(_ISO_UTC)}
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a delta-seconds `Retry-After` header. Anything else falls back to exponential backoff."""
+    if not value:
+        return None
+    try:
+        delay = float(value.strip())
+    except ValueError:
+        return None
+    return delay if delay >= 0 else None
+
+
+_stats_backoff = wait_exponential_jitter(initial=2, max=MAX_STATS_RETRY_WAIT_SECONDS)
+
+
+def _stats_server_delay(retry_state: RetryCallState) -> float | None:
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    return exc.retry_after if isinstance(exc, BlueshiftRetryableError) else None
+
+
+def _wait_stats(retry_state: RetryCallState) -> float:
+    retry_after = _stats_server_delay(retry_state)
+    if retry_after is not None:
+        return min(retry_after, MAX_STATS_RETRY_WAIT_SECONDS)
+    return _stats_backoff(retry_state)
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type((BlueshiftRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_STATS_RETRY_ATTEMPTS),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    wait=_wait_stats,
+    requested_wait=_stats_server_delay,
     reraise=True,
 )
 def _fetch_stats_day(session: requests.Session, url: str, headers: dict[str, str], day: date) -> dict[str, Any]:
@@ -133,7 +170,10 @@ def _fetch_stats_day(session: requests.Session, url: str, headers: dict[str, str
     with suspend_adapter_retries():
         response = session.get(url, params=_stats_window(day), headers=headers, timeout=STATS_REQUEST_TIMEOUT)
     if response.status_code == 429 or response.status_code >= 500:
-        raise BlueshiftRetryableError(f"Blueshift API error (retryable): status={response.status_code}, url={url}")
+        retry_after = _parse_retry_after(response.headers.get("Retry-After")) if response.status_code == 429 else None
+        raise BlueshiftRetryableError(
+            f"Blueshift API error (retryable): status={response.status_code}, url={url}", retry_after=retry_after
+        )
     response.raise_for_status()
     return response.json()
 
@@ -174,7 +214,13 @@ def _campaign_stats_rows(
     else:
         day = today - timedelta(days=STATS_BACKFILL_DAYS)
 
+    first_request = True
     while day <= today:
+        if not first_request:
+            # The walk sends one request per day of backfill, so it spaces them out to stay under the
+            # account's rate limit, which the other tables of the source use too.
+            interruptible_wait(STATS_REQUEST_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
+        first_request = False
         body = _fetch_stats_day(session, url, headers, day)
         campaigns = body.get(data_selector) or []
         next_day = day + timedelta(days=1)

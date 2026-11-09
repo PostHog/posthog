@@ -1,4 +1,5 @@
 import re
+import json
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Literal, Optional
@@ -349,6 +350,8 @@ class PageNumberPaginator(BasePaginator):
         maximum_page: Optional[int] = None,
         stop_after_empty_page: bool = True,
         param_location: ParamLocation = "query",
+        page_size: Optional[int] = None,
+        raise_on_repeated_page: bool = False,
     ) -> None:
         super().__init__()
         self.base_page = base_page
@@ -360,6 +363,12 @@ class PageNumberPaginator(BasePaginator):
         self.maximum_page = maximum_page
         self.stop_after_empty_page = stop_after_empty_page
         self.param_location = param_location
+        # The page size the request asks for. A page with fewer rows is the last page, so an API that
+        # never returns an empty page (it repeats the last page, or ignores the page param) still stops.
+        self.page_size = page_size
+        # An API that ignores the page param returns the same rows for every page and never ends.
+        self.raise_on_repeated_page = raise_on_repeated_page
+        self._previous_page_fingerprint: Optional[str] = None
 
     def init_request(self, request: Request) -> None:
         _inject_param(request, self.param_location, self.page_param, self.page)
@@ -369,7 +378,19 @@ class PageNumberPaginator(BasePaginator):
             self._has_next_page = False
             return
 
+        if self.raise_on_repeated_page and data:
+            fingerprint = json.dumps(data, sort_keys=True, default=str)
+            if fingerprint == self._previous_page_fingerprint:
+                raise ValueError(
+                    f"Page number pagination is not advancing: page {self.page} returned the same rows as the page before it"
+                )
+            self._previous_page_fingerprint = fingerprint
+
         self.page += 1
+
+        if self.page_size is not None and data is not None and len(data) < self.page_size:
+            self._has_next_page = False
+            return
 
         if self.maximum_page is not None and self.page > self.maximum_page:
             self._has_next_page = False

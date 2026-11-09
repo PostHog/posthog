@@ -36,22 +36,36 @@ def _campaign(uuid: str) -> dict[str, Any]:
 
 
 class TestBlueshiftLists:
-    def test_paginated_list_walks_pages_until_an_empty_page(self) -> None:
+    def test_paginated_list_stops_after_a_short_page(self) -> None:
         result = _driver().run(
             "segments",
             [
                 ScriptedResponse(json={"segments": [{"uuid": f"s{i}"} for i in range(100)]}),
                 ScriptedResponse(json={"segments": [{"uuid": "s100"}]}),
-                ScriptedResponse(json={"segments": []}),
             ],
         )
 
         assert result.raised is None
-        assert result.params("page") == ["1", "2", "3"]
-        assert result.params("per_page") == ["100", "100", "100"]
+        assert result.params("page") == ["1", "2"]
+        assert result.params("per_page") == ["100", "100"]
         assert {r.headers.get("authorization") for r in result.requests} == {AUTH_VALUE}
         assert len(result.rows) == 101
-        assert result.saved_states == [BlueshiftResumeConfig(next_page=2), BlueshiftResumeConfig(next_page=3)]
+        assert result.saved_states == [BlueshiftResumeConfig(next_page=2)]
+
+    @parameterized.expand(
+        [
+            ("object_body_without_selector", "campaigns", {"campaigns": [{"uuid": "a"}], "total": 1}, "'campaigns'"),
+            ("selector_key_missing", "email_templates", {"templates": [{"uuid": "a"}]}, "'templates'"),
+        ]
+    )
+    def test_an_unexpected_body_fails_on_the_first_page_and_names_its_keys(
+        self, _name: str, schema: str, body: dict[str, Any], key: str
+    ) -> None:
+        result = _driver().run(schema, always(ScriptedResponse(json=body)))
+
+        assert isinstance(result.raised, ValueError)
+        assert key in str(result.raised)
+        assert len(result.requests) == 1
 
     def test_resume_starts_from_the_saved_page(self) -> None:
         result = _driver().run(
@@ -79,7 +93,7 @@ class TestBlueshiftLists:
             (
                 "bare_list_paginated",
                 "sms_templates",
-                [ScriptedResponse(json=[{"uuid": "a"}, {"uuid": "b"}]), ScriptedResponse(json=[])],
+                [ScriptedResponse(json=[{"uuid": "a"}, {"uuid": "b"}])],
                 "/api/v1/sms_templates.json",
             ),
         ]

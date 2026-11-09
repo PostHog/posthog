@@ -246,6 +246,27 @@ class TestPageNumberPaginator:
         p.update_state(resp, data=[])
         assert p.has_next_page is False
 
+    def test_stops_on_short_page_when_page_size_set(self) -> None:
+        p = PageNumberPaginator(base_page=1, page=1, page_size=2)
+        resp = _make_response({})
+        p.update_state(resp, data=[{"id": 1}, {"id": 2}])
+        assert p.has_next_page is True
+        p.update_state(resp, data=[{"id": 3}])
+        assert p.page == 3
+        assert p.has_next_page is False
+
+    @pytest.mark.parametrize("raise_on_repeated_page", [True, False])
+    def test_repeated_page_raises_only_when_enabled(self, raise_on_repeated_page: bool) -> None:
+        p = PageNumberPaginator(base_page=1, page=1, raise_on_repeated_page=raise_on_repeated_page)
+        resp = _make_response({})
+        p.update_state(resp, data=[{"id": 1}])
+        if raise_on_repeated_page:
+            with pytest.raises(ValueError, match="not advancing"):
+                p.update_state(resp, data=[{"id": 1}])
+        else:
+            p.update_state(resp, data=[{"id": 1}])
+            assert p.has_next_page is True
+
 
 class TestSingleEntityPath:
     @pytest.mark.parametrize(
