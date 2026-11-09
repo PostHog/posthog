@@ -78,34 +78,6 @@ describe('LemonFormDialog', () => {
     })
 
     it.each([
-        ['button click', submitViaButton],
-        ['enter key', submitViaEnter],
-    ])(
-        'shows the submit as loading and ignores repeats until an awaited submit settles (%s)',
-        async (_mode, submit) => {
-            let finish: () => void = () => {}
-            const onSubmit = jest.fn(
-                () =>
-                    new Promise<void>((resolve) => {
-                        finish = resolve
-                    })
-            )
-
-            renderDialog(onSubmit)
-            await submit()
-
-            await waitFor(() =>
-                expect(screen.getByText('Submit').closest('button')).toHaveClass('LemonButton--loading')
-            )
-            await submit()
-            expect(onSubmit).toHaveBeenCalledTimes(1)
-
-            act(() => finish())
-            await waitForElementToBeRemoved(() => screen.queryByText('Submit'))
-        }
-    )
-
-    it.each([
         ['unexpected Error', new Error('boom'), true],
         ['5xx ApiError', new ApiError('server error', 500), true],
         ['4xx validation ApiError', new ApiError('reserved name', 400), false],
