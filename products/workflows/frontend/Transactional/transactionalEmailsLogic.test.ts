@@ -233,28 +233,31 @@ describe('transactionalEmailsLogic', () => {
     )
 
     it.each([200, 500])(
-        'keeps a newer tag edit when the read-back of a failed save answers %s after it',
+        'keeps a newer tag edit when the read-back of a failed save answers %s after it, also through a later failed edit',
         async (status) => {
+            let outage = false
             let patches = 0
             let readBackStarted: () => void = () => {}
             const readBack = new Promise<void>((resolve) => (readBackStarted = resolve))
-            let newerSaved: () => void = () => {}
-            const saved = new Promise<void>((resolve) => (newerSaved = resolve))
+            let releaseReadBack: () => void = () => {}
+            const readBackHeld = new Promise<void>((resolve) => (releaseReadBack = resolve))
             useMocks({
                 patch: {
                     [`${CODE_EMAILS}:id/`]: async ({ request, params }) => {
                         const { tags } = (await request.json()) as { tags: string[] }
-                        if (++patches === 1) {
+                        if (++patches === 1 || outage) {
                             return [500, { detail: 'Unavailable' }]
                         }
-                        newerSaved()
                         return [200, codeEmail(String(params.id), 'password-changed', tags)]
                     },
                 },
                 get: {
                     [`${CODE_EMAILS}:id/`]: async () => {
+                        if (outage) {
+                            return [500, { detail: 'Unavailable' }]
+                        }
                         readBackStarted()
-                        await saved
+                        await readBackHeld
                         return [status, codeEmail('k', 'password-changed', ['auth'])]
                     },
                 },
@@ -263,8 +266,14 @@ describe('transactionalEmailsLogic', () => {
             logic.actions.saveTransactionalTags(codeRow(), ['auth', 'security'])
             await readBack
             logic.actions.saveTransactionalTags(codeRow(), [...codeRow().tags, 'urgent'])
+            await expectLogic(logic).toDispatchActions(['transactionalTagsSaved'])
+            releaseReadBack()
             await expectLogic(logic).toFinishAllListeners()
 
+            expect(codeRow().tags).toEqual(['auth', 'security', 'urgent'])
+            outage = true
+            logic.actions.saveTransactionalTags(codeRow(), [...codeRow().tags, 'later'])
+            await expectLogic(logic).toFinishAllListeners()
             expect(codeRow().tags).toEqual(['auth', 'security', 'urgent'])
         }
     )

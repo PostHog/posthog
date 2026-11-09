@@ -246,8 +246,8 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
                             String(values.currentTeamId),
                             row.codeEmail.id
                         )
-                        confirmedCodeEmails.set(row.id, stored)
                         if (isLatestEdit()) {
+                            confirmedCodeEmails.set(row.id, stored)
                             transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(stored)
                         }
                     } catch {
