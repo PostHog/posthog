@@ -7,6 +7,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import type { LogsSettings } from '~/types'
 
 import { recordJsonEnrichmentSkipped, recordLogProcessingDuration } from './ingestion-otel-metrics'
+import { INTERNAL_ATTRIBUTE_PREFIX } from './internal-attributes-stage'
 import { type LogBodyParseResult, parseLogBodyForIngestion } from './log-body-parse'
 import { EMPTY_PII, type PiiScrubStats, scrubLogRecord } from './log-pii-scrub'
 import { MAX_LOG_RECORD_BYTES, logRecordSizeBytes } from './log-record-size'
@@ -382,6 +383,12 @@ function addJsonAttributes(
     recordBytes: number,
     source: JsonEnrichmentSource
 ): void {
+    // A log body is not signed, so it never supplies a reserved key the internal attributes stage would keep.
+    for (const key of Object.keys(jsonAttributes)) {
+        if (key.startsWith(INTERNAL_ATTRIBUTE_PREFIX)) {
+            delete jsonAttributes[key]
+        }
+    }
     if (Object.keys(jsonAttributes).length === 0) {
         return
     }

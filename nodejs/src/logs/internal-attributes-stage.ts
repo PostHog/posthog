@@ -27,6 +27,13 @@ export function makeInternalAttributesStage(verified: InternalLogs | undefined):
                         dropped++
                     }
                 }
+                // Producers write reserved keys as log attributes only.
+                for (const key of Object.keys(record.resource_attributes ?? {})) {
+                    if (key.startsWith(INTERNAL_ATTRIBUTE_PREFIX)) {
+                        delete record.resource_attributes![key]
+                        dropped++
+                    }
+                }
                 if (verified) {
                     record.attributes = {
                         ...record.attributes,

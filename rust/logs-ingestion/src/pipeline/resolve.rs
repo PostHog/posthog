@@ -121,6 +121,26 @@ impl InternalAttributesStage {
     }
 }
 
+/// Rebuilds the map once, because each `AvroMap::remove` rebuilds its index.
+fn strip_internal_keys(map: &mut AvroMap, allowed: &[String]) -> u64 {
+    let doomed =
+        |key: &str| key.starts_with(INTERNAL_ATTRIBUTE_PREFIX) && !allowed.iter().any(|a| a == key);
+    if !map.iter().any(|(key, _)| doomed(key)) {
+        return 0;
+    }
+    let mut dropped = 0;
+    let mut kept = AvroMap::new();
+    for (key, value) in std::mem::take(map).into_entries() {
+        if doomed(&key) {
+            dropped += 1;
+        } else {
+            kept.define(key, value);
+        }
+    }
+    *map = kept;
+    dropped
+}
+
 #[async_trait]
 impl MutateStage for InternalAttributesStage {
     fn name(&self) -> &str {
@@ -132,19 +152,11 @@ impl MutateStage for InternalAttributesStage {
         for staged in records.iter_mut() {
             let record = &mut staged.record;
             if let Some(attributes) = record.get_map_mut("attributes") {
-                let doomed: Vec<String> = attributes
-                    .iter()
-                    .map(|(k, _)| k)
-                    .filter(|k| {
-                        k.starts_with(INTERNAL_ATTRIBUTE_PREFIX)
-                            && !self.allowed.iter().any(|a| a.as_str() == *k)
-                    })
-                    .map(str::to_string)
-                    .collect();
-                for key in &doomed {
-                    attributes.remove(key);
-                }
-                dropped += doomed.len() as u64;
+                dropped += strip_internal_keys(attributes, &self.allowed);
+            }
+            // Producers write reserved keys as log attributes only.
+            if let Some(resource_attributes) = record.get_map_mut("resource_attributes") {
+                dropped += strip_internal_keys(resource_attributes, &[]);
             }
             if let Some(verified) = &self.verified {
                 if record.get_map("attributes").is_none() {
@@ -242,9 +254,9 @@ pub async fn resolve_log_buffer(
     }
     // After transformations, which can write the prefix too. Internal logs only reach the logs product.
     if context.identity.app_source == AppSource::Logs {
-        stages.push(PipelineStage::Mutate(Box::new(InternalAttributesStage::new(
-            message.internal_logs.clone(),
-        ))));
+        stages.push(PipelineStage::Mutate(Box::new(
+            InternalAttributesStage::new(message.internal_logs.clone()),
+        )));
     }
     let mut shortest_retention_days = if message.internal_logs.is_some() {
         INTERNAL_LOGS_MIN_RETENTION_DAYS

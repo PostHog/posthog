@@ -864,7 +864,9 @@ describe('LogsIngestionConsumer', () => {
             const producedMessages = getProducedKafkaMessages()
             expect(producedMessages).toHaveLength(1)
 
-            expect(producedMessages[0].value).toEqual(messages[0].value)
+            const [, , produced] = await decodeLogRecords(producedMessages[0].value as Buffer)
+            const [, , original] = await decodeLogRecords(messages[0].value as Buffer)
+            expect(produced).toEqual(original)
         })
 
         it('should handle binary log data as we do not parse it', async () => {
@@ -2408,15 +2410,14 @@ describe('LogsIngestionConsumer', () => {
                 { token: team.api_token },
                 { payload: JSON.stringify('{"nested":true}') }
             )
-            if (!enabled) {
-                message.value = Buffer.from('passthrough does not require Avro decoding')
-            }
 
             await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
 
             const logsOutput = getProducedKafkaMessages().filter((output) => output.topic === KAFKA_LOGS_CLICKHOUSE)
             expect(logsOutput).toHaveLength(1)
-            expect(logsOutput[0].value).toEqual(message.value)
+            const [, , produced] = await decodeLogRecords(logsOutput[0].value as Buffer)
+            const [, , original] = await decodeLogRecords(message.value as Buffer)
+            expect(produced).toEqual(original)
             expect((await logsJsonAttributeSniffCounter.get()).values).toEqual(
                 enabled
                     ? [
@@ -2457,21 +2458,12 @@ describe('LogsIngestionConsumer', () => {
                 { token: team.api_token },
                 { payload: JSON.stringify('{"count":7}') }
             )
-            if (!enabled) {
-                message.value = Buffer.from('disabled extraction must not decode')
-            }
             await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
             const output = getProducedKafkaMessages().filter((entry) => entry.topic === KAFKA_LOGS_CLICKHOUSE)
             expect(output).toHaveLength(1)
-            if (enabled) {
-                const [, , records] = await decodeLogRecords(output[0].value as Buffer)
-                expect(records[0].attributes).toMatchObject({
-                    payload: JSON.stringify('{"count":7}'),
-                    'payload.count': '7',
-                })
-            } else {
-                expect(output[0].value).toEqual(message.value)
-            }
+            const [, , records] = await decodeLogRecords(output[0].value as Buffer)
+            expect(records[0].attributes).toMatchObject({ payload: JSON.stringify('{"count":7}') })
+            expect(Object.hasOwn(records[0].attributes ?? {}, 'payload.count')).toBe(enabled)
         })
     })
 

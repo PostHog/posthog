@@ -795,6 +795,11 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
                 await f.logs(plain, 3, internal(sign('rules_src', 101), { min_timestamp: old(20) }), {
                     timestamp: Number(old(20)),
                 }),
+                // A signed body cannot mint an allowed reserved key through JSON parsing.
+                await f.logs(json, 2, internal(sign('hog_flow', 102)), {
+                    body: JSON.stringify({ 'posthog.internal.hog_flow.id': 'forged', message: 'ok' }),
+                }),
+                await f.logs(plain, 2, {}, { resource_attributes: { 'posthog.internal.source': '"forged"' } }),
             ],
         ]
         scenarios.push(finish(s))
