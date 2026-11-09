@@ -125,6 +125,16 @@ class _Piece:
 _Taint = frozenset[str | _Derived | _Piece]
 
 
+@frozen
+class _ContainerSources:
+    """The expressions a dict can come from, the member writes that change it as (keys, value), and the
+    names already followed, which stop a cycle."""
+
+    sources: list[ast.Expr]
+    writes: list[tuple[list[str | None], ast.Expr]]
+    seen: frozenset[str]
+
+
 def _derived(taint: _Taint) -> _Taint:
     return frozenset(_Derived(key=item) if isinstance(item, str) else item for item in taint)
 
@@ -690,13 +700,13 @@ class _Analysis:
         resolved = self._container_sources(node, seen)
         if resolved is None:
             return None
-        sources, writes, seen = resolved
+        seen = resolved.seen
         return self._union_hosts(
-            [self._options_hosts(source, seen) for source in sources]
-            + [self._option_hosts(keys[0], value, seen) for keys, value in writes if len(keys) == 1]
+            [self._options_hosts(source, seen) for source in resolved.sources]
+            + [self._option_hosts(keys[0], value, seen) for keys, value in resolved.writes if len(keys) == 1]
             + [
                 _header_entry_hosts(keys[1], value)
-                for keys, value in writes
+                for keys, value in resolved.writes
                 if len(keys) == 2 and keys[0] in ("headers", None)
             ]
         )
@@ -727,10 +737,9 @@ class _Analysis:
         resolved = self._container_sources(node, seen)
         if resolved is None:
             return None
-        sources, writes, seen = resolved
         return self._union_hosts(
-            [self._header_hosts(source, seen) for source in sources]
-            + [_header_entry_hosts(keys[0], value) for keys, value in writes if len(keys) == 1]
+            [self._header_hosts(source, resolved.seen) for source in resolved.sources]
+            + [_header_entry_hosts(keys[0], value) for keys, value in resolved.writes if len(keys) == 1]
         )
 
     def _configured_header_hosts(self, key: str) -> frozenset[str] | None:
@@ -752,29 +761,27 @@ class _Analysis:
                 hosts.add(header)
         return frozenset(hosts)
 
-    def _container_sources(
-        self, node: ast.Expr, seen: frozenset[str]
-    ) -> tuple[list[ast.Expr], list[tuple[list[str | None], ast.Expr]], frozenset[str]] | None:
-        """The expressions a dict can come from and the member assignments that change it, or None when
-        it can come from somewhere the analysis does not see."""
+    def _container_sources(self, node: ast.Expr, seen: frozenset[str]) -> _ContainerSources | None:
+        """None when the dict can come from somewhere the analysis does not see."""
         if isinstance(node, ast.Field) and len(node.chain) == 1 and str(node.chain[0]) in self.fresh_containers:
             name = str(node.chain[0])
             if self._written_from_elsewhere(name):
                 return None
             if name in seen:
-                return [], [], seen
+                return _ContainerSources(sources=[], writes=[], seen=seen)
             sources = [expr for assigned, expr in self.assignments if assigned == name]
             writes = [(keys, value) for base, keys, value in self.member_writes if base == name]
-            return sources, writes, seen | {name}
+            return _ContainerSources(sources=sources, writes=writes, seen=seen | {name})
         if isinstance(node, ast.Call) and node.name in self.functions:
             marker = f"{node.name}()"
             if marker in seen:
-                return [], [], seen
-            return [expr for function, expr in self.returns if function == node.name], [], seen | {marker}
+                return _ContainerSources(sources=[], writes=[], seen=seen)
+            returned = [expr for function, expr in self.returns if function == node.name]
+            return _ContainerSources(sources=returned, writes=[], seen=seen | {marker})
         if isinstance(node, ast.Call) and node.name in ("coalesce", "ifNull"):
-            return list(node.args), [], seen
+            return _ContainerSources(sources=list(node.args), writes=[], seen=seen)
         if isinstance(node, ast.Call) and node.name == "if" and len(node.args) == 3:
-            return list(node.args[1:]), [], seen
+            return _ContainerSources(sources=list(node.args[1:]), writes=[], seen=seen)
         return None
 
     def _written_from_elsewhere(self, holder: str) -> bool:

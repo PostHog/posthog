@@ -1060,8 +1060,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         stored_secrets = (self.context.get("encrypted_inputs") or {}) if instance else {}
         declared = {schema["key"] for schema in attrs.get("inputs_schema") or [] if schema.get("secret")}
         secret_keys = {key for key in declared if key in inputs or isinstance(stored_secrets.get(key), dict)}
-        # The worker runs a test with the function's stored secrets even when the tested schema leaves a
-        # secret out or declares it public, so the code under test can still send that stored value.
+        # A worker can resolve a stored secret by name in a test run even when the tested schema leaves it
+        # out or declares it public, so every stored secret is checked here, whatever the worker version.
         undeclared = (
             {key for key, value in stored_secrets.items() if key not in declared and isinstance(value, dict)}
             if getattr(self.context.get("view"), "action", None) == "invocations"
