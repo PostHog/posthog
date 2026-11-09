@@ -19,6 +19,7 @@ import {
 import { logger } from '~/common/utils/logger'
 import { budgetDeadline } from '~/ingestion/framework/batch-budget'
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
+import { aggregateKafkaDebugContexts } from '~/ingestion/framework/helpers'
 
 import { AcceptedBatch, batchAccepted, batchFailed, batchProcessed, batchReleased } from './batch-metrics'
 import { FeedOrderSentinel } from './feed-order-sentinel'
@@ -241,7 +242,7 @@ interface FedBatch {
     consumerId: string
     streamEpoch: string
     assignmentEpoch: string
-    offsets: string
+    messages: SerializedKafkaMessage[]
 }
 
 /** Unbounded FIFO handed from the pump to each stream's response generator. */
@@ -327,20 +328,6 @@ export function grpcMessageToSerialized(message: KafkaMessage): SerializedKafkaM
         value: message.value ?? null,
         headers: message.headers,
     }
-}
-
-function offsetRanges(messages: SerializedKafkaMessage[]): string {
-    const ranges = new Map<number, [number, number]>()
-    for (const { partition, offset } of messages) {
-        const range = ranges.get(partition)
-        if (!range) {
-            ranges.set(partition, [offset, offset])
-        } else {
-            range[0] = Math.min(range[0], offset)
-            range[1] = Math.max(range[1], offset)
-        }
-    }
-    return [...ranges].map(([partition, [min, max]]) => `${partition}:${min}-${max}`).join(',')
 }
 
 function readyFrame(): IngestStreamResponse {
@@ -728,8 +715,7 @@ export class WorkerIngestServer {
                 consumerId: batch.consumerId,
                 streamEpoch: batch.streamEpoch,
                 assignmentEpoch: batch.assignmentEpoch,
-                events: batch.accounting.events,
-                offsets: batch.offsets,
+                ...aggregateKafkaDebugContexts(batch.messages),
                 streamOpen: this.streams.has(batch.streamId),
             })
         }
@@ -991,7 +977,7 @@ export class WorkerIngestServer {
                                 consumerId: stream.hello.consumerId,
                                 streamEpoch: String(stream.hello.streamEpoch),
                                 assignmentEpoch: String(subBatch.assignmentEpoch),
-                                offsets: offsetRanges(serialized),
+                                messages: serialized,
                             })
                             break
                         }

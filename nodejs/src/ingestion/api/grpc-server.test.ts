@@ -505,8 +505,8 @@ describe('WorkerIngestServer', () => {
                     key: `${stuck.streamId}:1`,
                     inFlightMs: 250,
                     consumerId: 'consumer-stuck',
-                    events: 2,
-                    offsets: '2:10-11',
+                    count: 2,
+                    offsets: ['events[2]:10-11'],
                     streamOpen: true,
                 })
             )
