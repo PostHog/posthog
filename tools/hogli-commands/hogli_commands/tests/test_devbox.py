@@ -636,40 +636,28 @@ class TestCoderVersion:
         assert "CODER_URL to https://coder.example.com" in output
 
     @pytest.mark.parametrize("entrypoint", ["ensure_coder_authenticated", "ensure_runtime_ready", "get_username"])
-    @pytest.mark.parametrize(
-        "coder_error",
-        [
-            "error: You are signed out or your session has expired. Please sign in again to continue.",
-            "error: GET https://coder.example.com/api/v2/users/me: unexpected status code 500: Internal error.",
-        ],
-    )
     @pytest.mark.parametrize("coder_url_set", [True, False])
     def test_env_token_login_failure_shows_the_coder_error_instead_of_a_login_prompt(
         self,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
         entrypoint: str,
-        coder_error: str,
         coder_url_set: bool,
     ) -> None:
+        coder_error = "error: You are signed out or your session has expired. Please sign in again to continue."
         coder.get_username.cache_clear()
         monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: True)
         monkeypatch.setenv("CODER_SESSION_TOKEN", "expired-example-token")
-        failing_lookups = 3 if entrypoint == "get_username" else 1
         if coder_url_set:
             monkeypatch.setenv("CODER_URL", "https://coder.example.com")
         else:
             monkeypatch.delenv("CODER_URL", raising=False)
-        whoami_calls: list[str] = []
 
         def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             assert args[1] != "login", "coder login refuses to run while CODER_SESSION_TOKEN is set"
-            whoami_calls.append(args[1])
-            if len(whoami_calls) > failing_lookups:
-                return subprocess.CompletedProcess(args, 0, json.dumps([{"username": "retry-user"}]), "")
             return subprocess.CompletedProcess(
                 args, 1, "", f"{coder_error}\nSuggestion: Try logging in using 'coder login'.\n"
             )

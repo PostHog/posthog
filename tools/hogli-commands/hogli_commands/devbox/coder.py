@@ -1055,13 +1055,15 @@ def _note_login_only_in_env() -> None:
     )
 
 
-def _fail_login_not_ready(message: str, whoami: subprocess.CompletedProcess[str]) -> NoReturn:
+def _fail_login_not_ready(
+    message: str, whoami: subprocess.CompletedProcess[str], *, cause: str = "coder_login_not_ready"
+) -> NoReturn:
     coder_url = get_coder_url()
     if os.environ.get(_SESSION_TOKEN_ENV):
         _fail_env_token_login(coder_url, whoami)
     if not sys.stdin.isatty():
         message += f"\n{_env_login_hint(coder_url)}"
-    _fail(message, cause="coder_login_not_ready")
+    _fail(message, cause=cause)
 
 
 def ensure_coder_authenticated() -> None:
@@ -1076,15 +1078,13 @@ def ensure_coder_authenticated() -> None:
         return
 
     coder_url = get_coder_url()
-    if os.environ.get(_SESSION_TOKEN_ENV):
-        _fail_env_token_login(coder_url, whoami)
-    if not sys.stdin.isatty():
-        # `coder login` asks for a token pasted from the browser and fails with
-        # "paste token prompt: EOF" when stdin isn't a terminal.
-        _fail(
+    # `coder login` refuses to run while CODER_SESSION_TOKEN is set, and asks for a token pasted
+    # from the browser, failing with "paste token prompt: EOF" when stdin isn't a terminal.
+    if os.environ.get(_SESSION_TOKEN_ENV) or not sys.stdin.isatty():
+        _fail_login_not_ready(
             "Coder login needs you to paste a token, and this shell can't take input.\n"
-            f"  Run `{coder_command_hint()} login {coder_url}` in a terminal, then run `hogli devbox:setup` again.\n"
-            f"{_env_login_hint(coder_url)}",
+            f"  Run `{coder_command_hint()} login {coder_url}` in a terminal, then run `hogli devbox:setup` again.",
+            whoami,
             cause="coder_login_needs_terminal",
         )
     click.echo(f"Logging in to {coder_url}...")
@@ -1191,8 +1191,13 @@ def _parse_coder_user_info(payload: str) -> CoderUserInfo:
     return user_info
 
 
-def _lookup_coder_user() -> tuple[CoderUserInfo, subprocess.CompletedProcess[str]]:
-    """Return the user info, and the first failed `coder` result, or the last result when none failed."""
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _CoderUserLookup:
+    user_info: CoderUserInfo
+    first_failure_or_last_result: subprocess.CompletedProcess[str]
+
+
+def _lookup_coder_user() -> _CoderUserLookup:
     first_failure: subprocess.CompletedProcess[str] | None = None
     for command in (_coder_user_show_me, _coder_whoami):
         result = command()
@@ -1202,7 +1207,7 @@ def _lookup_coder_user() -> tuple[CoderUserInfo, subprocess.CompletedProcess[str
 
         user_info = _parse_coder_user_info(result.stdout)
         if user_info:
-            return user_info, result
+            return _CoderUserLookup(user_info=user_info, first_failure_or_last_result=result)
 
     result = _run(["coder", "whoami"], capture_output=True)
     if result.returncode == 0:
@@ -1211,14 +1216,16 @@ def _lookup_coder_user() -> tuple[CoderUserInfo, subprocess.CompletedProcess[str
             if stripped_line and not stripped_line.startswith("http"):
                 username = stripped_line.split()[0].split("@")[0].lower()
                 if username:
-                    return CoderUserInfo(username=username), result
+                    return _CoderUserLookup(
+                        user_info=CoderUserInfo(username=username), first_failure_or_last_result=result
+                    )
 
-    return CoderUserInfo(), first_failure or result
+    return _CoderUserLookup(user_info=CoderUserInfo(), first_failure_or_last_result=first_failure or result)
 
 
 def get_coder_user_info() -> CoderUserInfo:
     """Return normalized user info for the authenticated Coder user when available."""
-    return _lookup_coder_user()[0]
+    return _lookup_coder_user().user_info
 
 
 def get_default_git_identity() -> tuple[str | None, str | None]:
@@ -1237,15 +1244,15 @@ def get_username() -> str:
     uncached call is a `coder` subprocess. Failures raise instead of caching,
     so an auth retry within the same process still re-probes.
     """
-    user_info, lookup_result = _lookup_coder_user()
-    username = _first_non_empty_string(user_info.get("username"))
+    lookup = _lookup_coder_user()
+    username = _first_non_empty_string(lookup.user_info.get("username"))
     if username:
         return username.lower()
 
     ensure_coder_reachable()
     _fail_login_not_ready(
         f"Could not determine your Coder username from `coder whoami`.\n  Your login may have expired. {RUNTIME_SETUP_HINT}",
-        lookup_result,
+        lookup.first_failure_or_last_result,
     )
 
 
