@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { EventsRetentionChangeNote } from './EventsRetentionChangeNote'
@@ -17,16 +18,6 @@ export interface EventsRetentionPeriodSelectProps extends RetentionPeriods, Even
     saving: boolean
     restrictionReason: string | null
     onSave: (months: number | null) => void
-}
-
-function savedPeriodNote(retentionMonths: number | null, planMonths: number): string | null {
-    if (retentionMonths === null) {
-        return null
-    }
-    if (retentionMonths > planMonths) {
-        return `The saved period of ${retentionPeriodLabel(retentionMonths)} is longer than your plan allows, so events are kept for ${retentionPeriodLabel(planMonths)}.`
-    }
-    return 'Older events are deleted once a month, so some are kept up to about a month longer.'
 }
 
 export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectProps): JSX.Element {
@@ -47,7 +38,7 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
     const [changingSupportPeriod, setChangingSupportPeriod] = useState(false)
     const options = eventsRetentionPeriodOptions(props)
     const supportMonths = retentionMonths !== null && !choices.includes(retentionMonths) ? retentionMonths : null
-    const periodNote = savedPeriodNote(retentionMonths, planMonths)
+    const abovePlan = retentionMonths !== null && retentionMonths > planMonths
 
     const confirm = (months: number | null): void => {
         const period = retentionPeriodLabel(months ?? defaultMonths)
@@ -76,35 +67,45 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
     return (
         <div className="flex flex-col gap-1 max-w-160">
             <LemonLabel>Retention period</LemonLabel>
-            {supportMonths === null ? (
-                <LemonSelect<number | null>
-                    value={retentionMonths}
-                    onChange={confirm}
-                    options={options}
-                    loading={saving}
-                    disabledReason={restrictionReason ?? undefined}
-                    className="w-80 max-w-full"
-                    data-attr={`${dataAttr}-select`}
-                />
-            ) : (
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold">{retentionPeriodLabel(supportMonths)}</span>
-                    <LemonTag>Set by PostHog support</LemonTag>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => setChangingSupportPeriod(true)}
+            <div className="flex flex-wrap items-center gap-2">
+                {supportMonths === null ? (
+                    <LemonSelect<number | null>
+                        value={retentionMonths}
+                        onChange={confirm}
+                        options={options}
                         loading={saving}
-                        disabledReason={restrictionReason}
-                        data-attr={`${dataAttr}-change-support-period`}
-                    >
-                        Change
-                    </LemonButton>
-                </div>
-            )}
+                        disabledReason={restrictionReason ?? undefined}
+                        className="w-80 max-w-full"
+                        data-attr={`${dataAttr}-select`}
+                    />
+                ) : (
+                    <>
+                        <span className="font-semibold">{retentionPeriodLabel(supportMonths)}</span>
+                        <LemonTag>Set by PostHog support</LemonTag>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => setChangingSupportPeriod(true)}
+                            loading={saving}
+                            disabledReason={restrictionReason}
+                            data-attr={`${dataAttr}-change-support-period`}
+                        >
+                            Change
+                        </LemonButton>
+                    </>
+                )}
+                {abovePlan && (
+                    <span className="flex items-center gap-1">
+                        <IconWarning className="shrink-0 text-lg text-warning" />
+                        {`Your plan limits this to ${retentionPeriodLabel(planMonths)}`}
+                    </span>
+                )}
+            </div>
             <p className="mb-0 text-xs text-secondary">
                 <span>{note}</span>
-                {periodNote && <span> {periodNote}</span>}
+                {retentionMonths !== null && !abovePlan && (
+                    <span> Older events are deleted once a month, so some are kept up to about a month longer.</span>
+                )}
             </p>
             {supportMonths !== null && changingSupportPeriod && (
                 <EventsRetentionSupportPeriodModal
