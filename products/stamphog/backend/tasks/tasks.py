@@ -1378,7 +1378,6 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # against the wrong connection.
     write_db = router.db_for_write(ReviewRun)
     try:
-        # Of the deliveries, only the trigger label asks for a verdict the way a manual request does.
         # Looked up before the transaction, so the PR-row lock is not held for it.
         withheld_output: dict[str, Any] = {}
         if action == "labeled" and (payload.get("label") or {}).get("name") == repo_config.trigger_label:

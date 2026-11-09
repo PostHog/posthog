@@ -2056,7 +2056,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     reused_from = output.get(REUSED_FROM_RUN_OUTPUT_KEY)
     if reused_from and run.verdict_posted_at is not None:
-        # The silent run's verdict reached the PR through this run, so it no longer reads as withheld.
         ReviewRun.objects.for_team(input.team_id).filter(id=reused_from, verdict_posted_at__isnull=True).update(
             verdict_posted_at=run.verdict_posted_at, updated_at=timezone.now()
         )
