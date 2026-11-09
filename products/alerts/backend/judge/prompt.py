@@ -27,9 +27,8 @@ MAX_INSTRUCTIONS_CHARS = 2000
 # JSON value. Unbounded it crowds out the series the model is asked to judge.
 MAX_SERIES_LABEL_CHARS = 120
 
-# An earlier check's rationale is context, not the subject. Truncated, and only the most recent
-# are listed, so a long history of flags cannot crowd out the series. A wall of earlier anomaly
-# reasons also pushes the model to flag again.
+# An earlier check's rationale is context, not the subject. Only the most recent are listed, each truncated,
+# so a long history of flags cannot crowd out the series or push the model to flag again.
 MAX_EARLIER_RATIONALE_CHARS = 200
 MAX_EARLIER_RATIONALES = 5
 
