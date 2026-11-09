@@ -28,6 +28,11 @@ class TestTextFromHtml(SimpleTestCase):
                 '<a href="https://example.com">https://example.com</a>',
                 "https://example.com",
             ),
+            (
+                "unsubscribe_link_keeps_its_placeholder",
+                '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                "Unsubscribe ({{ unsubscribe_url }})",
+            ),
             ("hidden_parts_are_dropped", "<style>p{color:red}</style><script>x()</script><p>Hi</p>", "Hi"),
             ("entities_are_decoded", "<p>Tom &amp; Jerry&nbsp;&lt;3</p>", "Tom & Jerry <3"),
             ("source_whitespace_collapses", "<p>Hi\n      Jane</p>\n\n\n<p>Bye</p>", "Hi Jane\n\nBye"),

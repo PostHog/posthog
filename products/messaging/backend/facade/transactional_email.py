@@ -1,6 +1,7 @@
 """Transactional email: a template made sendable over the API, backed by a workflow that runs once per send."""
 
 from products.messaging.backend.facade.contracts import (
+    CategoriesNotEnabled,
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
@@ -45,6 +46,7 @@ __all__ = [
     "QueuedEmail",
     "TransactionalEmailError",
     "TransactionalEmailStage",
+    "CategoriesNotEnabled",
     "UnknownCategory",
     "check_transactional_update",
     "code_send_category_id",

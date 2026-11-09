@@ -114,6 +114,17 @@ class UnknownCategory(TransactionalEmailError):
         )
 
 
+class CategoriesNotEnabled(TransactionalEmailError):
+    code = "unknown_category"
+    attr = "category"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Sending in a marketing message category isn't enabled for this project yet. Leave `category` out, "
+            "or send `transactional`."
+        )
+
+
 class CategoryMismatch(TransactionalEmailError):
     code = "category_mismatch"
     attr = "category"

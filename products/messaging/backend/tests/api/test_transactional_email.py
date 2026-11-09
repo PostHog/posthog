@@ -787,7 +787,14 @@ class TestTransactionalEmail(APIBaseTest):
                 ),
                 "unknown_category",
             ),
-            ("opt_out_sentinel", "$all", None, "unknown_category"),
+            (
+                "opt_out_sentinel",
+                "$all",
+                lambda test: MessageCategory.objects.create(
+                    team=test.team, key="$all", name="All", category_type=MessageCategoryType.MARKETING
+                ),
+                "unknown_category",
+            ),
             ("no_unsubscribe_link", "newsletter", lambda test: test._newsletter(), "unsubscribe_link_required"),
         ]
     )
@@ -837,6 +844,8 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert response.json()["code"] == "unknown_category"
+            # The project has this category, so the refusal must not send the caller looking for it.
+            assert "no marketing message category" not in response.json()["detail"]
         assert mock_post.called == (expected_status == status.HTTP_202_ACCEPTED)
 
     @parameterized.expand(

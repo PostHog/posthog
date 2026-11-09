@@ -72,6 +72,7 @@ from products.messaging.backend.facade.templates import (
 from products.messaging.backend.facade.transactional_email import (
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
+    CategoriesNotEnabled,
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
@@ -79,7 +80,6 @@ from products.messaging.backend.facade.transactional_email import (
     QueuedEmail,
     TransactionalEmailError,
     TransactionalEmailStage,
-    UnknownCategory,
     check_transactional_update,
     code_send_category_id,
     is_marketing_category,
@@ -936,7 +936,7 @@ class TransactionalEmailSendMixin:
 
     def _enabled_category(self, category: str | None) -> str | None:
         if is_marketing_category(category) and not _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG):
-            raise UnknownCategory(cast(str, category))
+            raise CategoriesNotEnabled()
         return category
 
     def _queue_send(

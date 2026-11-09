@@ -36,6 +36,8 @@ VOID_TAGS = frozenset(
     }
 )
 LINK_SCHEMES = ("http://", "https://", "mailto:")
+# PostHog replaces this with the recipient's unsubscribe link when it sends a marketing email.
+UNSUBSCRIBE_PLACEHOLDER = re.compile(r"\{\{\s*unsubscribe_url\s*\}\}")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
 LINE_END = "\x00"
@@ -118,7 +120,7 @@ class _TextParser(HTMLParser):
         elif tag in LINE_TAGS:
             self.parts.append("\n")
         href = dict(attrs).get("href") if tag == "a" else None
-        if href is not None and href.startswith(LINK_SCHEMES):
+        if href is not None and (href.startswith(LINK_SCHEMES) or UNSUBSCRIBE_PLACEHOLDER.fullmatch(href.strip())):
             self.open_links.append(_OpenLink(depth=len(self.open_tags), href=href, label_start=self.label_length))
 
     def _push(self, tag: str) -> None:

@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from email.utils import parseaddr
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -58,7 +58,8 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
-from products.messaging.backend.services.html_text import text_from_html
+from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
+from products.messaging.backend.services.html_text import UNSUBSCRIBE_PLACEHOLDER, text_from_html
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
@@ -190,7 +191,6 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
 TRANSACTIONAL_CATEGORY = "transactional"
-UNSUBSCRIBE_PLACEHOLDER = re.compile(r"\{\{\s*unsubscribe_url\s*\}\}")
 
 TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
 TRANSACTIONAL_EMAIL_KEY_LOCK = "transactional-email-keys"
@@ -508,6 +508,8 @@ def code_send_category_id(team_id: int, category: str | None) -> UUID | None:
     if not is_marketing_category(category):
         return None
     assert category is not None
+    if category == ALL_MESSAGE_PREFERENCE_CATEGORY_ID:
+        raise UnknownCategory(category)
     category_id = (
         MessageCategory.objects.filter(
             team_id=team_id, key=category, deleted=False, category_type=MessageCategoryType.MARKETING
@@ -520,20 +522,10 @@ def code_send_category_id(team_id: int, category: str | None) -> UUID | None:
     return category_id
 
 
-def _template_category(team_id: int, template: TransactionalTemplate) -> str:
-    if template.message_category_id:
-        category = MessageCategory.objects.filter(team_id=team_id, id=template.message_category_id).first()
-        if category and category.category_type == MessageCategoryType.MARKETING:
-            return category.key
-    return TRANSACTIONAL_CATEGORY
-
-
-def _require_template_category(team_id: int, template: TransactionalTemplate, category: str | None) -> None:
-    if category is None:
-        return
-    template_category = _template_category(team_id, template)
-    if category != template_category:
-        raise CategoryMismatch(template_category)
+def _require_template_category(category: str | None) -> None:
+    # Only transactional templates can be sent, so a template send can only name that category.
+    if category is not None and category != TRANSACTIONAL_CATEGORY:
+        raise CategoryMismatch(TRANSACTIONAL_CATEGORY)
 
 
 def send_transactional_email(
@@ -550,13 +542,12 @@ def send_transactional_email(
     _check_send_request(to, idempotency_key)
     with transactional_email_stage("workflow_lookup"):
         # A template passed in must be one of the team's templates that is not deleted, as this lookup returns.
-        sent: TransactionalTemplate = (
-            cast(TransactionalTemplate, MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False))
-            if isinstance(template, UUID)
-            else template
-        )
-        hog_flow_id = _transactional_workflow_id(team.id, sent)
-        _require_template_category(team.id, sent, category)
+        if isinstance(template, UUID):
+            model = MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False)
+            hog_flow_id = _transactional_workflow_id(team.id, model)
+        else:
+            hog_flow_id = _transactional_workflow_id(team.id, template)
+        _require_template_category(category)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
