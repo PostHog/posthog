@@ -1005,14 +1005,12 @@ def _build_edit_charts(charts: list[ReportChartInput] | None) -> list[ReportChar
     return _build_charts(charts)
 
 
-def _reject_empty_charts(team: Team, author: ReportAuthor, tool: str, charts: Sequence[ReportChart] | None) -> None:
+def _reject_empty_charts(team: Team, author: ReportAuthor, tool: str, charts: Sequence[ReportChart]) -> None:
     """Refuse a write whose Trends charts return no data, so the author fixes them before they ship.
 
     Runs after the gates and before the safety judge: a gated call must not spend queries, and a
     refused chart must not cost a judge call. Reads the DB and ClickHouse, so call it on a sync thread.
     """
-    if not charts:
-        return
     empty = empty_trends_chart_ids(team, charts)
     if not empty:
         return
@@ -1038,7 +1036,6 @@ def _capture_empty_charts_rejected(
             properties={
                 **author.event_properties(),
                 "tool": tool,
-                "reason": "empty",
                 "chart_count": chart_count,
                 "empty_chart_count": len(empty),
                 "empty_chart_ids": list(empty),
@@ -2323,10 +2320,10 @@ async def emit_report(
     if preflight is not None:
         return await finish(_gate_skip_result(preflight))
 
+    await database_sync_to_async(_assert_emit_link_targets_live, thread_sensitive=False)(team, built_links)
     await database_sync_to_async(_reject_empty_charts, thread_sensitive=False)(
         team, author, "emit_report", chart_contents
     )
-    await database_sync_to_async(_assert_emit_link_targets_live, thread_sensitive=False)(team, built_links)
 
     attribution = await database_sync_to_async(author.attribution, thread_sensitive=False)()
     judgement = await judge_scout_report(
@@ -2537,8 +2534,8 @@ def emit_report_sync(
     if preflight is not None:
         return finish(_gate_skip_result(preflight))
 
-    _reject_empty_charts(team, author, "emit_report", chart_contents)
     _assert_emit_link_targets_live(team, built_links)
+    _reject_empty_charts(team, author, "emit_report", chart_contents)
 
     attribution = author.attribution()
     judgement = async_to_sync(judge_scout_report)(
@@ -3348,7 +3345,7 @@ async def edit_report(
         team, suggested_reviewers, skill_name=author.skill_name
     )
     await database_sync_to_async(_reject_empty_charts, thread_sensitive=False)(
-        team, author, "edit_report", built_charts
+        team, author, "edit_report", built_charts or ()
     )
     _raise_if_unsafe_edit(
         await judge_edited_report_content(
@@ -3486,7 +3483,7 @@ def edit_report_sync(
     # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
     # (an unresolvable user_uuid 400s), so a bad reviewer must not cost a judge call first.
     built_reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=author.skill_name)
-    _reject_empty_charts(team, author, "edit_report", built_charts)
+    _reject_empty_charts(team, author, "edit_report", built_charts or ())
     _raise_if_unsafe_edit(
         async_to_sync(judge_edited_report_content)(
             team_id=team.id,

@@ -2511,18 +2511,12 @@ class TestScoutReportAPI(APIBaseTest):
                     return_value=TrendsQueryRunResult(results=[{"data": [0, 0, 0], "count": 0}]),
                 ),
             ):
-                if tool == "emit":
-                    response = self.client.post(
-                        self._emit_url(str(run.id)),
-                        data={**self._payload(title="Pageviews dropped"), "charts": charts},
-                        format="json",
-                    )
-                else:
-                    response = self.client.post(
-                        self._edit_url(str(run.id)),
-                        data={"report_id": created["report_id"], "charts": charts},
-                        format="json",
-                    )
+                url, body = (
+                    (self._emit_url(str(run.id)), {**self._payload(title="Pageviews dropped"), "charts": charts})
+                    if tool == "emit"
+                    else (self._edit_url(str(run.id)), {"report_id": created["report_id"], "charts": charts})
+                )
+                response = self.client.post(url, data=body, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "'pageviews' returned no data" in str(response.json())

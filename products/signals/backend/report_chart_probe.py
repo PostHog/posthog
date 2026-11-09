@@ -1,11 +1,5 @@
 """Write-time probe for report charts: run each Trends chart once and find the ones with no data.
 
-A chart query is checked for its shape when a scout writes it, not for whether it matches anything.
-A filter that can never match (a regex escaped one level too deep, a property value with the wrong
-case) stores without complaint and then draws an empty chart for every reader. The probe runs the
-query once, through the same cached Trends path the report metrics use, so the author learns about
-the empty chart while it can still fix it.
-
 Kept apart from `report_charts.py`, which must stay free of the query stack (see its docstring).
 """
 
@@ -73,6 +67,4 @@ def _trends_source(query: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _series_has_data(series: dict[str, Any]) -> bool:
-    data = series.get("data")
-    values = [*(data if isinstance(data, list) else []), series.get("aggregated_value"), series.get("count")]
-    return any(isinstance(value, int | float) and not isinstance(value, bool) and value != 0 for value in values)
+    return any(series.get("data") or ()) or bool(series.get("aggregated_value"))
