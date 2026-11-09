@@ -29708,6 +29708,17 @@ class ExperimentExposureQueryResponse(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    exposed_by_library: dict[str, int] | None = Field(
+        default=None,
+        description=(
+            "Exposed persons or groups by the SDK library (`$lib`) of their first"
+            " exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only"
+            " the libraries of PostHog's own SDKs keep their own key; any other value"
+            " counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures"
+            " come from the precomputed table or from an activation event, which carry"
+            " no library."
+        ),
+    )
     health_checks: list[ExperimentExposureHealthCheck] | None = Field(
         default=None,
         description=(
@@ -31296,6 +31307,17 @@ class QueryResponseAlternative20(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    exposed_by_library: dict[str, int] | None = Field(
+        default=None,
+        description=(
+            "Exposed persons or groups by the SDK library (`$lib`) of their first"
+            " exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only"
+            " the libraries of PostHog's own SDKs keep their own key; any other value"
+            " counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures"
+            " come from the precomputed table or from an activation event, which carry"
+            " no library."
+        ),
+    )
     health_checks: list[ExperimentExposureHealthCheck] | None = Field(
         default=None,
         description=(
@@ -32134,6 +32156,17 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     date_range: DateRange
+    exposed_by_library: dict[str, int] | None = Field(
+        default=None,
+        description=(
+            "Exposed persons or groups by the SDK library (`$lib`) of their first"
+            " exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only"
+            " the libraries of PostHog's own SDKs keep their own key; any other value"
+            " counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures"
+            " come from the precomputed table or from an activation event, which carry"
+            " no library."
+        ),
+    )
     health_checks: list[ExperimentExposureHealthCheck] | None = Field(
         default=None,
         description=(

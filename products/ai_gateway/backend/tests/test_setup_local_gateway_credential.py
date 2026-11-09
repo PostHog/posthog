@@ -13,7 +13,7 @@ _PHS = "phs_localgatewaye2elocalgatewaye2e0001"
 _CMD = "setup_local_gateway_credential"
 _LABEL = "local-gateway-e2e"
 # Patch the publish at the point of use so the test needs no Redis.
-_PUBLISH = "posthog.management.commands.setup_local_gateway_credential.project_gateway_credential"
+_PUBLISH = "products.ai_gateway.backend.management.commands.setup_local_gateway_credential.project_gateway_credential"
 
 
 class TestSetupLocalGatewayCredentialCommand(BaseTest):
@@ -58,7 +58,7 @@ class TestSetupLocalGatewayCredentialCommand(BaseTest):
         out, _ = self._run("--phs", _PHS)
         self.assertIn("__GATEWAY_E2E_TEAM_ID__=", out)
 
-    @patch("posthog.management.commands.setup_local_gateway_credential.settings")
+    @patch("products.ai_gateway.backend.management.commands.setup_local_gateway_credential.settings")
     def test_refuses_against_cloud(self, mock_settings: MagicMock) -> None:
         mock_settings.CLOUD_DEPLOYMENT = True
         with self.assertRaises(CommandError):
