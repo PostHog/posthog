@@ -336,6 +336,24 @@ class TestCleanupBatchExportCredentials(BaseTest):
             self.assertEqual(unchanged.sensitive_config["aws_secret_access_key"], "fake-other-secret")
         self.assertEqual(self._run(), _outcomes("Redshift", unchanged=1))
 
+    def test_bigquery_integration_with_an_unusable_key_keeps_the_inline_fallback(self) -> None:
+        integration = IntegrationManager.google_cloud_service_account.credentials.create(
+            self.team.id,
+            external_id="fake-bigquery",
+            config={"project_id": "fake-project", "service_account_email": "fake@example.com"},
+            sensitive_config={
+                "private_key": "not-a-private-key",
+                "private_key_id": "fake-key-id",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            },
+        )
+        _, _, _, keep, remove = CASES["bigquery"]
+        export = self._create("BigQuery", {**keep, **remove}, integration_id=integration.id)
+
+        self.assertEqual(self._run(), _outcomes("BigQuery", skipped_integration_invalid=1))
+        self.assertEqual(self._config(export), {**keep, **remove})
+        self.sync.assert_not_called()
+
     def test_redshift_copy_keys_reuse_distinct_integrations_without_external_ids(self) -> None:
         redshift = self._create_integration("aws-redshift", {"host": "fake.example.com", "port": 5439, "user": "u"})
         s3 = IntegrationManager.aws_s3.credentials

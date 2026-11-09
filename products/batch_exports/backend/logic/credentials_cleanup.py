@@ -13,10 +13,12 @@ from typing import TYPE_CHECKING
 from django.db import transaction
 
 import structlog
+from google.oauth2 import service_account
 
 from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX
 from posthog.integrations import IntegrationConflict, IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 
 from products.batch_exports.backend.facade.enums import BatchExportDestinationType
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
@@ -183,7 +185,25 @@ def _destination_integration(destination: BatchExportDestination, team_id: int) 
         return "skipped_integration_missing"
     if row.kind != _INTEGRATION_KINDS[destination.type]:
         return "skipped_integration_wrong_kind"
+    if destination.type == BatchExportDestinationType.BIGQUERY and not _bigquery_key_is_usable(row):
+        return "skipped_integration_invalid"
     return row
+
+
+def _bigquery_key_is_usable(row: IntegrationRecord) -> bool:
+    """Whether the worker can build credentials from the Integration's key without the inline fallback.
+
+    The worker uses the inline keys when building credentials from a keyed Integration fails, so
+    those keys must stay until the Integration's key works. Impersonated accounts have no key to check.
+    """
+    integration = GoogleCloudServiceAccountIntegration(row)
+    if not integration.has_key():
+        return True
+    try:
+        service_account.Credentials.from_service_account_info(integration.service_account_info)
+    except Exception:
+        return False
+    return True
 
 
 def _plan(destination: BatchExportDestination, export: BatchExport, *, include_without_integration: bool) -> _Plan:
