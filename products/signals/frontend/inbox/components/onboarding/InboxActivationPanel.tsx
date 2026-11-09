@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, Link, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -50,11 +50,17 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
             </div>
             {expanded && (
                 <>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
                         {sourceNames.map((name) => (
-                            <LemonTag key={name}>{name}</LemonTag>
+                            <Link key={name} to={urls.inbox('sources')} data-attr="inbox-activation-source-link">
+                                {name}
+                            </Link>
                         ))}
-                        {generalScout?.enabled && <LemonTag type="success">General scout</LemonTag>}
+                        {generalScout?.enabled && (
+                            <Link to={urls.inbox('scouts')} data-attr="inbox-activation-general-scout-link">
+                                General scout
+                            </Link>
+                        )}
                     </div>
                     <p className="m-0 text-sm text-secondary">
                         Sources alert agents to issues as they appear, so they can investigate right away. Scouts
