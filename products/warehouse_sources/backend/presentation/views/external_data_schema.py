@@ -1892,6 +1892,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             cdc_table_mode = data.get("cdc_table_mode")
             if cdc_table_mode in ("consolidated", "cdc_only", "both"):
                 payload["cdc_table_mode"] = cdc_table_mode
+            elif instance.sync_type != ExternalDataSchema.SyncType.CDC and not instance.keeps_history:
+                # The API reports a schema that left CDC as consolidated, so a switch back can't bring back
+                # the history mode it stored there.
+                payload["cdc_table_mode"] = "consolidated"
 
             # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
             # discovery already stored; refuse the switch when neither is set.
@@ -2239,9 +2243,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         if masked_columns_changed:
             # Profiles computed before the mask hold plaintext bounds, and the profiler recomputes them only daily.
-            clear_masked_column_bounds(
-                updated_instance.team_id, updated_instance.table_id, updated_instance.masked_columns
-            )
+            history_table = registered_history_table(updated_instance) or history_table_to_drop
+            for table_id in {updated_instance.table_id, history_table.id if history_table else None}:
+                clear_masked_column_bounds(updated_instance.team_id, table_id, updated_instance.masked_columns)
 
         # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
         # the version from the DB, so letting the run finish would mix two vendor API versions in
@@ -2390,19 +2394,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         self, instance: ExternalDataSchema, validated_data: dict[str, Any], *, rebuilding: bool = False
     ) -> DataWarehouseTable | None:
         """The history table a request with `drop_history_table` deletes, or None when the schema has none."""
-        resulting_sync_type = validated_data.get("sync_type", instance.sync_type)
-        resulting_mode = (validated_data.get("sync_type_config", instance.sync_type_config) or {}).get("cdc_table_mode")
         table = registered_history_table(instance)
         if table is None:
             return None
         require_history_table_editor(self.context.get("request"), self.context.get("view"), table)
+        resulting_keeps_history = ExternalDataSchema(
+            sync_type=validated_data.get("sync_type", instance.sync_type),
+            sync_type_config=validated_data.get("sync_type_config", instance.sync_type_config) or {},
+        ).keeps_history
         try:
-            assert_history_table_droppable(
-                instance,
-                keeps_history=not rebuilding
-                and resulting_sync_type in (ExternalDataSchema.SyncType.CDC, ExternalDataSchema.SyncType.INCREMENTAL)
-                and is_history_table_mode(resulting_mode),
-            )
+            assert_history_table_droppable(instance, keeps_history=not rebuilding and resulting_keeps_history)
         except HistoryTableDropRefusedError as e:
             raise ValidationError({"drop_history_table": str(e)})
         return table

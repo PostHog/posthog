@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
     UNREADABLE_JOB_INPUTS_MESSAGE,
     IncrementalFieldValues,
+    KeptTableCorruptError,
     _get_redis,
     count_worker_deaths,
     finalize_desc_sort_incremental_value,
@@ -994,15 +995,13 @@ class TestCorruptionCheckBeforeAReset:
         assert table_ref.is_table_corrupted.await_count == int(expect_open)
         table_ref.reset_table.assert_not_awaited()
 
-    def test_a_corrupt_table_that_holds_the_only_copy_of_its_data_is_kept(self) -> None:
+    def test_a_corrupt_table_that_holds_the_only_copy_of_its_data_is_kept_and_stops_the_run(self) -> None:
         schema = self._schema(ExternalDataSchema.SyncType.INCREMENTAL)
         table_ref = MagicMock(is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock())
 
-        revived = async_to_sync(handle_corrupted_delta_log)(
-            schema, MagicMock(), table_ref, self._logger(), keeps_table=True
-        )
+        with pytest.raises(KeptTableCorruptError):
+            async_to_sync(handle_corrupted_delta_log)(schema, MagicMock(), table_ref, self._logger(), keeps_table=True)
 
-        assert revived is False
         table_ref.reset_table.assert_not_awaited()
 
 

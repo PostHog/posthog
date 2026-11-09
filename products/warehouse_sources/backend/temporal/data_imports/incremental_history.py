@@ -14,6 +14,7 @@ from typing import TypeVar
 
 import pyarrow as pa
 import deltalake
+import structlog
 import pyarrow.compute as pc
 
 from posthog.models.team import Team
@@ -24,13 +25,13 @@ from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CAPTURE_COLUMNS,
     HISTORY_NAMING,
     HistoryNaming,
     companion_resource_name,
     history_columns,
     reserved_column_collisions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
     HISTORY_STAGING_SUFFIX,
     HistoryTableNameTakenError,
@@ -38,7 +39,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table 
     registered_stamped_history_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
-from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import includes_the_warehouse
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    external_destination_ids_for,
+    includes_the_warehouse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import resolve_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import history_upsert
@@ -50,6 +54,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     filter_dwh_columns_by_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import OutputLane, SourceResponse
+
+logger = structlog.get_logger(__name__)
 
 INCREMENTAL_HISTORY_FLAG = "dwh-incremental-history"
 # A date cursor stays equal for every change made the same day, so those changes would make no version
@@ -89,12 +95,30 @@ def is_incremental_history_enabled_for_team(team: Team) -> bool:
 def attach_history_lanes(
     schema: ExternalDataSchema, source_response: SourceResponse, *, destination_ids: Sequence[str] = ()
 ) -> None:
-    """Add the history lane to an incremental run of a schema that keeps history."""
+    """Add the history lane to an incremental run of a schema that keeps history.
+
+    The flag is a kill switch too: with it off, a run with both tables skips the history lane and keeps the
+    setting, and a history-only run fails, since its only table is the history table.
+    """
     if not (schema.is_incremental and schema.keeps_history):
+        return
+    history_only = schema.cdc_table_mode == "cdc_only"
+    if not is_incremental_history_enabled_for_team(schema.team):
+        if history_only:
+            raise IncrementalHistoryUnavailableError(
+                f"{schema.name} keeps only a history table, and history tables for incremental syncs are turned off"
+            )
+        logger.warning("incremental_history_lane_skipped", schema_id=str(schema.id), reason="flag_off")
         return
     if not includes_the_warehouse(schema.team_id, destination_ids):
         raise IncrementalHistoryUnavailableError(
             f"{schema.name} keeps a history table, which lives in the PostHog warehouse, but it doesn't sync there"
+        )
+    if history_only and external_destination_ids_for(schema.team_id, destination_ids):
+        # The run's first lane delivers to the destinations, and in this mode that lane is the history table.
+        raise IncrementalHistoryUnavailableError(
+            f"{schema.name} keeps only a history table, which can't sync to other destinations. "
+            "Keep both tables to sync it there too."
         )
     if source_response.lanes or source_response.replace_scope is not None:
         raise IncrementalHistoryUnavailableError(
@@ -114,33 +138,58 @@ def attach_history_lanes(
         name=companion_resource_name(schema.name, naming),
         cdc_write_mode=SCD2_APPEND_MODE,
         # One stream bills once: the consolidated lane's rows when it runs, else the history lane's.
-        billable=schema.cdc_table_mode == "cdc_only",
+        billable=history_only,
         transform=functools.partial(
             stamp_history_batch,
+            schema_name=schema.name,
             cursor=normalize_column_name(schema.incremental_field),
             naming=naming,
             tracked_since=datetime.now(UTC),
         ),
     )
-    if schema.cdc_table_mode == "cdc_only":
+    if history_only:
         source_response.lanes = [history_lane]
         source_response.name = history_lane.name
     else:
         source_response.lanes = [OutputLane(name=source_response.name), history_lane]
 
 
-def stamp_history_batch(table: pa.Table, *, cursor: str, naming: HistoryNaming, tracked_since: datetime) -> pa.Table:
+def stamp_history_batch(
+    table: pa.Table, *, schema_name: str, cursor: str, naming: HistoryNaming, tracked_since: datetime
+) -> pa.Table:
     """Add `valid_from` from the cursor. A row without a cursor value takes the time of the run that reads
-    it, so each run that reads it again (a reload) makes a new version of it."""
+    it, so each run that reads it again (a reload) makes a new version of it.
+
+    Raises `IncrementalHistoryUnavailableError`, which ends the run without retries, when the batch can't
+    give its rows a start time: a retry reads the same rows.
+    """
     taken = reserved_column_collisions(table.column_names, history_columns(naming))
     if taken:
-        raise CDCReservedColumnError(f"Source column(s) {taken} collide with the history table's validity columns")
+        raise IncrementalHistoryUnavailableError(
+            f"{schema_name} has source column(s) {taken}, which the history table uses itself. "
+            "Stop syncing or rename them, or keep the consolidated table only."
+        )
     values = table.column(cursor)
+    # Some sources declare an epoch-number cursor as a date and time, and a cast would read it as microseconds.
+    # A date-only cursor stays equal for every change made the same day (see `HISTORY_CURSOR_TYPES`).
+    if not (
+        pa.types.is_timestamp(values.type) or pa.types.is_string(values.type) or pa.types.is_large_string(values.type)
+    ):
+        raise IncrementalHistoryUnavailableError(
+            f"{schema_name} keeps a history table, which needs its incremental field {cursor} to hold a date and "
+            f"time, but the source sends {values.type}"
+        )
     try:
-        valid_from = pc.cast(values, _VALID_FROM_TYPE)
-    except pa.ArrowInvalid:
-        # A text cursor without a zone offset is read as UTC, as the incremental filter reads it.
-        valid_from = pc.cast(pc.cast(values, pa.timestamp("us")), _VALID_FROM_TYPE)
+        try:
+            valid_from = pc.cast(values, _VALID_FROM_TYPE)
+        except pa.ArrowInvalid:
+            # A text cursor without a zone offset is read as UTC, as the incremental filter reads it.
+            valid_from = pc.cast(pc.cast(values, pa.timestamp("us")), _VALID_FROM_TYPE)
+    except pa.ArrowInvalid as e:
+        raise IncrementalHistoryUnavailableError(
+            f"{schema_name} keeps a history table, which needs every value of its incremental field {cursor} to be "
+            f"a date and time it can read: {e}"
+        ) from e
     valid_from = valid_from.fill_null(pa.scalar(tracked_since, _VALID_FROM_TYPE))
     return table.append_column(pa.field(naming.valid_from, _VALID_FROM_TYPE), valid_from)
 
@@ -155,12 +204,11 @@ def registered_history_columns(
     plus the validity and partition columns.
 
     The history table keeps a column the user stopped syncing, with its past values, so only its
-    registration can hide that column.
+    registration can hide that column. A table CDC wrote before the schema left CDC keeps its capture columns.
     """
     synced = filter_dwh_columns_by_enabled_columns(dict(columns), enabled_columns, primary_keys, incremental_field)
-    return {
-        name: column for name, column in columns.items() if name in synced or name in HISTORY_NAMING.stamped_columns
-    }
+    kept = HISTORY_NAMING.stamped_columns | CAPTURE_COLUMNS
+    return {name: column for name, column in columns.items() if name in synced or name in kept}
 
 
 def incremental_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:

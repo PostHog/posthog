@@ -947,6 +947,9 @@ class PipelineV3(Generic[ResumableData]):
                     keeps_table=self._keeps_table_on_reset(),
                 )
 
+                # Before the reset consumes its flag, so a failed clear leaves the reset for the next run.
+                if self._reset_pipeline and not should_resume and not self._resource.webhook_only:
+                    await self._clear_history_staging()
                 await handle_reset_or_full_refresh(
                     self._reset_pipeline,
                     should_resume,
@@ -956,8 +959,6 @@ class PipelineV3(Generic[ResumableData]):
                     webhook_only=self._resource.webhook_only,
                     keeps_table=self._keeps_table_on_reset(),
                 )
-                if self._reset_pipeline and not should_resume and not self._resource.webhook_only:
-                    await self._clear_history_staging()
                 # A reset drops the earliest value of the table it deletes. No reloaded row is older than
                 # that value, so a run that kept it would never stage an earliest value of its own.
                 self._earliest_incremental_field_value = process_incremental_value(

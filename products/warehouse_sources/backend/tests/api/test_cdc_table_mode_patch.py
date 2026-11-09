@@ -21,7 +21,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import Team, User
+from posthog.models import ActivityLog, Team, User
 
 from products.warehouse_sources.backend.facade.models import (
     INCREMENTAL_HISTORY_KEY,
@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 
 pytestmark = [pytest.mark.django_db]
 
@@ -728,6 +729,15 @@ def _history_drop_mocks(*, queued: bool = False, workflow_running: bool = False)
         # cdc_only links the schema to its history table, and the switch takes a new snapshot.
         ("cdc_only", {"cdc_table_mode": "consolidated"}, True, False, 200, True),
         ("both", {"sync_type": "full_refresh"}, True, False, 200, True),
+        # The schema keeps its CDC mode, but no incremental history marker, so it stops writing history.
+        (
+            "both",
+            {"sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"},
+            True,
+            False,
+            200,
+            True,
+        ),
         ("consolidated", {"cdc_table_mode": "both"}, True, False, 400, False),
         ("both", {"cdc_table_mode": "consolidated"}, True, True, 400, False),
     ],
@@ -815,6 +825,14 @@ def test_masking_a_table_with_a_history_table_empties_it_only_when_asked(
         )
     else:
         history = _history_table(schema)
+    stats = WarehouseColumnStatistics.objects.for_team(team.id).create(
+        team=team,
+        table=history,
+        column_name="email",
+        min_value="a@example.com",
+        max_value="z@example.com",
+        has_min_max=True,
+    )
     client.force_login(user)
     folder = f"bucket/{schema.folder_path()}/{history.name.removeprefix('postgres_')}"
     s3 = mock.MagicMock(**{"ls.return_value": [folder, f"{folder}_ph_staging"]})
@@ -837,6 +855,42 @@ def test_masking_a_table_with_a_history_table_empties_it_only_when_asked(
     deleted = sorted(s3.rm.call_args.args[0]) if s3.rm.called else []
     assert deleted == ([folder, f"{folder}_ph_staging"] if expected_status == 200 else [])
     assert (schema.masked_columns or []) == (["email"] if expected_status == 200 else [])
+    stats.refresh_from_db()
+    assert stats.max_value == (None if expected_status == 200 else "z@example.com")
+    logged = list(
+        ActivityLog.objects.filter(scope="DataWarehouseTable", item_id=str(history.id)).values_list(
+            "activity", flat=True
+        )
+    )
+    assert logged == ([] if expected_status != 200 else ["updated"] if record_kept else ["deleted"])
+
+
+@pytest.mark.parametrize(("chose_history", "reported"), [(False, "consolidated"), (True, "both")])
+def test_a_schema_that_left_cdc_returns_to_the_mode_the_api_reports(
+    team, user, client: HttpClient, chose_history, reported
+):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+    config = {
+        **schema.sync_type_config,
+        "incremental_field": "updated_at",
+        "incremental_field_type": "datetime",
+        INCREMENTAL_HISTORY_KEY: chose_history,
+    }
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL, sync_type_config=config
+    )
+    client.force_login(user)
+    url = f"/api/environments/{team.pk}/external_data_schemas/{schema.id}"
+
+    assert client.get(url).json()["cdc_table_mode"] == reported
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks():
+            stack.enter_context(patcher)
+        response = client.patch(url, data={"sync_type": "cdc"}, content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert schema.cdc_table_mode == reported
 
 
 def test_a_mask_whose_history_delete_is_refused_is_not_saved(team, user, client: HttpClient):

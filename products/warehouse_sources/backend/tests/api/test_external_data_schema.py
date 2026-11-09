@@ -170,7 +170,12 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.status == expected
 
-    def test_incremental_fields_stripe(self):
+    @parameterized.expand(
+        [("flag_off", False, True, False), ("flag_on", True, True, True), ("unsupported", True, False, False)]
+    )
+    def test_incremental_fields_stripe(
+        self, _name: str, flag_on: bool, supports_history: bool, history_available: bool
+    ):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.STRIPE,
@@ -184,7 +189,14 @@ class TestExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
-        with mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)):
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "supports_incremental_history", new=supports_history),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_incremental_history_enabled_for_team",
+                return_value=flag_on,
+            ),
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
             )
@@ -198,7 +210,7 @@ class TestExternalDataSchema(APIBaseTest):
             "append_available": True,
             "cdc_available": None,
             "xmin_available": None,
-            "incremental_history_available": False,
+            "incremental_history_available": history_available,
             "full_refresh_available": True,
             "supports_webhooks": False,
             "webhook_only": False,
@@ -1387,7 +1399,6 @@ class TestExternalDataSchema(APIBaseTest):
                 "rejects_a_history_table_for_a_source_column_named_like_a_validity_column",
                 {
                     "primary_key_columns": ["id"],
-                    "cdc_table_mode": "both",
                     "schema_metadata": {"columns": [{"name": "id"}, {"name": "_ph_valid_from"}]},
                 },
                 None,
@@ -1395,6 +1406,7 @@ class TestExternalDataSchema(APIBaseTest):
                 ExternalDataSchema.SyncType.FULL_REFRESH,
                 None,
                 "_ph_valid_from",
+                "both",
             ),
             (
                 "accepts_a_validity_column_name_without_a_history_table",
@@ -1418,6 +1430,7 @@ class TestExternalDataSchema(APIBaseTest):
         expected_sync_type: str,
         expected_pk_columns: list[str] | None,
         expected_error: str = "primary key",
+        cdc_table_mode: str | None = None,
     ):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1436,6 +1449,8 @@ class TestExternalDataSchema(APIBaseTest):
         request_body: dict[str, Any] = {"sync_type": "cdc"}
         if payload_pk is not None:
             request_body["primary_key_columns"] = payload_pk
+        if cdc_table_mode is not None:
+            request_body["cdc_table_mode"] = cdc_table_mode
 
         with (
             mock.patch(
@@ -4542,6 +4557,7 @@ class _OutputTablesCase:
     source_supports_history: bool = True
     initial_sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL
     blocking_table: str | None = None
+    source_columns: tuple[str, ...] = ()
 
 
 class TestSerializerLostUpdateProtection(APIBaseTest):
@@ -4862,6 +4878,16 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                 ),
                 "share its name",
             ),
+            (
+                "a_source_column_named_like_a_validity_column",
+                _OutputTablesCase(mode="both", initial_mode="consolidated", source_columns=("_ph_valid_from",)),
+                "can't sync the column",
+            ),
+            (
+                "a_source_column_named_like_a_staging_column",
+                _OutputTablesCase(mode="both", initial_mode="consolidated", source_columns=("_ph_staged_batch",)),
+                "can't sync the column",
+            ),
         ]
     )
     @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
@@ -4879,6 +4905,11 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
     @parameterized.expand(
         [
             ("turn_on", _OutputTablesCase(mode="both", initial_mode="consolidated"), True),
+            (
+                "turn_on_with_a_column_named_like_a_capture_column",
+                _OutputTablesCase(mode="both", initial_mode="consolidated", source_columns=("_ph_cdc_seq",)),
+                True,
+            ),
             ("turn_off", _OutputTablesCase(mode="consolidated", initial_mode="both", cursor_type="date"), False),
             # The form sends the mode it shows on every save, which must not need the flag again.
             ("flag_off_keeping_the_mode", _OutputTablesCase(mode="both", initial_mode="both", flag_on=False), False),
@@ -4917,6 +4948,10 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         }
         if case.initial_sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
             self.schema.sync_type_config[INCREMENTAL_HISTORY_KEY] = case.initial_mode != "consolidated"
+        if case.source_columns:
+            self.schema.sync_type_config["schema_metadata"] = {
+                "columns": [{"name": name} for name in ("id", "updated_at", *case.source_columns)]
+            }
         self.schema.table = DataWarehouseTable.objects.create(
             team=self.team, name="orders", format="Parquet", external_data_source=self.source
         )
@@ -4946,14 +4981,16 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         ):
             self._save_through_serializer(self.schema, case.request_body or {"cdc_table_mode": case.mode})
 
+    # A history-only table is the history table, so leaving it reloads the consolidated table from the start.
+    @parameterized.expand([("both", False), ("cdc_only", True)])
     @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
-    def test_leaving_incremental_drops_the_history_choice(self):
+    def test_leaving_incremental_drops_the_history_choice(self, mode: str, reloads: bool):
         self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
         self.schema.sync_type_config = {
             "incremental_field": "updated_at",
             "incremental_field_type": "datetime",
             "primary_key_columns": ["id"],
-            "cdc_table_mode": "both",
+            "cdc_table_mode": mode,
             INCREMENTAL_HISTORY_KEY: True,
         }
         self.schema.save()
@@ -4962,6 +4999,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
 
         self.schema.refresh_from_db()
         assert INCREMENTAL_HISTORY_KEY not in self.schema.sync_type_config
+        assert bool(self.schema.sync_type_config.get("reset_pipeline")) == reloads
 
     @parameterized.expand(
         [

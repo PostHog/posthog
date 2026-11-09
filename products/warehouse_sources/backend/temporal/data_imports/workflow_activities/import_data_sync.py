@@ -70,6 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_worker_shutdown_handoff_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    KeptTableCorruptError,
     count_worker_deaths,
     handle_non_retryable_error,
     report_heartbeat_timeout,
@@ -1158,8 +1159,9 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
-    # The schema's settings or the source's shape rule out its history table, so a retry fails the same way.
-    if isinstance(error, IncrementalHistoryUnavailableError):
+    # The schema's settings or the source's shape rule out its history table, or the table that holds the only
+    # copy of its data is corrupt, so a retry fails the same way.
+    if isinstance(error, IncrementalHistoryUnavailableError | KeptTableCorruptError):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )

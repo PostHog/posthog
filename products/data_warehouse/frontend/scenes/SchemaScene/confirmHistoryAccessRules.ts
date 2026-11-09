@@ -5,16 +5,9 @@ import { ExternalDataSourceSchema } from '~/types'
 
 import { warehouseTablesHistoryTableRetrieve } from 'products/data_warehouse/frontend/generated/api'
 
+import { writesHistoryTable } from './historyTable'
+
 type CdcTableMode = NonNullable<ExternalDataSourceSchema['cdc_table_mode']>
-
-const HISTORY_MODES: CdcTableMode[] = ['cdc_only', 'both']
-
-function writesHistory(
-    syncType: ExternalDataSourceSchema['sync_type'],
-    cdcTableMode: ExternalDataSourceSchema['cdc_table_mode']
-): boolean {
-    return (syncType === 'cdc' || syncType === 'incremental') && HISTORY_MODES.includes(cdcTableMode ?? 'consolidated')
-}
 
 /** Whether saving this sync method starts writing a history table the schema didn't write before. */
 export function turnsHistoryOn(
@@ -22,7 +15,7 @@ export function turnsHistoryOn(
     syncType: ExternalDataSourceSchema['sync_type'],
     cdcTableMode: CdcTableMode | undefined
 ): boolean {
-    return writesHistory(syncType, cdcTableMode) && !writesHistory(schema.sync_type, schema.cdc_table_mode)
+    return writesHistoryTable(syncType, cdcTableMode) && !writesHistoryTable(schema.sync_type, schema.cdc_table_mode)
 }
 
 async function hasRulesToCopy(projectId: number | string, tableId: string): Promise<boolean> {

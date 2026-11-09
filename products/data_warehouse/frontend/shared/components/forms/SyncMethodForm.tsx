@@ -268,7 +268,13 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const historyFieldType = schema.incremental_fields.find((n) => n.field === incrementalFieldValue)?.field_type
     const historyAvailable =
         !!schema.incremental_history_available && !!historyFieldType && HISTORY_CURSOR_TYPES.has(historyFieldType)
-    const incrementalTableMode = historyAvailable ? cdcTableMode : 'consolidated'
+    // A saved history mode stays shown while its field is unchanged, also when the source stopped reporting the
+    // field as a date and time, so an unrelated save doesn't turn history off.
+    const keepsSavedHistory =
+        schema.sync_type === 'incremental' &&
+        incrementalFieldValue === schema.incremental_field &&
+        (schema.cdc_table_mode ?? 'consolidated') !== 'consolidated'
+    const incrementalTableMode = historyAvailable || keepsSavedHistory ? cdcTableMode : 'consolidated'
 
     const radioOptions: {
         value: 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc' | 'xmin'

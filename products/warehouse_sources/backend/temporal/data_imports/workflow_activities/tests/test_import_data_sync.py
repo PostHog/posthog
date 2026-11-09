@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
     IncrementalHistoryUnavailableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import KeptTableCorruptError
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
     DurableProgress,
@@ -808,6 +809,8 @@ async def test_proxy_auth_failure_is_still_reported():
         RESTClientNonRetryableError("Non-JSON response from https://api.example.com/v1/data/leads"),
         # A schema whose history table needs a primary key it doesn't have fails every run the same way.
         IncrementalHistoryUnavailableError("orders keeps a history table, which needs a primary key"),
+        # A corrupt table no run can rebuild, so every run would extract and bill rows it can't write.
+        KeptTableCorruptError("The table of orders is damaged"),
         # A 404 from the REST engine's fallback raise_for_status() means the endpoint doesn't exist, so
         # every retry hits the same dead URL.
         HTTPError(

@@ -72,6 +72,7 @@ import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
 import { columnAnnotationsLogic } from './columnAnnotationsLogic'
 import { confirmHistoryAccessRules, turnsHistoryOn } from './confirmHistoryAccessRules'
 import { DestinationsSection } from './DestinationsSection'
+import { masksDropHistory, stopsWritingHistory, writesHistoryTable } from './historyTable'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
 // null means "all columns" on either side, so switching to null after a partial list flags
@@ -542,10 +543,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                 return
             }
             const historyTableName = schema.registered_history_table_name
-            const stopsWritingHistory =
-                writesHistoryTable(schema.sync_type, schema.cdc_table_mode) &&
-                !writesHistoryTable(syncType, cdcTableMode ?? schema.cdc_table_mode)
-            if (!historyTableName || !stopsWritingHistory) {
+            if (!historyTableName || !stopsWritingHistory(schema, syncType, cdcTableMode)) {
                 void applyUpdate()
                 return
             }
@@ -896,12 +894,7 @@ function ColumnsAndRowFiltersSection({
     const newlyMasked = draftMasked.filter((column) => !savedMasked.includes(column))
     const unmasked = savedMasked.filter((column) => !draftMasked.includes(column))
     const masksChanged = newlyMasked.length > 0 || unmasked.length > 0
-    // A CDC table that keeps history reseeds it from the new snapshot. Elsewhere a new mask can't reach the
-    // history table's past values, so the save deletes it and the rebuild starts a new one.
-    const masksDropHistory =
-        newlyMasked.length > 0 &&
-        !!schema.registered_history_table_name &&
-        !(schema.sync_type === 'cdc' && writesHistoryTable(schema.sync_type, schema.cdc_table_mode))
+    const masksDeleteHistory = masksDropHistory(schema, newlyMasked)
 
     const isDirty =
         !sameColumns(draftColumns, schema.enabled_columns ?? null, available) ||
@@ -929,7 +922,7 @@ function ColumnsAndRowFiltersSection({
                 row_filters: draftRowFilters,
                 // Unchanged masks stay out, so a column that left the source can't block the save.
                 ...(masksChanged ? { masked_columns: draftMasked } : {}),
-                ...(masksDropHistory ? { drop_history_table: true } : {}),
+                ...(masksDeleteHistory ? { drop_history_table: true } : {}),
             })
                 .then(() => {
                     updateSchema(next)
@@ -960,7 +953,7 @@ function ColumnsAndRowFiltersSection({
 
         // A mask change also cancels and restarts a running first sync, which has no last_synced_at yet.
         const isRunning = schema.status === 'Running'
-        if (masksChanged && (!!schema.last_synced_at || isRunning || masksDropHistory)) {
+        if (masksChanged && (!!schema.last_synced_at || isRunning || masksDeleteHistory)) {
             LemonDialog.open({
                 title: 'Changing masked columns starts a full resync',
                 description: (
@@ -973,7 +966,7 @@ function ColumnsAndRowFiltersSection({
                         {isRunning && syncType !== 'cdc' && (
                             <span>The sync currently running will be canceled when you save.</span>
                         )}
-                        {masksDropHistory && (
+                        {masksDeleteHistory && (
                             <span>
                                 {writesHistoryTable(schema.sync_type, schema.cdc_table_mode) ? (
                                     <>
@@ -1538,13 +1531,6 @@ function AnchorTimeField({
             </div>
         </div>
     )
-}
-
-function writesHistoryTable(
-    syncType: ExternalDataSourceSchema['sync_type'],
-    cdcTableMode: ExternalDataSourceSchema['cdc_table_mode']
-): boolean {
-    return (syncType === 'cdc' || syncType === 'incremental') && (cdcTableMode ?? 'consolidated') !== 'consolidated'
 }
 
 function DangerZoneSection({

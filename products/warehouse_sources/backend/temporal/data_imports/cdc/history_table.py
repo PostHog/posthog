@@ -12,7 +12,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 
 from products.warehouse_sources.backend.facade.contracts import HistoryTableDropRefusedError, LegacyHistoryTableError
@@ -442,17 +442,20 @@ def drop_history_table(
         locked.save(update_fields=update_fields, skip_activity_log=True)
         if not keep:
             table.soft_delete()
-            # As the table view logs a deleted table: the name only, because a reader may be denied the table.
-            log_activity(
-                organization_id=table.team.organization_id,
-                team_id=table.team_id,
-                user=get_current_user(),
-                was_impersonated=get_was_impersonated(),
-                item_id=table.id,
-                scope="DataWarehouseTable",
-                activity="deleted",
-                detail=Detail(name=table.name),
-            )
+        # As the table view logs a deleted table: the name only, because a reader may be denied the table.
+        log_activity(
+            organization_id=table.team.organization_id,
+            team_id=table.team_id,
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+            item_id=table.id,
+            scope="DataWarehouseTable",
+            activity="updated" if keep else "deleted",
+            detail=Detail(
+                name=table.name,
+                changes=[Change(type="DataWarehouseTable", field="data", action="deleted")] if keep else None,
+            ),
+        )
     schema.sync_type_config = locked.sync_type_config
     schema.table = locked.table
     return table
