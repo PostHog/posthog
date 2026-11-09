@@ -1,6 +1,7 @@
 import os
 import uuid
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any, Literal
 
@@ -108,6 +109,10 @@ class _Recorder:
         self.untagged_question_verdict: bool | Literal["raise"] = True
         # True holds an untagged question back on a private offer.
         self.untagged_question_awaiting_confirmation = False
+        self.quota_blocked = False
+        self.implementation_allowed = True
+        self.creation_succeeds = True
+        self.implementation_results: list[bool] = []
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -115,7 +120,15 @@ def _fake_activities(rec: _Recorder) -> list:
     async def quota(
         inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, slack_user_id: str
     ) -> bool:
-        return False
+        return rec.quota_blocked
+
+    @activity.defn(name="prepare_slack_report_implementation_activity")
+    async def prepare_implementation(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
+        return rec.implementation_allowed
+
+    @activity.defn(name="finish_slack_report_implementation_activity")
+    async def finish_implementation(inputs: PostHogCodeSlackMentionWorkflowInputs, started: bool) -> None:
+        rec.implementation_results.append(started)
 
     @activity.defn(name="classify_untagged_followup_activity")
     async def classify_followup(
@@ -271,7 +284,7 @@ def _fake_activities(rec: _Recorder) -> list:
         repo_research_task_id: str | None = None,
         repo_research_run_id: str | None = None,
         model_override: SlackAppModelOverride | None = None,
-    ) -> None:
+    ) -> bool | None:
         ts = inputs.event["ts"]
         rec.created_with_override[ts] = model_override
         rec.created_integration_ids[ts] = inputs.integration_id
@@ -282,6 +295,7 @@ def _fake_activities(rec: _Recorder) -> list:
         if gate:
             await gate.wait()
         rec.created.append((ts, repository))
+        return rec.creation_succeeds if inputs.report_implementation_message_ts else None
 
     @activity.defn(name="post_posthog_code_picker_timeout_activity")
     async def picker_timeout(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
@@ -300,6 +314,8 @@ def _fake_activities(rec: _Recorder) -> list:
         rec.queued_marked.append(input.message_ts)
 
     return [
+        prepare_implementation,
+        finish_implementation,
         mark_processing,
         mark_queued,
         quota,
@@ -382,6 +398,29 @@ class _Harness:
         if self._worker_cm is not None:
             await self._worker_cm.__aexit__(*exc_info)
         await self._env_cm.__aexit__(*exc_info)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome", ["started", "quota", "permission", "task_creation", "followup", "followup_rejected"]
+)
+async def test_report_implementation_completes_buttons_only_after_startup(outcome: str):
+    rec = _Recorder()
+    rec.quota_blocked = outcome == "quota"
+    rec.implementation_allowed = outcome != "permission"
+    rec.creation_succeeds = outcome != "task_creation"
+    rec.has_task_results["1.1"] = outcome in {"followup", "followup_rejected"}
+    rec.forward_results["1.1"] = outcome == "followup"
+    message = replace(_message("1.1"), report_implementation_message_ts="100.0")
+    async with _Harness(rec) as h:
+        await h.env.client.execute_workflow(
+            SlackAppMentionProcessingWorkflow.run,
+            message,
+            id=f"wf-{uuid.uuid4()}",
+            task_queue=h.task_queue,
+        )
+    assert rec.implementation_results == [outcome in {"started", "followup"}]
+    assert rec.project_route_calls == []
 
 
 @pytest.mark.asyncio
