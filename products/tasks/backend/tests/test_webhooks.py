@@ -2037,6 +2037,54 @@ class TestFindTaskRun(TestCase):
 
         self.assertEqual(find_task_run(team_ids=[self.team.id], pr_url=pr_url), own_run)
 
+    def test_deleted_task_does_not_win_the_pr_url_match(self):
+        pr_url = "https://github.com/posthog/posthog/pull/91"
+        Task.objects.filter(pk=self.task.pk).update(pr_urls=[pr_url])
+        own_run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.COMPLETED)
+        Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Deleted duplicate",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            pr_urls=[pr_url],
+            deleted=True,
+        )
+
+        self.assertEqual(find_task_run(team_ids=[self.team.id], pr_url=pr_url), own_run)
+
+    def test_branch_match_without_an_eligible_run_falls_back_to_the_run_lookup(self):
+        branch = "posthog-wizard/abc"
+        Task.objects.filter(pk=self.task.pk).update(head_branch=branch)
+        TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, state={"wizard_head_branch": branch}
+        )
+        other_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Other task",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        other_run = TaskRun.objects.create(
+            task=other_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"head_branches": [{"repository": "posthog/posthog", "branch": branch}]},
+        )
+
+        self.assertEqual(
+            find_task_run(
+                team_ids=[self.team.id],
+                pr_url="https://github.com/posthog/posthog/pull/92",
+                branch=branch,
+                repository="posthog/posthog",
+            ),
+            other_run,
+        )
+
     def test_finds_by_pr_url(self):
         task_run = TaskRun.objects.create(
             task=self.task,

@@ -78,7 +78,10 @@ def find_task_run(
     task_run, leg = _find_task_run_by_run_state(pr_url, branch, repository, team_ids=team_ids, task_id=task_id)
     if task_run is None and match is not None and match.by_verified_pr_url:
         task_run, leg = _live_or_newest_run(match.task_id, team_ids=team_ids), "task_columns"
-    observe_github_webhook_task_lookup(leg=leg, by_task_columns=match is not None)
+    by_task_columns = task_run is not None and match is not None
+    if task_run is None and match is not None:
+        task_run, leg = _find_task_run_by_run_state(pr_url, branch, repository, team_ids=team_ids, task_id=None)
+    observe_github_webhook_task_lookup(leg=leg, by_task_columns=by_task_columns)
     return task_run
 
 
@@ -91,7 +94,9 @@ class TaskPullRequestMatch:
 def find_task_by_pull_request(
     pr_url: str | None, branch: str | None, repository: str | None, *, team_ids: list[int]
 ) -> TaskPullRequestMatch | None:
-    tasks = Task.objects.filter(team_id__in=team_ids).exclude(origin_product=Task.OriginProduct.REVIEW_HOG)
+    tasks = Task.objects.filter(team_id__in=team_ids, deleted=False).exclude(
+        origin_product=Task.OriginProduct.REVIEW_HOG
+    )
     if pr_url:
         canonical_url = canonical_github_pull_request_url(pr_url)
         urls = list(dict.fromkeys([pr_url, *([canonical_url] if canonical_url else [])]))
@@ -104,7 +109,7 @@ def find_task_by_pull_request(
         normalized = repository.lower()
         task_id = (
             tasks.filter(Q(repositories__contains=[normalized]) | Q(repository__iexact=normalized))
-            .filter(head_branch=branch, deleted=False)
+            .filter(head_branch=branch)
             .order_by("-created_at", "-id")
             .values_list("id", flat=True)
             .first()
