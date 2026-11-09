@@ -93,7 +93,8 @@ describe('emailSenderControlLogic', () => {
         expect(logic.values.pendingSwitch).toEqual({ droppedSettings: ['sender_override', 'reply_to', 'cc_bcc'] })
         expect(storedStep()?.type).toEqual('function_email')
 
-        decision === 'cancel' ? logic.actions.cancelSwitch() : logic.actions.confirmSwitch()
+        const decide = decision === 'cancel' ? logic.actions.cancelSwitch : logic.actions.confirmSwitch
+        decide()
 
         expect(logic.values.pendingSwitch).toBeNull()
         expect(storedStep()?.type).toEqual(expectedType)

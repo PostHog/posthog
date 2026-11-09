@@ -6,7 +6,7 @@ export type OwnEmailAction = Extract<HogFlowAction, { type: 'function_email' }>
 export type SandboxEmailAction = Extract<HogFlowAction, { type: 'email_sandbox' }>
 export type EmailStepAction = OwnEmailAction | SandboxEmailAction
 
-export type OwnOnlySetting = 'sender_override' | 'several_senders' | 'reply_to' | 'cc_bcc'
+export type OwnOnlySetting = 'sender_override' | 'several_senders' | 'reply_to' | 'cc_bcc' | 'tracking_off' | 'utm_tags'
 
 type EmailValue = Record<string, any>
 type Templating = 'hog' | 'liquid'
@@ -114,6 +114,13 @@ export function ownOnlySettings(action: OwnEmailAction): OwnOnlySetting[] {
     }
     if (value.cc || value.bcc) {
         settings.push('cc_bcc')
+    }
+    // Switching back to an own sender starts tracked and untagged, so these are lost too.
+    if (action.config.tracking_enabled === false) {
+        settings.push('tracking_off')
+    }
+    if (action.config.utm_tags_enabled) {
+        settings.push('utm_tags')
     }
     return settings
 }

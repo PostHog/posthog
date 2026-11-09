@@ -13,6 +13,8 @@ const DROPPED_SETTING_LABELS: Record<OwnOnlySetting, string> = {
     several_senders: 'Sending from several senders',
     reply_to: 'The Reply-To address',
     cc_bcc: 'CC and BCC recipients',
+    tracking_off: 'Open and click tracking turned off',
+    utm_tags: 'UTM tags on links',
 }
 
 /** Chooses between the project's verified senders and the sandbox sender. Hidden unless the sandbox sender is on offer. */
@@ -63,7 +65,7 @@ export function EmailSenderControl({ actionId }: { actionId: string }): JSX.Elem
                     </>
                 }
             >
-                <p>The sandbox sender sends from a fixed address, so this step loses these settings:</p>
+                <p>The sandbox sender doesn't support these settings, so this step loses them:</p>
                 <ul className="list-disc pl-6">
                     {pendingSwitch?.droppedSettings.map((setting) => (
                         <li key={setting}>{DROPPED_SETTING_LABELS[setting]}</li>

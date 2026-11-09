@@ -122,13 +122,17 @@ describe('email step variants', () => {
     })
 
     it.each([
-        ['nothing for a plain sender', {}, []],
-        ['a From override', { from: { integrationId: 7, email: 'news@example.com' } }, ['sender_override']],
-        ['a display name override', { from: { integrationId: 7, name: 'News' } }, ['sender_override']],
-        ['several senders', { from: { integrationId: 7, integrationIds: [7, 8] } }, ['several_senders']],
-        ['a Reply-To', { replyTo: 'support@example.com' }, ['reply_to']],
-        ['CC or BCC', { cc: '', bcc: 'audit@example.com' }, ['cc_bcc']],
-    ])('lists %s as settings the sandbox sender drops', (_name, value, expected) => {
-        expect(ownOnlySettings(ownAction(value))).toEqual(expected)
+        ['nothing for a plain sender', {}, {}, []],
+        ['a From override', { from: { integrationId: 7, email: 'news@example.com' } }, {}, ['sender_override']],
+        ['a display name override', { from: { integrationId: 7, name: 'News' } }, {}, ['sender_override']],
+        ['several senders', { from: { integrationId: 7, integrationIds: [7, 8] } }, {}, ['several_senders']],
+        ['a Reply-To', { replyTo: 'support@example.com' }, {}, ['reply_to']],
+        ['CC or BCC', { cc: '', bcc: 'audit@example.com' }, {}, ['cc_bcc']],
+        ['tracking turned off', {}, { tracking_enabled: false }, ['tracking_off']],
+        ['UTM tags', {}, { utm_tags_enabled: true }, ['utm_tags']],
+    ])('lists %s as settings the sandbox sender drops', (_name, value, config, expected) => {
+        expect(
+            ownOnlySettings(ownAction(value, { tracking_enabled: true, utm_tags_enabled: false, ...config }))
+        ).toEqual(expected)
     })
 })
