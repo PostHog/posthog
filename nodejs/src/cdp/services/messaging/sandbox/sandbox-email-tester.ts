@@ -14,7 +14,8 @@ import { SandboxRenderedEmail } from './sandbox-message'
 import { logRenderFailure, renderSandboxEmail } from './sandbox-render'
 
 export const SANDBOX_TEST_TOKEN_TTL_SECONDS = 120
-const SANDBOX_TEST_TIMEOUT_MS = 10_000
+// Outlasts the worker's own deadlines (its reads, cap claims, and SES send), so a send SES accepted is not reported as pending.
+const SANDBOX_TEST_TIMEOUT_MS = 30_000
 
 const TestSendResponseSchema = z.object({
     status: z.enum(['accepted', 'skipped', 'failed', 'pending']),

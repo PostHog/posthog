@@ -42,7 +42,7 @@ const REQUIRED_TEXT_SETTINGS = [
     'WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST',
 ] as const
 
-const CAPS_VALKEY_TIMEOUT_MS = 2_000
+export const CAPS_VALKEY_TIMEOUT_MS = 2_000
 
 const REQUIRED_CAP_SETTINGS = ['WORKFLOWS_SANDBOX_DAILY_TEAM_CAP', 'WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP'] as const
 
@@ -75,6 +75,7 @@ export function createSandboxEmailRuntime(
                 commandTimeout: CAPS_VALKEY_TIMEOUT_MS,
             },
             name: 'sandbox-email-caps',
+            exitOnRepeatedErrors: false,
         },
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,

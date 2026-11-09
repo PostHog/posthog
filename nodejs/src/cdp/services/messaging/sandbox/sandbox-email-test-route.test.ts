@@ -17,9 +17,12 @@ import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
 import { RecipientTokensService } from '../recipient-tokens.service'
+import { AUTHORIZATION_TIMEOUT_MS } from './sandbox-authorization'
+import { CAPS_VALKEY_TIMEOUT_MS } from './sandbox-email-runtime'
 import { SANDBOX_TEST_SEND_PATH, sandboxEmailTestRouter } from './sandbox-email-test-route'
 import { SandboxEmailTester, SandboxEmailTesterDeps } from './sandbox-email-tester'
 import { SandboxSendOutcome } from './sandbox-email.service'
+import { SES_SEND_TIMEOUT_MS } from './sandbox-ses-client'
 
 describe('sandbox email test sends', () => {
     const secret = 'sandbox-test-secret'
@@ -114,6 +117,9 @@ describe('sandbox email test sends', () => {
 
     it('renders in cdp-api and sends inline on the sandbox worker as a test', async () => {
         await expect(tester().send(testRun())).resolves.toEqual({ status: 'accepted', message_id: 'ses-1' })
+
+        const workerDeadlinesMs = 2 * AUTHORIZATION_TIMEOUT_MS + 3 * CAPS_VALKEY_TIMEOUT_MS + SES_SEND_TIMEOUT_MS
+        expect(fetchThroughWorker.mock.calls.at(-1)![1].timeoutMs).toBeGreaterThan(workerDeadlinesMs)
 
         expect(send).toHaveBeenCalledWith(
             expect.objectContaining({
