@@ -3,6 +3,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from pathlib import Path
+from urllib.parse import urlencode
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -371,17 +372,29 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 302
         assert response["Location"] == expected
 
-    @parameterized.expand([("team_name", "team"), ("user_email_in_another_case", "user")])
-    def test_a_lookup_with_one_match_opens_its_page(self, _name: str, record: str) -> None:
+    @parameterized.expand(
+        [
+            ("team_name", "team", None),
+            ("user_email_in_another_case", "user", None),
+            ("user_email_from_a_support_ticket", "user", "https://support.example.com/tickets/42"),
+        ]
+    )
+    def test_a_lookup_with_one_match_opens_its_page(self, _name: str, record: str, ticket: str | None) -> None:
         if record == "team":
             query, expected = self.team.name, f"/admin/console/teams/{self.team.pk}/"
         else:
             query, expected = self.user.email.upper(), f"/admin/console/users/{self.user.pk}/"
+        params = {"q": query, **({"ticket": ticket} if ticket else {})}
+        kept = f"?{urlencode({'ticket': ticket})}" if ticket else ""
 
-        response = self.client.get("/admin/console/", {"q": query})
+        response = self.client.get("/admin/console/", params)
 
         assert response.status_code == 302
-        assert response["Location"] == expected
+        assert response["Location"] == expected + kept
+        if record == "user":
+            # Log in as user in Django admin prefills its reason from the ticket.
+            raw_record = f"/admin/posthog/user/{self.user.pk}/change/{kept}"
+            assert f'href="{raw_record}"' in self.client.get(response["Location"]).content.decode()
 
     @parameterized.expand(
         [

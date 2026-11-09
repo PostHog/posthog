@@ -10,12 +10,17 @@ from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+# Support tools link to staff pages with `?ticket=<ticket url>`, and Log in as user prefills its reason from it.
+SUPPORT_TICKET_PARAM = "ticket"
+
 
 @frozen
 class RecordLink:
     label: str
     href: str
     title: str = ""
+    # Query parameters of the current page that the link passes on, for example a support ticket.
+    keep_query: tuple[str, ...] = ()
 
 
 class RecordType:
@@ -166,12 +171,14 @@ class UserRecord(RecordType):
         return f"{obj.first_name} {obj.last_name}".strip()
 
     def links(self, obj: Model) -> list[RecordLink]:
-        # No "Log in as user" here: impersonation stays in Django admin, which asks for the reason it logs.
+        # No "Log in as user" here: impersonation stays in Django admin, which asks for the reason it logs and
+        # prefills it from the support ticket.
         return [
             RecordLink(
                 label="Raw record in Django admin",
                 href=reverse("admin:posthog_user_change", args=[obj.pk]),
                 title="The raw User row, with every field, and Log in as user",
+                keep_query=(SUPPORT_TICKET_PARAM,),
             ),
         ]
 
