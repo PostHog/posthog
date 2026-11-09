@@ -50,6 +50,7 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
+from products.alerts.backend.platform_firing_signal_detail import FIRING_SIGNAL_REQUESTED_KEY, requested_firing_signals
 from products.alerts.backend.platform_investigation import claim_requested_investigations
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
@@ -283,6 +284,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "tags": [],
             "team_name": self.team.name,
             **({CHART_PENDING_KEY: str(alert.id)} if wants_chart else {}),
+            **({FIRING_SIGNAL_REQUESTED_KEY: True} if owner == PlatformAlertOwner.PLATFORM else {}),
         }
 
         with patch(f"{_MODULE}.render_alert_insight_chart") as render:
@@ -622,6 +624,46 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             delivery.source_alert_url == insight_alert_url(self.team.id, alert.insight.short_id, str(alert.id))
             for delivery in self.deliveries
         )
+
+    @parameterized.expand(
+        [
+            ("a_first_firing", PlatformAlertOwner.PLATFORM, (), True),
+            ("a_firing_that_stays_breached", PlatformAlertOwner.PLATFORM, ("fire",), False),
+            ("a_firing_after_an_error_during_the_episode", PlatformAlertOwner.PLATFORM, ("fire", "error"), False),
+            ("a_firing_after_an_error_before_any_firing", PlatformAlertOwner.PLATFORM, ("error",), True),
+            ("a_parallel_run_leaves_it_to_the_insight_stack", PlatformAlertOwner.SOURCE, (), False),
+        ]
+    )
+    def test_only_the_check_that_starts_an_owned_firing_episode_asks_for_a_signal(
+        self, _name: str, owner: str, earlier: tuple[str, ...], requested: bool
+    ) -> None:
+        configuration = self._copy(self._alert(), owner=owner)
+        for step in earlier:
+            if step == "fire":
+                outcome, _ = self._evaluate(
+                    configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
+                )
+            else:
+                failed = fail_insight_check(
+                    self.team.id,
+                    slot_of(configuration.next_check_at, CUTOFF),
+                    CUTOFF,
+                    str(configuration.id),
+                    error_message="activity timed out",
+                )
+                outcome = failed.outcomes[0] if failed is not None else None
+            assert outcome is not None
+            record_outcomes(self.team.id, (outcome,), CUTOFF)
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
+
+        outcome, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+
+        assert outcome is not None
+        assert [
+            (request.configuration_id, request.evaluation_key, request.breaches)
+            for request in requested_firing_signals(self.team.id, (outcome,))
+        ] == ([(str(configuration.id), outcome.evaluation_key, ("above 100",))] if requested else [])
 
     @parameterized.expand(
         [

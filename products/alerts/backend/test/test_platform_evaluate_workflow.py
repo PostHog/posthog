@@ -22,6 +22,7 @@ from products.alerts.backend.platform_chart_detail import (
     CHART_RENDER_USER_ID_KEY,
     RenderedChart,
 )
+from products.alerts.backend.platform_firing_signal_detail import FIRING_SIGNAL_REQUESTED_KEY, FiringSignalRequest
 from products.alerts.backend.platform_investigation_detail import (
     METRICS_INVESTIGATION_REQUESTED_KEY,
     InvestigationClaims,
@@ -40,6 +41,7 @@ from products.alerts.backend.temporal.platform_evaluate import (
     InsightBatchPlanInputs,
     InsightChartInputs,
     InsightCheckInputs,
+    InsightFiringSignalsInputs,
     MetricsInvestigationsInputs,
     StopInsightQueriesInputs,
     evaluate_platform_insight_llm_check_activity,
@@ -684,3 +686,84 @@ async def test_a_metrics_firing_is_delivered_once_its_investigation_releases_it(
         elif event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
             order.append("delivery")
     assert order.index("run_platform_metrics_investigations_activity") < order.index("delivery")
+
+
+async def test_a_firing_that_starts_an_episode_starts_its_signals_on_the_delivery_queue_after_the_record(
+    environment: WorkflowEnvironment,
+) -> None:
+    @activity.defn(name="plan_platform_insight_checks_activity")
+    async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
+        if inputs.exclude:
+            return []
+        return [
+            AdmittedInsightCheck(configuration_id=configuration_id, owned_by_platform=True)
+            for configuration_id in ADMITTED
+        ]
+
+    @activity.defn(name="evaluate_platform_insight_check_activity")
+    async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+        outcome = _outcome(inputs.configuration_id, AlertEventKind.FIRING, "firing")
+        if inputs.configuration_id == ADMITTED[0]:
+            group = replace(
+                outcome.groups[0], source_detail={FIRING_SIGNAL_REQUESTED_KEY: True, "breaches": ["above 100"]}
+            )
+            outcome = replace(outcome, groups=(group,))
+        return SourceBatchEvaluation(outcomes=(outcome,), deliveries=())
+
+    @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
+    async def record(inputs: SourceOutcomeInputs) -> int:
+        return len(inputs.outcomes)
+
+    async with Worker(
+        environment.client,
+        task_queue=QUEUE,
+        workflows=[InsightAlertPlatformEvaluateWorkflow],
+        activities=[plan, evaluate, record],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await environment.client.start_workflow(
+            InsightAlertPlatformEvaluateWorkflow.run,
+            SourceEvaluationInputs(
+                source=SourceKind.INSIGHT,
+                cutoff="2026-09-16T10:00:00+00:00",
+                batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
+            ),
+            id=f"test-{uuid.uuid4()}",
+            task_queue=QUEUE,
+        )
+        await handle.result()
+        history = await handle.fetch_history()
+
+    order = []
+    started: list[tuple[str, InsightFiringSignalsInputs]] = []
+    for event in history.events:
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+            order.append(event.activity_task_scheduled_event_attributes.activity_type.name)
+        elif event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
+            attributes = event.start_child_workflow_execution_initiated_event_attributes
+            order.append(attributes.workflow_type.name)
+            (payload,) = attributes.input.payloads
+            started.append(
+                (
+                    attributes.task_queue.name,
+                    converter.DataConverter.default.payload_converter.from_payload(payload, InsightFiringSignalsInputs),
+                )
+            )
+    assert order.index(RECORD_OUTCOMES_ACTIVITY) < order.index("insight-alert-platform-signals")
+    assert started == [
+        (
+            settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+            InsightFiringSignalsInputs(
+                team_id=1,
+                requests=(
+                    FiringSignalRequest(
+                        team_id=1,
+                        configuration_id=ADMITTED[0],
+                        evaluation_key="slot:2026-09-16T10:00:00+00:00",
+                        episode_started_at=None,
+                        breaches=("above 100",),
+                    ),
+                ),
+            ),
+        )
+    ]

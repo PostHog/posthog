@@ -35,6 +35,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections
 
     from products.alerts.backend.platform_chart_detail import RenderedChart, pending_chart_alert_id, with_chart
+    from products.alerts.backend.platform_firing_signal_detail import FiringSignalRequest, requested_firing_signals
     from products.alerts.backend.platform_investigation_detail import (
         InvestigationClaims,
         InvestigationStart,
@@ -141,6 +142,14 @@ _PATCH_WAIT_FOR_POOL = "platform-insight-wait-for-pool-2026-10"
 _PATCH_INVESTIGATIONS = "platform-insight-investigations-2026-11"
 # Runs started before it ran metrics investigations after a claim, and replay must not schedule one.
 _PATCH_METRICS_INVESTIGATIONS = "platform-insight-metrics-investigations-2026-11"
+# Runs started before it sent Inbox signals after a record, and replay must not start a signals child.
+_PATCH_FIRING_SIGNALS = "platform-insight-firing-signals-2026-11"
+
+SIGNALS_WORKFLOW_NAME = "insight-alert-platform-signals"
+# A child workflow with its own budget on the delivery queue, so a slow burst of signals never holds
+# the evaluation or its slots.
+SIGNALS_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
+SIGNALS_START_TO_CLOSE = dt.timedelta(minutes=4)
 
 
 @frozen
@@ -194,6 +203,12 @@ class ClaimInsightInvestigationsInputs:
 @frozen
 class MetricsInvestigationsInputs:
     runs: tuple[MetricsInvestigationRun, ...]
+
+
+@frozen
+class InsightFiringSignalsInputs:
+    team_id: int
+    requests: tuple[FiringSignalRequest, ...]
 
 
 @frozen
@@ -431,6 +446,32 @@ def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> Render
         return None
 
 
+@activity.defn
+async def emit_platform_insight_firing_signals_activity(inputs: InsightFiringSignalsInputs) -> int:
+    """Sends the Inbox signals of recorded firings that started an episode. Never raises."""
+    from products.alerts.backend.platform_firing_signal import emit_platform_firing_signals  # noqa: PLC0415
+
+    return await emit_platform_firing_signals(inputs.requests)
+
+
+@workflow.defn(name=SIGNALS_WORKFLOW_NAME)
+class InsightAlertPlatformSignalsWorkflow(PostHogWorkflow):
+    """Sends one record's Inbox signals, apart from the evaluation itself."""
+
+    inputs_cls = InsightFiringSignalsInputs
+
+    @workflow.run
+    async def run(self, inputs: InsightFiringSignalsInputs) -> int:
+        # Retried, because each signal carries an idempotency key, so a retry sends only what the
+        # failed attempt had not.
+        return await workflow.execute_activity(
+            emit_platform_insight_firing_signals_activity,
+            inputs,
+            start_to_close_timeout=SIGNALS_START_TO_CLOSE,
+            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=10)),
+        )
+
+
 @workflow.defn(name="insight-alert-platform-evaluate")
 class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
     """Evaluates one batch key, records what it decided, and starts the deliveries its checks asked
@@ -443,7 +484,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # From the workflow's clock, so a retried plan reuses the expiry and gets its slots back. A
         # check releases its slot only while the slot still carries this expiry.
         expires_at = (workflow.now() + source_evaluation_timeout(SourceKind.INSIGHT)).timestamp()
-        self._investigating: list[asyncio.Task[None]] = []
+        self._after_record: list[asyncio.Task[None]] = []
         if workflow.patched(_PATCH_READMISSION) and workflow.patched(_PATCH_RECORD_AS_FINISHED):
             return await self._evaluate_and_record_in_rounds(inputs, expires_at)
         if workflow.patched(_PATCH_READMISSION):
@@ -481,7 +522,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         if not outcomes:
             return 0
         await self._record(inputs, evaluations, chunked=workflow.patched(_PATCH_CHUNKED_RECORD))
-        await asyncio.gather(*self._investigating)
+        await asyncio.gather(*self._after_record)
         return len(outcomes)
 
     async def _with_charts(
@@ -675,7 +716,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     continue
                 recorded += await self._record_waiting(inputs, waiting, last_chance=True)
                 await asyncio.gather(*stopping, return_exceptions=True)
-                await asyncio.gather(*self._investigating)
+                await asyncio.gather(*self._after_record)
                 return recorded
             running = [task for task in unrecorded.values() if not task.done()]
             if not running:
@@ -833,7 +874,10 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         investigated = tuple(outcome for outcome in chunk if requested_investigation(outcome) is not None)
         if workflow.patched(_PATCH_INVESTIGATIONS) and investigated:
             # A task, so a slow claim holds back only the firings it holds, not the next record or round.
-            self._investigating.append(asyncio.create_task(self._investigate(inputs, investigated)))
+            self._after_record.append(asyncio.create_task(self._investigate(inputs, investigated)))
+        signals = requested_firing_signals(inputs.batch_key.team_id, chunk)
+        if signals and workflow.patched(_PATCH_FIRING_SIGNALS):
+            self._after_record.append(asyncio.create_task(self._start_signals(inputs, signals)))
 
     async def _investigate(self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]) -> None:
         claims = await self._claim_investigations(inputs, outcomes)
@@ -871,6 +915,22 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             workflow.logger.warning("Could not claim the investigations of recorded platform insight firings")
             return InvestigationClaims()
 
+    async def _start_signals(self, inputs: SourceEvaluationInputs, signals: tuple[FiringSignalRequest, ...]) -> None:
+        # After the record, so a signal never describes a firing that was not saved. Each chunk's
+        # configurations are recorded once per run, so its first one names the child.
+        key = inputs.batch_key
+        try:
+            await workflow.start_child_workflow(
+                InsightAlertPlatformSignalsWorkflow.run,
+                InsightFiringSignalsInputs(team_id=key.team_id, requests=signals),
+                id=f"{SIGNALS_WORKFLOW_NAME}-{key.team_id}:{key.slot}:{inputs.cutoff}:{signals[0].configuration_id}",
+                task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                execution_timeout=SIGNALS_EXECUTION_TIMEOUT,
+            )
+        except WorkflowAlreadyStartedError:
+            pass
+
     async def _start_investigation(self, start: InvestigationStart) -> None:
         try:
             await workflow.start_child_workflow(
@@ -893,6 +953,8 @@ def _maximum_attempts(check: AdmittedInsightCheck) -> int:
 
 
 PLATFORM_EVALUATION_WORKFLOWS = [InsightAlertPlatformEvaluateWorkflow]
+PLATFORM_SIGNAL_WORKFLOWS = [InsightAlertPlatformSignalsWorkflow]
+PLATFORM_SIGNAL_ACTIVITIES = [emit_platform_insight_firing_signals_activity]
 # Registered on the AI queue's worker, which holds the model credentials.
 PLATFORM_AI_QUEUE_ACTIVITIES = [evaluate_platform_insight_llm_check_activity]
 PLATFORM_EVALUATION_ACTIVITIES = [

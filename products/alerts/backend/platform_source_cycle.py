@@ -64,6 +64,7 @@ from products.alerts.backend.logic.destinations import configured_destination_te
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
+from products.alerts.backend.platform_firing_signal import with_firing_signal
 from products.alerts.backend.platform_investigation import with_investigation
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
@@ -508,7 +509,7 @@ def evaluate_insight_check(
             raise
         if outcome is None:
             return None
-        evaluation = _evaluation(checks[0], outcome)
+        evaluation = with_firing_signal(checks[0], _evaluation(checks[0], outcome))
     finally:
         if not retrying:
             release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
