@@ -1,5 +1,6 @@
 import json
 import uuid
+import asyncio
 import hashlib
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
@@ -16,7 +17,9 @@ import pydantic
 import structlog
 import temporalio
 import posthoganalytics
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -137,6 +140,11 @@ from products.signals.backend.scout_harness.workflow_runs import (
     start_workflow_scout_run as start_workflow_scout_run,
 )
 from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
+from products.signals.backend.source_rate_limit import (
+    record_source_rate_limited,
+    source_rate_limit_enforcement_enabled,
+    source_rate_limit_exceeded,
+)
 from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
 from products.signals.backend.spend_billing import system_source_exempt
 
@@ -873,6 +881,22 @@ def _telemetry_props_from_extra(extra: dict | None) -> dict:
     return props
 
 
+async def _emitter_holds_idempotency_key(workflow_id: str) -> bool:
+    """Whether an emitter run already owns this idempotency key, so a new start would be rejected.
+
+    Mirrors `WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY`: a running or completed run owns the
+    key, and a failed, terminated, cancelled or timed-out run gives it up.
+    """
+    client = await async_connect()
+    try:
+        description = await client.get_workflow_handle(workflow_id).describe()
+    except RPCError as error:
+        if error.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return description.status in (WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.COMPLETED)
+
+
 async def emit_signal(
     team: Team,
     source_product: str,
@@ -893,7 +917,8 @@ async def emit_signal(
 
     Returns True when the signal was dispatched to the pipeline, and False when it was skipped: the
     organization has not approved AI data processing, the source is off, the signal is already
-    finalized, the team's steering filtered it, or its idempotency key was already used.
+    finalized, the source is over its rate cap (see `source_rate_limit.py`), the team's steering
+    filtered it, or its idempotency key was already used.
 
     Active path:
         emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
@@ -1027,6 +1052,33 @@ async def emit_signal(
     if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
         return False
 
+    emitter_idempotency_key = (
+        f"{source_product}:{source_type}:{idempotency_key}" if idempotency_key is not None else None
+    )
+
+    # Before the steering gate, which can make an LLM call, so a capped source costs nothing more.
+    rate_limited_window = await asyncio.to_thread(source_rate_limit_exceeded, team.id, source_product, source_type)
+    if rate_limited_window is not None:
+        enforced = await asyncio.to_thread(source_rate_limit_enforcement_enabled, str(organization.id))
+        record_source_rate_limited(source_product, rate_limited_window, enforced=enforced)
+        capture_emission_event("signal_source_rate_limited", {"window": rate_limited_window, "enforced": enforced})
+        if enforced:
+            # A retry reuses the original's signal_id, so finalizing here would end the spend of an
+            # original that is still in the pipeline. The Temporal duplicate check below runs too late.
+            if emitter_idempotency_key is not None and await _emitter_holds_idempotency_key(
+                SignalEmitterWorkflow.workflow_id_for(team.id, emitter_idempotency_key)
+            ):
+                capture_emission_event("signal_data_source_filtered", {"filter_reason": "duplicate_emission"})
+                return False
+            # Only a real drop counts as filtered, so a dark-launch would-drop still reads as emitted.
+            capture_emission_event(
+                "signal_data_source_filtered", {"filter_reason": "source_rate_limited", "window": rate_limited_window}
+            )
+            await database_sync_to_async(complete_signal_pipeline, thread_sensitive=False)(
+                team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+            )
+            return False
+
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
     # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
     if (source_product, source_type) in DIRECT_STEERABLE_SOURCES:
@@ -1081,9 +1133,6 @@ async def emit_signal(
 
     # Fire-and-forget: the emitter workflow will submit the signal to the buffer
     # via update, blocking if the buffer is full (backpressure).
-    emitter_idempotency_key = (
-        f"{source_product}:{source_type}:{idempotency_key}" if idempotency_key is not None else None
-    )
     try:
         await client.start_workflow(
             SignalEmitterWorkflow.run,
