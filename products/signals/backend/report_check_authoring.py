@@ -72,7 +72,8 @@ _BLOCKED_CHECK_MESSAGES: dict[CheckLaneBlock, str] = {
         "would never run on a resolved report. Use an agent check instead."
     ),
     CheckLaneBlock.CHILD_ENVIRONMENT: (
-        "Follow-up scouts do not run checks on reports in child environments, so this check would never run."
+        "Follow-up scouts do not run checks on reports in child environments, so this check would never run. "
+        "Record the expectation on a follow-up report in the parent project instead."
     ),
 }
 
