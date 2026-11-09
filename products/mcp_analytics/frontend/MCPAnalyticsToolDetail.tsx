@@ -173,7 +173,7 @@ function ResultTable({
                         {SKELETON_ROW_WIDTHS.map((width, i) => (
                             <TableRow key={i}>
                                 {columns.map((col, j) => (
-                                    <TableCell key={j} align={col.align} expand={col.expand}>
+                                    <TableCell key={j} align={col.align} expand={col.expand} className={col.className}>
                                         <SkeletonLine
                                             className={col.align === 'right' ? 'ml-auto w-10' : undefined}
                                             style={col.align === 'right' ? undefined : { width }}
