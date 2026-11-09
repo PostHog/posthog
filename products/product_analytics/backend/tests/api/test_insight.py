@@ -1916,26 +1916,23 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert any('FOR NO KEY UPDATE OF "posthog_dashboarditem"' in query["sql"] for query in queries.captured_queries)
 
     def test_patch_restoring_a_query_changed_since_the_read_regenerates_its_metadata(self) -> None:
-        def trends_query(event: str) -> dict:
-            return {
-                "kind": "InsightVizNode",
-                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": event}]},
-            }
+        def events_query(event: str) -> dict:
+            return {"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"], "event": event}}
 
-        insight_id, _ = self.dashboard_api.create_insight({"name": "insight name", "query": trends_query("event_a")})
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight name", "query": events_query("event_a")})
         original_get_object = InsightViewSet.get_object
 
         def get_object_then_land_a_concurrent_query_change(viewset):
             insight = original_get_object(viewset)
             concurrent = Insight.objects.get(pk=insight.pk)
-            concurrent.query = trends_query("event_b")
+            concurrent.query = events_query("event_b")
             concurrent.save()
             return insight
 
         with patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_query_change):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
-                {"query": trends_query("event_a")},
+                {"query": events_query("event_a")},
                 format="json",
             )
 
