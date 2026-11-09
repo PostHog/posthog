@@ -1688,6 +1688,48 @@ export const WarehouseMigrationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Plan vendor connections an agent read, and add them to an uploaded migration.
+ */
+export const warehouseMigrationsConnectionsCreateBodyDestinationsMax = 100
+
+export const warehouseMigrationsConnectionsCreateBodyConnectionsMax = 25
+
+export const WarehouseMigrationsConnectionsCreateBody = /* @__PURE__ */ zod.object({
+    account: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('The Fivetran account info response, unchanged. Send it once, with the first upload.'),
+    destinations: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .max(warehouseMigrationsConnectionsCreateBodyDestinationsMax)
+        .optional()
+        .describe(
+            "Fivetran destination details responses, unchanged. Send them before the connections that use them, so PostHog reads each connection's sync time in its destination's time zone."
+        ),
+    connections: zod
+        .array(
+            zod.object({
+                connection: zod
+                    .record(zod.string(), zod.unknown())
+                    .describe(
+                        'The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay.'
+                    ),
+                schema_config: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe(
+                        'The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.'
+                    ),
+            })
+        )
+        .max(warehouseMigrationsConnectionsCreateBodyConnectionsMax)
+        .optional()
+        .describe(
+            'At most 25 connections. A connection uploaded again replaces its plan, unless it is already created in PostHog or skipped.'
+        ),
+})
+
+/**
  * Skip many connections at once, or all but the ones to keep.
  */
 
@@ -1701,4 +1743,14 @@ export const WarehouseMigrationsItemsBulkSkipCreateBody = /* @__PURE__ */ zod.ob
         .array(zod.uuid())
         .optional()
         .describe('Items to keep. Every other item is skipped, for example to migrate only one connection.'),
+})
+
+/**
+ * Start a migration that an agent fills with what it reads from the vendor, without a vendor key.
+ */
+export const WarehouseMigrationsUploadCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .enum(['fivetran'])
+        .describe('\* `fivetran` - Fivetran')
+        .describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
 })

@@ -499,6 +499,18 @@ class WarehouseMigrationBusyError(ValueError):
     """The migration is already reading the vendor account."""
 
 
+class WarehouseMigrationUploadedError(ValueError):
+    """An agent uploaded this migration, so PostHog has no vendor key to read the account again."""
+
+
+class WarehouseMigrationUploadTooLargeError(ValueError):
+    """The uploaded migration would grow past the size PostHog stores for an upload."""
+
+
+class WarehouseMigrationHasVendorKeyError(ValueError):
+    """PostHog reads this migration's vendor account with an API key, so it takes no uploads."""
+
+
 class WarehouseMigrationItemClaimedError(ValueError):
     """An apply has already claimed or finished this migration item."""
 
@@ -555,6 +567,7 @@ class WarehouseMigration:
     latest_error: str
     created_at: datetime
     item_counts: WarehouseMigrationItemCounts
+    has_vendor_key: bool
 
 
 @dataclass(frozen=True)
@@ -579,6 +592,22 @@ class WarehouseMigrationItem:
     error: str
     # Who prepared the migration, so whoever types a password for this item can see who chose its server.
     created_by: WarehouseMigrationCreator | None = None
+
+
+@dataclass(frozen=True)
+class MigrationConnectionUpload:
+    """One vendor connection as the vendor API returned it, secrets included until PostHog removes them."""
+
+    connection: dict[str, Any]
+    # None when the vendor has no table list for the connection.
+    schema_config: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationUpload:
+    items: list[WarehouseMigrationItem]
+    # One message per uploaded destination or connection that could not be read. Each names it.
+    errors: list[str]
 
 
 @dataclass(frozen=True)
