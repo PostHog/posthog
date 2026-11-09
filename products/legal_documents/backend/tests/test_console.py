@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable
 from typing import Any
 from uuid import UUID
@@ -231,4 +232,4 @@ class TestLegalDocumentsConsolePanel(BaseTest):
             f"/admin/console/organizations/{self.organization.pk}/legal-documents/delete/?document={older.id}"
         ).content.decode()
 
-        assert f'<option value="{older.id}" selected>' in form
+        assert re.search(rf'<option value="{older.id}"\s+selected>', form)
