@@ -3,6 +3,7 @@ import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import type { AccessKey } from '@/posthog/access-key'
 import { stepUpRequired } from '@/posthog/api'
+import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import type { Credentials } from '@/posthog/credentials'
 import type { OAuthLogin } from '@/posthog/oauth'
 import { addToKeyHint, canStepUp, fewestScopes, isScopeName } from '@/posthog/scope-challenge'
@@ -98,11 +99,7 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
             replacedRevoked: null,
         }
     }
-    refuseInCi(
-        ctx,
-        ADD_COMMAND,
-        'Set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST to a key with the scopes instead.'
-    )
+    refuseInCi(ctx, ADD_COMMAND, `${CI_CREDENTIALS_HINT} Either way, ask for the scopes the job needs.`)
     const flow = loginFlow(ctx.runtime, key.host, [...held, ...added], { command: ADD_COMMAND, requiredScopes: added })
     const result = await runApproval(ctx, flow)
     return result.status === 'pending' ? { ...result, host: key.host } : finishStepUp(ctx, result.value)

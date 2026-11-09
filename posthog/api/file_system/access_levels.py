@@ -311,9 +311,11 @@ def bulk_file_system_access_levels(
             # so they resolve at resource level exactly like an existing object without object
             # rows, making guessed refs indistinguishable from real-but-ungranted ones
             pk = row[0] if row else lookup_ref
-            creator_by_pk.setdefault(
-                pk, provided_creator if provided_creator is not None else (row[1] if row else None)
-            )
+            creator = provided_creator if provided_creator is not None else (row[1] if row else None)
+            # Several spellings of one object share its pk, so the same precedence as above applies
+            # and the result does not depend on the order of the rows
+            if creator_by_pk.get(pk) is None or creator == user_id:
+                creator_by_pk[pk] = creator
             refs_by_pk.setdefault(pk, []).append(ref)
 
         # Resolved against the entry's own team - resolves from that team's in-memory access

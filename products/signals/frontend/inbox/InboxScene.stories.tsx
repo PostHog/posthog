@@ -503,3 +503,47 @@ export const SelfDrivingPaused: Story = {
         }),
     ],
 }
+
+// A filter link marks the scope as chosen in local storage, and the stories in this file share it.
+// Without this cleanup, the next story keeps the For you scope instead of its own default.
+const clearPersistedInboxFilters: Decorator = (Story) => {
+    useEffect(
+        () => () =>
+            Object.keys(localStorage)
+                .filter((key) => key.startsWith('scenes.inbox.logics.inboxFiltersLogic'))
+                .forEach((key) => localStorage.removeItem(key)),
+        []
+    )
+    return <Story />
+}
+
+// The user picked Personalized, but the server has no personal ranking for them, so it answers with
+// the Recommended order.
+export const PersonalizedSortFallback: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [
+                    200,
+                    {
+                        results: allReports,
+                        count: allReports.length,
+                        next: null,
+                        previous: null,
+                        ranker: 'priority',
+                        ranking_id: null,
+                        ranking_pill: false,
+                    },
+                ],
+            },
+        }),
+        routeTo(urls.inbox('reports'), { sort: 'personal:asc' }),
+        clearPersistedInboxFilters,
+    ],
+    play: async ({ canvas }) => {
+        await canvas.findByText("Your personalized list isn't ready yet, so this is the Recommended order.")
+    },
+}
