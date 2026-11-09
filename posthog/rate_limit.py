@@ -1839,6 +1839,22 @@ class ContextSelectionSustainedThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
+class ContextSelectionTaskThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Caps prepare calls per sandbox task, whether or not the task is eligible for selection.
+
+    The project-wide selection limits count only eligible selections, so this per-task ceiling is
+    what stops one looping sandbox from holding the shared request slots or flooding outcome events.
+    """
+
+    scope = "context_selection_task"
+    rate = "30/minute"
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        access_token = getattr(getattr(request, "successful_authenticator", None), "access_token", None)
+        ident = getattr(access_token, "sandbox_task_id", None) or request.user.pk or self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class TaskRunChartRenderThrottle(PersonalApiKeyOrUserRateThrottle):
     # A chart render holds a worker for up to 90s, so it needs a far lower ceiling than the
     # ClickHouse throttles. Keyed per team so rotating API keys doesn't split the bucket.

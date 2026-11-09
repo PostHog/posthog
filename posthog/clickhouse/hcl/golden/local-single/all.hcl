@@ -7914,7 +7914,8 @@ SQL
   }
 
   table "metrics4_samples" {
-    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    primary_key  = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint", "histogram_bounds_hash"]
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
@@ -7964,6 +7965,9 @@ SQL
     }
     column "histogram_bounds" {
       type = "SimpleAggregateFunction(anyLast, Array(Float64))"
+    }
+    column "histogram_bounds_hash" {
+      type = "UInt64"
     }
     column "_topic" {
       type = "SimpleAggregateFunction(any, LowCardinality(String))"
@@ -18239,6 +18243,9 @@ SQL
     column "histogram_bounds" {
       type = "SimpleAggregateFunction(anyLast, Array(Float64))"
     }
+    column "histogram_bounds_hash" {
+      type = "UInt64"
+    }
     column "_topic" {
       type = "SimpleAggregateFunction(any, LowCardinality(String))"
     }
@@ -23210,6 +23217,7 @@ SELECT
   metric_name,
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
   series_fingerprint,
+  if(empty(input.histogram_bounds), 0, cityHash64(input.histogram_bounds)) AS histogram_bounds_hash,
   toDate32(original_expiry_timestamp) AS original_expiry_date,
   any(resource_fingerprint) AS resource_fingerprint,
   any(service_name) AS service_name,
@@ -23228,9 +23236,9 @@ SELECT
   groupArray(10000)(trace_id) AS trace_id_arr,
   groupArray(10000)(span_id) AS span_id_arr,
   groupArray(10000)(trace_flags) AS trace_flags_arr
-FROM posthog.metrics4_input
+FROM posthog.metrics4_input AS input
 GROUP BY
-  team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date
+  team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash, original_expiry_date
 SQL
 
     column "team_id" {
@@ -23243,6 +23251,9 @@ SQL
       type = "DateTime"
     }
     column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "histogram_bounds_hash" {
       type = "UInt64"
     }
     column "original_expiry_date" {

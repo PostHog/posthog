@@ -1158,6 +1158,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-customerio-import',
             'mcp-session-recording-console-logs',
             'workflows-push-token-import-mcp',
+            'discussions-slack-sync',
             'warehouse-migration-import',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
