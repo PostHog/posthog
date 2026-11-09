@@ -5,7 +5,6 @@ import { ReactNode } from 'react'
 import { IconBell } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { Link } from 'lib/lemon-ui/Link'
 
 import { AlertSetupModal } from './AlertSetupModal'
 import { BannerCallout } from './BannerCallout'
@@ -29,7 +28,6 @@ export function AlertsBanner({
     const { dismissBanner, openAlertSetup, closeAlertSetup } = useActions(errorTrackingBannersLogic)
     const missing = (recommendation.meta.alerts ?? []).filter((alert) => !alert.enabled)
     const missingAdjectives = missing.map((alert) => ALERT_TRIGGER_ADJECTIVES[alert.key] ?? alert.key)
-    const handleSetUpAlerts = (): void => openAlertSetup(missing.length === 1 ? missing[0].key : null)
 
     useOnMountEffect(() => {
         posthog.capture('error_tracking_alerts_banner_shown', { missing_alert_count: missing.length })
@@ -40,20 +38,12 @@ export function AlertsBanner({
             <BannerCallout
                 illustration={TownCrierHog}
                 title={`You don't get alerts for ${LIST_FORMAT.format(missingAdjectives)} issues`}
-                description={
-                    <Link
-                        onClick={handleSetUpAlerts}
-                        className="underline"
-                        data-attr="error-tracking-alerts-banner-description"
-                    >
-                        Send them to Slack, Teams, PagerDuty, or another destination.
-                    </Link>
-                }
+                description="Send them to Slack, Teams, PagerDuty, or another destination."
                 primaryAction={{
                     label: missing.length === 1 ? 'Set up alert' : 'Set up alerts',
                     icon: <IconBell />,
                     // With one alert left, skip the trigger step and set up that one.
-                    onClick: handleSetUpAlerts,
+                    onClick: () => openAlertSetup(missing.length === 1 ? missing[0].key : null),
                     dataAttr: 'error-tracking-alerts-banner-set-up',
                 }}
                 secondaryAction={{
