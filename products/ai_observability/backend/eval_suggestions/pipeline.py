@@ -268,7 +268,7 @@ def run_pipeline(
         "applicability", "ok", checks=[c.key for c in applicability.checks], judges=applicability.screened_judges
     )
 
-    measurements = measure(applicability.checks, sample)
+    measurements = measure(applicability.checks, sample, deadline)
     _on_time(deadline)
     stages.set(
         "measure",
