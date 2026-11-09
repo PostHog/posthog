@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -214,7 +214,10 @@ class TestPaginationAndResume:
             )
 
         assert result.params("from") == [f"{day}T00:00" for day in expected_days]
-        assert result.params("to") == [f"{day}T23:59" for day in expected_days]
+        # The window ends at the next midnight: SparkPost leaves out the ``to`` minute itself.
+        assert result.params("to") == [
+            f"{(date.fromisoformat(day) + timedelta(days=1)).isoformat()}T00:00" for day in expected_days
+        ]
         assert set(result.params("metrics")) == {
             "count_bounce,count_inband_bounce,count_outofband_bounce,count_admin_bounce"
         }
@@ -244,6 +247,33 @@ class TestPaginationAndResume:
             ("2026-03-09", "welcome"),
             ("2026-03-10", "welcome"),
         ]
+
+    @pytest.mark.parametrize(("row_count", "expects_warning"), [(9999, False), (10000, True)])
+    def test_daily_window_warns_when_a_breakdown_reaches_the_row_limit(
+        self, row_count: int, expects_warning: bool
+    ) -> None:
+        rows = [{"reason": f"reason {i}", "domain": "example.com"} for i in range(row_count)]
+        with (
+            time_machine.travel(NOW, tick=False),
+            mock.patch("products.warehouse_sources.sources.sparkpost.sparkpost.LOGGER") as logger,
+        ):
+            result = _run(
+                "delay_reasons_by_domain",
+                always(_page(rows)),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=date(2026, 3, 10),
+            )
+
+        assert len(result.rows) == row_count
+        if expects_warning:
+            logger.warning.assert_called_once()
+            assert logger.warning.call_args.kwargs == {
+                "endpoint": "delay_reasons_by_domain",
+                "day": "2026-03-10",
+                "limit": 10000,
+            }
+        else:
+            logger.warning.assert_not_called()
 
     @pytest.mark.parametrize(
         "resume_url",

@@ -179,7 +179,7 @@ SparkPost runs independent US and EU stacks that do not share data — pick the 
             SourceSchema(
                 name=endpoint,
                 supports_incremental=SPARKPOST_ENDPOINTS[endpoint].supports_incremental,
-                supports_append=SPARKPOST_ENDPOINTS[endpoint].supports_incremental,
+                supports_append=SPARKPOST_ENDPOINTS[endpoint].supports_append,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=SPARKPOST_ENDPOINTS[endpoint].should_sync_default,
                 supports_webhooks=endpoint in WEBHOOK_SCHEMA_NAMES,

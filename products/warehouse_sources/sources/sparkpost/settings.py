@@ -36,6 +36,16 @@ class SparkPostEndpointConfig:
     def supports_incremental(self) -> bool:
         return self.timestamp_filter_param is not None
 
+    @property
+    def is_metrics(self) -> bool:
+        return self.path.startswith("/api/v1/metrics/")
+
+    @property
+    def supports_append(self) -> bool:
+        # Metrics rows are totals that change until their day or bucket ends, and each run fetches the
+        # watermark again. Append mode would keep the partial and the final totals side by side.
+        return self.supports_incremental and not self.is_metrics
+
 
 def _timestamp_incremental_fields(
     field_name: str, field_type: IncrementalFieldType = IncrementalFieldType.DateTime
@@ -252,7 +262,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 LIMITED_RETENTION_ENDPOINTS = {"events"}
 
 # The Metrics API retains data for 6 months, which bounds the first sync of the metrics tables.
-METRICS_ENDPOINTS = {name for name, config in SPARKPOST_ENDPOINTS.items() if config.path.startswith("/api/v1/metrics/")}
+METRICS_ENDPOINTS = {name for name, config in SPARKPOST_ENDPOINTS.items() if config.is_metrics}
 
 # --- Event webhooks ---------------------------------------------------------------------------
 #

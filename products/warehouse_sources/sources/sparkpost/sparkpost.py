@@ -153,22 +153,38 @@ class SparkPostDailyWindowPaginator(BasePaginator):
     breakdown rows, so each row is stamped with the day it covers.
     """
 
-    def __init__(self, start: date, end: date) -> None:
+    def __init__(self, start: date, end: date, endpoint: str, limit: Optional[int] = None) -> None:
         super().__init__()
         self._day = start
         self._end = end
+        self._endpoint = endpoint
+        self._limit = limit
         self._has_next_page = start <= end
 
     def _apply(self, request: Request) -> None:
-        day = self._day.isoformat()
-        # ``to`` is rounded up to the end of its minute, so ``23:59`` closes the day at 23:59:59.
-        request.params = {**(request.params or {}), "from": f"{day}T00:00", "to": f"{day}T23:59"}
+        # The default ``1min`` precision leaves out the ``to`` minute, so ending the window at the
+        # next midnight covers 00:00:00 through 23:59:59.
+        next_day = self._day + timedelta(days=1)
+        request.params = {
+            **(request.params or {}),
+            "from": f"{self._day.isoformat()}T00:00",
+            "to": f"{next_day.isoformat()}T00:00",
+        }
 
     def init_request(self, request: Request) -> None:
         self._apply(request)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
-        for row in data or []:
+        rows = data or []
+        if self._limit is not None and len(rows) >= self._limit:
+            # SparkPost has no pagination here, so a full response probably left out some groups.
+            LOGGER.warning(
+                "SparkPost metrics response reached the row limit, so some groups can be missing",
+                endpoint=self._endpoint,
+                day=self._day.isoformat(),
+                limit=self._limit,
+            )
+        for row in rows:
             if isinstance(row, dict):
                 row[DAILY_WINDOW_FIELD] = self._day.isoformat()
         self._day += timedelta(days=1)
@@ -315,7 +331,10 @@ def sparkpost_source(
         start = _daily_window_start(
             should_use_incremental_field, db_incremental_field_last_value, config.default_lookback_days or 0, today
         )
-        paginator = SparkPostDailyWindowPaginator(start=start, end=today)
+        limit = config.extra_params.get("limit")
+        paginator = SparkPostDailyWindowPaginator(
+            start=start, end=today, endpoint=endpoint, limit=int(limit) if limit else None
+        )
     else:
         paginator = SinglePagePaginator()
 
