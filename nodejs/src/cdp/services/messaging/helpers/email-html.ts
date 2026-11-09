@@ -10,7 +10,6 @@ import {
     addWorkflowRunTagToEmail,
     renderUtmOverrides,
     resolveUtmTags,
-    workflowRunTagGrowthBound,
 } from './utm'
 
 export type UtmTagging = {
@@ -54,17 +53,3 @@ export const htmlForSes = (html: string, tracking: SesTracking | null, preheader
         tracking ? addTrackingToEmail(html, tracking.invocation, tracking.signer, tracking.isTest, 'ses') : html,
         preheader
     )
-
-export const htmlForSesMaxBytes = (
-    html: string,
-    utm: UtmTagging | null,
-    runId: string,
-    tracking: SesTracking,
-    preheader?: string
-): number => {
-    const utmTagged = tagEmailLinks(html, utm, null)
-    return (
-        Buffer.byteLength(htmlForSes(utmTagged, tracking, preheader), 'utf8') +
-        workflowRunTagGrowthBound(utmTagged, runId)
-    )
-}
