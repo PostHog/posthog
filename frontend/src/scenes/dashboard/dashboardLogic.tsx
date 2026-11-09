@@ -1305,11 +1305,11 @@ export interface dashboardLogicActions {
             themeId: number | null
         } | null
     }
-    restoreTilePlacements: (placements: Record<number, TilePlacement>) => {
-        placements: Record<number, TilePlacement>
-    }
     restoreTileGroups: (groups: Record<string, DashboardTileGroupApi>) => {
         groups: Record<string, DashboardTileGroupApi>
+    }
+    restoreTilePlacements: (placements: Record<number, TilePlacement>) => {
+        placements: Record<number, TilePlacement>
     }
     retryDashboardLoad: () => {
         value: true
