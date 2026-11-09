@@ -392,6 +392,27 @@ export const QuillView: Story = {
     parameters: QUILL_PARAMETERS,
 }
 
+export const QuillAiWrittenDescription: Story = {
+    parameters: {
+        ...QUILL_PARAMETERS,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [
+                        200,
+                        {
+                            ...node,
+                            description: 'Monthly revenue per region and channel, summed from paid orders.',
+                            description_source: 'ai_generated',
+                        },
+                    ],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [200, savedQuery],
+                },
+            },
+        },
+    },
+}
+
 export const QuillMaterializedView: Story = {
     parameters: { ...MaterializedView.parameters, ...QUILL_PARAMETERS },
 }
