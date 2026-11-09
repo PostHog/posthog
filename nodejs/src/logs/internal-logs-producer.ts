@@ -45,6 +45,8 @@ type Request = Batch & { bytes: number }
 
 type AttemptResult = { outcome: 'sent' | 'rejected' | 'unknown_team' | 'retry'; detail: string }
 
+// The librdkafka default request.timeout.ms, and above the time capture-logs waits for its own Kafka write.
+const ATTEMPT_TIMEOUT_MS = 30_000
 const RETRY_BASE_DELAY_MS = 100
 const RETRY_MAX_DELAY_MS = 5_000
 const DRAIN_POLL_MS = 50
@@ -266,6 +268,7 @@ export class InternalLogsProducer {
                     ),
                 },
                 body,
+                timeoutMs: Math.max(1, Math.min(ATTEMPT_TIMEOUT_MS, deadline - Date.now())),
             })
             await response.dump()
             const { status } = response
