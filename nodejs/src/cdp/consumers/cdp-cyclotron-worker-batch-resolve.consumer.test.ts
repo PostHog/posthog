@@ -58,6 +58,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(state.flowVersion).toBe(4)
             expect(state.customerTaskIdempotencyVersion).toBe(1)
             expect(state.variables).toEqual({ greeting: 'hi' })
+            expect(state.sensitive).toBeUndefined()
             expect(invocation.parentRunId).toEqual('batch-job-1')
             expect(invocation.queue).toEqual('hogflow')
             expect((invocation as any).person).toBeUndefined()
@@ -86,6 +87,32 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
             expect(invocation.hogFlow).toBe(maskedHogFlow)
             expect(invocation.hogFlow.trigger_masking).toEqual(HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking)
+        })
+
+        it('stamps a protected message step on the run so a recovery path with only the workflow id keeps it out of the snapshot', () => {
+            const protectedFlow: HogFlow = {
+                ...hogFlow,
+                actions: [
+                    ...hogFlow.actions,
+                    {
+                        id: 'message',
+                        type: 'function_push',
+                        config: { template_id: 'template-native-push', sensitive: true, inputs: {} },
+                    } as any,
+                ],
+            }
+
+            const invocation = buildAccountHogFlowInvocation({
+                siteUrl: 'https://us.posthog.com',
+                parentRunId: 'batch-job-1',
+                team,
+                hogFlow: protectedFlow,
+                externalId: 'acme-1',
+                groupType: 'customer',
+                defaultVariables: {},
+            })
+
+            expect(invocation.state.sensitive).toBe(true)
         })
     })
 
@@ -220,20 +247,38 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             }
         })
 
-        it('persists the enqueue time and customer task key version for new person runs', async () => {
+        it.each([
+            ['an ordinary workflow', false, undefined],
+            // A recovery path that holds only the workflow id reads this stamp to keep the message out of the snapshot.
+            ['a workflow with a protected message step', true, true],
+        ])('persists the enqueue time and run stamps for new person runs of %s', async (_name, sensitive, stamp) => {
             // The stamp is written onto the invocation by queueLifecycleRow, so it only lands in
             // cyclotron if that runs before the state is serialized. Out of order, the terminal
             // row written when the run wakes records the wake time and wins the argMax collapse.
+            const flow: HogFlow = {
+                ...hogFlow,
+                actions: [
+                    ...hogFlow.actions,
+                    {
+                        id: 'message',
+                        type: 'function_push',
+                        config: { template_id: 'template-native-push', sensitive, inputs: {} },
+                    } as any,
+                ],
+            }
+            ;(consumer as any).hogFlowManager.getHogFlow.mockResolvedValue(flow)
             await processPage()
 
             const { newJobs } = bulkCreateAndCheckIn.mock.calls[0][0]
             expect(newJobs).toHaveLength(2)
             for (const job of newJobs) {
-                expect(parseJSON(job.state.toString()).state).toMatchObject({
+                const jobState = parseJSON(job.state.toString()).state
+                expect(jobState).toMatchObject({
                     firstScheduledAt: expect.any(String),
                     actionStepCount: 0,
                     customerTaskIdempotencyVersion: 1,
                 })
+                expect(jobState.sensitive).toBe(stamp)
             }
         })
 

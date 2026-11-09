@@ -1103,10 +1103,9 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
 
 def cleanup_stale_expiry_tracking() -> int:
     """
-    Clean up orphaned entries in the expiry tracking sorted set.
+    Delete the cache entries of teams that no longer exist and remove their expiry tracking members.
 
-    Removes entries for teams that no longer exist in the database.
-    Should be run periodically (e.g., daily) to prevent sorted set bloat.
+    Should run daily.
 
     Returns:
         Number of stale entries removed

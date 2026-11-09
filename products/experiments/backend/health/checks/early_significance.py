@@ -16,6 +16,8 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.skips import (
+    NEEDS_EXPOSURES,
+    NEEDS_PRIMARY_METRIC,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
@@ -27,7 +29,7 @@ from products.experiments.backend.logic.result_stats import MetricResultStats, V
 from products.experiments.backend.running_time_calculator import calculate_detectable_effect
 from products.experiments.backend.running_time_target import RunningTimeTarget
 
-# pinned: sent as `finding_variant` on the health finding events.
+# pinned: sent as `finding_subcode` on the health finding events.
 BELOW_DETECTABLE_EFFECT = "below_detectable_effect"
 
 # The results page shows results from 50 exposures (`EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS` in
@@ -52,7 +54,7 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
     if ctx.has_ended:
         return not_applicable(NOT_AFTER_END)
     if ctx.primary_metric_count == 0:
-        return not_applicable("Runs once the experiment has a primary metric")
+        return not_applicable(NEEDS_PRIMARY_METRIC)
     metric = ctx.primary_metric
     if metric is None:
         return not_checked("Couldn't read the results of the primary metric")
@@ -63,7 +65,7 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
         return not_applicable("Runs once the primary metric has results")
     samples = _total_samples(result)
     if samples < MIN_SAMPLES_FOR_RESULTS:
-        return not_applicable("Runs once enough users are exposed")
+        return not_applicable(NEEDS_EXPOSURES)
     control_rate = result.baseline.mean or 0
     if not 0 < control_rate < 1:
         return not_applicable("Runs once the control group's conversion rate is above 0% and below 100%")

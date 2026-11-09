@@ -53,15 +53,30 @@ _PROBE_FIRST_HELPER_OPS = frozenset(
     {"AddConstraintNotValid", "AddForeignKeyNotValid", "ValidateConstraint", "ValidateForeignKey"}
 )
 
-# The two SQL shapes the squash tool forwards into schema_addons files: a
-# DO-block whose body only runs when the constraint is absent, and
-# CREATE INDEX ... IF NOT EXISTS.
+# The SQL shapes the squash tool forwards into schema_addons files: a DO-block
+# whose body only runs when the constraint is absent, CREATE INDEX ... IF NOT
+# EXISTS, VALIDATE CONSTRAINT (Postgres skips an already-validated constraint),
+# and table storage parameters (setting the same value again changes nothing,
+# and the SHARE UPDATE EXCLUSIVE lock does not block reads or writes).
 _GUARDED_DO_BLOCK_RE = re.compile(
     r"DO\s+\$\$\s*BEGIN\s+IF\s+NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+pg_constraint\b.*?END\s*\$\$\s*;?",
     re.IGNORECASE | re.DOTALL,
 )
 _GUARDED_CREATE_INDEX_RE = re.compile(
     r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?IF\s+NOT\s+EXISTS\b[^;]*;?",
+    re.IGNORECASE,
+)
+_VALIDATE_CONSTRAINT_RE = re.compile(
+    r"ALTER\s+TABLE\s+(?:ONLY\s+)?[^;\s]+\s+VALIDATE\s+CONSTRAINT\s+[^;\s]+\s*;?",
+    re.IGNORECASE,
+)
+_STORAGE_PARAMETERS_RE = re.compile(
+    r"ALTER\s+TABLE\s+(?:ONLY\s+)?[^;\s]+\s+(?:SET|RESET)\s*\([^;)]*\)\s*;?",
+    re.IGNORECASE,
+)
+# The squash tool keeps an original lock_timeout as a session setting around forwarded DDL.
+_SESSION_LOCK_TIMEOUT_RE = re.compile(
+    r"(?:SET\s+lock_timeout\s*(?:=|TO)\s*[^;]+|RESET\s+lock_timeout)\s*;?",
     re.IGNORECASE,
 )
 
@@ -260,14 +275,18 @@ class RiskAnalyzer:
 
     @staticmethod
     def _runsql_is_existence_guarded(op) -> bool:
-        """True when the RunSQL consists only of pg_constraint-guarded DO blocks
-        and CREATE INDEX ... IF NOT EXISTS statements."""
+        """True when the RunSQL consists only of pg_constraint-guarded DO blocks,
+        CREATE INDEX ... IF NOT EXISTS, VALIDATE CONSTRAINT and storage-parameter
+        statements."""
         sql = op.sql
         if not isinstance(sql, str):
             return False
         remainder = re.sub(r"--[^\n]*", "", sql)
         remainder = _GUARDED_DO_BLOCK_RE.sub("", remainder)
         remainder = _GUARDED_CREATE_INDEX_RE.sub("", remainder)
+        remainder = _VALIDATE_CONSTRAINT_RE.sub("", remainder)
+        remainder = _STORAGE_PARAMETERS_RE.sub("", remainder)
+        remainder = _SESSION_LOCK_TIMEOUT_RE.sub("", remainder)
         return not remainder.strip(" \t\n;")
 
     def _is_safe_on_new_table(self, op, risk: OperationRisk) -> bool:

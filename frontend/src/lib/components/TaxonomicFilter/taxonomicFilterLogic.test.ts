@@ -943,8 +943,6 @@ describe('taxonomicFilterLogic', () => {
     })
 
     describe('MCP properties group by event scope', () => {
-        // Mirrors the rebuild-side assertions in utils/mcpProperties.test.ts — the two
-        // variants define the group independently, so both sides guard against drift.
         it.each([
             { eventNames: ['$mcp_tool_call'], expectPresent: true },
             { eventNames: ['$pageview'], expectPresent: false },
@@ -1740,7 +1738,7 @@ describe('taxonomicFilterLogic', () => {
                 (g) => g.type === TaxonomicFilterGroupType.HogQLExpression
             )!
             const item = { name: 'properties.$current_url', value: 'properties.$current_url' }
-            // Mirror TaxonomicFilterMenu's handleCommit: the value is derived via group.getValue.
+            // The value is derived via group.getValue.
             const value = group.getValue?.(item as any) ?? null
 
             await expectLogic(hogqlLogic, () => {

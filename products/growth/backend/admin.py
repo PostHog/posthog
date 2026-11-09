@@ -7,7 +7,6 @@ from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models import QuerySet
-from django.db.models.fields import BLANK_CHOICE_DASH
 from django.http import HttpRequest, HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html
@@ -204,6 +203,9 @@ class ProductPushCampaignAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">{}</a>', url, campaign.organization.name)
 
 
+BLANK_PRODUCT_KEY_CHOICE = ("", "---------")
+
+
 class ProductPushCampaignInlineForm(ProductPushCampaignForm):
     class Meta:
         model = ProductPushCampaign
@@ -215,7 +217,7 @@ class ProductPushCampaignInlineForm(ProductPushCampaignForm):
         # so every org save inserted a phantom campaign and 500ed once one was queued.
         product_key_field = self.fields["product_key"]
         assert isinstance(product_key_field, forms.ChoiceField)  # built in ProductPushCampaignForm.__init__
-        product_key_field.choices = BLANK_CHOICE_DASH + product_key_choices()
+        product_key_field.choices = [BLANK_PRODUCT_KEY_CHOICE, *product_key_choices()]
 
 
 class ProductPushCampaignInline(admin.TabularInline):

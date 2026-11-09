@@ -54,6 +54,15 @@ The time-series charts render it from `xAxis.label` and `yAxis.label`; compose i
 
 Regression lines on vertical bar and combo charts. See [bars.md](./bars.md).
 
+### `ValueBand`
+
+A translucent band across the plot between `from` and `to` on the value axis, for threshold zones.
+Omit `from` to run it to the plot bottom, or `to` to run it to the top; the part outside the axis range is clipped.
+`yAxisId` picks a secondary axis.
+The fill defaults to the theme's axis color.
+It draws over the series, like a `ReferenceLine` fill, so keep `fillOpacity` low.
+Pair each band with a goal line at its threshold (`GoalLineConfig.stroke: 'solid'` for a solid one), and expect the band to tint that line, because goal lines render first.
+
 ### `HighlightedRange`
 
 A translucent box spanning an x-axis range.

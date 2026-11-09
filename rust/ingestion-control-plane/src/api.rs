@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use k8s_awareness::DiscoveredPod;
 
-use crate::changelog;
+use crate::changelog::{self, RestoreError};
 use crate::etcd;
 use crate::jobs::{AnalysisRequest, JobView};
 use crate::kafka::browse::{self, BrowseParams, BrowseStop, MessageFilter, MessageRecord};
@@ -448,6 +448,8 @@ struct SeedChangelogRequest {
     topic: String,
     /// The writer's consumer group, as its `KAFKA_CONSUMER_GROUP` names it.
     writer_group: String,
+    #[serde(default)]
+    cluster: Option<String>,
 }
 
 async fn personhog_seed_changelog(
@@ -465,15 +467,81 @@ async fn personhog_seed_changelog(
         return Err(ApiError::bad_request("writer_group must not be empty"));
     }
     let client = etcd_client(&state).await?;
-    let seeded = changelog::seed(&state.config, &client, &prefix, topic, writer_group)
-        .await
-        .map_err(|e| ApiError::bad_request(format!("seed failed: {e:#}")))?;
+    let cluster = trimmed(request.cluster.as_deref());
+    let seeded = changelog::seed(
+        &state.config,
+        &client,
+        &prefix,
+        topic,
+        writer_group,
+        cluster,
+    )
+    .await
+    .map_err(|e| ApiError::bad_request(format!("seed failed: {e:#}")))?;
     Ok(Json(seeded))
+}
+
+fn trimmed(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|v| !v.is_empty())
+}
+
+fn backup_store(state: &AppState) -> Result<Arc<dyn crate::backup::BackupStore>, ApiError> {
+    state.backups.clone().ok_or_else(|| {
+        ApiError::unavailable("changelog backups are disabled (CHANGELOG_BACKUP_BUCKET not set)")
+    })
+}
+
+async fn personhog_changelog_backups(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::backup::BackupVersion>>, ApiError> {
+    let backups = backup_store(&state)?;
+    let versions = changelog::backups(backups.as_ref(), &state.config.personhog_etcd_prefix)
+        .await
+        .map_err(|e| ApiError::upstream(format!("listing backups failed: {e:#}")))?;
+    Ok(Json(versions))
+}
+
+#[derive(Deserialize)]
+struct RestoreChangelogRequest {
+    version_id: Option<String>,
+}
+
+async fn personhog_restore_changelog(
+    State(state): State<AppState>,
+    Json(request): Json<RestoreChangelogRequest>,
+) -> Result<Json<ChangelogConfig>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let backups = backup_store(&state)?;
+    let client = etcd_client(&state).await?;
+    let version_id = request
+        .version_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let restored = changelog::restore(
+        &state.config,
+        &client,
+        &prefix,
+        backups.as_ref(),
+        version_id,
+    )
+    .await
+    .map_err(|e| match e {
+        RestoreError::NotFound(message) => ApiError::not_found(message),
+        RestoreError::Refused(message) => {
+            ApiError::bad_request(format!("restore refused: {message}"))
+        }
+        RestoreError::Upstream(e) => ApiError::upstream(format!("restore failed: {e:#}")),
+    })?;
+    Ok(Json(restored))
 }
 
 #[derive(Deserialize)]
 struct StartMigrationRequest {
     topic: String,
+    #[serde(default)]
+    cluster: Option<String>,
 }
 
 async fn personhog_start_migration(
@@ -487,7 +555,8 @@ async fn personhog_start_migration(
         return Err(ApiError::bad_request("topic must not be empty"));
     }
     let client = etcd_client(&state).await?;
-    let migration = changelog::start_migration(&state.config, &client, &prefix, topic)
+    let cluster = trimmed(request.cluster.as_deref());
+    let migration = changelog::start_migration(&state.config, &client, &prefix, topic, cluster)
         .await
         .map_err(|e| ApiError::bad_request(format!("migration refused: {e:#}")))?;
     Ok(Json(migration))
@@ -603,6 +672,14 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/personhog/changelog/seed",
             post(personhog_seed_changelog),
+        )
+        .route(
+            "/api/personhog/changelog/backups",
+            get(personhog_changelog_backups),
+        )
+        .route(
+            "/api/personhog/changelog/restore",
+            post(personhog_restore_changelog),
         )
         .route("/api/personhog/migrations", post(personhog_start_migration))
         .route(

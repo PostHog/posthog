@@ -9,6 +9,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
+from posthog.hogql.database.schema.experiment_preaggregated_person_fields import experiment_preaggregated_person_fields
 
 from posthog.clickhouse.preaggregation.experiment_exposures_sql import DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE
 
@@ -30,6 +31,7 @@ class ExperimentExposuresPreaggregatedTable(Table):
         "entity_id": StringDatabaseField(
             name="entity_id", description="Identifier of the exposed entity (person or group) being analyzed."
         ),
+        **experiment_preaggregated_person_fields(),
         "variant": StringDatabaseField(
             name="variant", description="Experiment variant the entity was exposed to (e.g. 'control', 'test')."
         ),

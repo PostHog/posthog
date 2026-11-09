@@ -15,6 +15,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Organization, Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.recordings.errors import RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.session_replay.copy_recording.activities import copy_session_recording
 from posthog.temporal.session_replay.copy_recording.types import CopySessionInput, CopySessionResult
@@ -64,7 +65,9 @@ class TestCopySessionRecording(ClickhouseTestMixin, APIBaseTest):
         ]
         flush_persons_and_events()
 
-    def _run(self, target_team_id: int | None = None) -> tuple[CopySessionResult, MagicMock, AsyncMock]:
+    def _run(
+        self, target_team_id: int | None = None, listing: AsyncMock | None = None
+    ) -> tuple[CopySessionResult, MagicMock, AsyncMock]:
         client = MagicMock()
         client.fetch_block = AsyncMock(side_effect=lambda key, *_: f"plain-{key[-20:]}".encode())
         client.encrypt_blocks = AsyncMock(side_effect=lambda _s, _t, blocks, _r: [b"sealed:" + b for b in blocks])
@@ -73,7 +76,7 @@ class TestCopySessionRecording(ClickhouseTestMixin, APIBaseTest):
         client_cm.__aexit__ = AsyncMock(return_value=None)
         upload = AsyncMock()
         with (
-            patch(f"{ACTIVITIES}.fetch_blocks_from_recording_api", AsyncMock(return_value=self.blocks)),
+            patch(f"{ACTIVITIES}.fetch_blocks_from_recording_api", listing or AsyncMock(return_value=self.blocks)),
             patch(f"{ACTIVITIES}.recording_api_client", return_value=client_cm),
             patch(f"{ACTIVITIES}._upload", upload),
         ):
@@ -154,3 +157,10 @@ class TestCopySessionRecording(ClickhouseTestMixin, APIBaseTest):
 
         assert error.exception.non_retryable
         assert SessionReplayEvents().get_metadata("s1", other_team) is None
+
+    def test_refuses_a_deleted_source_without_retrying(self) -> None:
+        with self.assertRaises(ApplicationError) as error:
+            self._run(listing=AsyncMock(side_effect=RecordingDeletedError("Recording has been deleted")))
+
+        assert error.exception.non_retryable
+        assert SessionReplayEvents().get_metadata("s1", self.target_team) is None
