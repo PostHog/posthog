@@ -28,6 +28,7 @@ export function InboxSetupFlow(): JSX.Element {
         }
     }, [ready, draft.step, currentTeamId, reportStepViewed])
     const isScoutsStep = draft.step === 'scouts'
+    const activationReason = isFinalStep ? activationDisabledReason : undefined
     return (
         <div className={cn('@container w-full', isScoutsStep && 'h-full')}>
             <div
@@ -80,26 +81,31 @@ export function InboxSetupFlow(): JSX.Element {
                                 Back
                             </LemonButton>
                         )}
-                        <LemonButton
-                            type="primary"
-                            className="ml-auto"
-                            status="alt"
-                            loading={saving}
-                            disabledReason={
-                                !ready ? 'Loading your setup' : isFinalStep ? activationDisabledReason : undefined
-                            }
-                            sideIcon={isFinalStep ? undefined : <IconArrowRight />}
-                            onClick={() =>
-                                isFinalStep ? activate() : goToStep(draft.step === 'signals' ? 'scouts' : 'github')
-                            }
-                            data-attr="inbox-setup-continue"
-                        >
-                            {isFinalStep
-                                ? 'Activate Self-Driving'
-                                : draft.step === 'signals'
-                                  ? 'Continue to scouts'
-                                  : 'Continue'}
-                        </LemonButton>
+                        <div className="ml-auto flex min-w-0 max-w-full flex-col items-end gap-2">
+                            <LemonButton
+                                type={activationReason ? 'secondary' : 'primary'}
+                                status="alt"
+                                loading={saving}
+                                disabledReason={!ready ? 'Loading your setup' : activationReason}
+                                aria-describedby={activationReason ? 'inbox-setup-activation-reason' : undefined}
+                                sideIcon={isFinalStep ? undefined : <IconArrowRight />}
+                                onClick={() =>
+                                    isFinalStep ? activate() : goToStep(draft.step === 'signals' ? 'scouts' : 'github')
+                                }
+                                data-attr="inbox-setup-continue"
+                            >
+                                {isFinalStep
+                                    ? 'Activate Self-Driving'
+                                    : draft.step === 'signals'
+                                      ? 'Continue to scouts'
+                                      : 'Continue'}
+                            </LemonButton>
+                            {activationReason && (
+                                <p id="inbox-setup-activation-reason" className="m-0 text-sm text-secondary text-right">
+                                    {activationReason}
+                                </p>
+                            )}
+                        </div>
                     </div>
                 </GuidedWizardPanel>
             </div>

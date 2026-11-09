@@ -159,7 +159,14 @@ export const Scouts: Story = {
         }),
     ],
 }
-export const Github: Story = {
+export const Github = {
+    play: async ({ canvas }) => {
+        const reason = await canvas.findByText('Connect GitHub to continue')
+        await expect(reason).toBeVisible()
+        const activate = canvas.getByText('Activate Self-Driving').closest('button')!
+        await expect(activate).toHaveAttribute('aria-disabled', 'true')
+        await expect(activate).toHaveAccessibleDescription('Connect GitHub to continue')
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -169,6 +176,18 @@ export const Github: Story = {
                 },
             },
         }),
+    ],
+} satisfies Story
+
+export const NarrowGithub: Story = {
+    ...Github,
+    decorators: [
+        ...(Github.decorators ?? []),
+        (Story) => (
+            <div className="w-96 max-w-full">
+                <Story />
+            </div>
+        ),
     ],
 }
 
@@ -238,6 +257,12 @@ export const BuiltInScouts: Story = {
 }
 
 export const GithubAlreadyConnected: Story = {
+    play: async ({ canvas }) => {
+        await canvas.findByText('GitHub is connected')
+        const activate = canvas.getByText('Activate Self-Driving').closest('button')!
+        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
+        await expect(canvas.queryByText('Connect GitHub to continue')).not.toBeInTheDocument()
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -270,6 +295,7 @@ export const GithubAlreadyConnected: Story = {
 }
 
 export const GithubAccessRequired: Story = {
+    play: Github.play,
     decorators: [
         projectMocks(true, null),
         mswDecorator({
@@ -280,6 +306,31 @@ export const GithubAccessRequired: Story = {
                 },
             },
             post: { '/api/projects/:id/integrations/request_access/': {} },
+        }),
+    ],
+}
+
+export const GithubOptionalReview: Story = {
+    play: async ({ canvas }) => {
+        await canvas.findByText('Connect GitHub for code context')
+        await waitFor(() =>
+            expect(canvas.getByText('Activate Self-Driving').closest('button')).toHaveAttribute(
+                'aria-disabled',
+                'false'
+            )
+        )
+        await expect(canvas.queryByText('Connect GitHub to continue')).not.toBeInTheDocument()
+    },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: { ...draft, step: 'github', activation_mode: 'github_optional' },
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+            },
         }),
     ],
 }

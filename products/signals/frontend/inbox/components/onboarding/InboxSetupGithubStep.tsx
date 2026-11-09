@@ -14,7 +14,7 @@ import { InboxGithubAccessExplanation } from './InboxGithubAccessExplanation'
 import { InboxSetupImplementation } from './InboxSetupImplementation'
 
 export function InboxSetupGithubStep(): JSX.Element {
-    const { hasGithubIntegration, saving } = useValues(inboxSetupLogic)
+    const { draft, hasGithubIntegration, saving } = useValues(inboxSetupLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { connectGithub } = useActions(inboxSetupLogic)
     const restrictionReason = useRestrictedArea({
@@ -24,7 +24,13 @@ export function InboxSetupGithubStep(): JSX.Element {
     return (
         <>
             <GuidedWizardSection
-                title={hasGithubIntegration ? 'GitHub is connected' : 'Connect GitHub for code context'}
+                title={
+                    hasGithubIntegration
+                        ? 'GitHub is connected'
+                        : draft.activation_mode === 'github_optional'
+                          ? 'Connect GitHub for code context'
+                          : 'Connect GitHub (required)'
+                }
                 description="Self-Driving uses your code to explain what's happening in your product and suggest what to do next."
             >
                 {!hasGithubIntegration && restrictionReason ? (
