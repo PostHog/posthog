@@ -602,36 +602,32 @@ class TestAdminConsoleViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("compacted", True, CompactionResult(compacted=True, checkpoints_deleted=3, blobs_deleted=5), 302),
-            ("nothing_to_compact", True, CompactionResult(compacted=False), 302),
-            ("unknown_conversation", False, None, 404),
+            ("compacted", 0, CompactionResult(compacted=True, checkpoints_deleted=3, blobs_deleted=5), 302, 2),
+            ("nothing_to_compact", 0, CompactionResult(compacted=False), 302, 2),
+            ("one_unknown_conversation_stops_the_run", 1, None, 404, 0),
         ]
     )
     @patch("posthog.admin.console.conversation_checkpoints_tool.compact_conversation")
-    def test_compacting_a_conversation_runs_only_for_a_conversation_that_exists(
+    def test_compacting_conversations_runs_only_when_every_id_exists(
         self,
         _name: str,
-        exists: bool,
+        unknown_count: int,
         result: CompactionResult | None,
         expected_status: int,
+        expected_calls: int,
         compact: MagicMock,
     ) -> None:
         compact.return_value = result
-        conversation_id = (
-            Conversation.objects.create(team=self.team, user=self.user).id
-            if exists
-            else "01920000-0000-0000-0000-000000000000"
-        )
+        ids = [str(Conversation.objects.create(team=self.team, user=self.user).id) for _ in range(2)]
+        ids += ["01920000-0000-0000-0000-000000000000"] * unknown_count
 
         response = self.client.post(
             "/admin/console/tools/ai-conversation-checkpoints/compact/",
-            {"conversation": str(conversation_id), "reason": "Thread too large to load"},
+            {"conversations": "\n".join(ids), "reason": "Threads too large to load"},
         )
 
         assert response.status_code == expected_status
-        assert compact.called == exists
-        if exists:
-            compact.assert_called_once_with(str(conversation_id))
+        assert compact.call_count == expected_calls
 
     def test_the_old_compact_url_opens_the_console_form_for_the_conversation(self) -> None:
         conversation = Conversation.objects.create(team=self.team, user=self.user)

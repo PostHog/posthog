@@ -1,15 +1,13 @@
-from django.contrib import admin, messages
+from django.contrib import admin
 from django.db.models import Count, Sum
 from django.db.models.functions import Length
 from django.template.defaultfilters import filesizeformat
 from django.urls import reverse
 from django.utils.html import format_html
 
-from posthog.admin.console.conversation_checkpoints_tool import COMPACT_SKIP_REASON, TOOL_KEY
+from posthog.admin.console.conversation_checkpoints_tool import TOOL_KEY
 
 from products.posthog_ai.backend.models.assistant import Conversation
-
-from ee.hogai.django_checkpoint.compaction import compact_conversation
 
 
 @admin.register(Conversation)
@@ -25,7 +23,6 @@ class ConversationAdmin(admin.ModelAdmin):
     raw_id_fields = ("task",)
     readonly_fields = ("checkpoint_storage",)
     ordering = ("-updated_at",)
-    actions = ["compact_checkpoints"]
 
     def has_add_permission(self, request) -> bool:
         return False
@@ -60,23 +57,4 @@ class ConversationAdmin(admin.ModelAdmin):
             filesizeformat(blobs["total_bytes"] or 0),
             compact_url,
             conversation.pk,
-        )
-
-    @admin.action(description="Compact checkpoints (keep latest, reclaim storage)")
-    def compact_checkpoints(self, request, queryset) -> None:
-        # Bypasses the sweep's rollout allowlist — this is a deliberate staff override.
-        compacted = skipped = checkpoints = blobs = 0
-        for conversation in queryset:
-            result = compact_conversation(str(conversation.id))
-            if result.compacted:
-                compacted += 1
-                checkpoints += result.checkpoints_deleted
-                blobs += result.blobs_deleted
-            else:
-                skipped += 1
-        self.message_user(
-            request,
-            f"Compacted {compacted} conversation(s) — reclaimed {checkpoints} checkpoints "
-            f"and {blobs} blobs. Skipped {skipped} ({COMPACT_SKIP_REASON}).",
-            messages.SUCCESS if compacted else messages.WARNING,
         )
