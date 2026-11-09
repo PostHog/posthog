@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -15,6 +16,16 @@ jest.mock('~/queries/query', () => {
         performQuery: jest.fn().mockResolvedValue({ results: [] }),
     }
 })
+
+const SANDBOX_STEP = {
+    id: 'email',
+    type: 'email_sandbox',
+    name: 'Email',
+    description: '',
+    created_at: 0,
+    updated_at: 0,
+    config: { inputs: { email: { templating: 'liquid', value: { to: { email: 'ops@example.com' } } } } },
+} as HogFlowAction
 
 describe('hogFlowEditorNotificationTestLogic', () => {
     let logic: ReturnType<typeof hogFlowEditorNotificationTestLogic.build>
@@ -507,21 +518,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 },
             },
         })
-        workflowLogicInstance.actions.setWorkflowValues({
-            actions: [
-                {
-                    id: 'email',
-                    type: 'email_sandbox',
-                    name: 'Email',
-                    description: '',
-                    created_at: 0,
-                    updated_at: 0,
-                    config: {
-                        inputs: { email: { templating: 'liquid', value: { to: { email: 'ops@example.com' } } } },
-                    },
-                } as HogFlowAction,
-            ],
-        })
+        workflowLogicInstance.actions.setWorkflowValues({ actions: [SANDBOX_STEP] })
         logic.actions.setTestInvocationValue('globals', '{"person": {"properties": {"email": "lead@example.com"}}}')
         logic.actions.setTestInvocationValue('mock_async_functions', true)
         logic.actions.setEmailAddressOverride('member@example.com')
@@ -533,5 +530,36 @@ describe('hogFlowEditorNotificationTestLogic', () => {
 
         expect(sentTo).toBe('member@example.com')
         expect(logic.values.testResult?.mocked).toBe(true)
+    })
+
+    it('records a sandbox test send for the tested step after the selection moves on', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        let answer: () => void = () => {}
+        const answered = new Promise<void>((resolve) => {
+            answer = resolve
+        })
+        useMocks({
+            post: {
+                '/api/environments/:team_id/hog_flows/:id/invocations': async () => {
+                    await answered
+                    return [
+                        200,
+                        { status: 'success', logs: [], nextActionId: null, execResult: { status: 'accepted' } },
+                    ]
+                },
+            },
+        })
+        workflowLogicInstance.actions.setWorkflowValues({ actions: [SANDBOX_STEP] })
+        logic.actions.setTestInvocationValue('globals', '{"person": {"properties": {"email": "lead@example.com"}}}')
+        logic.actions.setTestInvocationValue('mock_async_functions', false)
+        logic.actions.setSelectedNodeId('email')
+
+        logic.actions.submitTestInvocation()
+        logic.actions.setSelectedNodeId(null)
+        answer()
+        await expectLogic(logic).toDispatchActions(['submitTestInvocationSuccess'])
+
+        expect(capture).toHaveBeenCalledWith('workflows sandbox test sent', { status: 'accepted', reason: null })
+        capture.mockRestore()
     })
 })

@@ -350,6 +350,8 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 return errors
             },
             submit: async (testInvocation: HogflowTestInvocation) => {
+                // The selection can change while the request runs, and the result belongs to the step that was tested.
+                const { workflow: testedWorkflow, selectedNodeId: testedActionId } = values
                 try {
                     const parsedGlobals = JSON.parse(testInvocation.globals)
 
@@ -367,11 +369,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
 
                     // nosemgrep: prefer-codegen-api-namespaced-workflows -- The generated hogFlowsInvocationsCreate returns void, and this caller needs the test result.
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
-                        configuration: withSandboxRecipient(
-                            values.workflowSanitized,
-                            values.selectedNodeId,
-                            emailToUse
-                        ),
+                        configuration: withSandboxRecipient(values.workflowSanitized, testedActionId, emailToUse),
                         globals: {
                             ...parsedGlobals,
                             variables: values.workflow.variables?.reduce(
@@ -397,7 +395,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                     }
 
                     actions.setTestResult(result)
-                    reportSandboxTest(values.workflow, values.selectedNodeId, result)
+                    reportSandboxTest(testedWorkflow, testedActionId, result)
                     actions.setNextActionId(
                         result.nextActionId && result.nextActionId !== values.selectedNodeId
                             ? result.nextActionId
