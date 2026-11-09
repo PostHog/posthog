@@ -147,6 +147,7 @@ def _build_inputs(
     signal_priority: ReportPriority | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     requested_head_sha: str | None = None,
+    trigger_action: str | None = None,
     installation_id: str | None = None,
     github_repo_id: int | None = None,
 ) -> tuple[ReviewPRWorkflowInputs, str]:
@@ -187,6 +188,7 @@ def _build_inputs(
         resolve_comments=resolve_comments,
         review_mode=review_mode,
         requested_head_sha=requested_head_sha,
+        trigger_action=trigger_action,
         installation_id=installation_id,
         github_repo_id=github_repo_id,
     )
@@ -263,6 +265,7 @@ def start_review_pr_workflow(
     resolve_comments: bool | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     requested_head_sha: str | None = None,
+    trigger_action: str | None = None,
     installation_id: str | None = None,
     github_repo_id: int | None = None,
 ) -> str:
@@ -291,6 +294,7 @@ def start_review_pr_workflow(
         resolve_comments=resolve_comments,
         review_mode=review_mode,
         requested_head_sha=requested_head_sha,
+        trigger_action=trigger_action,
         installation_id=installation_id,
         github_repo_id=github_repo_id,
     )

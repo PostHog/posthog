@@ -168,6 +168,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             github_repo_id=_REPO_ID,
             draft=draft,
             skip_agent_review=False,
+            action=action,
         )
 
     @parameterized.expand(
@@ -342,6 +343,7 @@ class TestAuthoredPRReviewTask(BaseTest):
             "review_mode": "flash",
             "trigger_source": "automatic",
             "requested_head_sha": _HEAD_SHA,
+            "trigger_action": "opened",
             "installation_id": _INSTALLATION_ID,
             "github_repo_id": _REPO_ID,
         }

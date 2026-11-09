@@ -80,6 +80,12 @@ class ReviewPRWorkflowInputs:
     # payloads from before the field still deserialize as full reviews.
     review_mode: str = REVIEW_MODE_FULL
     requested_head_sha: str | None = None
+    # The GitHub `pull_request` action (`opened`, `ready_for_review`, `synchronize`) that asked for an
+    # automatic review of `requested_head_sha`. None for every other trigger. The review queue keeps
+    # one request per automatic slot, and a newer push replaces the waiting one, so a turn always
+    # carries the action of the request it runs. A request for the head the running turn already
+    # reviews is dropped, and its action with it, because that turn answers for the head.
+    trigger_action: str | None = None
     installation_id: str | None = None
     github_repo_id: int | None = None
 
@@ -96,6 +102,7 @@ class ReviewPRWorkflowInputs:
             "head_branch": self.head_branch,
             "trigger_source": self.trigger_source,
             "review_mode": self.review_mode,
+            "trigger_action": self.trigger_action,
         }
 
 

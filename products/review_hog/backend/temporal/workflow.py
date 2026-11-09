@@ -45,6 +45,7 @@ from products.review_hog.backend.reviewer.push_gate import PushGateDecision
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
+from products.review_hog.backend.silent_stamphog import FinishedTurn
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
@@ -106,6 +107,7 @@ from products.review_hog.backend.temporal.activities import (
     select_perspectives_activity,
     single_agent_review_activity,
     split_chunks_activity,
+    start_silent_stamphog_activity,
     sync_review_skills_activity,
     track_review_completed_activity,
     track_review_failed_activity,
@@ -641,6 +643,7 @@ class ReviewPRWorkflow:
                         head_sha=head_sha,
                         run_index=meta.run_index,
                         turn_trigger_source=inputs.trigger_source,
+                        turn_trigger_action=inputs.trigger_action,
                         review_mode=inputs.review_mode,
                         flash_reasoning_effort=acting.flash_reasoning_effort,
                         review_design=review_design,
@@ -876,6 +879,7 @@ class ReviewPRWorkflow:
                             report_id=report_id,
                             run_index=meta.run_index,
                             turn_trigger_source=inputs.trigger_source,
+                            turn_trigger_action=inputs.trigger_action,
                             review_mode=inputs.review_mode,
                             flash_reasoning_effort=acting.flash_reasoning_effort,
                             review_design=review_design,
@@ -900,6 +904,27 @@ class ReviewPRWorkflow:
         # After publish, so a stamphog re-run finds this turn's findings on the PR.
         if workflow.patched("reviewhog-nudge-stamphog-2026-10") and publishes_to_pr and meta.pr_number is not None:
             await self._nudge_stamphog(repository, meta.pr_number, head_sha)
+        if (
+            workflow.patched("reviewhog-silent-stamphog-2026-11")
+            and publishes_to_pr
+            and meta.pr_number is not None
+            and inputs.trigger_action is not None
+        ):
+            await self._start_silent_stamphog(
+                FinishedTurn(
+                    team_id=inputs.team_id,
+                    report_id=report_id,
+                    repository=repository,
+                    pr_number=meta.pr_number,
+                    run_index=meta.run_index,
+                    review_mode=inputs.review_mode,
+                    head_sha=head_sha,
+                    requested_head_sha=inputs.requested_head_sha,
+                    trigger_action=inputs.trigger_action,
+                    draft=meta.draft,
+                    lens_chunks_capped=meta.lens_chunks_capped,
+                )
+            )
         # One analytics event per finalized turn (the review-level count dashboards aggregate);
         # best-effort — a review must never fail over its own telemetry.
         try:
@@ -913,6 +938,7 @@ class ReviewPRWorkflow:
                     published=posted,
                     workflow_started_at=workflow.info().start_time.isoformat(),
                     turn_trigger_source=inputs.trigger_source,
+                    turn_trigger_action=inputs.trigger_action,
                     review_mode=inputs.review_mode,
                     flash_reasoning_effort=acting.flash_reasoning_effort,
                     marker=marker,
@@ -1201,6 +1227,18 @@ class ReviewPRWorkflow:
             )
         except ActivityError:
             workflow.logger.warning("Could not ask stamphog to re-review")
+
+    @staticmethod
+    async def _start_silent_stamphog(turn: FinishedTurn) -> None:
+        try:
+            await workflow.execute_activity(
+                start_silent_stamphog_activity,
+                turn,
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not ask stamphog for a silent review")
 
     @staticmethod
     async def _remove_eyes_reaction(team_id: int, repository: str, pr_number: int, reaction_id: int) -> None:

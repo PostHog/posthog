@@ -43,6 +43,7 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
         review_mode="flash",
         trigger_source="automatic",
         requested_head_sha="a",
+        trigger_action="opened",
         publish=True,
     )
 
@@ -81,9 +82,9 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
             await asyncio.wait_for(entered.wait(), timeout=10)
             for request in (
                 first,
-                replace(first, requested_head_sha="b"),
-                replace(first, requested_head_sha="c"),
-                replace(first, review_mode="full", trigger_source="ui", requested_head_sha="c"),
+                replace(first, requested_head_sha="b", trigger_action="synchronize"),
+                replace(first, requested_head_sha="c", trigger_action="ready_for_review"),
+                replace(first, review_mode="full", trigger_source="ui", requested_head_sha="c", trigger_action=None),
             ):
                 await env.client.start_workflow(
                     ReviewPRQueueWorkflow.run,
@@ -100,9 +101,9 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
             release.set()
             assert await handle.result() == "report"
 
-    completed = [(review.review_mode, review.requested_head_sha) for review in reviews]
-    assert completed[-2:] == [("full", "c"), ("flash", "c")]
-    assert all(item == ("flash", "a") for item in completed[:-2])
+    completed = [(review.review_mode, review.requested_head_sha, review.trigger_action) for review in reviews]
+    assert completed[-2:] == [("full", "c", None), ("flash", "c", "ready_for_review")]
+    assert all(item == ("flash", "a", "opened") for item in completed[:-2])
     assert len(completed) == (4 if fail_first else 3)
 
 

@@ -33,6 +33,7 @@ from products.review_hog.backend.reviewer.push_gate import PushGateDecision
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
 from products.review_hog.backend.reviewer.tools.single_agent_review import FlashTurnStats
+from products.review_hog.backend.silent_stamphog import FinishedTurn
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
@@ -171,6 +172,8 @@ async def _run_full_review_pr_workflow(
     workflow_max_attempts: int | None = None,
     publish_posts: bool = True,
     fail_nudge: bool = False,
+    trigger_action: str | None = None,
+    fail_silent_stamphog: bool = False,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -454,6 +457,14 @@ async def _run_full_review_pr_workflow(
         if fail_nudge:
             raise ApplicationError("stamphog unavailable", non_retryable=True)
 
+    silent_stamphog_calls: list[FinishedTurn] = []
+
+    @activity.defn(name="start_silent_stamphog_activity")
+    async def silent_stamphog(input: FinishedTurn) -> None:
+        silent_stamphog_calls.append(input)
+        if fail_silent_stamphog:
+            raise ApplicationError("stamphog unavailable", non_retryable=True)
+
     # Records the analytics events' run_index and the turn's trigger — the completion-rate
     # denominator and the per-tier split rely on them; all three captures are swallowed best-effort
     # in the workflow, so without these stubs deleting any of them would leave every test green.
@@ -529,6 +540,7 @@ async def _run_full_review_pr_workflow(
                 add_reaction,
                 remove_reaction,
                 nudge,
+                silent_stamphog,
                 track_failed,
                 track_completed,
                 track_started,
@@ -552,6 +564,8 @@ async def _run_full_review_pr_workflow(
                         head_branch=input_head_branch,
                         resolve_comments=input_resolve_comments,
                         review_mode=review_mode,
+                        requested_head_sha="sha1",
+                        trigger_action=trigger_action,
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
@@ -608,6 +622,7 @@ async def _run_full_review_pr_workflow(
         "fail_status": fail_status_calls,
         "reactions": reaction_calls,
         "nudges": nudge_calls,
+        "silent_stamphog": silent_stamphog_calls,
     }
 
 
@@ -723,6 +738,48 @@ async def test_review_pr_workflow_nudges_stamphog_when_the_turn_ends(
     )
     assert recorded["failed"] is fail_dedup
     assert recorded["nudges"] == [("o/r", 7, "sha1")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "trigger_action, fail_dedup, fail_silent_stamphog, expect_call",
+    [
+        pytest.param("opened", False, False, True, id="completed-turn-of-an-event"),
+        pytest.param("opened", False, True, True, id="raising-dispatch-keeps-the-turn"),
+        pytest.param("opened", True, False, False, id="failed-turn"),
+        pytest.param(None, False, False, False, id="turn-without-an-event"),
+    ],
+)
+async def test_review_pr_workflow_hands_a_finished_event_turn_to_the_silent_stamphog_check(
+    trigger_action: str | None, fail_dedup: bool, fail_silent_stamphog: bool, expect_call: bool
+):
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode="flash",
+        trigger_source="automatic",
+        review_authored_prs=True,
+        trigger_action=trigger_action,
+        fail_dedup=fail_dedup,
+        fail_silent_stamphog=fail_silent_stamphog,
+        lens_chunks_capped=True,
+    )
+    assert recorded["failed"] is fail_dedup
+    expected = [
+        FinishedTurn(
+            team_id=1,
+            report_id="rep-1",
+            repository="o/r",
+            pr_number=7,
+            run_index=1,
+            review_mode="flash",
+            head_sha="sha1",
+            requested_head_sha="sha1",
+            trigger_action="opened",
+            draft=False,
+            lens_chunks_capped=True,
+        )
+    ]
+    assert recorded["silent_stamphog"] == (expected if expect_call else [])
 
 
 def test_nudge_stamphog_raises_a_dispatch_error_so_temporal_retries_it():

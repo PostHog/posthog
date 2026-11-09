@@ -166,4 +166,5 @@ def accept_pull_request_event(payload: Mapping[str, object]) -> None:
         github_repo_id=event.github_repo_id,
         draft=event.draft,
         skip_agent_review=event.skip_agent_review,
+        action=event.action,
     )

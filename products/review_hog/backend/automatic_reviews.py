@@ -157,6 +157,7 @@ class AuthoredPRReview:
     github_repo_id: int | None = None
     draft: bool = False
     skip_agent_review: bool = False
+    action: str | None = None
 
     @property
     def ref(self) -> RepositoryRef:
@@ -202,6 +203,7 @@ class AuthoredPRReview:
             review_mode=REVIEW_MODE_FLASH,
             trigger_source=TRIGGER_AUTOMATIC,
             requested_head_sha=self.head_sha,
+            trigger_action=self.action,
             installation_id=self.installation_id,
             github_repo_id=self.github_repo_id,
         )

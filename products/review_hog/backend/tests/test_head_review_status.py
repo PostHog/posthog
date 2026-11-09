@@ -1,7 +1,8 @@
+from dataclasses import replace
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -26,6 +27,7 @@ from products.review_hog.backend.reviewer.models.issues_review import IssuePrior
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.persistence import persist_chunk_set, persist_perspective_results
 from products.review_hog.backend.reviewer.progress import record_run_outcome
+from products.review_hog.backend.silent_stamphog import FinishedTurn
 from products.review_hog.backend.temporal.client import QueuedReviewHeads
 from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.stamphog.backend.facade.review_evidence import ReviewEvidenceState, get_review_evidence_providers
@@ -51,7 +53,12 @@ class TestHeadReviewStatus(BaseTest):
         return ReviewReport.objects.for_team(self.team.id).create(**values)
 
     def _completed_turn(
-        self, review_mode: str, head_sha: str = HEAD, publishes: bool = True, **fields: object
+        self,
+        review_mode: str,
+        head_sha: str = HEAD,
+        publishes: bool = True,
+        skipped_paths: tuple[str, ...] = ("pnpm-lock.yaml",),
+        **fields: object,
     ) -> ReviewReport:
         report = self._report(run_count=1, head_sha=head_sha, completed_head_sha=head_sha, **fields)
         ReviewReportArtefact.add_turn_marker(
@@ -66,7 +73,7 @@ class TestHeadReviewStatus(BaseTest):
                 publishes=publishes,
                 base_branch="main",
                 base_sha="b" * 40,
-                skipped_paths=["pnpm-lock.yaml"],
+                skipped_paths=list(skipped_paths),
             ),
             attribution=ArtefactAttribution.system(),
         )
@@ -78,7 +85,9 @@ class TestHeadReviewStatus(BaseTest):
         marker = artefacts.get(type=ReviewReportArtefact.ArtefactType.TURN_MARKER)
         artefacts.filter(type=ReviewReportArtefact.ArtefactType.NOTE).update(created_at=marker.created_at + offset)
 
-    def _finding(self, report: ReviewReport, key: str, *, is_valid: bool) -> None:
+    def _finding(
+        self, report: ReviewReport, key: str, *, is_valid: bool, priority: IssuePriority = IssuePriority.MUST_FIX
+    ) -> None:
         ReviewReportArtefact.append_finding(
             team_id=self.team.id,
             report_id=str(report.id),
@@ -90,7 +99,7 @@ class TestHeadReviewStatus(BaseTest):
                 lines=[LineRange(start=1)],
                 body="b",
                 suggestion="s",
-                priority=IssuePriority.MUST_FIX,
+                priority=priority,
             ),
             attribution=ArtefactAttribution.system(),
         )
@@ -275,3 +284,53 @@ class TestHeadReviewStatus(BaseTest):
 
         assert status is not None
         assert (status.state, status.skipped_paths) == (HeadReviewState.COMPLETED, expected_skipped)
+
+    @parameterized.expand(
+        [
+            ("clean_standard_turn_of_an_opened_pr", {}, True),
+            ("clean_standard_turn_of_a_pr_marked_ready", {"trigger_action": "ready_for_review"}, True),
+            ("deep_turn", {"review_mode": REVIEW_MODE_FULL}, False),
+            ("push", {"trigger_action": "synchronize"}, False),
+            ("turn_reviewed_a_newer_head_than_the_event", {"requested_head_sha": OLDER_HEAD}, False),
+            ("draft", {"draft": True}, False),
+            ("capped_lens_parts", {"lens_chunks_capped": True}, False),
+            ("valid_finding_below_the_threshold", {"finding": IssuePriority.CONSIDER}, False),
+            ("invalid_finding", {"invalid_finding": True}, True),
+            ("skipped_paths", {"skipped_paths": ("pnpm-lock.yaml",)}, False),
+            ("turn_without_a_marker", {"marker": False}, False),
+        ]
+    )
+    @patch("products.review_hog.backend.silent_stamphog.queue_silent_review")
+    def test_only_a_clean_full_coverage_standard_turn_of_an_opened_or_ready_pr_queues_silent_stamphog(
+        self, _name: str, change: dict, expect_queued: bool, queue_silent_review: MagicMock
+    ) -> None:
+        if change.pop("marker", True):
+            report = self._completed_turn(REVIEW_MODE_FLASH, skipped_paths=change.pop("skipped_paths", ()))
+        else:
+            report = self._report(run_count=1, head_sha=HEAD, completed_head_sha=HEAD)
+        if "finding" in change:
+            self._finding(report, "1-a", is_valid=True, priority=change.pop("finding"))
+        if change.pop("invalid_finding", False):
+            self._finding(report, "1-a", is_valid=False)
+        turn = FinishedTurn(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            repository=REPOSITORY,
+            pr_number=5,
+            run_index=1,
+            review_mode=REVIEW_MODE_FLASH,
+            head_sha=HEAD,
+            requested_head_sha=HEAD,
+            trigger_action="opened",
+            draft=False,
+            lens_chunks_capped=False,
+        )
+
+        replace(turn, **change).start_silent_stamphog()
+
+        if expect_queued:
+            queue_silent_review.assert_called_once_with(
+                team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD
+            )
+        else:
+            queue_silent_review.assert_not_called()
