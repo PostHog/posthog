@@ -2,7 +2,7 @@ import { Counter } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 
-export const CONNECTION_RETRY_BACKOFF_MS = [100, 500]
+const CONNECTION_RETRY_BACKOFF_MS = [100, 500]
 
 const NETWORK_ERROR_CODES = new Set([
     'ECONNRESET',

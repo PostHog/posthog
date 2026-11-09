@@ -1,4 +1,4 @@
-import { CONNECTION_RETRY_BACKOFF_MS, withConnectionRetry } from './connection-retry'
+import { withConnectionRetry } from './connection-retry'
 
 function pgError(message: string, code?: string): Error {
     return Object.assign(new Error(message), code ? { code } : {})
@@ -54,6 +54,6 @@ describe('withConnectionRetry', () => {
         const run = jest.fn().mockRejectedValue(error)
 
         expect(await runWithRetry(run)).toEqual({ error })
-        expect(run).toHaveBeenCalledTimes(CONNECTION_RETRY_BACKOFF_MS.length + 1)
+        expect(run).toHaveBeenCalledTimes(3)
     })
 })
