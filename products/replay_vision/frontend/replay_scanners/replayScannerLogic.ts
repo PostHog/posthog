@@ -934,6 +934,9 @@ export interface replayScannerLogicActions {
     setObservationsSort: (sorting: ObservationsSorting | null) => {
         sorting: ObservationsSorting | null
     }
+    setRefinementCount: (count: number) => {
+        count: number
+    }
     setScannerDraftSavedAt: (savedAt: number | null) => {
         savedAt: number | null
     }
@@ -1135,6 +1138,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setGoalBudgetInput: (budget: number | null) => ({ budget }),
         setGoalSpendMode: (mode: GoalSpendMode) => ({ mode }),
         setGoalDraftQuery: (query: RecordingsQuery | null) => ({ query }),
+        setRefinementCount: (count: number) => ({ count }),
         setEntryPoint: (entryPoint: string | null) => ({ entryPoint }),
         setGoalDraftBaseline: (baseline: ScannerFormValues | null) => ({ baseline }),
         setGoalDraftRationale: (rationale: string) => ({ rationale }),
@@ -1552,6 +1556,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             0,
             {
                 refineScannerDraftSuccess: (count, { goalRefinement }) => (goalRefinement ? count + 1 : count),
+                setRefinementCount: (_, { count }) => count,
                 draftScannerFromGoal: () => 0,
                 startFromScratch: () => 0,
                 discardScannerDraft: () => 0,
@@ -2186,6 +2191,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     goalDraftBaseline: values.goalDraftBaseline,
                     goalExperiment: values.goalExperiment,
                     goalDraftQuery: values.goalDraftQuery,
+                    refinementCount: values.refinementCount,
                 }
             )
             if (savedAt === null) {
@@ -2375,6 +2381,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 // The pins the draft was made with, so a refine of the resumed draft still holds them.
                                 actions.setGoalExperiment(draft.provenance.goalExperiment)
                                 actions.setGoalDraftQuery(draft.provenance.goalDraftQuery)
+                                actions.setRefinementCount(draft.provenance.refinementCount)
                             }
                             // A draft made from an experiment prefill carries targeting the
                             // loadScannerSuccess above (a bare newScanner) didn't see. A draft started

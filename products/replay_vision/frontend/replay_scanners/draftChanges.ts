@@ -83,8 +83,9 @@ function applyRefinedDials(
     refined: RefineScannerDraftResponseApi,
     changed: Set<string>
 ): void {
-    if (changed.has('query') && refined.query) {
-        next.query = refined.query as ScannerFormValues['query']
+    if (changed.has('query')) {
+        // A null query is the model clearing the filter ("watch every recording"), not a missing one.
+        next.query = (refined.query ?? null) as ScannerFormValues['query']
     }
     if (changed.has('sampling') && refined.sampling_mode && refined.sampling_rate != null) {
         next.sampling_mode = refined.sampling_mode as ScannerFormValues['sampling_mode']

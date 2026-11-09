@@ -26,6 +26,8 @@ export interface ScannerDraftProvenance {
     // The experiment and recordings the goal was drafted against, which a refine must keep.
     goalExperiment: ExperimentBasicApi | null
     goalDraftQuery: RecordingsQuery | null
+    // Reported with the save, and the next refine's index follows it.
+    refinementCount: number
 }
 
 export interface ScannerDraft {
@@ -39,7 +41,7 @@ function readProvenance(value: unknown): ScannerDraftProvenance | null {
     if (!value || typeof value !== 'object') {
         return null
     }
-    const { creationMethod, goalDraftBaseline, goalExperiment, goalDraftQuery } =
+    const { creationMethod, goalDraftBaseline, goalExperiment, goalDraftQuery, refinementCount } =
         value as Partial<ScannerDraftProvenance>
     if (!Object.values(ScannerCreationMethodEnumApi).includes(creationMethod as ScannerCreationMethodEnumApi)) {
         return null
@@ -49,6 +51,10 @@ function readProvenance(value: unknown): ScannerDraftProvenance | null {
         goalDraftBaseline: goalDraftBaseline && typeof goalDraftBaseline === 'object' ? goalDraftBaseline : null,
         goalExperiment: goalExperiment && typeof goalExperiment.id === 'number' ? goalExperiment : null,
         goalDraftQuery: goalDraftQuery && typeof goalDraftQuery === 'object' ? goalDraftQuery : null,
+        refinementCount:
+            typeof refinementCount === 'number' && Number.isInteger(refinementCount) && refinementCount > 0
+                ? refinementCount
+                : 0,
     }
 }
 

@@ -2323,6 +2323,40 @@ describe('replayScannerLogic', () => {
             expect(logic.values.goalExperiment?.id).toEqual(7)
         })
 
+        it('a resumed refined draft keeps its refine count for the save and the next refine', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'use the best model' })
+            ).toFinishAllListeners()
+            logic.actions.setRefinementCount(0)
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(logic.values.refinementCount).toEqual(1)
+
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'make it a 1-5 score' })
+            ).toFinishAllListeners()
+            const { request } = (refineSpy.mock.calls as unknown as [{ request: Request }][])[1][0]
+            expect(await request.json()).toMatchObject({ refinement_index: 2 })
+            expect(logic.values.refinementCount).toEqual(2)
+        })
+
+        it('a refine that clears the filter clears it in the form', async () => {
+            logic.actions.setScannerValues({
+                query: {
+                    kind: NodeKind.RecordingsQuery,
+                    filter_test_accounts: true,
+                    events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                },
+            })
+            refineSpy.mockReturnValue([200, refined({ query: null, changed_fields: ['query'] })])
+
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'watch every recording' })
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner.query).toBeNull()
+        })
+
         it('a failed refine leaves the form as it was and says so', async () => {
             const error = jest.spyOn(lemonToast, 'error')
             refineSpy.mockReturnValue([503, { detail: "Couldn't update the draft right now. Try again in a moment." }])

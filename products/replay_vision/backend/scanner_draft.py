@@ -2199,8 +2199,10 @@ def refine_scanner_draft(
         or revised.model != current.model
         or revised.sampling_mode != current.sampling_mode
     )
-    if not parsed.revise_recordings:
-        revised = replace(revised, query=current.query)
+    revised = replace(
+        revised,
+        query=_merged_recordings_query(current.query, revised.query) if parsed.revise_recordings else current.query,
+    )
     if resolve:
         revised = (
             _settled_and_costed(revised, team=team, user=user, monthly_credit_budget=budget, chosen_query=chosen_query)
@@ -2239,6 +2241,40 @@ def _undrafted_settings(current: CurrentDraft) -> dict[str, Any]:
         # The draft always balances variants; a person who turned that off on review keeps their choice.
         kept["balance_variants"] = current.scanner_config.get("balance_variants", True)
     return kept
+
+
+# The query keys `_draft_query` writes. A refine replaces these and keeps the rest of the current filter.
+_DRAFTED_QUERY_KEYS = frozenset({"events", "actions", "operand"})
+
+
+def _is_drafted_property(prop: Any) -> bool:
+    """Whether `_draft_query` writes this property filter: the visited pages or a cohort."""
+    if not isinstance(prop, dict):
+        return False
+    return prop.get("type") == "cohort" or (prop.get("type") == "recording" and prop.get("key") == "visited_page")
+
+
+def _merged_recordings_query(current: dict[str, Any] | None, drafted: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The drafted pages, events, actions and cohorts on top of everything else in the current filter.
+
+    The model output cannot express a duration filter, the test-account toggle or a date range, so a
+    refine that changes the recordings keeps the ones the person set.
+    """
+    if current is None:
+        return drafted
+    drafted = drafted or {}
+    merged = {key: value for key, value in current.items() if key not in _DRAFTED_QUERY_KEYS}
+    merged.update({key: value for key, value in drafted.items() if key in _DRAFTED_QUERY_KEYS})
+    current_properties = current.get("properties")
+    kept = (
+        [p for p in current_properties if not _is_drafted_property(p)] if isinstance(current_properties, list) else []
+    )
+    properties = [*kept, *(drafted.get("properties") or [])]
+    if properties:
+        merged["properties"] = properties
+    else:
+        merged.pop("properties", None)
+    return merged
 
 
 def _current_draft_briefing(current: CurrentDraft) -> dict[str, Any]:

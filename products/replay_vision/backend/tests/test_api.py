@@ -41,7 +41,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import HighlightFeedQuerySerializer, ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
 from products.replay_vision.backend.experiment_launch import start_scanners_of_launched_experiments
@@ -1955,10 +1955,11 @@ class TestScannerDraftRefineEndpoint(_VisionAPITestCase):
         assert self._INSTRUCTION not in str(properties)
 
     def test_draft_refine_is_not_found_without_the_flag_while_draft_stays_open(self) -> None:
-        resp, refine, _ = self._post(enabled=False)
+        resp, refine, report = self._post(enabled=False)
 
         assert resp.status_code == status.HTTP_404_NOT_FOUND
         refine.assert_not_called()
+        report.assert_not_called()
         with (
             patch("products.replay_vision.backend.api.scanners.draft_refine_enabled", return_value=False),
             patch(
@@ -2010,11 +2011,16 @@ class TestScannerDraftRefineEndpoint(_VisionAPITestCase):
         ]
     )
     def test_draft_refine_rejects_an_invalid_request(self, _name: str, overrides: dict[str, Any], attr: str) -> None:
-        resp, refine, _ = self._post(self._body(**overrides))
+        resp, refine, report = self._post(self._body(**overrides))
 
         assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
         assert resp.json()["attr"].startswith(attr)
         refine.assert_not_called()
+        properties = report.call_args.args[2]
+        assert report.call_args.args[1] == "replay_vision_scanner_draft_refined"
+        assert properties["success"] is False
+        assert properties["failure_reason"] == "invalid_request"
+        assert properties["failure_attr"] == attr
 
     def test_draft_refine_refuses_a_current_experiment_the_caller_cannot_read(self) -> None:
         body = self._body()
@@ -2030,6 +2036,27 @@ class TestScannerDraftRefineEndpoint(_VisionAPITestCase):
         assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
         assert resp.json()["detail"] == "Experiment not found in this project."
         refine.assert_not_called()
+
+    @time_machine.travel("2026-11-15T12:00:00Z", tick=False)
+    def test_draft_refine_of_a_free_only_draft_works_after_the_free_credits_run_out(self) -> None:
+        ReplayObservationUsage.objects.create(
+            observation_id=uuid.uuid4(),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            observation_created_at=timezone.now(),
+            model="gemini-3-flash-preview",
+            credits=FREE_TIER_MONTHLY_CREDITS,
+        )
+        body = self._body(instruction="add a monthly cap of 2000 credits", free_only=True)
+        del body["monthly_credit_budget"]
+        body["current"] = {**body["current"], "free_only": True, "credit_limit": None}
+
+        resp, refine, _ = self._post(body)
+
+        # "Add a monthly cap" is how a free-only draft gets out of that state, so the refine must run.
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert refine.call_args.kwargs["monthly_credit_budget"] == FREE_TIER_MONTHLY_CREDITS
+        assert refine.call_args.kwargs["current"].free_only is True
 
     def test_draft_refine_takes_a_budget_above_the_draft_endpoint_range(self) -> None:
         body = self._body(monthly_credit_budget=150_000_000)

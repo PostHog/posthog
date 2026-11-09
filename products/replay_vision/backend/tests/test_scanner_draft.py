@@ -2316,6 +2316,33 @@ class TestRefineScannerDraft(_VisionAPITestCase):
         assert refinement.draft.query == chosen
         assert "query" not in refinement.changed_fields
 
+    def test_a_recordings_change_keeps_the_filters_the_model_cannot_express(self):
+        duration = {"type": "recording", "key": "duration", "value": 30, "operator": "gt"}
+        current = self._current(
+            query={
+                "kind": "RecordingsQuery",
+                "filter_test_accounts": False,
+                "date_from": "-30d",
+                "properties": [
+                    duration,
+                    {"type": "recording", "key": "visited_page", "value": ["^/pricing"], "operator": "regex"},
+                ],
+            }
+        )
+
+        refinement, _, _ = self._refine(
+            _draft(revise_recordings=True, filter_pages=["/billing"], sampling_mode="balanced"),
+            current=current,
+            instruction="only watch the billing page",
+        )
+
+        query = refinement.draft.query
+        assert query["properties"][0] == duration
+        assert [p["key"] for p in query["properties"]] == ["duration", "visited_page"]
+        assert query["properties"][1]["value"] != ["^/pricing"]
+        assert (query["filter_test_accounts"], query["date_from"]) == (False, "-30d")
+        assert "query" in refinement.changed_fields
+
     @parameterized.expand([("solved", False, "comprehensive", 1.0), ("costing_failed", True, "balanced", 0.5)])
     def test_a_named_budget_becomes_the_cap_and_solves_the_dials_again(
         self, _name, estimate_error, expected_mode, expected_rate

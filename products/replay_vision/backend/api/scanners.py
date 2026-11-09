@@ -3608,13 +3608,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
     def _draft_budget(self, validated: dict[str, Any]) -> int:
-        """The monthly credit budget a draft is sized to."""
+        """The monthly credit budget a new draft is sized to."""
+        monthly_credit_budget = self._refine_budget(validated)
         if not validated["free_only"]:
-            return validated["monthly_credit_budget"]
-        cap = org_credit_cap(self.team.organization_id)
-        # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
-        monthly_credit_budget = free_credits_ceiling(cap)
+            return monthly_credit_budget
         # A free-only draft saved after the free credits run out pauses before its first scan.
+        cap = org_credit_cap(self.team.organization_id)
         if quota_state_for_cap(self.team.organization_id, cap).credits_used >= monthly_credit_budget:
             raise ValidationError(
                 {
@@ -3623,6 +3622,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 }
             )
         return monthly_credit_budget
+
+    def _refine_budget(self, validated: dict[str, Any]) -> int:
+        """The monthly credit budget a draft under review is sized to.
+
+        No check on the free credits left: a refine such as "add a monthly cap" is how a free-only
+        draft gets out of that state.
+        """
+        if not validated["free_only"]:
+            return validated["monthly_credit_budget"]
+        # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
+        return free_credits_ceiling(org_credit_cap(self.team.organization_id))
 
     def _draft_allowed_scopes(self, request: Request, validated: dict[str, Any]) -> list[str] | None:
         """The token's scopes, once the picked experiment and the chosen filter are shown to be within them."""
@@ -3672,19 +3682,33 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not draft_refine_enabled(self.team, user):
             raise NotFound()
         self._check_draft_access()
-        body = RefineScannerDraftRequestSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        validated = body.validated_data
-
-        monthly_credit_budget = self._draft_budget(validated)
-        allowed_scopes = self._draft_allowed_scopes(request, validated)
+        try:
+            body = RefineScannerDraftRequestSerializer(data=request.data)
+            body.is_valid(raise_exception=True)
+            validated = body.validated_data
+            monthly_credit_budget = self._refine_budget(validated)
+            allowed_scopes = self._draft_allowed_scopes(request, validated)
+            current = validated["current"]
+            # The current draft's experiment reaches the model briefing too, so it gets the same check.
+            if (current_scope := config_experiment_scope(current["scanner_config"])) is not None:
+                self._check_draft_experiment(current_scope["experiment_id"], allowed_scopes)
+            if current["query"] is not None:
+                self._check_query_references(current["query"], allowed_scopes)
+        except ValidationError as error:
+            report_user_action(
+                user,
+                "replay_vision_scanner_draft_refined",
+                {
+                    "success": False,
+                    "failure_reason": "invalid_request",
+                    "failure_attr": next(iter(error.detail), None) if isinstance(error.detail, dict) else None,
+                    "team_id": self.team_id,
+                },
+                team=self.team,
+                request=request,
+            )
+            raise
         scope = validated.get("chosen_scope")
-        current = validated["current"]
-        # The current draft's experiment reaches the model briefing too, so it gets the same check.
-        if (current_scope := config_experiment_scope(current["scanner_config"])) is not None:
-            self._check_draft_experiment(current_scope["experiment_id"], allowed_scopes)
-        if current["query"] is not None:
-            self._check_query_references(current["query"], allowed_scopes)
         refinement_index = validated["refinement_index"]
         # The instruction is customer text, so only its length goes into telemetry.
         refine_properties: dict[str, Any] = {
