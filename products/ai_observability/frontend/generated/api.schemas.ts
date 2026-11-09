@@ -4441,6 +4441,40 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+export interface ProviderKeyDependentEvaluationApi {
+    /** Evaluation ID. */
+    id: string
+    /** Evaluation name. */
+    name: string
+    /** Model configuration that pins this key. Absent for evaluations on the active key. */
+    model_configuration_id?: string
+    /** Whether the evaluation is running. */
+    enabled: boolean
+    /**
+     * Why the system turned the evaluation off, such as provider_key_quota_exceeded.
+     * @nullable
+     */
+    status_reason: string | null
+}
+
+export interface ProviderKeyAlternativeApi {
+    /** Provider key ID. */
+    id: string
+    /** Provider key name. */
+    name: string
+    /** Provider of the key. */
+    provider: string
+}
+
+export interface ProviderKeyDependentConfigsApi {
+    /** Evaluations whose model configuration pins this key. */
+    evaluations: ProviderKeyDependentEvaluationApi[]
+    /** Working keys for the same provider that could replace this one. */
+    alternative_keys: ProviderKeyAlternativeApi[]
+    /** Errored evaluations with no pinned key, which run on this key while it is the project's active key. */
+    active_key_evaluations: ProviderKeyDependentEvaluationApi[]
+}
+
 export interface LLMProxyModelInfoApi {
     /** Provider-specific model identifier. */
     id: string

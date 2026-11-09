@@ -134,7 +134,7 @@ describe('InternalLogsProducer', () => {
 
     it.each([
         { name: 'a team not on the allowlist', entries: [entry({ team_id: 3 })] },
-        { name: 'a source with no policy', source: 'batch_exports', entries: [entry()] },
+        { name: 'a source with no policy', source: 'no_such_source', entries: [entry()] },
         { name: 'no endpoint', overrides: { LOGS_INTERNAL_PRODUCER_URL: '' }, entries: [entry()] },
         { name: 'no signing key', overrides: { LOGS_INTERNAL_INGESTION_SIGNING_KEYS: ' ' }, entries: [entry()] },
         { name: 'an empty allowlist', overrides: { LOGS_INTERNAL_PRODUCER_TEAMS: '' }, entries: [entry()] },

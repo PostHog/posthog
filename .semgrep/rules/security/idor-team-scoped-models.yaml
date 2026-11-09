@@ -67,7 +67,6 @@ rules:
                               |AccountTrackRuleRun
                               |AccountView
                               |Action
-                              |ActionSelectorMatchChange
                               |AEOBrand
                               |AEOCitationCheck
                               |AEOPrompt
@@ -437,6 +436,7 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |SignalTrialGrant
                               |LegacySignalSpend
 
                               |AnomalyScoringState
@@ -594,7 +594,6 @@ rules:
                         |AccountTrackRuleRun
                         |AccountView
                         |Action
-                        |ActionSelectorMatchChange
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
@@ -950,6 +949,7 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |SignalTrialGrant
                         |LegacySignalSpend
 
                         |AnomalyScoringState

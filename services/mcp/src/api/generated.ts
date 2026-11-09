@@ -5268,18 +5268,6 @@ export namespace Schemas {
       created_by: UserBasic | null;
     }
 
-    export interface ActionSelectorMatchChange {
-      /** ID of an affected action. */
-      action_id: number;
-      /**
-         * Name of the affected action, or null when it has no name.
-         * @nullable
-         */
-      action_name: string | null;
-      /** CSS selectors whose matching behavior changed, in action step order. */
-      selectors: string[];
-    }
-
     /**
      * * `immediately_actionable` - immediately_actionable
      * * `requires_human_input` - requires_human_input
@@ -34026,6 +34014,89 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `clickhouse` - ClickHouse
+     * * `managed_trino` - Hosted Trino
+     * * `connection` - Direct connection
+     */
+    export type ViewEngineTargetEnum = typeof ViewEngineTargetEnum[keyof typeof ViewEngineTargetEnum];
+
+
+    export const ViewEngineTargetEnum = {
+      Clickhouse: 'clickhouse',
+      ManagedTrino: 'managed_trino',
+      Connection: 'connection',
+    } as const;
+
+    /**
+     * * `hogql` - HogQL
+     * * `raw` - Raw SQL
+     */
+    export type ViewEngineDialectEnum = typeof ViewEngineDialectEnum[keyof typeof ViewEngineDialectEnum];
+
+
+    export const ViewEngineDialectEnum = {
+      Hogql: 'hogql',
+      Raw: 'raw',
+    } as const;
+
+    export interface ViewCapability {
+      /** Whether the view supports this. */
+      available: boolean;
+      /**
+         * Why the view does not support this, written for the user. Null when available.
+         * @nullable
+         */
+      reason: string | null;
+    }
+
+    /**
+     * * `clickhouse_probe` - ClickHouse probe
+     * * `client_types` - Column types sent by the client
+     */
+    export type ViewColumnSourceEnum = typeof ViewColumnSourceEnum[keyof typeof ViewColumnSourceEnum];
+
+
+    export const ViewColumnSourceEnum = {
+      ClickhouseProbe: 'clickhouse_probe',
+      ClientTypes: 'client_types',
+    } as const;
+
+    export interface ViewEngineCapabilities {
+      /** Whether the view can be materialized, run or scheduled. */
+      materialize: ViewCapability;
+      /** Whether the view has lineage and a node in the data modeling DAG. */
+      lineage: ViewCapability;
+      /** Whether HogQL queries on ClickHouse can read from this view by name. */
+      referenceable_from_clickhouse: ViewCapability;
+      /** Where the view's column types come from: a ClickHouse probe of the query, or the types the client sends from its last run.
+       *
+       * * `clickhouse_probe` - ClickHouse probe
+       * * `client_types` - Column types sent by the client */
+      column_source: ViewColumnSourceEnum;
+    }
+
+    export interface ViewEngine {
+      /** The engine that runs this view: ClickHouse, hosted Trino, or a direct connection.
+       *
+       * * `clickhouse` - ClickHouse
+       * * `managed_trino` - Hosted Trino
+       * * `connection` - Direct connection */
+      target: ViewEngineTargetEnum;
+      /** Whether the view stores HogQL or raw SQL for its engine.
+       *
+       * * `hogql` - HogQL
+       * * `raw` - Raw SQL */
+      dialect: ViewEngineDialectEnum;
+      /**
+         * The direct connection that runs this view. Null for any other engine.
+         * @nullable
+         */
+      connection_id: string | null;
+      /** What the rest of the product can do with this view. */
+      capabilities: ViewEngineCapabilities;
+    }
+
+    /**
      * Shared methods for DataWarehouseSavedQuery serializers.
      *
      * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -34125,7 +34196,9 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended: DataWarehouseSavedQuerySuspended;
-      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      /** The engine that runs this view, and what the product can do with it. */
+      readonly engine: ViewEngine;
+      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
       readonly is_raw_managed_trino: boolean;
     }
 
@@ -34270,7 +34343,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
-      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      /** The engine that runs this view, and what the product can do with it. */
+      readonly engine: ViewEngine;
+      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
       readonly is_raw_managed_trino: boolean;
     }
 
@@ -39364,6 +39439,8 @@ export namespace Schemas {
       readonly verified_by: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** @nullable */
+      readonly scheduled_deletion_at: string | null;
       enforcement_mode?: SchemaEnforcementModeEnum;
       /**
          * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
@@ -39409,6 +39486,8 @@ export namespace Schemas {
       readonly verified_by: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** @nullable */
+      readonly scheduled_deletion_at: string | null;
       enforcement_mode?: SchemaEnforcementModeEnum;
       /**
          * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
@@ -44094,6 +44173,7 @@ export namespace Schemas {
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -44124,6 +44204,7 @@ export namespace Schemas {
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+      UnservedVariantExposures: 'unserved_variant_exposures',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
       FlagVariantsMismatch: 'flag_variants_mismatch',
       SplitChangedMidRun: 'split_changed_mid_run',
@@ -44195,6 +44276,7 @@ export namespace Schemas {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      */
@@ -44223,6 +44305,7 @@ export namespace Schemas {
       ZeroExposures: 'zero_exposures',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
       Srm: 'srm',
+      UnservedVariantExposures: 'unserved_variant_exposures',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
     } as const;
@@ -44251,6 +44334,7 @@ export namespace Schemas {
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+       * * `unserved_variant_exposures` - Unserved Variant Exposures
        * * `forced_variant_release_condition` - Forced Variant Release Condition
        * * `flag_variants_mismatch` - Flag Variants Mismatch
        * * `split_changed_mid_run` - Split Changed Mid Run
@@ -44313,6 +44397,7 @@ export namespace Schemas {
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
        * * `srm` - Srm
+       * * `unserved_variant_exposures` - Unserved Variant Exposures
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share */
       check: ExperimentHealthCheckKeyEnum;
@@ -44344,6 +44429,8 @@ export namespace Schemas {
      * * `since_launch_hours` - Hours since launch
      * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
      * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+     * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
      * * `primary_metric_count` - Primary metrics that the calculation computes
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -44369,6 +44456,8 @@ export namespace Schemas {
       SinceLaunchHours: 'since_launch_hours',
       ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
       KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
+      UnservedExposedCount: 'unserved_exposed_count',
+      UnservedExposedPercentage: 'unserved_exposed_percentage',
       OnlyCountMaturedUsers: 'only_count_matured_users',
       PrimaryMetricCount: 'primary_metric_count',
       WaitingMetricCount: 'waiting_metric_count',
@@ -44416,6 +44505,8 @@ export namespace Schemas {
        * * `since_launch_hours` - Hours since launch
        * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
        * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+       * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+       * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
        * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
        * * `primary_metric_count` - Primary metrics that the calculation computes
        * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -44444,6 +44535,8 @@ export namespace Schemas {
        * * `since_launch_hours` - Hours since launch
        * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
        * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+       * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+       * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
        * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
        * * `primary_metric_count` - Primary metrics that the calculation computes
        * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -44500,6 +44593,7 @@ export namespace Schemas {
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
        * * `srm` - Srm
+       * * `unserved_variant_exposures` - Unserved Variant Exposures
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share */
       key: ExperimentHealthCheckKeyEnum;
@@ -44833,6 +44927,7 @@ export namespace Schemas {
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+      UnservedVariantExposures: 'unserved_variant_exposures',
     } as const;
 
     export type ExperimentExposureHealthValueKey = typeof ExperimentExposureHealthValueKey[keyof typeof ExperimentExposureHealthValueKey];
@@ -44848,6 +44943,8 @@ export namespace Schemas {
       SinceLaunchHours: 'since_launch_hours',
       ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
       KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
+      UnservedExposedCount: 'unserved_exposed_count',
+      UnservedExposedPercentage: 'unserved_exposed_percentage',
     } as const;
 
     export interface ExperimentExposureHealthRuleMinimum {
@@ -44929,6 +45026,7 @@ export namespace Schemas {
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+      UnservedVariantExposures: 'unserved_variant_exposures',
     } as const;
 
     export type ExperimentExposureHealthFindingSeverity = typeof ExperimentExposureHealthFindingSeverity[keyof typeof ExperimentExposureHealthFindingSeverity];
@@ -45004,11 +45102,18 @@ export namespace Schemas {
       variant: string;
     }
 
+    /**
+     * Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library.
+     */
+    export type ExperimentExposureQueryResponseExposedByLibrary = {[key: string]: number} | null;
+
     export type ExperimentExposureQueryResponseTotalExposures = {[key: string]: number};
 
     export interface ExperimentExposureQueryResponse {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      /** Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library. */
+      exposed_by_library?: ExperimentExposureQueryResponseExposedByLibrary;
       /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
       health_checks?: ExperimentExposureHealthCheck[] | null;
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
@@ -51599,24 +51704,6 @@ export namespace Schemas {
       suggestion?: PathCleaningSuggestionIssue | null;
     }
 
-    export type GenerateRequestStepsItem = { [key: string]: unknown };
-
-    export interface GenerateRequest {
-      title?: string;
-      goal?: string;
-      steps?: GenerateRequestStepsItem[];
-    }
-
-    export interface GenerateStepResponse {
-      step_id: string;
-      title: string;
-      description: string;
-    }
-
-    export interface GenerateResponse {
-      steps: GenerateStepResponse[];
-    }
-
     /**
      * Optional translation-only draft survey payload to translate instead of the last saved survey.
      */
@@ -55747,6 +55834,43 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type MarketingAnalyticsRecommendationsDataGapKind = typeof MarketingAnalyticsRecommendationsDataGapKind[keyof typeof MarketingAnalyticsRecommendationsDataGapKind];
+
+
+    export const MarketingAnalyticsRecommendationsDataGapKind = {
+      ConversionActionTablesNotSynced: 'conversion_action_tables_not_synced',
+      PerformanceMaxSearchTermsCountPrimaryConversions: 'performance_max_search_terms_count_primary_conversions',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationsDataGap {
+      /** Google Ads campaign table of the ad account the gap applies to. */
+      campaignTable?: string | null;
+      kind: MarketingAnalyticsRecommendationsDataGapKind;
+      message: string;
+    }
+
+    export type MarketingAnalyticsRecommendationCpaBenchmarkSource = typeof MarketingAnalyticsRecommendationCpaBenchmarkSource[keyof typeof MarketingAnalyticsRecommendationCpaBenchmarkSource];
+
+
+    export const MarketingAnalyticsRecommendationCpaBenchmarkSource = {
+      TargetCpa: 'target_cpa',
+      Campaign: 'campaign',
+      Account: 'account',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationCpa {
+      /** CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for context. Null when the account has no non-brand conversions. */
+      benchmark: number | null;
+      /** Where the benchmark comes from. Null when there is no benchmark. */
+      benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | null;
+      /** Lowest non-brand CPA of a non-brand Search campaign in the same ad account. */
+      bestCampaign: number | null;
+      /** Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no conversions or is not bought yet. */
+      value: number | null;
+      /** Highest non-brand CPA of a non-brand Search campaign in the same ad account. */
+      worstCampaign: number | null;
+    }
+
     export type MarketingAnalyticsRecommendationImpactDirection = typeof MarketingAnalyticsRecommendationImpactDirection[keyof typeof MarketingAnalyticsRecommendationImpactDirection];
 
 
@@ -55803,6 +55927,8 @@ export namespace Schemas {
       action: string;
       /** The campaign a search term recommendation applies to, when it applies to one. */
       campaign?: string | null;
+      /** CPA figures in the account currency. */
+      cpa?: MarketingAnalyticsRecommendationCpa | null;
       currency?: string | null;
       /** Monthly money impact in the account currency. Null when the rule has no money impact. */
       impact?: number | null;
@@ -55818,6 +55944,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsRecommendationsQueryResponse {
+      /** Data the rules needed but could not read, so some figures use a fallback. */
+      dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
       disclaimer: string;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -55850,6 +55978,8 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationsSource {
+      /** Google Ads daily campaign conversions split by conversion action. */
+      campaignConversionActionTable?: string | null;
       /** Google Ads daily campaign impression share table. */
       campaignImpressionShareTable?: string | null;
       /** Google Ads daily campaign stats table. */
@@ -55864,6 +55994,8 @@ export namespace Schemas {
       queryPageTable?: string | null;
       /** Google Search Console table with one row per query, or per query and page. */
       queryTable?: string | null;
+      /** Google Ads daily search term conversions split by conversion action. */
+      searchTermConversionActionTable?: string | null;
       /** Google Ads search term table split by the keyword that matched each term. */
       searchTermKeywordTable?: string | null;
       /** Google Ads search term table for Search campaigns. */
@@ -55874,6 +56006,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsRecommendationsQuery {
+      /** Resource names of the Google Ads conversion actions that count as conversions, such as `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an account with none of them counts its primary actions. Selected actions count every conversion, including secondary actions and conversions outside campaign goals. Omit to count the primary actions only. */
+      conversionActions?: string[] | null;
       dateRange?: DateRange | null;
       kind?: 'MarketingAnalyticsRecommendationsQuery';
       /** Modifiers used when performing the query */
@@ -82999,7 +83133,9 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
-      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      /** The engine that runs this view, and what the product can do with it. */
+      readonly engine?: ViewEngine;
+      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
       readonly is_raw_managed_trino?: boolean;
     }
 
@@ -83323,6 +83459,8 @@ export namespace Schemas {
       readonly verified_by?: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** @nullable */
+      readonly scheduled_deletion_at?: string | null;
       enforcement_mode?: SchemaEnforcementModeEnum;
       /**
          * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
@@ -96072,6 +96210,40 @@ export namespace Schemas {
       finished_at: string | null;
     }
 
+    export interface ProviderKeyAlternative {
+      /** Provider key ID. */
+      id: string;
+      /** Provider key name. */
+      name: string;
+      /** Provider of the key. */
+      provider: string;
+    }
+
+    export interface ProviderKeyDependentEvaluation {
+      /** Evaluation ID. */
+      id: string;
+      /** Evaluation name. */
+      name: string;
+      /** Model configuration that pins this key. Absent for evaluations on the active key. */
+      model_configuration_id?: string;
+      /** Whether the evaluation is running. */
+      enabled: boolean;
+      /**
+         * Why the system turned the evaluation off, such as provider_key_quota_exceeded.
+         * @nullable
+         */
+      status_reason: string | null;
+    }
+
+    export interface ProviderKeyDependentConfigs {
+      /** Evaluations whose model configuration pins this key. */
+      evaluations: ProviderKeyDependentEvaluation[];
+      /** Working keys for the same provider that could replace this one. */
+      alternative_keys: ProviderKeyAlternative[];
+      /** Errored evaluations with no pinned key, which run on this key while it is the project's active key. */
+      active_key_evaluations: ProviderKeyDependentEvaluation[];
+    }
+
     export interface ProvisionWarehouseRequest {
       /** Name for the new database */
       database_name: string;
@@ -97643,11 +97815,18 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
+    /**
+     * Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library.
+     */
+    export type QueryResponseAlternative20ExposedByLibrary = {[key: string]: number} | null;
+
     export type QueryResponseAlternative20TotalExposures = {[key: string]: number};
 
     export interface QueryResponseAlternative20 {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      /** Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library. */
+      exposed_by_library?: QueryResponseAlternative20ExposedByLibrary;
       /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
       health_checks?: ExperimentExposureHealthCheck[] | null;
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
@@ -98155,6 +98334,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative39 {
+      /** Data the rules needed but could not read, so some figures use a fallback. */
+      dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
       disclaimer: string;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -105053,6 +105234,7 @@ export namespace Schemas {
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
+     * * `trial_scout_limit` - Free trial scout limit
      * * `retired` - Retired
      * * `background_removed` - Background removed
      */
@@ -105063,6 +105245,7 @@ export namespace Schemas {
       NoOutput: 'no_output',
       Ignored: 'ignored',
       RepeatedFailures: 'repeated_failures',
+      TrialScoutLimit: 'trial_scout_limit',
       Retired: 'retired',
       BackgroundRemoved: 'background_removed',
     } as const;
@@ -105147,6 +105330,7 @@ export namespace Schemas {
        * * `no_output` - No output
        * * `ignored` - Ignored
        * * `repeated_failures` - Repeated failures
+       * * `trial_scout_limit` - Free trial scout limit
        * * `retired` - Retired
        * * `background_removed` - Background removed */
       readonly pause_reason: SignalScoutConfigPauseReasonEnum | null;
@@ -107282,6 +107466,96 @@ export namespace Schemas {
     export interface SearchSuggestionsResponse {
       /** Up to 4 example searches naming the largest active themes in recent issue observations. Empty until a scanner has a named theme. */
       queries: string[];
+    }
+
+    /**
+     * * `not_claimed` - Not claimed
+     * * `active` - Active
+     * * `exhausted` - Exhausted
+     */
+    export type TrialGrantStatusEnum = typeof TrialGrantStatusEnum[keyof typeof TrialGrantStatusEnum];
+
+
+    export const TrialGrantStatusEnum = {
+      NotClaimed: 'not_claimed',
+      Active: 'active',
+      Exhausted: 'exhausted',
+    } as const;
+
+    /**
+     * * `continue_paid` - Continue under existing paid authorization
+     * * `add_payment_method` - Add a payment method
+     * * `increase_limit` - Increase the Self-driving spending limit
+     * * `enable_self_driving` - Enable paid Self-driving
+     * * `unavailable` - Billing status unavailable
+     */
+    export type TrialContinuationEnum = typeof TrialContinuationEnum[keyof typeof TrialContinuationEnum];
+
+
+    export const TrialContinuationEnum = {
+      ContinuePaid: 'continue_paid',
+      AddPaymentMethod: 'add_payment_method',
+      IncreaseLimit: 'increase_limit',
+      EnableSelfDriving: 'enable_self_driving',
+      Unavailable: 'unavailable',
+    } as const;
+
+    export interface SelfDrivingTrialStatus {
+      /** Whether the one-time trial rollout is enabled for this organization. */
+      enabled: boolean;
+      /** Whether the current rollout check succeeded. */
+      flag_confirmed: boolean;
+      /** Effective trial policy version. */
+      policy_version: number;
+      /** Whether the legacy reports-only trial still prevents implementation for this project. */
+      legacy_pr_restricted: boolean;
+      /** Whether the current Self-driving plan has no recurring free allowance. */
+      billing_ready: boolean;
+      /** Whether this project can explicitly claim its lifetime grant. */
+      eligible: boolean;
+      /** Whether the current user has project-management permission to activate. */
+      can_activate: boolean;
+      /** Unclaimed lifetime project grants in the organization. */
+      organization_grants_remaining: number;
+      /**
+         * Lifetime project grant, shared with its environments.
+         * @nullable
+         */
+      grant_id: string | null;
+      /** The project's lifetime trial state.
+       *
+       * * `not_claimed` - Not claimed
+       * * `active` - Active
+       * * `exhausted` - Exhausted */
+      grant_status: TrialGrantStatusEnum;
+      /** Why the trial completed: cost_limit or report_limit. */
+      exhaustion_reason: string;
+      /** Qualifying reports delivered since the claim, including hidden or deleted reports. */
+      reports_delivered: number;
+      /** Admitted reports that have not yet qualified as delivered. */
+      reports_in_progress: number;
+      /** Report limit for admitting new work; accepted pipelines may finish beyond it. */
+      report_limit: number;
+      /** One-time allowance in millionths of a US dollar. */
+      allowance_microusd: number;
+      /** Settled and known running costs, capped at the trial allowance. */
+      used_microusd: number;
+      /** Whether the shared trial and billing limits block new work. */
+      new_work_paused: boolean;
+      /** Enabled scouts across this project's environments. */
+      enabled_scouts: number;
+      /** Maximum enabled scouts during the trial. */
+      scout_limit: number;
+      /** On activation, all but the three oldest enabled scouts pause. */
+      scouts_to_pause: number;
+      /** What happens to new work after the trial.
+       *
+       * * `continue_paid` - Continue under existing paid authorization
+       * * `add_payment_method` - Add a payment method
+       * * `increase_limit` - Increase the Self-driving spending limit
+       * * `enable_self_driving` - Enable paid Self-driving
+       * * `unavailable` - Billing status unavailable */
+      paid_continuation: TrialContinuationEnum;
     }
 
     export interface SendCalendarBatchJob {
@@ -123889,22 +124163,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type ActionsSelectorMatchChangesListParams = {
-    /**
-     * Action IDs used by the insight. Accepts repeated or comma-separated values.
-     */
-    action_ids: number[];
-    format?: ActionsSelectorMatchChangesListFormat;
-    };
-
-    export type ActionsSelectorMatchChangesListFormat = typeof ActionsSelectorMatchChangesListFormat[keyof typeof ActionsSelectorMatchChangesListFormat];
-
-
-    export const ActionsSelectorMatchChangesListFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type ActivityLogListParams = {
     /**
      * The pagination cursor value.
@@ -128068,7 +128326,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
+     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, and element property filter types.
      */
     properties?: string;
     /**
