@@ -24,6 +24,8 @@ from products.tracing.backend.alerts.group_columns import GROUP_COLUMNS
 from products.tracing.backend.alerts.wording import alert_url
 
 CHECK_INTERVAL_MINUTES: Final = 1
+# Every due alert is loaded each minute, so the count per team bounds that read.
+MAX_ALERTS_PER_TEAM: Final = 20
 
 Measure = Literal["request_count", "error_count", "error_rate", "latency"]
 Percentile = Literal[50, 90, 95, 99]
@@ -99,7 +101,7 @@ TRACES_ALERT_CONFIG: Final = SourceConfigSpec(
     model=TracesPlatformAlertConfig,
     validate=validate_traces_edit,
     # No `remove_destinations`, so the alert's destinations are `AlertDestination` rows from the start.
-    native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES),
+    native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES, max_per_team=MAX_ALERTS_PER_TEAM),
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=alert_url,
     rollout_flag="platform-alerts-source-traces",
