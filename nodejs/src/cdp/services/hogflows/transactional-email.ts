@@ -21,6 +21,104 @@ const CopyRecipientsSchema = z
     .readonly()
     .optional()
 
+export const SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
+    '.ade',
+    '.adp',
+    '.app',
+    '.asp',
+    '.bas',
+    '.bat',
+    '.cer',
+    '.chm',
+    '.cmd',
+    '.com',
+    '.cpl',
+    '.crt',
+    '.csh',
+    '.der',
+    '.exe',
+    '.fxp',
+    '.gadget',
+    '.hlp',
+    '.hta',
+    '.inf',
+    '.ins',
+    '.isp',
+    '.its',
+    '.js',
+    '.jse',
+    '.ksh',
+    '.lib',
+    '.lnk',
+    '.mad',
+    '.maf',
+    '.mag',
+    '.mam',
+    '.maq',
+    '.mar',
+    '.mas',
+    '.mat',
+    '.mau',
+    '.mav',
+    '.maw',
+    '.mda',
+    '.mdb',
+    '.mde',
+    '.mdt',
+    '.mdw',
+    '.mdz',
+    '.msc',
+    '.msh',
+    '.msh1',
+    '.msh2',
+    '.mshxml',
+    '.msh1xml',
+    '.msh2xml',
+    '.msi',
+    '.msp',
+    '.mst',
+    '.ops',
+    '.pcd',
+    '.pif',
+    '.plg',
+    '.prf',
+    '.prg',
+    '.reg',
+    '.scf',
+    '.scr',
+    '.sct',
+    '.shb',
+    '.shs',
+    '.sys',
+    '.ps1',
+    '.ps1xml',
+    '.ps2',
+    '.ps2xml',
+    '.psc1',
+    '.psc2',
+    '.tmp',
+    '.url',
+    '.vb',
+    '.vbe',
+    '.vbs',
+    '.vps',
+    '.vsmacros',
+    '.vss',
+    '.vst',
+    '.vsw',
+    '.vxd',
+    '.ws',
+    '.wsc',
+    '.wsf',
+    '.wsh',
+    '.xnk',
+])
+
+const lastExtension = (filename: string): string => {
+    const dot = filename.lastIndexOf('.')
+    return dot === -1 ? '' : filename.slice(dot).toLowerCase()
+}
+
 const attachmentHeaderValue = (field: string, maxLength: number) => {
     const message = `${field} needs 1 to ${maxLength} characters`
     return z.string().min(1, { message }).max(maxLength, { message }).optional()
@@ -61,6 +159,12 @@ export const AcceptedSendSchema = z
                             .min(1)
                             .max(ATTACHMENT_FILENAME_MAX_LENGTH, {
                                 message: `filename can be at most ${ATTACHMENT_FILENAME_MAX_LENGTH} characters`,
+                            })
+                            .refine((filename) => !SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS.has(lastExtension(filename)), {
+                                error: (issue) => {
+                                    const filename = String(issue.input)
+                                    return `SES does not send ${lastExtension(filename)} files, so ${filename} cannot be attached`
+                                },
                             }),
                         content_type: attachmentHeaderValue('content_type', ATTACHMENT_CONTENT_TYPE_MAX_LENGTH),
                         content_id: attachmentHeaderValue('content_id', ATTACHMENT_CONTENT_ID_MAX_LENGTH),

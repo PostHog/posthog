@@ -2777,6 +2777,18 @@ describe('CDP API', () => {
                 contentIdReason,
             ],
             ['an empty content id', withFile({ content_id: '' }), withFile({}), contentIdReason],
+            [
+                'a file type SES does not send',
+                withFile({ filename: 'setup.exe' }),
+                withFile({ filename: 'setup.exe.pdf' }),
+                'SES does not send .exe files, so setup.exe cannot be attached',
+            ],
+            [
+                'a file type SES does not send, in upper case',
+                withFile({ filename: 'Invoice.PDF.JS' }),
+                withFile({ filename: 'Invoice.PDF.JSON' }),
+                'SES does not send .js files, so Invoice.PDF.JS cannot be attached',
+            ],
         ])(
             'refuses a code send with %s, naming it, and its key sends once it is fixed',
             async (_desc, refused, fixed, reason) => {
