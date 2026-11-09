@@ -34,6 +34,7 @@ def test_keeps_timestamps_as_text_like_the_frontend_parser(source: str, expected
         "n: " + "9" * 5000 + "\n",
         "n: 0x" + "f" * 4000 + "\n",
         "? [[a]]\n: 1\n",
+        "1: a\n1.0: b\n",
         "%YAML 1.0\n---\nrules: []\n",
         "%YAML 1.3\n---\nrules: []\n",
         "a: !!bool invalid\n",
@@ -45,6 +46,7 @@ def test_keeps_timestamps_as_text_like_the_frontend_parser(source: str, expected
         "oversized integer",
         "oversized hex integer",
         "unhashable key",
+        "equal numeric keys",
         "YAML 1.0 directive",
         "YAML 1.3 directive",
         "malformed bool tag",
@@ -54,6 +56,19 @@ def test_keeps_timestamps_as_text_like_the_frontend_parser(source: str, expected
 def test_rejects_sources_that_cannot_load(source: str) -> None:
     with pytest.raises(RecipeCompileError):
         load_recipe_yaml(source)
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ("true: a\n1: b\n", {"true": "a", "1": "b"}),
+        ("false: a\n0: b\n", {"false": "a", "0": "b"}),
+        ('"1": a\n1: b\n', {"1": "b"}),
+    ],
+    ids=["true and 1", "false and 0", "same field text"],
+)
+def test_names_fields_by_key_text_like_the_frontend_parser(source: str, expected: object) -> None:
+    assert load_recipe_yaml(source) == expected
 
 
 @pytest.mark.parametrize(

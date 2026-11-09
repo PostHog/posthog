@@ -201,6 +201,15 @@ def _finite_float(literal: str) -> float:
     return value
 
 
+def key_text(key: object) -> str:
+    # JavaScript turns every object key into a string, so a YAML `1:` or `true:` key names the field "1" or "true".
+    if isinstance(key, str):
+        return key
+    if key is None or isinstance(key, bool | int | float):
+        return to_json_text(key)
+    return str(key)
+
+
 def to_text(value: Value) -> str:
     if value is None or isinstance(value, Missing):
         return ""

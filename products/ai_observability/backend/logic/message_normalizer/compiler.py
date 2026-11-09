@@ -43,7 +43,7 @@ from .rules import (
     StaticFollowup,
 )
 from .run_limits import check_time_limit
-from .values import MISSING, Missing, Value, is_truthy, to_json_text
+from .values import MISSING, Missing, Value, is_truthy, key_text, to_json_text
 
 PREDICATE_VERBS: Final = ("equals", "exists", "is", "in", "shape", "every")
 ROLE_TAGS: Final = frozenset({"user", "assistant", "system", "tool", "thinking", "tool_result"})
@@ -100,16 +100,7 @@ def _within_one_edit(a: str, b: str) -> bool:
 def _as_mapping(raw: object) -> _Items | None:
     if not isinstance(raw, Mapping):
         return None
-    return [(_key_text(key), value) for key, value in raw.items()]
-
-
-def _key_text(key: object) -> str:
-    # JavaScript turns every object key into a string, so a YAML `1:` or `true:` key names the field "1" or "true".
-    if isinstance(key, str):
-        return key
-    if key is None or isinstance(key, bool | int | float):
-        return to_json_text(key)
-    return str(key)
+    return [(key_text(key), value) for key, value in raw.items()]
 
 
 class _RecipeCompiler:
