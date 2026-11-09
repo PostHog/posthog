@@ -25,7 +25,13 @@ from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jwt import PyJWK, PyJWKSet
 
-from posthog.api.oauth.cimd import CIMDFetchError, CIMDValidationError, fetch_client_json_document, is_throwaway_host
+from posthog.api.oauth.cimd import (
+    THROWAWAY_JWKS_HOST_MESSAGE,
+    CIMDFetchError,
+    CIMDValidationError,
+    fetch_client_json_document,
+    is_throwaway_host,
+)
 from posthog.dataclasses import frozen
 from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
 from posthog.models.oauth import OAuthApplication
@@ -194,6 +200,13 @@ def load_jwks(jwks_uri: str, *, force_refresh: bool = False, max_keys: int = JWK
     Failures are cached too (briefly), so a client with a broken or hostile jwks_uri can't
     turn each of its requests into an outbound fetch.
     """
+    # A row stored before its host was listed still names it until the next metadata refresh,
+    # so the host is refused here too, before the cache and before PostHog sends it a request.
+    # This is not a JWKSUnavailableError, because a retry cannot succeed.
+    if is_throwaway_host(jwks_uri):
+        logger.warning("client_assertion_jwks_throwaway_host_refused", jwks_uri=jwks_uri)
+        raise ClientAssertionError(f"{THROWAWAY_JWKS_HOST_MESSAGE} Then call client_registration to apply the change.")
+
     cache_key = _jwks_cache_key(jwks_uri, max_keys)
     cached = None if force_refresh else cache.get(cache_key)
     if cached is not None:
@@ -214,11 +227,6 @@ def load_jwks(jwks_uri: str, *, force_refresh: bool = False, max_keys: int = JWK
 def _fetch_jwks_document(jwks_uri: str, *, max_keys: int = JWKS_MAX_KEYS) -> dict:
     """Fetch and validate the JWKS, raising ClientAssertionError on any rejection so the
     caller has a single place to record the negative cache entry."""
-    # A row stored before its host was listed still names it until the next metadata refresh,
-    # so the host is refused here too, before PostHog sends it a request.
-    if is_throwaway_host(jwks_uri):
-        logger.warning("client_assertion_jwks_throwaway_host_refused", jwks_uri=jwks_uri)
-        raise JWKSUnavailableError("Client keys could not be retrieved")
     try:
         parsed, _ = fetch_client_json_document(
             jwks_uri,

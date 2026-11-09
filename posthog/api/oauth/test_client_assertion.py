@@ -19,12 +19,13 @@ from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.oauth.cimd import CIMDFetchError
+from posthog.api.oauth.cimd import THROWAWAY_JWKS_HOST_MESSAGE, CIMDFetchError
 from posthog.api.oauth.client_assertion import (
     CLIENT_ASSERTION_TYPE_JWT_BEARER,
     JWKS_CACHE_PREFIX,
     MAX_ASSERTION_LIFETIME_SECONDS,
     ClientAssertionError,
+    JWKSUnavailableError,
     ResolvedClientAssertion,
     extract_client_assertion,
     load_jwks,
@@ -284,8 +285,12 @@ class TestClientAssertion(BaseTest):
         self.app.jwks_uri = "https://x0.at/oXXP.json"
         self.app.save(update_fields=["jwks_uri"])
         with patch("posthog.api.oauth.client_assertion.fetch_client_json_document") as fetch:
-            with self.assertRaisesMessage(ClientAssertionError, "Client keys could not be retrieved"):
-                verify_client_assertion(self.app, self._assertion())
+            for _ in range(2):
+                with self.assertRaises(ClientAssertionError) as ctx:
+                    verify_client_assertion(self.app, self._assertion())
+                # Also on a repeat call, where a cached failure must not hide the reason.
+                assert not isinstance(ctx.exception, JWKSUnavailableError)
+                assert str(ctx.exception).startswith(THROWAWAY_JWKS_HOST_MESSAGE)
             fetch.assert_not_called()
 
     @parameterized.expand(

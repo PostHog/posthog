@@ -319,7 +319,8 @@ THROWAWAY_HOST_MESSAGE = (
 )
 
 THROWAWAY_JWKS_HOST_MESSAGE = (
-    "jwks_uri is not allowed: PostHog doesn't accept keys from this host. Host your JWKS on a domain you control."
+    "PostHog doesn't accept a jwks_uri on this host, because it is not a host you control. "
+    "Publish your JWKS on a domain you control and set that URL as jwks_uri in your client metadata."
 )
 
 
