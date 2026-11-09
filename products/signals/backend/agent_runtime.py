@@ -92,6 +92,10 @@ class AgentRuntime:
 
 DEFAULT_RUNTIME = AgentRuntime()
 SCOUT_RUBRICS_RUNTIME = AgentRuntime(runtime_adapter="codex", model="gpt-6-sol", reasoning_effort="high")
+# Repo selection runs in the background, so it takes the cheaper, slower Flex queue.
+REPO_SELECTION_RUNTIME = AgentRuntime(
+    runtime_adapter="codex", model="gpt-6-luna", reasoning_effort="medium", service_tier="flex"
+)
 
 # The OpenAI service tiers a pin may name, mirroring the agent server's `ServiceTier` enum. The
 # agent server sends the value verbatim as the gateway's `X-PostHog-Service-Tier`, which fails
@@ -102,9 +106,9 @@ KNOWN_SERVICE_TIERS = frozenset({"default", "priority", "flex"})
 # The Codex trial config (used by the local `analyze_report --codex` override).
 CODEX_RUNTIME = AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="xhigh")
 
-# Repo selection has no entry because `select_repository` applies its own default when no model is set.
 _STEP_DEFAULT_RUNTIMES: dict[str, AgentRuntime] = {
     STEP_SCOUT_RUBRICS: SCOUT_RUBRICS_RUNTIME,
+    STEP_REPO_SELECTION: REPO_SELECTION_RUNTIME,
 }
 
 
