@@ -1475,10 +1475,18 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.assertEqual(response.data["evaluations"][0]["enabled"], False)
         self.assertEqual(response.data["evaluations"][0]["status_reason"], "provider_key_quota_exceeded")
 
-    @parameterized.expand([("active_key", True, ["Keyless"]), ("not_the_active_key", False, [])])
+    @parameterized.expand(
+        [
+            ("active_key", True, True, ["Keyless"]),
+            ("not_the_active_key", False, True, []),
+            ("no_evaluation_access", True, False, []),
+        ]
+    )
     def test_dependent_configs_lists_errored_evaluations_on_the_active_key(
-        self, _name: str, is_active: bool, expected: list[str]
+        self, _name: str, is_active: bool, evaluation_access: bool, expected: list[str]
     ) -> None:
+        if not evaluation_access:
+            _grant_provider_key_management_without_evaluation_access(self.team, self.organization_membership)
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
