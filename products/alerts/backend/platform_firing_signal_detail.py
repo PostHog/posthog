@@ -12,7 +12,8 @@ from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.contracts import PlatformAlertOutcome
 
-# The legacy alert whose firing files the signal.
+# The public id of the alert whose firing files the signal: its insight stack row's, or the
+# configuration's own when it has no row.
 FIRING_SIGNAL_REQUESTED_KEY: Final = "firing_signal_alert_id"
 
 
