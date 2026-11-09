@@ -846,9 +846,9 @@ export interface dashboardLogicValues {
     previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
     queryLoadQueue: TaskQueue
-    readOnly: boolean
     querySharingDebug: DashboardSharingDebugRun | null
     querySharingDebugSummary: ReturnType<typeof summarizeSharingDebug> | null
+    readOnly: boolean
     refreshEligibilityTick: number
     refreshMetrics: {
         completed: number
@@ -1987,7 +1987,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (
