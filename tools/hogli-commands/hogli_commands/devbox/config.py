@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import time
 import uuid
 import fcntl
 from collections.abc import Iterator, Mapping, Sequence
@@ -393,14 +394,22 @@ def forget_worktree_boxes(records: Mapping[Path, WorktreeBoxRecord]) -> None:
 
 
 @contextmanager
-def worktree_prune_lock(wait: bool = False) -> Iterator[bool]:
-    """Yield whether this process holds the prune lock. Two hooks, or a hook and `worktrees:clean`, can contend for it."""
+def worktree_prune_lock(timeout: float = 0) -> Iterator[bool]:
+    """Yield whether this process holds the prune lock, trying for up to *timeout* seconds.
+
+    Two hooks, or a hook and `worktrees:clean`, can contend for it.
+    """
     path = get_worktree_boxes_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.with_name(f"{path.name}.prune.lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            yield False
-            return
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    yield False
+                    return
+                time.sleep(0.5)
         yield True

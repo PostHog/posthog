@@ -974,31 +974,51 @@ class TestWorktreeBoxes:
 
         assert cleaned == [(expected_workspaces, "stop", True)]
 
-    def test_a_prune_started_during_clean_cannot_act_on_the_boxes_it_keeps(
-        self, tmp_path, monkeypatch, registry_path
+    @pytest.mark.parametrize(
+        ("prune_already_running", "expected_prune_attempts", "box_still_tracked"),
+        [(False, [False], False), (True, [], True)],
+        ids=["prune-started-during-clean-is-skipped", "clean-gives-up-on-a-prune-that-outlasts-the-wait"],
+    )
+    def test_clean_and_a_prune_never_act_on_the_same_boxes(
+        self,
+        tmp_path,
+        monkeypatch,
+        registry_path,
+        prune_already_running: bool,
+        expected_prune_attempts: list[bool],
+        box_still_tracked: bool,
     ) -> None:
         worktree = tmp_path / "wt"
         record = _box("devbox-test-user-wt", worktree_id="id-wt")
         devbox_config.record_worktree_box(worktree, record)
-        prune_took_lock: list[bool] = []
+        registry_before = devbox_config.load_worktree_boxes()
+        monkeypatch.setattr(worktrees, "_PRUNE_LOCK_TIMEOUT_SECONDS", 0)
+        prune_attempts: list[bool] = []
 
         def execute(stale, mode, repo_root, before_remove):
             with devbox_config.worktree_prune_lock() as holds_lock:
-                prune_took_lock.append(holds_lock)
+                prune_attempts.append(holds_lock)
             return worktrees._ReapResult(reclaimed_bytes=0, removed=1, failed=0)
 
         monkeypatch.setattr(worktrees, "_execute", execute)
 
-        worktrees._remove_worktrees_and_their_boxes(
-            [_make_worktree(worktree)],
-            "full",
-            tmp_path,
-            [WorktreeBox(worktree_path=worktree, record=record, current_path=worktree)],
-            box_action=None,
-        )
+        def clean() -> None:
+            worktrees._remove_worktrees_and_their_boxes(
+                [_make_worktree(worktree)],
+                "full",
+                tmp_path,
+                [WorktreeBox(worktree_path=worktree, record=record, current_path=worktree)],
+                box_action=None,
+            )
 
-        assert prune_took_lock == [False]
-        assert devbox_config.load_worktree_boxes() == {}
+        if prune_already_running:
+            with devbox_config.worktree_prune_lock():
+                clean()
+        else:
+            clean()
+
+        assert prune_attempts == expected_prune_attempts
+        assert devbox_config.load_worktree_boxes() == (registry_before if box_still_tracked else {})
 
     @pytest.mark.parametrize(
         ("same_worktree", "background", "keep_record", "expected_calls"),

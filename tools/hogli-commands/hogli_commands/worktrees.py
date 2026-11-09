@@ -38,6 +38,7 @@ import itertools
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -399,8 +400,14 @@ def worktrees_clean(
 
     selected_sources = {s.lower() for s in sources} if sources else None
     if box_action:
-        pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
-        _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
+        with _prune_lock_if(not dry_run) as holds_lock:
+            if holds_lock:
+                pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
+                _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
+            else:
+                click.echo(
+                    "A devbox prune is still running, so the devboxes of worktrees removed earlier were left for the next run.\n"
+                )
     # ~/.cargo/target belongs to no single worktree or repository, so a run narrowed by --source or --repo leaves it alone.
     if mode != "full" and selected_sources is None and repo is None:
         _clean_legacy_cargo_target(cutoff, dry_run, yes)
@@ -542,10 +549,17 @@ def worktrees_clean(
     _remove_worktrees_and_their_boxes(stale, mode, repo_root, registered_boxes, box_action)
 
 
+def _prune_lock_if(needed: bool) -> AbstractContextManager[bool]:
+    return worktree_prune_lock(_PRUNE_LOCK_TIMEOUT_SECONDS) if needed else nullcontext(True)
+
+
 def _remove_worktrees_and_their_boxes(
     stale: list[Worktree], mode: str, repo_root: Path, registered_boxes: list[WorktreeBox], box_action: str | None
 ) -> None:
-    with worktree_prune_lock(wait=True):
+    with _prune_lock_if(bool(registered_boxes)) as holds_lock:
+        if not holds_lock:
+            click.echo("A devbox prune is still running, so nothing was removed. Run this again in a few minutes.")
+            return
         reap = _execute(
             stale,
             mode,
@@ -927,6 +941,7 @@ def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
 _UNATTENDED_SCHEDULE = (("14d", "full"), ("7d", "deps,build"))
 # .flox/env/on-activate.sh checks this file's mtime before it spawns hogli.
 _UNATTENDED_LOCK = Path.home() / ".config" / "posthog" / "worktrees-clean.lock"
+_PRUNE_LOCK_TIMEOUT_SECONDS = 300.0
 
 
 def _unattended_lock(dry_run: bool) -> IO[str] | None:
