@@ -1,22 +1,25 @@
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
-import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
+import { EmailAttachmentMetadata, MAX_EMAIL_ATTACHMENTS } from '~/cdp/schema/cyclotron'
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
+import { SEND_NEEDS_FILES_FOR_MS } from './attachment-horizon'
 import {
     AttachmentRef,
     AttachmentStore,
     AttachmentStoreUnavailableError,
+    DAY_MS,
+    SHA256_HEX,
     UploadSlot,
     settleBeforeAbortEvenWhileCredentialsStall,
 } from './attachment-store'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 
 export const ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX = 'cdp-email-attachments-upload-bytes'
-const QUOTA_KEY_TTL_SECONDS = 2 * 24 * 60 * 60
+const QUOTA_KEY_TTL_SECONDS = (2 * DAY_MS) / 1000
 const CHARGE_SCRIPT = `
 local total = tonumber(redis.call('GET', KEYS[1]) or '0') + tonumber(ARGV[1])
 if total > tonumber(ARGV[2]) then
@@ -28,9 +31,9 @@ return 1
 
 const UploadsRequestSchema = z.object({
     files: z
-        .array(z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/), size: z.number().int().positive() }))
+        .array(z.object({ sha256: z.string().regex(SHA256_HEX), size: z.number().int().positive() }))
         .min(1)
-        .max(10),
+        .max(MAX_EMAIL_ATTACHMENTS),
 })
 
 export type AttachmentUploadsSettings = { teams: string; maxBytesPerTeamDay: number }
@@ -41,8 +44,6 @@ export type SendRefusal = {
 }
 export type AcceptedSendFiles = { files: EmailAttachmentMetadata[]; attachmentBytes: number }
 
-const DAY_MS = 24 * 60 * 60 * 1000
-const SEND_NEEDS_FILES_FOR_MS = 7 * DAY_MS
 const DJANGO_SEND_TIMEOUT_MS = 10_000
 export const ATTACHMENT_VERIFICATION_DEADLINE_MS = DJANGO_SEND_TIMEOUT_MS / 2
 

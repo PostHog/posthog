@@ -15,8 +15,11 @@ import { Hub } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2'
-import { v2JobToInvocation } from '../services/job-queue/job-queue-postgres-v2'
+import { TRANSACTIONAL_EMAIL_EVENT } from '../services/hogflows/hogflow-sensitivity'
+import { CONSUMER_STOP_DEADLINE_MS, v2JobToInvocation } from '../services/job-queue/job-queue-postgres-v2'
+import { LONGEST_WAIT_FOR_ROOM_MS } from '../services/messaging/attachment-horizon'
 import { settleBeforeAbortEvenWhileCredentialsStall } from '../services/messaging/attachment-store'
+import { ATTACHMENT_SEND_DEADLINE_MS } from '../services/messaging/email.service'
 import {
     InFlightLimits,
     InFlightRegistry,
@@ -25,7 +28,7 @@ import {
 } from '../services/messaging/in-flight-registry'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { CdpCyclotronWorkerEmail } from './cdp-cyclotron-worker-email.consumer'
+import { CdpCyclotronWorkerEmail, RESULT_WRITE_MARGIN_MS } from './cdp-cyclotron-worker-email.consumer'
 
 jest.setTimeout(5000)
 
@@ -300,7 +303,7 @@ describe('CdpCyclotronWorkerEmail', () => {
             }
         )
 
-        it('writes the result of a send whose abandoned call never settles, and keeps its reservation', async () => {
+        it('writes the result of a send whose abandoned call never settles before the stop deadline less its write margin, and keeps its reservation', async () => {
             jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] })
             try {
                 const { worker, queue } = workerWith(roomFor(1))
@@ -309,7 +312,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                 const call = new Promise<void>((resolve) => (finishCall = resolve))
                 jest.spyOn(worker, 'processInvocations').mockImplementation(async (invocations) => {
                     const deadline = new AbortController()
-                    deadline.abort(new Error('deadline'))
+                    setTimeout(() => deadline.abort(new Error('deadline')), ATTACHMENT_SEND_DEADLINE_MS)
                     await settleBeforeAbortEvenWhileCredentialsStall(deadline.signal, call).catch(() => undefined)
                     return resultsOf(invocations)
                 })
@@ -317,7 +320,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                 const { backgroundTask } = await worker.processBatch([send])
                 await new Promise(setImmediate)
                 expect(written(queue)).toEqual([])
-                await jest.advanceTimersByTimeAsync(3_000)
+                await jest.advanceTimersByTimeAsync(CONSUMER_STOP_DEADLINE_MS - RESULT_WRITE_MARGIN_MS)
                 expect(written(queue)).toEqual([send.id])
                 expect((await worker.processBatch([withFiles()])).invocationResults).toEqual([])
                 expect(queue.deferInvocations).toHaveBeenCalledTimes(1)
@@ -358,22 +361,55 @@ describe('CdpCyclotronWorkerEmail', () => {
             }
         })
 
-        it('ends a canceled send with files on a worker that refuses files, instead of deferring it', async () => {
-            const { worker, queue } = workerWith(null)
-            const canceled = withFiles({ cancelRequestedAt: DateTime.now() })
+        const waitedTooLong = (): CyclotronJobInvocation =>
+            withFiles({
+                state: {
+                    ...withFiles().state,
+                    event: { ...createHogFlowInvocationContext().event, event: TRANSACTIONAL_EMAIL_EVENT },
+                } as any,
+                queueMetadata: { attachmentDeferrals: 40, attachmentDueAt: Date.now() - LONGEST_WAIT_FOR_ROOM_MS },
+            })
+
+        it.each([
+            [
+                'a canceled send with files on a worker that refuses files',
+                null,
+                () => withFiles({ cancelRequestedAt: DateTime.now() }),
+                { canceled: true },
+                [],
+            ],
+            [
+                'a send with files that waited too long on workers that refuse files',
+                null,
+                waitedTooLong,
+                { error: expect.stringContaining('attachment_wait_expired: ') },
+                [expect.objectContaining({ status: 'failed', reason: 'attachment_wait_expired' })],
+            ],
+            [
+                'a send with files that waited too long for room',
+                roomFor(0),
+                waitedTooLong,
+                { error: expect.stringContaining('attachment_wait_expired: ') },
+                [expect.objectContaining({ status: 'failed', reason: 'attachment_wait_expired' })],
+            ],
+        ] as const)('ends %s, instead of deferring it', async (_, limits, send, outcome, statusRows) => {
+            const { worker, queue } = workerWith(limits)
+            const statuses = jest.spyOn(worker['invocationResultsService'].emailStatusService, 'queue')
+            const ended = send()
 
             await (
-                await worker.processBatch([canceled])
+                await worker.processBatch([ended])
             ).backgroundTask
 
             expect(queue.queueInvocationResults).toHaveBeenCalledWith([
                 expect.objectContaining({
                     finished: true,
-                    canceled: true,
-                    invocation: expect.objectContaining({ id: canceled.id }),
+                    ...outcome,
+                    invocation: expect.objectContaining({ id: ended.id }),
                 }),
             ])
             expect(queue.deferInvocations).not.toHaveBeenCalled()
+            expect(statuses.mock.calls.map(([row]) => row).filter((row) => !row.runOutcome)).toEqual(statusRows)
         })
 
         const PREVIOUS_VERSION_JOB_STATE =

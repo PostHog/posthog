@@ -229,6 +229,13 @@ export class EmailStatusService {
     }
 
     // A job whose workflow or team is gone is dropped without a result, so nothing else records it.
+    queueFailedJob(job: CyclotronJobInvocation, reason: EmailStatusReason): void {
+        if (!isTransactionalEmailJob(job)) {
+            return
+        }
+        this.queue({ teamId: job.teamId, messageId: job.id, status: 'failed', reason })
+    }
+
     queueUnavailableRun(job: CyclotronJobInvocation): void {
         if (!isTransactionalEmailJob(job)) {
             return
