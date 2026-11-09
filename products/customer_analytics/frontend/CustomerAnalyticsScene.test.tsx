@@ -11,6 +11,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { emptySceneParams } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { initKeaTests } from '~/test/init'
 
 import { CustomerAnalyticsScene } from './CustomerAnalyticsScene'
@@ -52,6 +53,8 @@ jest.mock('./components/Insights/SignupInsights', () => ({ SignupInsights: () =>
 
 describe('CustomerAnalyticsScene', () => {
     beforeEach(() => {
+        // The open rail pane persists, so clear it between cases.
+        localStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
         sceneLogic.mount()
@@ -102,7 +105,10 @@ describe('CustomerAnalyticsScene', () => {
         expect(screen.getByText(label).closest('a')).toHaveAttribute('href', `/project/997${destination}`)
     })
 
-    it('hides the tab bar in the Today rail and keeps the open tab', () => {
+    it.each([
+        ['people', false],
+        ['products', true],
+    ] as const)('in the Today rail with the %s pane open, shows the tab bar: %s', (pane, showsTabs) => {
         featureFlagLogic.actions.setFeatureFlags(
             [
                 FEATURE_FLAGS.TODAY_RAIL_NAV,
@@ -116,14 +122,16 @@ describe('CustomerAnalyticsScene', () => {
             }
         )
 
+        todayShellLogic.mount()
+        todayShellLogic.actions.setPickedPane(pane)
+
         render(
             <Provider>
                 <CustomerAnalyticsScene />
             </Provider>
         )
 
-        expect(document.querySelector('[data-attr="customer-analytics-tabs"]')).not.toBeInTheDocument()
-        expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+        expect(!!document.querySelector('[data-attr="customer-analytics-tabs"]')).toBe(showsTabs)
         expect(document.querySelector('[data-attr="tasks-inbox"]')).toBeInTheDocument()
     })
 
