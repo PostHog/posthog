@@ -3,10 +3,15 @@ import { execFileSync } from "node:child_process";
 const REPOSITORY = "PostHog/posthog";
 const DESKTOP_LABEL = "feature/desktop";
 const DESKTOP_PATH = "products/desktop/";
+const GENERATED_FILE = /(^|\/|\.)generated\.[^/]+$/;
+
+function isDesktopSource(file) {
+    return file.startsWith(DESKTOP_PATH) && !GENERATED_FILE.test(file);
+}
 
 export function selectReleaseChanges(commits, pullRequests) {
     return commits.filter((commit) => {
-        if (commit.files.some((file) => file.startsWith(DESKTOP_PATH))) {
+        if (commit.files.some(isDesktopSource)) {
             return true;
         }
         const pullRequest = pullRequests.get(commit.pullRequestNumber);

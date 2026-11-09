@@ -88,6 +88,12 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
                 "API in its Google Cloud project, and give the service account permission to view app quality "
                 "data in Play Console."
             ),
+            # Every per-app route answers 404 for a package Play doesn't know or the service account
+            # can't see, typically a mistyped or removed name in `app_package_names`.
+            "404 Client Error: Not Found for url: https://playdeveloperreporting.googleapis.com/": (
+                "Google Play couldn't find one of your apps, or the service account can't see it. "
+                "Check the app package names in your source settings, then re-enable the sync."
+            ),
             "Google rejected the service account key": (
                 "Google rejected the service account key. Check that the key is still active and upload a current one."
             ),

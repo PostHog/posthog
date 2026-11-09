@@ -2,6 +2,63 @@ from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the official Shippo API reference: https://docs.goshippo.com/api-reference
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "rates": {
+        "description": "Shipping quotes for each shipment, including quotes that were not purchased. Shippo returns rates for shipments up to 390 days old.",
+        "docs_url": "https://docs.goshippo.com/api-reference/rates/retrieve-shipment-rates",
+        "columns": {
+            "object_id": "Unique identifier of the rate.",
+            "object_created": "Date and time when Shippo created the rate.",
+            "shipment": "Identifier of the shipment associated with this rate.",
+            "carrier_account": "Identifier of the carrier account used to obtain this rate.",
+            "provider": "Name of the carrier that offers this rate.",
+            "amount": "Shipping price in the currency of the sender's country.",
+            "currency": "Currency code for amount.",
+            "amount_local": "Shipping price in the currency of the recipient's country.",
+            "currency_local": "Currency code for amount_local.",
+            "servicelevel": "Service name, token, and terms for this rate.",
+            "estimated_days": "Estimated transit time in days. This estimate is not a guarantee.",
+            "attributes": "Rate attributes such as CHEAPEST, FASTEST, and BESTVALUE within the shipment.",
+        },
+    },
+    "manifests": {
+        "description": "Carrier manifests that group shipping labels for a carrier handoff.",
+        "docs_url": "https://docs.goshippo.com/api-reference/manifests/list-all-manifests",
+        "columns": {
+            "object_id": "Unique identifier of the manifest.",
+            "object_created": "Date and time when Shippo created the manifest.",
+            "carrier_account": "Identifier of the carrier account associated with the manifest.",
+            "shipment_date": "Date when the shipments will be handed to the carrier.",
+            "transactions": "Identifiers of the label transactions included in the manifest.",
+            "status": "Manifest status: QUEUED, SUCCESS, or ERROR.",
+            "documents": "URLs of the manifest documents.",
+        },
+    },
+    "tracks": {
+        "description": "Current delivery status and tracking history, with one row per trackable transaction. Transactions whose rates have expired are excluded because their carrier cannot be resolved.",
+        "docs_url": "https://docs.goshippo.com/api-reference/tracking-status/get-a-tracking-status",
+        "columns": {
+            "carrier": "Carrier token used to track the package.",
+            "tracking_number": "Tracking number assigned by the carrier. Together with carrier, this identifies the package.",
+            "transaction": "Identifier of the label transaction associated with this tracking record.",
+            "tracking_status": "Latest tracking event, including its status, time, and location.",
+            "tracking_history": "Tracking events in chronological order, starting with the earliest event.",
+            "eta": "Estimated arrival time from the carrier. This value can change during delivery.",
+            "original_eta": "Estimated arrival time when the shipment first entered the system.",
+        },
+    },
+    "shippo_accounts": {
+        "description": "Managed Shippo accounts for platform customers. This table requires access to Shippo Managed Accounts.",
+        "docs_url": "https://docs.goshippo.com/api-reference/shippo-accounts/list-all-shippo-accounts",
+        "columns": {
+            "object_id": "Unique identifier of the managed Shippo account.",
+            "object_created": "Date and time when Shippo created the account.",
+            "object_updated": "Date and time of the last account update.",
+            "email": "Email address associated with the account.",
+            "first_name": "First name of the account holder.",
+            "last_name": "Last name of the account holder.",
+            "company_name": "Company name associated with the account.",
+        },
+    },
     "shipments": {
         "description": "A shipment groups a sender address, a recipient address, and one or more parcels, and is the basis for requesting rates and purchasing labels. Shipments older than 390 days are not returned by the API.",
         "docs_url": "https://docs.goshippo.com/api-reference/shipments/list-all-shipments",

@@ -3,6 +3,7 @@ from typing import Optional
 
 import time_machine
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.impact_partner._config import ImpactPartnerSourceConfig
@@ -110,7 +111,9 @@ class TestGetRowsActions:
         result = _driver().run(
             "Actions",
             [ScriptedResponse(json={"Actions": [], "@numpages": "2"})],
-            resume_state=ImpactPartnerResumeConfig(page=2, window_start=windows[1][0].isoformat()),
+            resume_state=ImpactPartnerResumeConfig(
+                page=2, window_start=windows[1][0].isoformat(), window_end=windows[1][1].isoformat()
+            ),
             should_use_incremental_field=True,
             db_incremental_field_last_value=cursor,
         )
@@ -120,18 +123,121 @@ class TestGetRowsActions:
         assert result.params("ActionDateStart") == ["2026-05-16T00:00:00Z"]
         assert result.params("Page") == ["2"]
 
+    @parameterized.expand(
+        [
+            ("no_window_end", ImpactPartnerResumeConfig(page=5, window_start="2026-05-31T00:00:00+00:00")),
+            (
+                "window_end_fits_no_window",
+                ImpactPartnerResumeConfig(
+                    page=5, window_start="2020-01-01T00:00:00+00:00", window_end="2020-01-02T00:00:00+00:00"
+                ),
+            ),
+        ]
+    )
     @time_machine.travel("2026-06-01", tick=False)
-    def test_stale_bookmark_restarts_from_the_first_window(self) -> None:
+    def test_unplaceable_bookmark_restarts_from_the_first_window(
+        self, _name: str, resume_state: ImpactPartnerResumeConfig
+    ) -> None:
         result = _driver().run(
             "Actions",
             [ScriptedResponse(json={"Actions": [], "@numpages": "1"})],
-            resume_state=ImpactPartnerResumeConfig(page=5, window_start="2020-01-01T00:00:00+00:00"),
+            resume_state=resume_state,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 5, 31, tzinfo=UTC),
         )
 
         assert result.raised is None
         assert result.params("Page") == ["1"]
+
+
+class TestActionsWindowNarrowing:
+    @time_machine.travel("2026-06-01", tick=False)
+    def test_a_400_narrows_the_window_instead_of_failing_the_sync(self) -> None:
+        # A 12-day window: too short to split into more than one level before hitting real rows.
+        result = _driver().run(
+            "Actions",
+            [
+                ScriptedResponse(status=400),
+                ScriptedResponse(json={"Actions": [{"Id": "a1"}], "@numpages": "1"}),
+                ScriptedResponse(json={"Actions": [{"Id": "a2"}], "@numpages": "1"}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 5, 20, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"Id": "a1"}], [{"Id": "a2"}]]
+        assert len(result.requests) == 3
+        full_start, full_end = result.requests[0].param("ActionDateStart"), result.requests[0].param("ActionDateEnd")
+        assert (full_start, full_end) == ("2026-05-20T00:00:00Z", "2026-06-01T00:00:00Z")
+        first_half_end = result.requests[1].param("ActionDateEnd")
+        assert result.requests[1].param("ActionDateStart") == full_start
+        assert result.requests[2].param("ActionDateStart") == first_half_end
+        assert result.requests[2].param("ActionDateEnd") == full_end
+        assert full_start is not None
+        assert first_half_end is not None
+        # Resume state bookmarks the narrowed window actually fetched, not the original one.
+        assert [state.window_start for state in result.saved_states] == [
+            datetime.fromisoformat(full_start.replace("Z", "+00:00")).isoformat(),
+            datetime.fromisoformat(first_half_end.replace("Z", "+00:00")).isoformat(),
+        ]
+
+    @time_machine.travel("2026-06-01", tick=False)
+    def test_a_400_on_a_window_already_at_the_floor_still_raises(self) -> None:
+        # A 12-hour window is already below the 1-day floor, so there's nothing left to narrow.
+        result = _driver().run(
+            "Actions",
+            [ScriptedResponse(status=400)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 5, 31, 12, tzinfo=UTC),
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
+
+    @time_machine.travel("2026-06-01", tick=False)
+    def test_resuming_the_second_half_does_not_refetch_the_first(self) -> None:
+        # The second half is the one left bookmarked once the first has fully completed.
+        bookmark = ImpactPartnerResumeConfig(
+            page=1, window_start="2026-05-26T00:00:00+00:00", window_end="2026-06-01T00:00:00+00:00"
+        )
+        result = _driver().run(
+            "Actions",
+            [ScriptedResponse(json={"Actions": [{"Id": "a2"}], "@numpages": "1"})],
+            resume_state=bookmark,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 5, 20, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.requests[0].param("ActionDateStart") == "2026-05-26T00:00:00Z"
+        assert result.requests[0].param("ActionDateEnd") == "2026-06-01T00:00:00Z"
+        assert result.requests[0].param("Page") == "1"
+
+    @time_machine.travel("2026-06-01", tick=False)
+    def test_resuming_the_first_half_still_fetches_the_second_after_it(self) -> None:
+        # Bookmarked mid-pagination, so resuming it must not skip the second half after it.
+        bookmark = ImpactPartnerResumeConfig(
+            page=1, window_start="2026-05-20T00:00:00+00:00", window_end="2026-05-26T00:00:00+00:00"
+        )
+        result = _driver().run(
+            "Actions",
+            [
+                ScriptedResponse(json={"Actions": [{"Id": "b1"}], "@numpages": "2"}),
+                ScriptedResponse(json={"Actions": [{"Id": "b2"}], "@numpages": "2"}),
+                ScriptedResponse(json={"Actions": [{"Id": "b3"}], "@numpages": "1"}),
+            ],
+            resume_state=bookmark,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 5, 20, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"Id": "b1"}], [{"Id": "b2"}], [{"Id": "b3"}]]
+        assert result.params("ActionDateStart") == ["2026-05-20T00:00:00Z"] * 2 + ["2026-05-26T00:00:00Z"]
+        assert result.params("ActionDateEnd") == ["2026-05-26T00:00:00Z"] * 2 + ["2026-06-01T00:00:00Z"]
+        assert result.params("Page") == ["1", "2", "1"]
 
 
 class TestImpactPartnerSourceResponse:
