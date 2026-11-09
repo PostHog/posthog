@@ -60,6 +60,16 @@ class ActiveInstallation:
     proxy_token: str | None = field(default=None, repr=False)
 
 
+@dataclass(frozen=True)
+class UnconnectedTeamTool:
+    """A catalog server the team turned on that one member has no working connection to."""
+
+    template_id: str
+    name: str
+    # Only an OAuth server connects from a link. An API key server needs the form on the MCP servers page.
+    connects_with_oauth: bool
+
+
 UnmountedInstallationReason = Literal[
     "needs_reconnect",
     "server_disabled",
