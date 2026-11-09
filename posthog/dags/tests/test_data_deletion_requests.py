@@ -806,7 +806,7 @@ def test_full_job_event_deletion_deferred(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
-def test_verify_queued_request_promotes_when_events_gone():
+def test_verify_queued_request_promotes_when_events_gone(cluster: ClickhouseCluster):
     from posthog.models.data_deletion_request import verify_queued_request
 
     now = datetime.now()

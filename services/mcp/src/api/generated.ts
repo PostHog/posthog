@@ -14870,6 +14870,10 @@ export namespace Schemas {
       watched_insights: number;
       /** Insights with at least one scored bucket in the range. Results cover only these insights. */
       insights_scored_in_range: number;
+      /** Distinct UTC days with a scored daily bucket of any insight series in the last 28 days. It does not follow the requested range, and it counts scores written before scoring was turned off. */
+      scored_days: number;
+      /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
+      scored_history_ready: boolean;
       /** The applied start of the range, in the project timezone. */
       date_from: string;
       /** The applied end of the range, in the project timezone. */
@@ -33957,6 +33961,89 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `clickhouse` - ClickHouse
+     * * `managed_trino` - Hosted Trino
+     * * `connection` - Direct connection
+     */
+    export type ViewEngineTargetEnum = typeof ViewEngineTargetEnum[keyof typeof ViewEngineTargetEnum];
+
+
+    export const ViewEngineTargetEnum = {
+      Clickhouse: 'clickhouse',
+      ManagedTrino: 'managed_trino',
+      Connection: 'connection',
+    } as const;
+
+    /**
+     * * `hogql` - HogQL
+     * * `raw` - Raw SQL
+     */
+    export type ViewEngineDialectEnum = typeof ViewEngineDialectEnum[keyof typeof ViewEngineDialectEnum];
+
+
+    export const ViewEngineDialectEnum = {
+      Hogql: 'hogql',
+      Raw: 'raw',
+    } as const;
+
+    export interface ViewCapability {
+      /** Whether the view supports this. */
+      available: boolean;
+      /**
+         * Why the view does not support this, written for the user. Null when available.
+         * @nullable
+         */
+      reason: string | null;
+    }
+
+    /**
+     * * `clickhouse_probe` - ClickHouse probe
+     * * `client_types` - Column types sent by the client
+     */
+    export type ViewColumnSourceEnum = typeof ViewColumnSourceEnum[keyof typeof ViewColumnSourceEnum];
+
+
+    export const ViewColumnSourceEnum = {
+      ClickhouseProbe: 'clickhouse_probe',
+      ClientTypes: 'client_types',
+    } as const;
+
+    export interface ViewEngineCapabilities {
+      /** Whether the view can be materialized, run or scheduled. */
+      materialize: ViewCapability;
+      /** Whether the view has lineage and a node in the data modeling DAG. */
+      lineage: ViewCapability;
+      /** Whether HogQL queries on ClickHouse can read from this view by name. */
+      referenceable_from_clickhouse: ViewCapability;
+      /** Where the view's column types come from: a ClickHouse probe of the query, or the types the client sends from its last run.
+       *
+       * * `clickhouse_probe` - ClickHouse probe
+       * * `client_types` - Column types sent by the client */
+      column_source: ViewColumnSourceEnum;
+    }
+
+    export interface ViewEngine {
+      /** The engine that runs this view: ClickHouse, hosted Trino, or a direct connection.
+       *
+       * * `clickhouse` - ClickHouse
+       * * `managed_trino` - Hosted Trino
+       * * `connection` - Direct connection */
+      target: ViewEngineTargetEnum;
+      /** Whether the view stores HogQL or raw SQL for its engine.
+       *
+       * * `hogql` - HogQL
+       * * `raw` - Raw SQL */
+      dialect: ViewEngineDialectEnum;
+      /**
+         * The direct connection that runs this view. Null for any other engine.
+         * @nullable
+         */
+      connection_id: string | null;
+      /** What the rest of the product can do with this view. */
+      capabilities: ViewEngineCapabilities;
+    }
+
+    /**
      * Shared methods for DataWarehouseSavedQuery serializers.
      *
      * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -34056,7 +34143,9 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended: DataWarehouseSavedQuerySuspended;
-      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      /** The engine that runs this view, and what the product can do with it. */
+      readonly engine: ViewEngine;
+      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
       readonly is_raw_managed_trino: boolean;
     }
 
@@ -34201,7 +34290,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
-      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      /** The engine that runs this view, and what the product can do with it. */
+      readonly engine: ViewEngine;
+      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
       readonly is_raw_managed_trino: boolean;
     }
 
@@ -37588,6 +37679,47 @@ export namespace Schemas {
       message: string;
     }
 
+    /**
+     * * `repair` - repair
+     * * `hint` - hint
+     */
+    export type ReportQualityHintSeverityEnum = typeof ReportQualityHintSeverityEnum[keyof typeof ReportQualityHintSeverityEnum];
+
+
+    export const ReportQualityHintSeverityEnum = {
+      Repair: 'repair',
+      Hint: 'hint',
+    } as const;
+
+    /**
+     * * `title` - title
+     * * `summary` - summary
+     */
+    export type ReportQualityHintFieldEnum = typeof ReportQualityHintFieldEnum[keyof typeof ReportQualityHintFieldEnum];
+
+
+    export const ReportQualityHintFieldEnum = {
+      Title: 'title',
+      Summary: 'summary',
+    } as const;
+
+    export interface ReportQualityHint {
+      /** Stable id of the quality check, e.g. `literal_newline_escapes`. */
+      check_id: string;
+      /** `repair`: the text was fixed before it was stored. `hint`: the text was stored as sent.
+       *
+       * * `repair` - repair
+       * * `hint` - hint */
+      severity: ReportQualityHintSeverityEnum;
+      /** The field the check matched.
+       *
+       * * `title` - title
+       * * `summary` - summary */
+      field: ReportQualityHintFieldEnum;
+      /** What the check found and what to do next time. */
+      message: string;
+    }
+
     export interface EditReportResponse {
       /** Id of the edited report. */
       report_id: string;
@@ -37640,6 +37772,8 @@ export namespace Schemas {
       decision_fields_set: string[];
       /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
       warnings: EditReportWarning[];
+      /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+      quality_hints: ReportQualityHint[];
       /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
       corroboration_collapsed: boolean;
     }
@@ -38605,6 +38739,8 @@ export namespace Schemas {
       remediation: string | null;
       /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
       idempotent_replay: boolean;
+      /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+      quality_hints: ReportQualityHint[];
     }
 
     export interface EmojiSuggestion {
@@ -44958,11 +45094,18 @@ export namespace Schemas {
       variant: string;
     }
 
+    /**
+     * Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library.
+     */
+    export type ExperimentExposureQueryResponseExposedByLibrary = {[key: string]: number} | null;
+
     export type ExperimentExposureQueryResponseTotalExposures = {[key: string]: number};
 
     export interface ExperimentExposureQueryResponse {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      /** Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library. */
+      exposed_by_library?: ExperimentExposureQueryResponseExposedByLibrary;
       /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
       health_checks?: ExperimentExposureHealthCheck[] | null;
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
@@ -48515,6 +48658,8 @@ export namespace Schemas {
        * * `cdc_only` - cdc_only
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /** When the table keeps history after this update, replace the history table's access rules with the table's own rules. If the history table doesn't exist yet, the rules are copied when its first snapshot loads. Requires the right to manage access to both tables. */
+      copy_access_rules_to_history?: boolean;
       /** Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
        *
        * * `missing_primary_key` - Missing primary key
@@ -53017,6 +53162,18 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface HiddenPulseNumber {
+      /** Key of the hidden number: a key metric setting such as signup_event, or insight:<short_id>. */
+      key: string;
+      /** Current name of the number. */
+      name: string;
+    }
+
+    export interface HiddenPulseNumbers {
+      /** Numbers the person hid from the key numbers, oldest first. Numbers the person can no longer see are left out. */
+      hidden: HiddenPulseNumber[];
+    }
+
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
 
 
@@ -53440,6 +53597,15 @@ export namespace Schemas {
       items: HighlightItem[];
       /** The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`. */
       pins: HighlightPin[];
+    }
+
+    export interface HistoryTableRef {
+      /** ID of the history table. */
+      id: string;
+      /** Name the history table is queried by in HogQL. */
+      name: string;
+      /** Whether you can change who can access the history table. */
+      user_can_manage_access: boolean;
     }
 
     /**
@@ -55683,6 +55849,43 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type MarketingAnalyticsRecommendationsDataGapKind = typeof MarketingAnalyticsRecommendationsDataGapKind[keyof typeof MarketingAnalyticsRecommendationsDataGapKind];
+
+
+    export const MarketingAnalyticsRecommendationsDataGapKind = {
+      ConversionActionTablesNotSynced: 'conversion_action_tables_not_synced',
+      PerformanceMaxSearchTermsCountPrimaryConversions: 'performance_max_search_terms_count_primary_conversions',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationsDataGap {
+      /** Google Ads campaign table of the ad account the gap applies to. */
+      campaignTable?: string | null;
+      kind: MarketingAnalyticsRecommendationsDataGapKind;
+      message: string;
+    }
+
+    export type MarketingAnalyticsRecommendationCpaBenchmarkSource = typeof MarketingAnalyticsRecommendationCpaBenchmarkSource[keyof typeof MarketingAnalyticsRecommendationCpaBenchmarkSource];
+
+
+    export const MarketingAnalyticsRecommendationCpaBenchmarkSource = {
+      TargetCpa: 'target_cpa',
+      Campaign: 'campaign',
+      Account: 'account',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationCpa {
+      /** CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for context. Null when the account has no non-brand conversions. */
+      benchmark: number | null;
+      /** Where the benchmark comes from. Null when there is no benchmark. */
+      benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | null;
+      /** Lowest non-brand CPA of a non-brand Search campaign in the same ad account. */
+      bestCampaign: number | null;
+      /** Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no conversions or is not bought yet. */
+      value: number | null;
+      /** Highest non-brand CPA of a non-brand Search campaign in the same ad account. */
+      worstCampaign: number | null;
+    }
+
     export type MarketingAnalyticsRecommendationImpactDirection = typeof MarketingAnalyticsRecommendationImpactDirection[keyof typeof MarketingAnalyticsRecommendationImpactDirection];
 
 
@@ -55739,6 +55942,8 @@ export namespace Schemas {
       action: string;
       /** The campaign a search term recommendation applies to, when it applies to one. */
       campaign?: string | null;
+      /** CPA figures in the account currency. */
+      cpa?: MarketingAnalyticsRecommendationCpa | null;
       currency?: string | null;
       /** Monthly money impact in the account currency. Null when the rule has no money impact. */
       impact?: number | null;
@@ -55754,6 +55959,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsRecommendationsQueryResponse {
+      /** Data the rules needed but could not read, so some figures use a fallback. */
+      dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
       disclaimer: string;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -55786,6 +55993,8 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationsSource {
+      /** Google Ads daily campaign conversions split by conversion action. */
+      campaignConversionActionTable?: string | null;
       /** Google Ads daily campaign impression share table. */
       campaignImpressionShareTable?: string | null;
       /** Google Ads daily campaign stats table. */
@@ -55800,6 +56009,8 @@ export namespace Schemas {
       queryPageTable?: string | null;
       /** Google Search Console table with one row per query, or per query and page. */
       queryTable?: string | null;
+      /** Google Ads daily search term conversions split by conversion action. */
+      searchTermConversionActionTable?: string | null;
       /** Google Ads search term table split by the keyword that matched each term. */
       searchTermKeywordTable?: string | null;
       /** Google Ads search term table for Search campaigns. */
@@ -55810,6 +56021,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsRecommendationsQuery {
+      /** Resource names of the Google Ads conversion actions that count as conversions, such as `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an account with none of them counts its primary actions. Selected actions count every conversion, including secondary actions and conversions outside campaign goals. Omit to count the primary actions only. */
+      conversionActions?: string[] | null;
       dateRange?: DateRange | null;
       kind?: 'MarketingAnalyticsRecommendationsQuery';
       /** Modifiers used when performing the query */
@@ -71321,6 +71534,19 @@ export namespace Schemas {
          * @nullable
          */
       readonly uses_most_specific_access_resolution: boolean | null;
+      /**
+         * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+         * @maxItems 100
+         * @items.maxLength 64
+         */
+      ip_restrictions?: string[];
+      /** When False, the IP allowlist is kept but not enforced. */
+      ip_restrictions_enabled?: boolean;
+      /**
+         * A warning when the current request's IP address is not in the saved allowlist.
+         * @nullable
+         */
+      readonly ip_restrictions_warning: string | null;
     }
 
     export interface OrganizationAIAccessRequestResponse {
@@ -76479,6 +76705,8 @@ export namespace Schemas {
          * @nullable
          */
       ranking_pill?: boolean | null;
+      /** Whether the rows carry their source metadata. False when the request passed include_source_metadata=false, or when the ClickHouse read failed or took too long. Then each row has an empty source_products and a null scout_name that do not mean the report has none. Load them with source_metadata. */
+      source_metadata_available?: boolean;
     }
 
     export type SignalSourceSyncStatusEnum = typeof SignalSourceSyncStatusEnum[keyof typeof SignalSourceSyncStatusEnum];
@@ -82935,7 +83163,9 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
-      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      /** The engine that runs this view, and what the product can do with it. */
+      readonly engine?: ViewEngine;
+      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
       readonly is_raw_managed_trino?: boolean;
     }
 
@@ -84305,6 +84535,8 @@ export namespace Schemas {
        * * `cdc_only` - cdc_only
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /** When the table keeps history after this update, replace the history table's access rules with the table's own rules. If the history table doesn't exist yet, the rules are copied when its first snapshot loads. Requires the right to manage access to both tables. */
+      copy_access_rules_to_history?: boolean;
       /** Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
        *
        * * `missing_primary_key` - Missing primary key
@@ -86551,6 +86783,19 @@ export namespace Schemas {
          * @nullable
          */
       readonly uses_most_specific_access_resolution?: boolean | null;
+      /**
+         * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+         * @maxItems 100
+         * @items.maxLength 64
+         */
+      ip_restrictions?: string[];
+      /** When False, the IP allowlist is kept but not enforced. */
+      ip_restrictions_enabled?: boolean;
+      /**
+         * A warning when the current request's IP address is not in the saved allowlist.
+         * @nullable
+         */
+      readonly ip_restrictions_warning?: string | null;
     }
 
     export interface PatchedOrganizationDomain {
@@ -96536,6 +96781,8 @@ export namespace Schemas {
     export interface PulsePins {
       /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries. */
       pins: PulsePin[];
+      /** Numbers the person hid from the key numbers, oldest first. Suggestions skip them. Change them with the hidden numbers endpoint. */
+      readonly hidden: readonly HiddenPulseNumber[];
     }
 
     /**
@@ -97615,11 +97862,18 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
+    /**
+     * Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library.
+     */
+    export type QueryResponseAlternative20ExposedByLibrary = {[key: string]: number} | null;
+
     export type QueryResponseAlternative20TotalExposures = {[key: string]: number};
 
     export interface QueryResponseAlternative20 {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      /** Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library. */
+      exposed_by_library?: QueryResponseAlternative20ExposedByLibrary;
       /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
       health_checks?: ExperimentExposureHealthCheck[] | null;
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
@@ -98127,6 +98381,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative39 {
+      /** Data the rules needed but could not read, so some figures use a fallback. */
+      dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
       disclaimer: string;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -105025,6 +105281,7 @@ export namespace Schemas {
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
+     * * `trial_scout_limit` - Free trial scout limit
      * * `retired` - Retired
      * * `background_removed` - Background removed
      */
@@ -105035,6 +105292,7 @@ export namespace Schemas {
       NoOutput: 'no_output',
       Ignored: 'ignored',
       RepeatedFailures: 'repeated_failures',
+      TrialScoutLimit: 'trial_scout_limit',
       Retired: 'retired',
       BackgroundRemoved: 'background_removed',
     } as const;
@@ -105119,6 +105377,7 @@ export namespace Schemas {
        * * `no_output` - No output
        * * `ignored` - Ignored
        * * `repeated_failures` - Repeated failures
+       * * `trial_scout_limit` - Free trial scout limit
        * * `retired` - Retired
        * * `background_removed` - Background removed */
       readonly pause_reason: SignalScoutConfigPauseReasonEnum | null;
@@ -107256,6 +107515,96 @@ export namespace Schemas {
       queries: string[];
     }
 
+    /**
+     * * `not_claimed` - Not claimed
+     * * `active` - Active
+     * * `exhausted` - Exhausted
+     */
+    export type TrialGrantStatusEnum = typeof TrialGrantStatusEnum[keyof typeof TrialGrantStatusEnum];
+
+
+    export const TrialGrantStatusEnum = {
+      NotClaimed: 'not_claimed',
+      Active: 'active',
+      Exhausted: 'exhausted',
+    } as const;
+
+    /**
+     * * `continue_paid` - Continue under existing paid authorization
+     * * `add_payment_method` - Add a payment method
+     * * `increase_limit` - Increase the Self-driving spending limit
+     * * `enable_self_driving` - Enable paid Self-driving
+     * * `unavailable` - Billing status unavailable
+     */
+    export type TrialContinuationEnum = typeof TrialContinuationEnum[keyof typeof TrialContinuationEnum];
+
+
+    export const TrialContinuationEnum = {
+      ContinuePaid: 'continue_paid',
+      AddPaymentMethod: 'add_payment_method',
+      IncreaseLimit: 'increase_limit',
+      EnableSelfDriving: 'enable_self_driving',
+      Unavailable: 'unavailable',
+    } as const;
+
+    export interface SelfDrivingTrialStatus {
+      /** Whether the one-time trial rollout is enabled for this organization. */
+      enabled: boolean;
+      /** Whether the current rollout check succeeded. */
+      flag_confirmed: boolean;
+      /** Effective trial policy version. */
+      policy_version: number;
+      /** Whether the legacy reports-only trial still prevents implementation for this project. */
+      legacy_pr_restricted: boolean;
+      /** Whether the current Self-driving plan has no recurring free allowance. */
+      billing_ready: boolean;
+      /** Whether this project can explicitly claim its lifetime grant. */
+      eligible: boolean;
+      /** Whether the current user has project-management permission to activate. */
+      can_activate: boolean;
+      /** Unclaimed lifetime project grants in the organization. */
+      organization_grants_remaining: number;
+      /**
+         * Lifetime project grant, shared with its environments.
+         * @nullable
+         */
+      grant_id: string | null;
+      /** The project's lifetime trial state.
+       *
+       * * `not_claimed` - Not claimed
+       * * `active` - Active
+       * * `exhausted` - Exhausted */
+      grant_status: TrialGrantStatusEnum;
+      /** Why the trial completed: cost_limit or report_limit. */
+      exhaustion_reason: string;
+      /** Qualifying reports delivered since the claim, including hidden or deleted reports. */
+      reports_delivered: number;
+      /** Admitted reports that have not yet qualified as delivered. */
+      reports_in_progress: number;
+      /** Report limit for admitting new work; accepted pipelines may finish beyond it. */
+      report_limit: number;
+      /** One-time allowance in millionths of a US dollar. */
+      allowance_microusd: number;
+      /** Settled and known running costs, capped at the trial allowance. */
+      used_microusd: number;
+      /** Whether the shared trial and billing limits block new work. */
+      new_work_paused: boolean;
+      /** Enabled scouts across this project's environments. */
+      enabled_scouts: number;
+      /** Maximum enabled scouts during the trial. */
+      scout_limit: number;
+      /** On activation, all but the three oldest enabled scouts pause. */
+      scouts_to_pause: number;
+      /** What happens to new work after the trial.
+       *
+       * * `continue_paid` - Continue under existing paid authorization
+       * * `add_payment_method` - Add a payment method
+       * * `increase_limit` - Increase the Self-driving spending limit
+       * * `enable_self_driving` - Enable paid Self-driving
+       * * `unavailable` - Billing status unavailable */
+      paid_continuation: TrialContinuationEnum;
+    }
+
     export interface SendCalendarBatchJob {
       /** ID of the batch run. */
       readonly id: string;
@@ -107910,6 +108259,15 @@ export namespace Schemas {
     export interface SetAllServersEnabled {
       /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */
       enabled: boolean;
+    }
+
+    export interface SetHiddenPulseNumbers {
+      /**
+         * Keys of every number to hide, oldest first. Replaces the hidden numbers. At most 50 keys.
+         * @maxItems 50
+         * @items.maxLength 200
+         */
+      keys: string[];
     }
 
     /**
@@ -112091,6 +112449,13 @@ export namespace Schemas {
     export interface SurveySummarizeRequest {
       /** When true, bypass cached summaries and regenerate. Defaults to false. */
       force_refresh?: boolean;
+    }
+
+    export interface TableHistoryTable {
+      /** Whether this table has access rules of its own that you can manage, so there are rules to copy to its history table. */
+      main_table_has_copyable_rules: boolean;
+      /** The table's history table, which keeps every past version of its rows. `null` when the table has none or you can't view it. */
+      history_table: HistoryTableRef | null;
     }
 
     export interface TaggerUpdate {

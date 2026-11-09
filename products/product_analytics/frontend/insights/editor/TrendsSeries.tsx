@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DISPLAY_TYPES_TO_CATEGORIES, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { alphabet } from 'lib/utils/strings'
@@ -44,7 +44,7 @@ export function TrendsSeries(): JSX.Element | null {
     const { updateSeries, setFormulaMode } = useActions(insightVizDataLogic(insightProps))
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = useQuillSurface()
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
@@ -68,7 +68,7 @@ export function TrendsSeries(): JSX.Element | null {
     const canDisableFormula: boolean =
         !isTrends || !display || !SINGLE_SERIES_DISPLAY_TYPES.includes(display) || series?.length === 1
 
-    const formulaFooter = !showFormulaOption ? null : todayRailNav ? (
+    const formulaFooter = !showFormulaOption ? null : quillSurface ? (
         <div className="mt-2">
             <QuillChartOptionSwitch
                 label="Formula mode"

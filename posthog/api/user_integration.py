@@ -63,8 +63,10 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager
+from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
 from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import (
     NEEDS_REAUTHORIZATION_Q,
@@ -307,6 +309,9 @@ class UserSlackLinkableWorkspaceListResponseSerializer(serializers.Serializer):
 @extend_schema(extensions={"x-product": "core"})
 class UserIntegrationViewSet(viewsets.GenericViewSet):
     """`/api/users/@me/integrations/` — manage the user's personal GitHub integrations."""
+
+    # Only these actions read organization-owned installs; their targets are resolved inside the action.
+    _ip_restrictions_use_view_scope = frozenset({"github_start", "slack_start", "slack_linkable"})
 
     scope_object = "user"
     required_scopes: list[str] | None = None
@@ -766,6 +771,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         candidates = (
             Integration.objects.filter(kind="slack", team__organization_id__in=org_ids)
+            .exclude(team__organization_id__in=get_ip_blocked_organization_ids(request))
             .exclude(integration_id__in=already_linked_slack_team_ids)
             .select_related("team", "team__organization")
         )
@@ -932,7 +938,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         return disconnect_codex_integration(user)
 
 
-def _resolve_team_for_github_start(user: User, request: Request):
+def _resolve_team_for_github_start(user: User, request: Request) -> "Team | None":
     """Resolve which team to use for team-level GitHub install discovery.
 
     PostHog Desktop passes ``team_id`` (project/team) in the JSON body because the
@@ -943,16 +949,20 @@ def _resolve_team_for_github_start(user: User, request: Request):
     if not isinstance(data, dict):
         data = {}
     raw_id = data.get("team_id")
+    team = user.current_team
     if raw_id is not None and raw_id != "":
         try:
             tid = int(raw_id)
         except (TypeError, ValueError):
             raise exceptions.ValidationError("team_id must be an integer")
-        team = user.teams.filter(id=tid).first()
-        if team is None:
-            raise exceptions.ValidationError("Invalid or inaccessible team_id for this user.")
-        return team
-    return user.current_team
+        team = Team.objects.filter(id=tid, organization_id__in=UserPermissions(user).organization_memberships).first()
+    if team is not None:
+        enforce_ip_restrictions(
+            request, user, request.successful_authenticator, organization_id=str(team.organization_id)
+        )
+    if raw_id is not None and raw_id != "" and (team is None or not user.teams.filter(id=team.id).exists()):
+        raise exceptions.ValidationError("Invalid or inaccessible team_id for this user.")
+    return team
 
 
 def _has_unlinked_github_installations(user: User) -> bool | None:
