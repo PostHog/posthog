@@ -130,6 +130,7 @@ from products.cdp.backend.presentation.serializers import (
     InputsSerializer,
     require_viewer_access_to_added_actions,
 )
+from products.cdp.backend.validation import reject_new_non_email_senders
 from products.cohorts.backend.facade.api import get_cohort_ref
 from products.messaging.backend.facade.categories import MessageCategoryMissing, get_category
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
@@ -2269,35 +2270,32 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if template_id == _FIXED_TEMPLATE_IDS["function_push"]:
                     _fill_default_push_title(inputs, input_schema)
 
+                function_inputs_context = {
+                    "function_type": template.type,
+                    "is_dwh_source": self.context.get("is_dwh_source", False),
+                    # The existing (decrypted) secret inputs for this action, so a resent
+                    # {"secret": true} marker recovers the stored value instead of wiping it.
+                    "encrypted_inputs": (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id")) or {},
+                    # Team plus this action's stored sender override, so a literal custom
+                    # sender address is checked against the integration's verified domain at
+                    # save time, while an unchanged stored value is grandfathered.
+                    "get_team": self.context.get("get_team"),
+                    "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(data.get("id")),
+                    "live_email_from": (self.context.get("live_action_email_from") or {}).get(data.get("id")),
+                    # Request-scoped: a drip sequence's steps share senders, and the actions
+                    # list validates one action at a time (mirrors _message_template_cache).
+                    "email_integration_domain_cache": self.context.setdefault("_email_integration_domain_cache", {}),
+                }
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
                         "inputs_schema": input_schema,
                         "inputs": inputs,
                     },
-                    context={
-                        "function_type": template.type,
-                        "is_dwh_source": self.context.get("is_dwh_source", False),
-                        # The existing (decrypted) secret inputs for this action, so a resent
-                        # {"secret": true} marker recovers the stored value instead of wiping it.
-                        "encrypted_inputs": (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id"))
-                        or {},
-                        # Team plus this action's stored sender override, so a literal custom
-                        # sender address is checked against the integration's verified domain at
-                        # save time, while an unchanged stored value is grandfathered.
-                        "get_team": self.context.get("get_team"),
-                        "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
-                            data.get("id")
-                        ),
-                        "live_email_from": (self.context.get("live_action_email_from") or {}).get(data.get("id")),
-                        # Request-scoped: a drip sequence's steps share senders, and the actions
-                        # list validates one action at a time (mirrors _message_template_cache).
-                        "email_integration_domain_cache": self.context.setdefault(
-                            "_email_integration_domain_cache", {}
-                        ),
-                    },
+                    context=function_inputs_context,
                 )
 
                 if not strict:
+                    reject_new_non_email_senders(input_schema, inputs, function_inputs_context)
                     if function_config_serializer.is_valid():
                         data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
                     else:

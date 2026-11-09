@@ -149,14 +149,16 @@ class TestSandboxEmailSteps(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("new_value", None, 400),
-            ("stored_value", "live", 200),
-            # A web draft saves leniently, so a value only in the draft was never checked.
-            ("value_only_in_the_draft", "draft", 400),
+            ("new_value_on_publish", None, "active", 400),
+            ("stored_value_on_publish", "live", "active", 200),
+            # Some writes, such as an approved suggestion, store a draft without validating it.
+            ("value_only_in_the_staged_draft", "draft", "active", 400),
+            # A web draft save tolerates unfinished steps, but a wrong-kind sender is never unfinished.
+            ("new_value_in_a_web_draft_save", None, "draft", 400),
         ]
     )
     def test_an_email_step_cannot_newly_send_from_the_sandbox_row(
-        self, _name: str, stored_in: str | None, expected: int
+        self, _name: str, stored_in: str | None, saved_status: str, expected: int
     ) -> None:
         sync_template_to_db(_email_function_template())
         sandbox_row = Integration.objects.create(
@@ -170,11 +172,10 @@ class TestSandboxEmailSteps(APIBaseTest):
             draft={"actions": [_trigger(), _own_email_step(sandbox_row.id)]} if stored_in == "draft" else None,
         )
 
-        # Publishing validates every step strictly, the way an API or MCP save does.
         response = self.client.patch(
             self._url(str(flow.id)),
             {
-                "status": "active",
+                "status": saved_status,
                 "actions": [_trigger(), _own_email_step(sandbox_row.id)],
                 "edges": [{"from": "trigger_node", "to": OWN_EMAIL_STEP_ID, "type": "continue"}],
             },

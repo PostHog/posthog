@@ -87,9 +87,10 @@ MAX_FROM_OVERRIDE_EMAIL_LENGTH = 254
 
 
 def _sender_integration_ids(from_value: dict) -> set[int]:
+    rotation = from_value.get("integrationIds")
     return {
         integration_id
-        for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
+        for integration_id in [from_value.get("integrationId"), *(rotation if isinstance(rotation, list) else [])]
         if isinstance(integration_id, int) and not isinstance(integration_id, bool)
     }
 
@@ -138,8 +139,8 @@ def _validate_email_sender_kind(from_value: dict, context: dict) -> None:
     """Reject a newly chosen sender row that is not an email sender, such as the sandbox sender.
 
     The send path only resolves `email` rows, so another kind fails at send time. Ids on the live step
-    are grandfathered, and ids with no row are left to the send path. A draft's ids are not: a web
-    draft saves leniently without raising this, so grandfathering them would let publish skip it.
+    are grandfathered, and ids with no row are left to the send path. A draft's ids are not, because
+    some writes, such as an approved suggestion, store a draft without validating it.
     """
     get_team = context.get("get_team")
     if get_team is None:
@@ -157,6 +158,22 @@ def _validate_email_sender_kind(from_value: dict, context: dict) -> None:
         raise serializers.ValidationError(
             {"input": "This sender can't send email from a workflow. Choose a verified email sender."}
         )
+
+
+def reject_new_non_email_senders(inputs_schema: list[dict] | None, inputs: dict | None, context: dict) -> None:
+    """Run the sender-kind rule on a save that otherwise tolerates invalid inputs, such as a draft.
+
+    A wrong-kind sender is never an unfinished edit, so even a lenient save refuses it. Otherwise
+    the stored id would be grandfathered once the workflow publishes.
+    """
+    for schema in inputs_schema or []:
+        if not isinstance(schema, dict) or schema.get("type") not in ("email", "native_email"):
+            continue
+        email_input = (inputs or {}).get(schema.get("key"))
+        value = email_input.get("value") if isinstance(email_input, dict) else None
+        from_value = value.get("from") if isinstance(value, dict) else None
+        if isinstance(from_value, dict):
+            _validate_email_sender_kind(from_value, context)
 
 
 def _validate_email_sender_override(from_value: dict, context: dict) -> None:
