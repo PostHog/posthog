@@ -66,7 +66,7 @@ const sesRecord = (teamId: number, event: Record<string, unknown>, mail: Record<
     ...event,
 })
 
-const notification = (record: unknown, topicArn = TOPIC_ARN): string =>
+const notification = (record: unknown, topicArn = TOPIC_ARN, certUrl = CERT_URL): string =>
     JSON.stringify(
         signed({
             Type: 'Notification',
@@ -76,7 +76,7 @@ const notification = (record: unknown, topicArn = TOPIC_ARN): string =>
             Timestamp: '2026-01-01T00:00:01.000Z',
             SignatureVersion: '1',
             Signature: '',
-            SigningCertURL: CERT_URL,
+            SigningCertURL: certUrl,
         })
     )
 
@@ -201,6 +201,35 @@ describe('SandboxFeedbackService', () => {
         })
 
         it.each([
+            ['plain HTTP', 'http://sns.us-east-1.amazonaws.com/SimpleNotificationService-test.pem'],
+            ['a host outside AWS', 'https://attacker.example.com/SimpleNotificationService-test.pem'],
+            ['an AWS-looking host prefix', 'https://sns.us-east-1.amazonaws.com.attacker.example/cert.pem'],
+            ['a path that is not a PEM file', 'https://sns.us-east-1.amazonaws.com/cert.txt'],
+        ])('rejects a signing certificate served over %s without fetching it', async (_label, certUrl) => {
+            const result = await service.handle({
+                body: notification(sesRecord(TEAM_ID, complaint()), TOPIC_ARN, certUrl),
+            })
+
+            expect(result).toEqual({ status: 403, message: 'Invalid SNS signature' })
+            expect(mockFetch).not.toHaveBeenCalled()
+            expect(writes()).toEqual({})
+        })
+
+        it('verifies again once a failed certificate download recovers', async () => {
+            mockFetch.mockResolvedValueOnce({
+                status: 503,
+                headers: {},
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve(''),
+            } as FetchResponse)
+            const body = notification(sesRecord(TEAM_ID, complaint()))
+
+            expect((await service.handle({ body })).status).toBe(403)
+            expect((await service.handle({ body })).status).toBe(200)
+            expect(suppression.recordComplaints).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
             ['confirms', 'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&Token=t', 200, 1],
             ['refuses', 'https://attacker.example.com/?Action=ConfirmSubscription&Token=t', 403, 0],
         ])('%s a subscription whose SubscribeURL is %s', async (_verb, subscribeUrl, status, confirmations) => {
@@ -248,6 +277,8 @@ describe('SandboxFeedbackService', () => {
             ['an action tag with a forbidden character', sandboxTags(TEAM_ID, { ph_sbx_action: ['action.1'] })],
             ['a non-numeric version tag', sandboxTags(TEAM_ID, { ph_sbx_version: ['v3'] })],
             ['a test tag that is not a boolean', sandboxTags(TEAM_ID, { ph_sbx_test: ['yes'] })],
+            ['an empty parent run tag', sandboxTags(TEAM_ID, { ph_sbx_parent_run: [] })],
+            ['a parent run tag with a forbidden character', sandboxTags(TEAM_ID, { ph_sbx_parent_run: ['run.1'] })],
         ])('acknowledges and counts a record with %s', async (_label, tags) => {
             const before = await counterValue('cdp_sandbox_email_feedback_unattributed_total', {
                 event_type: 'Complaint',
@@ -359,6 +390,21 @@ describe('SandboxFeedbackService', () => {
             expect(writes()).toEqual({})
             expect(monitoring.queueAppMetric).not.toHaveBeenCalled()
             expect(capture).not.toHaveBeenCalled()
+        })
+
+        it('counts feedback from a batch-triggered run under the parent run', async () => {
+            const parentRunId = '0190a7f2-1c2b-7d3e-8f40-0000000000aa'
+            const tags = sandboxTags(TEAM_ID, { ph_sbx_parent_run: [parentRunId] })
+
+            await service.handle({ body: notification(sesRecord(TEAM_ID, complaint(), { tags })) })
+
+            expect(monitoring.queueAppMetric).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    app_source_id: parentRunId,
+                    app_source_version: { id: FLOW_ID, version: 3 },
+                }),
+                'hog_flow'
+            )
         })
 
         it('still suppresses after a test send, and reports it as an event only', async () => {

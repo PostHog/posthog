@@ -22,6 +22,7 @@ export const SANDBOX_SES_TAGS = {
     action: 'ph_sbx_action',
     version: 'ph_sbx_version',
     test: 'ph_sbx_test',
+    parentRun: 'ph_sbx_parent_run',
 } as const
 
 export type SandboxFeedbackAttribution = {
@@ -31,6 +32,7 @@ export type SandboxFeedbackAttribution = {
     actionId: string
     flowVersion: number
     isTest: boolean
+    parentRunId?: string
 }
 
 type SandboxFeedbackKind = 'delivered' | 'bounced' | 'complained'
@@ -86,6 +88,11 @@ export function parseSandboxTags(tags: Record<string, string[]> | undefined): Sa
     const action = singleTag(tags, SANDBOX_SES_TAGS.action)
     const version = singleTag(tags, SANDBOX_SES_TAGS.version)
     const test = singleTag(tags, SANDBOX_SES_TAGS.test)
+    const hasParentRun = tags?.[SANDBOX_SES_TAGS.parentRun] !== undefined
+    const parentRun = singleTag(tags, SANDBOX_SES_TAGS.parentRun)
+    if (hasParentRun && (parentRun === null || !ACTION_ID.test(parentRun))) {
+        return null
+    }
     if (
         team === null ||
         !POSITIVE_INTEGER.test(team) ||
@@ -108,6 +115,7 @@ export function parseSandboxTags(tags: Record<string, string[]> | undefined): Sa
         actionId: action,
         flowVersion: Number(version),
         isTest: test === 'true',
+        ...(parentRun ? { parentRunId: parentRun } : {}),
     }
 }
 
@@ -266,13 +274,13 @@ export class SandboxFeedbackService {
 
     private async report(feedback: SandboxFeedback[]): Promise<void> {
         for (const { attribution, kind, bounceType } of feedback) {
-            const { teamId, hogFlowId, actionId, flowVersion, isTest } = attribution
+            const { teamId, hogFlowId, actionId, flowVersion, isTest, parentRunId } = attribution
             try {
                 if (!isTest) {
                     this.monitoring.queueAppMetric(
                         {
                             team_id: teamId,
-                            app_source_id: hogFlowId,
+                            app_source_id: parentRunId ?? hogFlowId,
                             instance_id: actionId,
                             metric_kind: 'email',
                             metric_name: FEEDBACK_METRIC_NAME[kind],

@@ -82,7 +82,10 @@ export class SnsEnvelopeVerifier {
         if (this.certCache[url]) {
             return await this.certCache[url]!
         }
-        this.certCache[url] = this.fetchText(url)
+        this.certCache[url] = this.fetchText(url).catch((error) => {
+            delete this.certCache[url]
+            throw error
+        })
         return this.certCache[url]!
     }
 
