@@ -11,7 +11,6 @@ import { usableId } from 'lib/components/ViewTraceButton/usableId'
 import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
 import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 
-import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
 import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 import { ExceptionCardFooter } from './ExceptionCardFooter'
@@ -88,7 +87,7 @@ function ExceptionCardContent({
     label,
 }: ExceptionCardContentProps): JSX.Element {
     const { currentTab, logsEnabled, traceTabEnabled } = useValues(exceptionCardLogic)
-    const { sessionId, spanId, traceId } = useValues(errorPropertiesLogic)
+    const { spanId, traceId } = useValues(errorPropertiesLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
     const openTraceDialog = useOpenTraceDialog()
     const usableTraceId = usableId(traceId)
@@ -134,7 +133,7 @@ function ExceptionCardContent({
             >
                 {/* Container query, not viewport: the card sits in a resizable split pane. At @xl and up,
                     symmetric 1fr gutters centre the tab bar; below it the gutters shrink to their content
-                    so the tab bar keeps the slack. Just above @xl a 1fr share is narrower than two actions,
+                    so the tab bar keeps the slack. Just above @xl a 1fr share is narrower than the action,
                     so the right gutter never drops below its content and the tab bar sits off-centre until
                     there is room; the left gutter keeps the logomark's 1.125rem (text-lg) so the tab bar
                     scrolls before the logo is cut in half. The container wraps the header alone — inline-size
@@ -224,15 +223,6 @@ function ExceptionCardContent({
                                     }
                                 />
                             )}
-                            {sessionId && (currentTab === 'timeline' || currentTab === 'recording') ? (
-                                <ViewLogsButton
-                                    sessionId={sessionId}
-                                    timestamp={timestamp}
-                                    openedFrom="exception"
-                                    size="xsmall"
-                                    data-attr="error-tracking-session-view-logs"
-                                />
-                            ) : null}
                         </div>
                     </div>
                 </div>
