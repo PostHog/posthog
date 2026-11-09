@@ -187,6 +187,20 @@ The requester's own GitHub access is not checked; the `stamphog:write` scope and
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
 
+## The silent trigger (a clean external review)
+
+`facade/tasks.py::queue_silent_review` lets ReviewHog start a review of one head after a clean review of it.
+The repo's `review_on_clean_external_review` switch must be on, and it takes the `manager` level like `routing_mode`.
+Like the manual trigger it bypasses `review_mode` and nothing else: the Celery task re-reads the config from the writer and refuses a closed PR, a draft, a bot author, an untrusted association, an author below write, a disabled repo, and a head that is no longer current.
+The head dedupe in `_queue_review_at_head` applies, so a head that already has a review gets no second one.
+The run is stamped `silent_review` provenance and the `reviewhog_clean` trigger, apart from manual and inbox provenance, so it never earns the self-driving carve-out or the ReviewHog refusal handoff.
+
+The run is silent: only an approval reaches the PR, through the same attest, adopt and guard steps as any approval.
+Every other verdict, and a failure, writes nothing to GitHub, on retries too: no review, no label strip, no failure notice, no 👀, no WAIT re-review after an external review, and the pre-check skips its LLM refusal summary.
+What it keeps: `dismiss_stale_approvals` first, the conditional terminal save, and the terminal orphan-approval sweep.
+Do not return early before them, or a silent refusal leaves an older approval standing.
+Publication is its own state: a withheld verdict keeps `verdict_posted_at` empty (`ReviewRun.verdict_withheld`), so the verdict a run computed is never read as one the PR saw.
+
 ## External review evidence
 
 - `facade/review_evidence.py` is a registry of providers that stamphog owns. A product that reviews PRs and depends on stamphog (today review_hog, as PostHog Review) registers one at app-ready, for the same dependency-cycle reason as `inbox_hooks.py`. Stamphog never imports a provider's product.
@@ -220,7 +234,7 @@ A refusal writes nothing to GitHub and creates no run, so it cannot leave or rem
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
-  and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
+  and its review policy (`review_mode`, `trigger_label`, `review_on_clean_external_review`) resets to the model defaults: all of those
   fields were set by someone who never proved GitHub access, so a pre-selected review mode or label
   would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
   policy the same way when it binds one. Reinstall rebinds keep settings — those

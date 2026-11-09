@@ -26,6 +26,7 @@ from celery import Task, shared_task
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
 from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
@@ -53,7 +54,11 @@ from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_fo
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
-from products.stamphog.backend.logic.review_trigger import derive_review_trigger
+from products.stamphog.backend.logic.review_trigger import (
+    SILENT_REVIEW_OUTPUT_KEY,
+    derive_review_trigger,
+    is_silent_output,
+)
 from products.stamphog.backend.logic.routing.service import RoutingBusy
 from products.stamphog.backend.logic.routing.triggers import (
     ReviewPath,
@@ -1841,6 +1846,8 @@ def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_
     # Inbox runs carry the self-driving carve-out, which only the inbox trigger paths may grant.
     if previous_output.get("inbox_review"):
         return
+    if is_silent_output(previous_output):
+        return
     repo = repo_config.repository
     pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
     if (pr.get("state") or "") != "open" or (pr.get("head") or {}).get("sha") != head_sha:
@@ -1902,6 +1909,71 @@ def request_rereview_after_external_review(*, repository: str, pr_number: int, h
     head is still current. Any other call is a no-op, so a caller may call it for every turn.
     """
     rereview_after_external_review.delay(repository=repository, pr_number=pr_number, head_sha=head_sha)
+
+
+def _queue_silent_review_at_head(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> str:
+    """Queue a silent review of ``head_sha``, or return why not. The returned outcome is for the log.
+
+    Every webhook gate but the review mode runs again here, against the PR as GitHub reports it
+    now. A refusal writes nothing to GitHub: no review starts, so no approval is left or removed.
+    """
+    if not repo_config.review_on_clean_external_review:
+        return "switch_off"
+    repo = repo_config.repository
+    pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
+    if (pr.get("state") or "") != "open":
+        return "not_open"
+    if ((pr.get("head") or {}).get("sha") or "") != head_sha:
+        return "head_moved"
+    skip_reason = _review_skip_reason(pr)
+    if skip_reason is not None:
+        return skip_reason
+    if _author_lacks_write_permission(repo_config, repo, pr):
+        return "author_below_write"
+    queued = _queue_review_at_head(
+        repo_config,
+        pr,
+        head_sha,
+        output={
+            SILENT_REVIEW_OUTPUT_KEY: {"source": ReviewTrigger.REVIEWHOG_CLEAN.value},
+            "review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value,
+        },
+    )
+    if queued.run is None:
+        return "stale_snapshot"
+    return "queued" if queued.created else "already_covered"
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=_REREVIEW_MAX_RETRIES)
+def silent_review_after_clean_external_review(
+    self: Task, team_id: int, repository: str, pr_number: int, head_sha: str
+) -> None:
+    """Start a silent review of ``head_sha`` because an external reviewer found nothing on it.
+
+    The repo config is read from the writer, because it gates run creation. A GitHub or Temporal
+    error retries with backoff, because no webhook redelivery stands behind this call. A retry is
+    safe: every check runs again, and the head dedupe collapses repeats into one run.
+    """
+    repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
+    if repo_config is None:
+        logger.info("stamphog_silent_review_skipped", repository=repository, pr_number=pr_number, outcome="no_config")
+        return
+    try:
+        outcome = _queue_silent_review_at_head(repo_config, pr_number, head_sha)
+    except GitHubRateLimitError as e:
+        logger.warning("stamphog_silent_review_rate_limited", repository=repository, pr_number=pr_number)
+        raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
+    except Exception as e:
+        logger.exception("stamphog_silent_review_failed", repository=repository, pr_number=pr_number, error=str(e))
+        raise self.retry(exc=e, countdown=_REREVIEW_RETRY_BASE_SECONDS * 2**self.request.retries)
+    logger.info(
+        "stamphog_silent_review_requested",
+        repository=repository,
+        pr_number=pr_number,
+        head_sha=head_sha,
+        outcome=outcome,
+        team_id=team_id,
+    )
 
 
 _ROUTING_MAX_RETRIES = 4

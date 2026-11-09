@@ -74937,6 +74937,7 @@ export namespace Schemas {
     /**
      * * `self_driving` - SELF_DRIVING
      * * `manual` - MANUAL
+     * * `reviewhog_clean` - REVIEWHOG_CLEAN
      * * `label` - LABEL
      * * `all` - ALL
      */
@@ -74946,6 +74947,7 @@ export namespace Schemas {
     export const ReviewRunTriggerEnum = {
       SelfDriving: 'self_driving',
       Manual: 'manual',
+      ReviewhogClean: 'reviewhog_clean',
       Label: 'label',
       All: 'all',
     } as const;
@@ -75068,10 +75070,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly delivery_id: string | null;
-      /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.
+      /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo reviewing every PR event.
        *
        * * `self_driving` - SELF_DRIVING
        * * `manual` - MANUAL
+       * * `reviewhog_clean` - REVIEWHOG_CLEAN
        * * `label` - LABEL
        * * `all` - ALL */
       readonly trigger: ReviewRunTriggerEnum;
@@ -77052,8 +77055,10 @@ export namespace Schemas {
       readonly routing_mode: RoutingModeEnum;
       /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. */
       readonly routing_fork_labels: StamphogRepoConfigRoutingForkLabels;
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false. */
+      readonly review_on_clean_external_review: boolean;
       /**
-         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode or routing_fork_labels.
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -89488,6 +89493,8 @@ export namespace Schemas {
       routing_mode?: RoutingModeEnum;
       /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
       routing_fork_labels?: PatchedStamphogRepoConfigWriteRoutingForkLabels;
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false. */
+      review_on_clean_external_review?: boolean;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {
@@ -111167,6 +111174,8 @@ export namespace Schemas {
       routing_mode?: RoutingModeEnum;
       /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
       routing_fork_labels?: StamphogRepoConfigWriteRoutingForkLabels;
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false. */
+      review_on_clean_external_review?: boolean;
     }
 
     export interface StamphogRoutingFile {
@@ -136961,7 +136970,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
      */
     trigger?: StamphogReviewRunsListTrigger;
     };
@@ -136973,6 +136982,7 @@ export namespace Schemas {
       All: 'all',
       Label: 'label',
       Manual: 'manual',
+      ReviewhogClean: 'reviewhog_clean',
       SelfDriving: 'self_driving',
     } as const;
 

@@ -45,7 +45,11 @@ from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER,
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
-from products.stamphog.backend.tasks.tasks import process_inbox_pr_review, rereview_after_external_review
+from products.stamphog.backend.tasks.tasks import (
+    process_inbox_pr_review,
+    rereview_after_external_review,
+    silent_review_after_clean_external_review,
+)
 from products.stamphog.backend.temporal import activities
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
@@ -718,13 +722,18 @@ def test_malformed_repo_policy_keeps_the_parser_text_out_of_the_error() -> None:
 
 
 @pytest.mark.parametrize(
-    "review_mode,self_driving",
-    [(ReviewMode.LABEL, False), (ReviewMode.ALL, False), (ReviewMode.LABEL, True)],
-    ids=["label_mode", "all_mode", "self_driving"],
+    "review_mode,self_driving,silent",
+    [
+        (ReviewMode.LABEL, False, False),
+        (ReviewMode.ALL, False, False),
+        (ReviewMode.LABEL, True, False),
+        (ReviewMode.LABEL, False, True),
+    ],
+    ids=["label_mode", "all_mode", "self_driving", "silent_posts_nothing"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_failed_run_says_so_on_the_pull_request(
-    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, self_driving: bool
+    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, self_driving: bool, silent: bool
 ) -> None:
     # A failure keeps the trigger label, so the per-PR cooldown rejects a re-added one and a
     # self-driving run ignores labels. A push is the only route that starts a run in every mode.
@@ -741,15 +750,21 @@ def test_a_failed_run_says_so_on_the_pull_request(
         pull_request=pull_request,
         head_sha=head_sha,
         status=ReviewRunStatus.REVIEWING,
-        output={"inbox_review": True} if self_driving else {},
+        output=({"inbox_review": True} if self_driving else {})
+        | ({"silent_review": {"source": "reviewhog_clean"}} if silent else {}),
     )
 
-    _run_activity(
-        mark_review_failed,
-        MarkReviewFailedInput(str(run.id), team.id, "SandboxPhaseError: modal refused the box"),
-    )
+    for _attempt in range(2 if silent else 1):
+        # A retry finds the run FAILED and posts an owed notice, so a silent run is checked across two.
+        _run_activity(
+            mark_review_failed,
+            MarkReviewFailedInput(str(run.id), team.id, "SandboxPhaseError: modal refused the box"),
+        )
 
     notices = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"]
+    if silent:
+        assert notices == []
+        return
     assert len(notices) == 1
     body = notices[0]["body"]["body"]
     assert body.startswith("**The review did not complete.**")
@@ -1436,13 +1451,13 @@ def test_post_verdict_adopts_own_orphan_approval_instead_of_reposting(
 
 
 @pytest.mark.parametrize(
-    "include_peer_live_approval",
-    [False, True],
-    ids=["orphan_only_swept", "peer_live_approval_kept"],
+    "include_peer_live_approval, silent",
+    [(False, False), (True, False), (False, True)],
+    ids=["orphan_only_swept", "peer_live_approval_kept", "silent_refusal_still_sweeps"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_non_approve_terminal_sweeps_supersession_orphan(
-    team, stamphog_chain: StamphogChain, include_peer_live_approval: bool
+    team, stamphog_chain: StamphogChain, include_peer_live_approval: bool, silent: bool
 ) -> None:
     # Supersession orphan race: an older run cleared post_verdict's guards, got superseded, then landed its
     # GitHub approval AFTER this newer run's startup sweep already ran. This newer run refuses, so nothing
@@ -1461,7 +1476,8 @@ def test_non_approve_terminal_sweeps_supersession_orphan(
         pull_request=pull_request,
         head_sha=head_sha,
         status=ReviewRunStatus.REVIEWING,
-        output={"reviewer_raw": _refused_engine_output()},
+        output={"reviewer_raw": _refused_engine_output()}
+        | ({"silent_review": {"source": "reviewhog_clean"}} if silent else {}),
     )
     # The orphan: an active APPROVE by our bot at an older head, with no live ReviewRun pointing at it.
     github_reviews = [
@@ -1495,6 +1511,9 @@ def test_non_approve_terminal_sweeps_supersession_orphan(
     # The orphan is always swept; a peer run's live persisted approval (9191) is never touched.
     dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
     assert [d["review_id"] for d in dismissals] == [8181]
+    comment_reviews = [w for w in recorder.github_writes if w["kind"] == "comment_review"]
+    assert len(comment_reviews) == (0 if silent else 1)
+    assert (run.verdict_posted_at is None) is silent
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2045,18 +2064,28 @@ def test_engine_context_after_the_wait_holds_the_review_posted_during_it(team, s
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "verdict, nudged_heads, live_head, enabled, earlier_wait, expected_new_runs",
+    "verdict, nudged_heads, live_head, enabled, earlier_wait, expected_new_runs, silent",
     [
-        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, False, 1, id="wait-on-the-head-reruns"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, False, 1, False, id="wait-on-the-head-reruns"),
         pytest.param(
-            ReviewVerdict.WAIT, ["sha123b", "sha123b"], "sha123b", True, False, 1, id="repeated-nudge-reruns-once"
+            ReviewVerdict.WAIT,
+            ["sha123b", "sha123b"],
+            "sha123b",
+            True,
+            False,
+            1,
+            False,
+            id="repeated-nudge-reruns-once",
         ),
         # The re-run waited again. The original WAIT it replaced must not count as covering the head.
-        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, True, 1, id="rerun-that-waited-again-reruns"),
-        pytest.param(ReviewVerdict.WAIT, ["sha123a"], "sha123b", True, False, 0, id="nudge-for-an-older-head"),
-        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123c", True, False, 0, id="head-moved-since"),
-        pytest.param(ReviewVerdict.APPROVED, ["sha123b"], "sha123b", True, False, 0, id="approved-verdict"),
-        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", False, False, 0, id="disconnected-repo"),
+        pytest.param(
+            ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, True, 1, False, id="rerun-that-waited-again-reruns"
+        ),
+        pytest.param(ReviewVerdict.WAIT, ["sha123a"], "sha123b", True, False, 0, False, id="nudge-for-an-older-head"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123c", True, False, 0, False, id="head-moved-since"),
+        pytest.param(ReviewVerdict.APPROVED, ["sha123b"], "sha123b", True, False, 0, False, id="approved-verdict"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", False, False, 0, False, id="disconnected-repo"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, False, 0, True, id="silent-wait"),
     ],
 )
 def test_finished_external_review_reruns_only_a_waiting_verdict(
@@ -2068,6 +2097,7 @@ def test_finished_external_review_reruns_only_a_waiting_verdict(
     enabled: bool,
     earlier_wait: bool,
     expected_new_runs: int,
+    silent: bool,
 ) -> None:
     # A WAIT keeps a PR unapproved until something runs stamphog again. Any other verdict, head or
     # repo state must stay as it is, because a stray re-run can retract or replace a real verdict.
@@ -2085,6 +2115,7 @@ def test_finished_external_review_reruns_only_a_waiting_verdict(
         head_sha="sha123b",
         status=ReviewRunStatus.COMPLETED,
         verdict=verdict,
+        output={"silent_review": {"source": "reviewhog_clean"}} if silent else {},
     )
     existing_ids = [waiting.id]
     if earlier_wait:
@@ -2243,6 +2274,145 @@ def test_wait_on_a_pending_external_review_reruns_once_that_review_finished(
     assert run.verdict == ReviewVerdict.WAIT
     assert posted["waited_on_external_review"] is True
     assert rereview.call_args_list == [call(repository=REPO, pr_number=125, head_sha=head_sha)] * expected_dispatches
+
+
+def _silent_review_pr(number: int, head_sha: str, **overrides: object) -> dict:
+    return _pr_object(number, "devex-dev", head_sha) | {"state": "open", "author_association": "MEMBER"} | overrides
+
+
+def _silent_repo_config(team_id: int) -> StamphogRepoConfig:
+    # Label mode with no label on the PR: the silent trigger is the only thing that can start a review.
+    repo_config = _repo_config(team_id)
+    repo_config.review_mode = ReviewMode.LABEL
+    repo_config.review_on_clean_external_review = True
+    repo_config.save()
+    return repo_config
+
+
+@pytest.mark.parametrize(
+    "files, engine_output, expect_status, expect_verdict",
+    [
+        pytest.param(_pr_files(), None, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED, id="approval-posts"),
+        pytest.param(_pr_files(), "refused", ReviewRunStatus.COMPLETED, ReviewVerdict.REFUSED, id="refusal-stays"),
+        pytest.param(
+            [_big_api_file("lib/big.py", 1300)], None, ReviewRunStatus.GATED, ReviewVerdict.WAIT, id="gate-stays"
+        ),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_silent_review_posts_nothing_but_an_approval(
+    team,
+    stamphog_chain: StamphogChain,
+    handoff: MagicMock,
+    files: list[dict],
+    engine_output: str | None,
+    expect_status: ReviewRunStatus,
+    expect_verdict: ReviewVerdict,
+) -> None:
+    # A clean external review starts this run without anybody asking stamphog, so only an approval may
+    # reach the PR. Every other verdict is computed and stored, and its startup and terminal approval
+    # sweeps still run, so an approval from an older head never outlives a withheld refusal.
+    _silent_repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha160a"
+    recorder.register_pr(REPO, 160, _silent_review_pr(160, head_sha, changed_files=len(files)), files)
+    recorder.pr_reviews[(REPO, 160)] = [
+        {"id": 7171, "state": "APPROVED", "commit_id": "sha-old", "user": {"login": "stamphog[bot]", "type": "Bot"}}
+    ]
+    sandbox = fakes.make_fake_sandbox_class(
+        _refused_engine_output() if engine_output == "refused" else fakes.approved_engine_output()
+    )
+    capture_fn = MagicMock()
+
+    with (
+        override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"),
+        patch.object(activities, "get_sandbox_class_for_backend", lambda backend: sandbox),
+        patch.object(activities, "summarize_refusal") as summarize,
+        patch.object(activities, "ph_background_capture", return_value=capture_fn),
+    ):
+        silent_review_after_clean_external_review(team_id=team.id, repository=REPO, pr_number=160, head_sha=head_sha)
+
+    run = ReviewRun.objects.for_team(team.id).get(pull_request__pr_number=160)
+    assert (run.status, run.verdict) == (expect_status, expect_verdict)
+    approved = expect_verdict == ReviewVerdict.APPROVED
+    assert run.verdict_withheld is not approved
+    assert (run.verdict_posted_at is not None) is approved
+    summarize.assert_not_called()
+    # Dismissing a review also hides it as outdated, so both belong to the sweep.
+    writes = [w["kind"] for w in recorder.github_writes if w["kind"] not in ("dismiss_review", "minimize_review")]
+    assert writes == (["approve_review"] if approved else [])
+    assert [w["review_id"] for w in recorder.github_writes if w["kind"] == "dismiss_review"] == [7171]
+    assert _external_review_requests(handoff) == []
+    (timings_call,) = [c for c in capture_fn.call_args_list if c.kwargs["event"] == "stamphog_review_timings"]
+    assert timings_call.kwargs["properties"]["stamphog_review_trigger"] == "reviewhog_clean"
+    assert timings_call.kwargs["properties"]["stamphog_verdict_published"] is approved
+
+
+@pytest.mark.parametrize(
+    "pr_overrides, author_permission, switch_on, enabled, live_head, prior_run, expect_new_run",
+    [
+        pytest.param({}, "write", True, True, "sha161a", False, True, id="queues-past-label-mode"),
+        pytest.param({}, "write", False, True, "sha161a", False, False, id="switch-off"),
+        pytest.param({}, "write", True, False, "sha161a", False, False, id="repo-disabled"),
+        pytest.param({}, "write", True, True, "sha161b", False, False, id="head-moved"),
+        pytest.param({"state": "closed"}, "write", True, True, "sha161a", False, False, id="closed"),
+        pytest.param({"draft": True}, "write", True, True, "sha161a", False, False, id="draft"),
+        pytest.param(
+            {"user": {"login": "renovate[bot]", "type": "Bot"}}, "write", True, True, "sha161a", False, False, id="bot"
+        ),
+        pytest.param({"author_association": "NONE"}, "write", True, True, "sha161a", False, False, id="untrusted"),
+        pytest.param({}, "read", True, True, "sha161a", False, False, id="author-below-write"),
+        pytest.param({}, "write", True, True, "sha161a", True, False, id="head-already-reviewed"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_silent_review_is_refused_by_every_gate_but_the_review_mode(
+    team,
+    stamphog_chain: StamphogChain,
+    pr_overrides: dict,
+    author_permission: str,
+    switch_on: bool,
+    enabled: bool,
+    live_head: str,
+    prior_run: bool,
+    expect_new_run: bool,
+) -> None:
+    repo_config = _silent_repo_config(team.id)
+    repo_config.review_on_clean_external_review = switch_on
+    repo_config.enabled = enabled
+    repo_config.save()
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 161, _silent_review_pr(161, live_head, **pr_overrides), _pr_files())
+    recorder.collaborator_permissions[(REPO, "devex-dev")] = author_permission
+    existing_ids = []
+    if prior_run:
+        pull_request = PullRequest.objects.for_team(team.id).create(
+            team_id=team.id, repo_config=repo_config, pr_number=161, author_login="devex-dev"
+        )
+        existing_ids.append(
+            ReviewRun.objects.for_team(team.id)
+            .create(
+                team_id=team.id,
+                pull_request=pull_request,
+                head_sha="sha161a",
+                status=ReviewRunStatus.COMPLETED,
+                verdict=ReviewVerdict.REFUSED,
+            )
+            .id
+        )
+
+    with patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as start:
+        silent_review_after_clean_external_review(team_id=team.id, repository=REPO, pr_number=161, head_sha="sha161a")
+
+    new_runs = list(ReviewRun.objects.for_team(team.id).exclude(id__in=existing_ids))
+    assert len(new_runs) == int(expect_new_run)
+    assert start.called is expect_new_run
+    if expect_new_run:
+        assert new_runs[0].output == {
+            "silent_review": {"source": "reviewhog_clean"},
+            "review_trigger": "reviewhog_clean",
+        }
+    assert recorder.github_writes == []
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
