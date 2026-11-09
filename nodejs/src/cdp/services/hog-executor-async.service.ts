@@ -56,8 +56,6 @@ export interface HogExecutorAsyncConfig {
     fetchBackoffMaxMs: number
     siteUrl: string
     internalApiBaseUrl: string
-    // Comma-separated team ids, or "*", whose fetches are refused when they send a credential handle to an origin
-    // the credential is not bound to. Other teams send it and count the mismatch.
     credentialAuthEnforceTeams?: string
 }
 
