@@ -1422,7 +1422,6 @@ rules:
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
-                              |OrganizationRefreshPolicy
                               |Plugin
                               |Project
                               |ProxyRecord
@@ -1506,7 +1505,6 @@ rules:
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
-                        |OrganizationRefreshPolicy
                         |Plugin
                         |Project
                         |ProxyRecord

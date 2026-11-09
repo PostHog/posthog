@@ -10,19 +10,15 @@ is never rewritten in either case, so turning the flag off restores every schedu
 
 import json
 import dataclasses
-from collections.abc import Callable
 from datetime import timedelta
-from threading import Lock
 
 import structlog
 import posthoganalytics
-from cachetools import TTLCache, cached
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 from posthog.run_mode import run_mode
 
-from products.data_modeling.backend.logic.billing_package import organization_package_label
 from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, format_cadence
 
 logger = structlog.get_logger(__name__)
@@ -31,9 +27,6 @@ REFRESH_FLOOR_FLAG = "data-modeling-refresh-floor"
 
 # An endpoint's freshness stops at seven days, so a coarser floor would leave its materialization no cadence to pick.
 _COARSEST_FLOOR = timedelta(days=7)
-# Endpoint reads need the label for every version they serialize and several times per run. A label up to a
-# minute old only moves an endpoint's serving window, and reconciles read the current one.
-_RECENT_PACKAGE_LABELS: TTLCache[str, str] = TTLCache(maxsize=10_000, ttl=60)
 _BUCKETS_BY_NAME = {format_cadence(bucket): bucket for bucket in SCHEDULABLE_BUCKETS if bucket <= _COARSEST_FLOOR} | {
     "24hour": timedelta(days=1)
 }
@@ -68,21 +61,12 @@ def read_plan_refresh_floor(team_id: int) -> PlanRefreshFloorReading:
     return read_organization_plan_refresh_floor(organization)
 
 
-@cached(_RECENT_PACKAGE_LABELS, lock=Lock())
-def _recent_organization_package_label(organization_id: str) -> str:
-    return organization_package_label(organization_id)
-
-
 def schedule_floor_for_organization(organization: Organization) -> timedelta | None:
-    floor = read_organization_plan_refresh_floor(
-        organization, read_package_label=_recent_organization_package_label
-    ).floor
+    floor = read_organization_plan_refresh_floor(organization).floor
     return floor.schedule_floor if floor is not None else None
 
 
-def read_organization_plan_refresh_floor(
-    organization: Organization, *, read_package_label: Callable[[str], str] = organization_package_label
-) -> PlanRefreshFloorReading:
+def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefreshFloorReading:
     """Read the organization's plan floor without raising.
 
     Evaluated locally on the organization, so the bounds read and every reconcile can call it without
@@ -96,7 +80,7 @@ def read_organization_plan_refresh_floor(
             groups={"organization": organization_id},
             person_properties={
                 "organization_plan": organization.billing_plan_label(),
-                "organization_package": read_package_label(organization_id),
+                "organization_package": organization.billing_package_label(),
             },
             group_properties={"organization": {"id": organization_id}},
             only_evaluate_locally=True,

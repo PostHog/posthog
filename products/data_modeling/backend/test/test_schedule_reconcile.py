@@ -21,7 +21,6 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
-from products.data_modeling.backend.logic.billing_package import update_organization_billing_package
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import (
@@ -34,7 +33,6 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_target,
 )
 from products.data_modeling.backend.logic.refresh_floor import (
-    _RECENT_PACKAGE_LABELS,
     REFRESH_FLOOR_FLAG,
     read_organization_plan_refresh_floor,
     schedule_floor_for_organization,
@@ -1136,19 +1134,17 @@ class TestMaybeReconcileDag(BaseTest):
     @parameterized.expand(
         [
             ("free", False, None, "unknown", "1hour", 60),
-            ("paid_no_package", True, False, "none", "30min", 30),
-            ("paid_package", True, True, "paid", "15min", 15),
+            ("paid_no_package", True, "none", "none", "30min", 30),
+            ("paid_package", True, "paid", "paid", "15min", 15),
             ("unsynced_paid", True, None, "unknown", None, None),
             ("unknown_plan", None, None, "unknown", None, None),
         ]
     )
     def test_plan_floor_targets_the_synced_package(
-        self, _name: str, paid: bool | None, package: bool | None, label: str, interval: str | None, minutes: int | None
+        self, _name: str, paid: bool | None, package: str | None, label: str, interval: str | None, minutes: int | None
     ) -> None:
         self.organization.has_active_subscription = paid
-        update_organization_billing_package(str(self.organization.id), package)
-        # A partial billing response must retain the known package through the next local evaluation.
-        update_organization_billing_package(str(self.organization.id), None)
+        self.organization.usage = {"billing_package": package} if package else None
         with mock.patch(
             FLAG_RESULT,
             return_value=mock.Mock(
@@ -1169,14 +1165,9 @@ class TestMaybeReconcileDag(BaseTest):
             reading.floor.schedule_floor if reading.floor else None, timedelta(minutes=minutes) if minutes else None
         )
 
-    def test_endpoint_serving_reads_the_package_once_while_a_reconcile_reads_it_fresh(self):
-        _RECENT_PACKAGE_LABELS.clear()
-        with mock.patch(FLAG_RESULT, return_value=mock.Mock(enabled=False)):
-            with self.assertNumQueries(1):
-                schedule_floor_for_organization(self.organization)
-                schedule_floor_for_organization(self.organization)
-            with self.assertNumQueries(1):
-                read_organization_plan_refresh_floor(self.organization)
+    def test_plan_floor_reads_the_loaded_organization_without_a_query(self):
+        with mock.patch(FLAG_RESULT, return_value=mock.Mock(enabled=False)), self.assertNumQueries(0):
+            schedule_floor_for_organization(self.organization)
 
     @parameterized.expand(
         [

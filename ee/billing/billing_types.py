@@ -201,7 +201,6 @@ class CustomerInfo(TypedDict):
     discount_amount_usd: Optional[str]
     customer_trust_scores: dict[str, int]
     billing_plan: NotRequired[Optional[str]]
-    subscription_level: NotRequired[Optional[str]]
     trial: NotRequired[Optional[dict[str, Any]]]
 
 

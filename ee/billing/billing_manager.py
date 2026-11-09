@@ -30,7 +30,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization import BILLING_PACKAGE_USAGE_KEY, OrganizationMembership, OrganizationUsageInfo
 from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.event_retention import (
     organization_events_retention_months,
@@ -139,38 +139,16 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
     return False
 
 
-def _subscribes_to_paid_package(products: object) -> bool:
-    if not isinstance(products, list):
-        return False
-    for product in products:
-        if not isinstance(product, dict) or product.get("type") != "platform_and_support":
-            continue
-        addons = product.get("addons")
-        for addon in addons if isinstance(addons, list) else []:
-            if not isinstance(addon, dict) or addon.get("type") not in _PAID_PACKAGES:
-                continue
-            plans = addon.get("plans")
-            if addon.get("subscribed") is True or (
-                isinstance(plans, list)
-                and any(isinstance(plan, dict) and plan.get("current_plan") is True for plan in plans)
-            ):
-                return True
-    return False
-
-
-def _paid_package_status(customer: CustomerInfo) -> bool | None:
+def _billing_package(customer: CustomerInfo) -> Literal["paid", "none"] | None:
     billing_plan = customer.get("billing_plan")
     trial = customer.get("trial")
-    products = customer.get("products")
-    if (
-        billing_plan in _PAID_PACKAGES
-        or customer.get("subscription_level") == "custom"
-        or (isinstance(trial, dict) and trial.get("status") == "active" and trial.get("target") in _PAID_PACKAGES)
-        or _subscribes_to_paid_package(products)
+    # billing_plan ignores trials, so a package trial is read from the trial target.
+    if billing_plan in _PAID_PACKAGES or (
+        isinstance(trial, dict) and trial.get("status") == "active" and trial.get("target") in _PAID_PACKAGES
     ):
-        return True
-    if billing_plan == "free" or (billing_plan == "paid" and products):
-        return False
+        return "paid"
+    if billing_plan in ("free", "paid"):
+        return "none"
     return None
 
 
@@ -925,6 +903,17 @@ class BillingManager:
                 organization.customer_trust_scores = updated_customer_trust_scores
                 org_modified = True
 
+        package_changed = False
+        package = _billing_package(data)
+        if (
+            package is not None
+            and organization.usage is not None
+            and organization.usage.get(BILLING_PACKAGE_USAGE_KEY) != package
+        ):
+            organization.usage[BILLING_PACKAGE_USAGE_KEY] = package
+            org_modified = True
+            package_changed = True
+
         # The stamp goes out only with a save that a change already needs. A save for the stamp
         # alone writes this in-memory copy back over counters and quota markers that the quota
         # run wrote in the meantime.
@@ -935,9 +924,6 @@ class BillingManager:
         with transaction.atomic():
             if org_modified:
                 organization.save()
-            package_changed = data_modeling_api.update_organization_billing_package(
-                str(organization.id), _paid_package_status(data), computed_at
-            )
             if plan_changed or (package_changed and organization.billing_plan_label() == "paid"):
                 data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 

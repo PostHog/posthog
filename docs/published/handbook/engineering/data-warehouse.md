@@ -26,7 +26,7 @@ This reservation does not add qualified names to existing models or require a na
 
 ## Model refresh minimums
 
-The `data-modeling-refresh-floor` flag evaluates locally using `organization_plan` (`free`, `paid`, or `unknown`) and `organization_package` (`paid`, `none`, or `unknown`). Billing sync records whether the organization has Boost, Teams, Scale, Enterprise, a custom contract, or an active trial of one of those packages. Only a billing plan of `free` or `paid` with none of those reads as `none`. Missing package data preserves the last known status; organizations without a successful package sync remain `unknown`, so run `sync_from_billing` before you target `organization_package`.
+The `data-modeling-refresh-floor` flag evaluates locally using `organization_plan` (`free`, `paid`, or `unknown`) and `organization_package` (`paid`, `none`, or `unknown`). Billing sync reads the package from the `billing_plan` that billing sends: `teams`, `boost`, `scale`, or `enterprise` reads as `paid`, and so does an active trial of one of those. A `billing_plan` of `free` or `paid` reads as `none`. A status without a `billing_plan` keeps the last known package. Organizations that no billing status has named a plan for remain `unknown`, so run `sync_from_billing` before you target `organization_package`.
 
 The proposed rollout targets free organizations with a `1hour` minimum and paid organizations with `organization_package=none` with a `30min` minimum. Paid organizations with a package retain the existing `15min` minimum. Do not target an unknown plan or unknown paid-package status with the no-package rule. These are flag targeting rules and payloads, not hardcoded defaults.
 
