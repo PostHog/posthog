@@ -1229,7 +1229,6 @@ class ErrorTrackingIssueTag(TeamScopedRootMixin, UUIDModel):
     issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="tags", db_index=False)
     key = models.CharField(max_length=64)
     value = models.BooleanField(null=True)
-    # The tagger's probability that the answer is yes.
     probability = models.FloatField(null=True)
     source = models.CharField(max_length=32, choices=Source)
     # The model or rule that made the answer, so a change to it can trigger a re-run.
