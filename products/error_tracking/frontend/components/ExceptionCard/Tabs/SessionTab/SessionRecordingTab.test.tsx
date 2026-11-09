@@ -116,7 +116,7 @@ describe('SessionRecordingContent', () => {
         const container = renderTab(undefined, onSetUpVisionScanner)
 
         const button = visionButtonIn(container)
-        expect(button?.textContent).toContain('Watch every new session with this error')
+        expect(button?.textContent).toContain('Have AI watch every new session with this error')
 
         fireEvent.click(button!)
         expect(onSetUpVisionScanner).toHaveBeenCalledTimes(1)

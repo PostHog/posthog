@@ -705,6 +705,7 @@ function HeaderWidthMatrix({
 // The narrow pane is the issue page's minimum right-column width, where the vision button uses its short label.
 const RECORDING_TAB_WIDTHS: typeof HEADER_WIDTHS = [
     { width: 375, caption: '375px: narrowest issue pane, short label' },
+    { width: 600, caption: '600px: just past the breakpoint, full label' },
     { width: 900, caption: '900px: full label' },
 ]
 

@@ -71,8 +71,10 @@ export function SessionRecordingContent(): JSX.Element {
                     >
                         <IconSparkles className="text-ai" />
                         {/* The full label does not fit beside "Open in session replay" in the narrowest pane. */}
-                        <span className="hidden @lg/recording-tab:inline">Watch every new session with this error</span>
-                        <span className="@lg/recording-tab:hidden">Watch with AI</span>
+                        <span className="hidden @xl/recording-tab:inline">
+                            Have AI watch every new session with this error
+                        </span>
+                        <span className="@xl/recording-tab:hidden">Watch with AI</span>
                     </Button>
                 ) : null}
                 <Button variant="default" size="sm" render={<LinkPrimitive to={replayUrl} target="_blank" />}>
