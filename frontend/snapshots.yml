@@ -3324,6 +3324,10 @@ snapshots:
         hash: v1.k794b7964.72fac178845770f81a572f60cb6543dc758ac45e398c87f4f80f8434116b45a8.f2IcFj63qmBuRq4McWUq-JHrAG6x4S4Po3hjS-iCSnU
     errortracking-exceptioncard--exception-card-no-session-without-steps--light:
         hash: v1.k794b7964.c52b61b26faf6faf91a760db9c68a35c4c87bd8908e2e0a491d33909c1ef3df0.J9E608EiRs00rwDAHfSM6mRVRJ-ac2oV03bT578xO1w
+    errortracking-exceptioncard--exception-card-recording-with-vision-button--dark:
+        hash: v1.k794b7964.7e77234f972dde739542d124388a4025f2ae985aa7cd7ea002dd53273e66e08e.eFBVCeDEUd6RIYUiUHi_onywwQtKJSR2bpzj_f0rSD0
+    errortracking-exceptioncard--exception-card-recording-with-vision-button--light:
+        hash: v1.k794b7964.952f0d8dc53e61ae7d627bcd6dd123e921d833a0cb002cfaabb718de1b705f3f.jedMDYwJhu4nRjDeYmWer0Ujl295A0_DnzTHwikm4S0
     errortracking-exceptioncard--exception-card-session-timeline-with-long-preview-texts--dark:
         hash: v1.k794b7964.8fae23a95b4283fa4852874c783d76403521cc502c10f4720769059b8c18e84d.hVtKsOf2ueGAiMy5UviSuzE8_Vls1D4Gn4O6nzH6IsQ
     errortracking-exceptioncard--exception-card-session-timeline-with-long-preview-texts--light:
@@ -15600,6 +15604,14 @@ snapshots:
         hash: v1.k794b7964.d3c3aea7db95e55f3a3c6bd3266ed6a6c8a6b7d0c9639197be8499d52a311583.vcVaKjae7hHygKO4H_NDzkoa62WYvDIZvSa-Y-3DEr0
     scenes-app-replay-vision-observationthumbnail--no-frame-yet--light:
         hash: v1.k794b7964.7ea8bf86c6c2c46e8e19a7f65aeff30e4be8ea79e8159dc0ea9bc10baa4cd2c5.xt9_PBGwUPblnhPAtL-bcbSs_gQzXDfxAVB4vz8c63s
+    scenes-app-replay-vision-quickscannerpopover--before-create--dark:
+        hash: v1.k794b7964.a3854e7cfe1ffb18d500bcfcf961e79466d2a94770c1e732920e28d52b0be7f3.WxTbhygM8XSpIgsVciSW4qFHBXYSKAUFaoXYzpyePqA
+    scenes-app-replay-vision-quickscannerpopover--before-create--light:
+        hash: v1.k794b7964.904a4b6ed12ad06aed68edc7cfeeca14274cdbf1e7a5b18193d16283b680743e.KdpKXgKNULqjS_EmVub3pXnjQeV817yaTupTHdDePcg
+    scenes-app-replay-vision-quickscannerpopover--created--dark:
+        hash: v1.k794b7964.abb6bd0804d8abb399aa69f69def4c7a66fd350949ffbf24abed1918e297aaff.sTkwuFyIsoCd1QrP-eIK1ZO9M4K3agfBzhiTXlfMFE8
+    scenes-app-replay-vision-quickscannerpopover--created--light:
+        hash: v1.k794b7964.92d4249c50dece846b692ce81bb219da10ad53cd377a610d3998a3dd16e17a56.0S4q3YRd99lqpdXDEtk07ExGE55sjcAHv7ZluyyZPw8
     scenes-app-replay-vision-recordingexpiredtag--compact--dark:
         hash: v1.k794b7964.97fde7ed79ff2f6a8df63aab3054a8951c1f8b8997390e8e3836c994d6071495.IFZQRiZ5TfL8tD2BARNFh8Lo54gl2xaQpQprxpxKRoQ
     scenes-app-replay-vision-recordingexpiredtag--compact--light:
