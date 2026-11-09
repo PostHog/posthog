@@ -3,6 +3,7 @@ from typing import Literal
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import DatabaseError
 from django.db.models import QuerySet
 
 from parameterized import parameterized
@@ -10,9 +11,11 @@ from prometheus_client import REGISTRY
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.access_control.backend.facade.testing import create_role
+from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError
 from products.error_tracking.backend.logic.auto_assignment.base import Candidate, Decision, HistoryEvidence
 from products.error_tracking.backend.logic.issue_changes import AssigneeRef
 from products.error_tracking.backend.logic.issue_mutations import (
@@ -129,6 +132,8 @@ class TestAssignIssueAutomatically(BaseTest):
         stored = ErrorTrackingIssueAssignment.objects.filter(issue=self.issue).first()
         written = outcome == AutoAssignmentOutcome.ASSIGNED
         assert AssigneeRef.from_assignment(stored) == (self._ref(proposed) if written else existing_ref)
+        self.issue.refresh_from_db()
+        assert (self.issue.state_updated_at is not None) is written
         assert self._activity().count() == int(written)
         assert ErrorTrackingIssueChange.objects.for_team(self.team.id).count() == int(written)
         assert self.capture.call_count == int(written)
@@ -170,3 +175,24 @@ class TestAssignIssueAutomatically(BaseTest):
             "confidence": 1.0,
             "threshold": 0.66,
         }
+
+    def test_writes_nothing_to_an_issue_in_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+
+        with self.assertRaises(ErrorTrackingIssueNotFoundError):
+            assign_issue_automatically(other_team.id, self.issue.id, _decision(self._ref("member")))
+
+        assert not ErrorTrackingIssueAssignment.objects.filter(issue=self.issue).exists()
+
+    def test_rolls_the_assignment_back_when_its_reason_cannot_be_recorded(self) -> None:
+        # Test settings raise every activity write failure at once, so strict and deferred writes look the same.
+        # Production settings defer a non-strict write to the commit, so this fails if the write stops being strict.
+        with (
+            self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True),
+            patch.object(ActivityLog.objects, "create", side_effect=DatabaseError),
+            self.assertRaises(DatabaseError),
+        ):
+            assign_issue_automatically(self.team.id, self.issue.id, _decision(self._ref("member")))
+
+        assert not ErrorTrackingIssueAssignment.objects.filter(issue=self.issue).exists()
+        assert not ErrorTrackingIssueChange.objects.for_team(self.team.id).exists()
