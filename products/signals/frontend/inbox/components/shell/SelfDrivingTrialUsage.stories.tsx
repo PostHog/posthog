@@ -49,7 +49,7 @@ type Story = StoryObj<typeof SelfDrivingTrialUsage>
 
 export const Active: Story = {
     play: async ({ canvasElement }) => {
-        await within(canvasElement).findByText('$3.20 of $10 trial allowance used.')
+        await within(canvasElement).findByText('Trial allowance used: 320 credits of 1,000 credits.')
     },
 }
 

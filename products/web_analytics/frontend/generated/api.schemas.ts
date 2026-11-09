@@ -130,6 +130,8 @@ export interface AEOPromptEngineCheckApi {
      * @nullable
      */
     target_best_position: number | null
+    /** The web searches the engine ran while answering, in the order it ran them. Empty when it ran none or the check failed. */
+    search_queries: string[]
     /** When the check ran. */
     checked_at: string
 }
@@ -571,6 +573,28 @@ export interface AEOPromptSetDomainApi {
     is_target: boolean
 }
 
+export interface AEOPromptSetSearchPromptApi {
+    /** The prompt id (a UUID). */
+    id: string
+    /** The prompt's current text. */
+    text: string
+}
+
+export interface AEOPromptSetSearchApi {
+    /** Up to 5 prompts whose answers ran this search, the ones that ran it most first. */
+    top_prompts: AEOPromptSetSearchPromptApi[]
+    /** The web search an engine ran while answering, lowercased with whitespace collapsed. */
+    query: string
+    /** Distinct prompts whose answers ran this search in the window. */
+    prompts: number
+    /** Answered checks in the window that ran this search. */
+    answers: number
+    /** Of those answers, how many cited a URL on the project's target domains. */
+    cited: number
+    /** Answer engines that ran this search, ordered by engine. */
+    engines: string[]
+}
+
 export interface AEOPromptSetOverviewApi {
     /** Checks across the prompt set in the last 'days' days. */
     current: AEOPromptSetCountsApi
@@ -582,6 +606,8 @@ export interface AEOPromptSetOverviewApi {
     topics: AEOPromptSetTopicCountsApi[]
     /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
     top_domains: AEOPromptSetDomainApi[]
+    /** The 20 web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project. */
+    top_searches: AEOPromptSetSearchApi[]
     /** Length of each window in days. */
     days: number
     /** First day of the current window, in the project's timezone. */
