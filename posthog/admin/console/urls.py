@@ -30,6 +30,13 @@ MOVED_PROJECT_ACTIONS = {
     "delete-now": "deletion/delete-now/",
 }
 
+MOVED_USER_ACTIONS = {
+    "delete": "deletion/delete/",
+    # Django's set-password form, which PostHog turns off. The Reset password button on the Django admin user page
+    # still links to it, and staff email a reset link from the Sign-in panel instead.
+    "password": "#panel-sign-in",
+}
+
 MOVED_DELETION_REQUEST_ACTIONS = {
     "submit": "workflow/submit/",
     "approve": "workflow/approve/",
@@ -97,6 +104,13 @@ urlpatterns = [
             admin.site.admin_view(MovedToConsole.record_redirect("projects", target)),
         )
         for old, target in MOVED_PROJECT_ACTIONS.items()
+    ],
+    *[
+        path(
+            f"admin/posthog/user/<int:pk>/{old}/",
+            admin.site.admin_view(MovedToConsole.record_redirect("users", target)),
+        )
+        for old, target in MOVED_USER_ACTIONS.items()
     ],
     *[
         path(

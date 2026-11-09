@@ -1,6 +1,7 @@
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from importlib import import_module
 from pathlib import Path
 
 import time_machine
@@ -8,15 +9,20 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.contrib import admin
+from django.contrib.admin.models import DELETION, LogEntry
+from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
-from django.db.models import Model
+from django.db.models import PROTECT, Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
 from django.utils.html import format_html
 
+from django_otp.plugins.otp_totp.models import TOTPDevice
+from loginas import settings as la_settings
 from parameterized import parameterized
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -26,7 +32,9 @@ from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
+from posthog.admin.console.user_panels import is_acting_as
 from posthog.csp_middleware import CSPMiddleware
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 from posthog.models.organization import Organization, OrganizationMembership
@@ -34,6 +42,8 @@ from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.session.models import Session
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
@@ -43,7 +53,7 @@ from ee.billing.quota_limiting import QuotaResource
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
 PROJECT_PANEL_TITLES = ("Overview", "Deletion")
-USER_PANEL_TITLES = ("Overview", "Organizations")
+USER_PANEL_TITLES = ("Overview", "Organizations", "Sign-in", "Deletion")
 CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
 REBUILD = "pnpm --filter=@posthog/frontend build:admin-console"
 
@@ -386,6 +396,8 @@ class TestAdminConsoleViews(BaseTest):
             ),
             ("project_deletion", "project", "trigger-deletion/?from=ticket", "deletion/delete/?from=ticket"),
             ("project_delete_now", "project", "delete-now/", "deletion/delete-now/"),
+            ("user_deletion", "user", "delete/?from=ticket", "deletion/delete/?from=ticket"),
+            ("user_password_lands_on_sign_in", "user", "password/", "#panel-sign-in"),
         ]
     )
     def test_an_old_django_admin_action_url_lands_on_the_console(
@@ -398,6 +410,8 @@ class TestAdminConsoleViews(BaseTest):
             obj, plural = self.organization, "organizations"
         elif record == "project":
             obj, plural = self.project, "projects"
+        elif record == "user":
+            obj, plural = self.user, "users"
         else:
             obj = DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
             plural = "deletion-requests"
@@ -410,6 +424,7 @@ class TestAdminConsoleViews(BaseTest):
         [
             ("team", ("remote-config", "group-types", "email-sending", "ai-gateway", "api-token")),
             ("project", ("deletion",)),
+            ("user", ("sign-in", "deletion")),
         ]
     )
     def test_django_admin_page_points_moved_actions_to_the_console(
@@ -844,3 +859,206 @@ class TestAdminConsoleProjectDeletion(BaseTest):
         self.project.refresh_from_db()
         assert self.project.is_pending_deletion
         assert self.project.deletion_scheduled_at == scheduled_at
+
+
+class TestAdminConsoleUserSignIn(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+        self.target = User.objects.create_and_join(self.organization, "signin-target@example.com", None)
+
+    def _url(self, operation_key: str) -> str:
+        return f"/admin/console/users/{self.target.pk}/sign-in/{operation_key}/"
+
+    @parameterized.expand(
+        [
+            ("verification", "send-verification", {}, False, 302),
+            ("verification_for_a_verified_user", "send-verification", {}, True, 404),
+            ("password_reset", "send-password-reset", {}, False, 302),
+            ("two_factor_reset", "send-2fa-reset", {"reason": "Lost their phone, ticket 42"}, True, 302),
+            ("two_factor_reset_without_a_reason", "send-2fa-reset", {"reason": " "}, True, 400),
+            ("two_factor_reset_without_two_factor", "send-2fa-reset", {"reason": "Lost their phone"}, False, 404),
+        ]
+    )
+    @patch("posthog.admin.console.user_panels.send_two_factor_reset_email")
+    @patch("posthog.admin.console.user_panels.send_password_reset")
+    @patch("posthog.admin.console.user_panels.email_verification_code_verifier")
+    def test_sign_in_emails_go_out_only_when_they_apply(
+        self,
+        _name: str,
+        operation_key: str,
+        data: dict[str, str],
+        target_state: bool,
+        expected_status: int,
+        verifier: MagicMock,
+        send_password_reset: MagicMock,
+        send_two_factor_reset_email: MagicMock,
+    ) -> None:
+        if operation_key == "send-verification":
+            self.target.is_email_verified = target_state
+            self.target.save()
+        elif target_state:
+            TOTPDevice.objects.create(user=self.target, name="default", confirmed=True)
+
+        response = self.client.post(self._url(operation_key), data)
+
+        assert response.status_code == expected_status
+        sent = {
+            "send-verification": verifier.send_code,
+            "send-password-reset": send_password_reset.delay,
+            "send-2fa-reset": send_two_factor_reset_email.delay,
+        }[operation_key]
+        assert sent.called == (expected_status == 302)
+        if operation_key == "send-password-reset":
+            self.target.refresh_from_db()
+            assert self.target.requested_password_reset_at is not None
+            user_pk, token = sent.call_args.args[:2]
+            assert user_pk == self.target.pk
+            assert isinstance(token, str) and token
+
+    def test_revoking_sessions_signs_out_only_that_user(self) -> None:
+        engine = import_module(settings.SESSION_ENGINE)
+
+        def login_session(user: User) -> str:
+            store = engine.SessionStore()
+            store[SESSION_KEY] = str(user.pk)
+            store.create()
+            return store.session_key
+
+        target_keys = [login_session(self.target), login_session(self.target)]
+        other_key = login_session(User.objects.create_and_join(self.organization, "other@example.com", None))
+
+        response = self.client.post(self._url("revoke-sessions"), {"reason": "Account compromised"})
+
+        assert response.status_code == 302
+        assert not Session.objects.filter(session_key__in=target_keys).exists()
+        assert Session.objects.filter(session_key=other_key).exists()
+
+
+class _RefusesDeletionAdmin(admin.ModelAdmin):
+    def has_delete_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
+        return False
+
+
+class TestAdminConsoleUserDeletion(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+        self.target = User.objects.create_and_join(self.organization, "delete-me@example.com", None)
+        self.url = f"/admin/console/users/{self.target.pk}/deletion/delete/"
+
+    def _preview(self, reason: str = "Duplicate account after an email change"):
+        return self.client.post(self.url, {"reason": reason})
+
+    def _counts(self, preview) -> dict[str, str]:
+        table = next(block for block in preview.context["page"].blocks if isinstance(block, Table))
+        return {row.cells[0].text: row.cells[1].text for row in table.rows if isinstance(row, Row)}
+
+    def _deletion_logs(self, target_id: int):
+        return ActivityLog.objects.filter(scope="User", activity="deleted", item_id=str(target_id))
+
+    @parameterized.expand([("under_the_cap", 100, "2"), ("over_the_cap", 1, "1+")])
+    def test_the_preview_counts_the_cascade_instead_of_listing_every_row(
+        self, _name: str, cap: int, expected_views: str
+    ) -> None:
+        for session_id in ("one", "two"):
+            SessionRecordingViewed.objects.create(team=self.team, user=self.target, session_id=session_id)
+
+        with patch("posthog.admin.console.user_panels.DELETION_SUMMARY_COUNT_CAP", cap):
+            preview = self._preview()
+
+        assert preview.status_code == 200
+        counts = self._counts(preview)
+        assert counts[str(User._meta.verbose_name_plural)] == "1"
+        assert counts[str(SessionRecordingViewed._meta.verbose_name_plural)] == expected_views
+        assert counts[str(OrganizationMembership._meta.verbose_name_plural)] == "1"
+        assert User.objects.filter(pk=self.target.pk).exists()
+
+    def test_a_delete_without_a_reason_keeps_the_user(self) -> None:
+        response = self._preview(reason="  ")
+
+        assert response.status_code == 400
+        assert User.objects.filter(pk=self.target.pk).exists()
+
+    def test_the_confirmed_delete_records_the_reason_for_every_organization(self) -> None:
+        other_organization, _, _ = User.objects.bootstrap("Other org", "owner@example.com", None)
+        self.target.join(organization=other_organization)
+        target_id = self.target.pk
+
+        preview = self._preview()
+        response = self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert response.status_code == 302
+        assert response["Location"] == "/admin/console/"
+        assert not User.objects.filter(pk=target_id).exists()
+        logs = self._deletion_logs(target_id)
+        assert {log.organization_id for log in logs} == {self.organization.id, other_organization.id}
+        for log in logs:
+            assert log.user == self.user
+            assert (log.detail or {}).get("context") == {
+                "reason": "Duplicate account after an email change",
+                "email": "delete-me@example.com",
+            }
+
+    def test_the_reason_reaches_the_admin_log_when_the_user_has_no_organization(self) -> None:
+        # An ActivityLog row needs an organization or team to be scoped to, so the admin log is the only record.
+        self.target.organization_memberships.all().delete()
+        target_id = self.target.pk
+
+        preview = self._preview(reason="Requested by the customer")
+        self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert not User.objects.filter(pk=target_id).exists()
+        assert not self._deletion_logs(target_id).exists()
+        entry = LogEntry.objects.get(object_id=str(target_id), action_flag=DELETION)
+        assert "Requested by the customer" in entry.change_message
+
+    def test_a_protected_relation_refuses_the_delete_before_it_starts(self) -> None:
+        # Django raises ProtectedError from inside the delete, with part of the cascade already gone.
+        membership_user_field = OrganizationMembership._meta.get_field("user")
+
+        with patch.object(membership_user_field.remote_field, "on_delete", PROTECT):
+            response = self._preview()
+
+        assert response.status_code == 400
+        assert User.objects.filter(pk=self.target.pk).exists()
+
+    @parameterized.expand([("with_recorded_views", 1, 400), ("without_recorded_views", 0, 200)])
+    def test_an_admin_that_refuses_deletion_blocks_the_cascade_through_its_model(
+        self, _name: str, view_count: int, expected_status: int
+    ) -> None:
+        for index in range(view_count):
+            SessionRecordingViewed.objects.create(team=self.team, user=self.target, session_id=str(index))
+
+        with patch.dict(
+            admin.site._registry, {SessionRecordingViewed: _RefusesDeletionAdmin(SessionRecordingViewed, admin.site)}
+        ):
+            response = self._preview()
+
+        assert response.status_code == expected_status
+        assert User.objects.filter(pk=self.target.pk).exists()
+
+    @parameterized.expand([("self", True), ("impersonated_user", True), ("someone_else", False)])
+    def test_staff_cannot_delete_the_account_they_act_as(self, account: str, expected: bool) -> None:
+        request = RequestFactory().post(self.url)
+        request.user = self.user
+        request.session = import_module(settings.SESSION_ENGINE).SessionStore()
+        if account == "impersonated_user":
+            # AdminImpersonationMiddleware swaps `request.user` back to the staff operator on /admin/ paths.
+            request.session[la_settings.USER_SESSION_FLAG] = "signed-original-user"
+            request.session[SESSION_KEY] = str(self.target.pk)
+            request.session[BACKEND_SESSION_KEY] = "django.contrib.auth.backends.ModelBackend"
+
+        assert is_acting_as(request, self.user if account == "self" else self.target) == expected
+
+    def test_django_admin_offers_no_delete_of_its_own(self) -> None:
+        user_admin = admin.site._registry[User]
+        request = RequestFactory().get("/admin/posthog/user/")
+        request.user = self.user
+
+        assert not user_admin.has_delete_permission(request, self.target)
+        assert "delete_selected" not in user_admin.get_actions(request)
