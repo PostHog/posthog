@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import timedelta
 from typing import cast
 
@@ -10,7 +11,7 @@ from posthog.admin.console.registry import console
 from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Output, Page, Row, Table, ToolOperation
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.views import format_bytes
@@ -18,8 +19,17 @@ from posthog.views import format_bytes
 TOOL_URL = "/admin/console/tools/redis-values/"
 KEYS_PER_PAGE = 50
 MAX_VALUE_DISPLAY_LENGTH = 200
+# One key's page shows its value up to this many characters, so a huge key cannot stall the page.
+MAX_KEY_PAGE_VALUE_LENGTH = 1024 * 1024
+# Ten years. A larger TTL makes no sense for a cache key, and Redis refuses values past its own limit.
+MAX_TTL_SECONDS = 10 * 365 * 24 * 60 * 60
 # Redis answers TTL with -2 for a key that does not exist and -1 for a key that never expires.
 TTL_MISSING_KEY = -2
+
+
+@dataclasses.dataclass(frozen=True)
+class RedisTTLActivityContext(ActivityContextBase):
+    reason: str
 
 
 @frozen
@@ -68,6 +78,15 @@ def _truncate(value: str) -> str:
     return value if len(value) <= MAX_VALUE_DISPLAY_LENGTH else value[:MAX_VALUE_DISPLAY_LENGTH] + "..."
 
 
+def _key_page_value(value: str) -> str:
+    if len(value) <= MAX_KEY_PAGE_VALUE_LENGTH:
+        return value
+    cut = len(value) - MAX_KEY_PAGE_VALUE_LENGTH
+    return (
+        f"{value[:MAX_KEY_PAGE_VALUE_LENGTH]}\n\n(Cut {cut:,} more characters. The value is too large to show in full.)"
+    )
+
+
 def _key_url(key: str, cursor: int, pattern: str) -> str:
     return f"{TOOL_URL}?{urlencode({'key': key, 'c': str(cursor), 'q': pattern})}"
 
@@ -90,6 +109,7 @@ class SetTTLForm(forms.Form):
     ttl_seconds = forms.IntegerField(
         label="TTL in seconds",
         required=False,
+        max_value=MAX_TTL_SECONDS,
         help_text="Leave it empty to remove the TTL, so the key never expires. 0 or less deletes the key now.",
     )
     reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
@@ -133,7 +153,12 @@ def set_ttl(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Pag
         item_id=key,
         scope="Admin",
         activity=activity,
-        detail=Detail(name=detail_name, short_id=key, type=f"previous_ttl:{previous_ttl}"),
+        detail=Detail(
+            name=detail_name,
+            short_id=key,
+            type=f"previous_ttl:{previous_ttl}",
+            context=RedisTTLActivityContext(reason=form.cleaned_data["reason"]),
+        ),
     )
     return None
 
@@ -210,7 +235,7 @@ class RedisValuesTool(ConsoleTool):
                     link_text="Back to the keys",
                     href=back,
                 ),
-                Output(text=snapshot.value),
+                Output(text=_key_page_value(snapshot.value)),
             )
         )
 

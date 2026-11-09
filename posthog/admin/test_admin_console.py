@@ -948,6 +948,7 @@ class TestAdminConsoleViews(BaseTest):
             ("remove", 3600, "", 302, "ttl_removed", "Removed TTL from Redis key cache:key"),
             ("missing_key", -2, "7200", 404, None, None),
             ("without_reason", 3600, "7200", 400, None, None),
+            ("ttl_too_large", 3600, str(10**12), 400, None, None),
         ]
     )
     @patch("posthog.admin.console.redis_tool.get_client")
@@ -986,6 +987,7 @@ class TestAdminConsoleViews(BaseTest):
         assert log.detail is not None
         assert log.detail["name"] == expected_detail
         assert log.detail["type"] == f"previous_ttl:{current_ttl}"
+        assert log.detail["context"] == {"reason": "Stuck"}
 
     @parameterized.expand(
         [
