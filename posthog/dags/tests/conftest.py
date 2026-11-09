@@ -27,7 +27,10 @@ from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
     _dagster_postgres_instance,
     _use_postgres_dagster_instance,
 )
+from posthog.models import Organization, Team
 from posthog.persons_db import persons_db_connection, persons_db_url
+
+from products.cdp.backend.models.hog_functions import HogFunction
 
 
 def insert_flag_evaluations(rows: list[tuple], client: Client) -> None:
@@ -138,3 +141,19 @@ def persons_database() -> Iterator[psycopg2.extensions.connection]:
         yield conn
     finally:
         conn.close()
+
+
+@pytest.fixture
+def geoip_teams(django_db_setup) -> Iterator[tuple[int, int]]:
+    organization = Organization.objects.create(name="geoip-backfill")
+    with_geoip = Team.objects.create(organization=organization, name="with geoip")
+    without_geoip = Team.objects.create(organization=organization, name="without geoip")
+    HogFunction.objects.create(
+        team=with_geoip,
+        name="GeoIP",
+        type="transformation",
+        template_id="template-geoip",
+        enabled=True,
+        hog="return event",
+    )
+    yield with_geoip.id, without_geoip.id
