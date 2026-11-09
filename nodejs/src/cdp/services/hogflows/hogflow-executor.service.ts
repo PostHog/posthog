@@ -76,10 +76,6 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
     'exit_on_trigger_not_matched_or_conversion',
 ])
 
-// The email service keeps per-send values in the job's stored metadata: teamCapped, suppressionLookupAttempts,
-// attachmentLoadRetries and teamBudgetClaimed. The actions after it in the same dequeue start from this executor's
-// result, so these values stay off them, or a later email would inherit the earlier email's cap delay, backoff, spent
-// retries and paid budget.
 const PER_SEND_METADATA_KEYS = [
     'teamCapped',
     'suppressionLookupAttempts',

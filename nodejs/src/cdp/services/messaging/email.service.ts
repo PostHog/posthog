@@ -1099,11 +1099,9 @@ export class EmailService {
      * Claims one send (as `recipients` tokens, one per delivered copy) against the team's
      * trust-tier daily bucket.
      *
-     * Returns whether the budget is charged, and the delay to reschedule with when the cap is
-     * reached. A send that an earlier try already charged is not charged again. The cap bounds
-     * how much damage a team can do to the shared SES account's reputation in a day. It does not
-     * spread that volume out: a full bucket lets the team send its whole daily cap as one burst,
-     * and only volume past that waits for the refill.
+     * The cap bounds how much damage a team can do to the shared SES account's reputation
+     * in a day. It does not spread that volume out: a full bucket lets the team send its whole
+     * daily cap as one burst, and only volume past that waits for the refill.
      *
      * Failure stances differ on purpose. A failed tier lookup lets the send through, because a
      * config blip must never throttle a legitimate customer. A failed bucket claim delays the
