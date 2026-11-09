@@ -142,6 +142,11 @@ class WarehouseMigrationSerializer(serializers.Serializer):
     item_counts = WarehouseMigrationItemCountsSerializer(help_text="How many connections fall into each group.")
 
 
+class WarehouseMigrationCreatorSerializer(serializers.Serializer):
+    first_name = serializers.CharField(help_text="First name of the person who prepared the migration.")
+    email = serializers.EmailField(help_text="Email of the person who prepared the migration.")
+
+
 class WarehouseMigrationItemSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Item ID. Pass it to the apply and skip actions.")
     vendor_connection_id = serializers.CharField(help_text="The connection ID in the vendor account.")
@@ -168,6 +173,10 @@ class WarehouseMigrationItemSerializer(serializers.Serializer):
         allow_null=True, help_text="The PostHog source created for this connection, if any."
     )
     error = serializers.CharField(help_text="Why the last apply attempt failed, if it did.")
+    created_by = WarehouseMigrationCreatorSerializer(
+        allow_null=True,
+        help_text="Who prepared the migration, and so chose the connection settings in `proposal.prefill`.",
+    )
 
 
 class WarehouseMigrationSkipItemsSerializer(serializers.Serializer):
@@ -219,7 +228,7 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     # Like destinations, a migration spans many sources rather than belonging to one.
     requires_resource_level_access = True
     scope_object_write_actions = ["create", "destroy", "refresh", "skip_item", "skip_items"]
-    scope_object_read_actions = ["list", "retrieve", "items", "connect_link"]
+    scope_object_read_actions = ["list", "retrieve", "items", "item", "connect_link"]
     # A non-UUID id gets a 404 instead of a lookup error.
     lookup_value_regex = _UUID_PATTERN
     pagination_class = PrecountedLimitOffsetPagination
@@ -307,6 +316,14 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         return self.get_paginated_response(
             WarehouseMigrationItemSerializer(self.paginate_queryset(page), many=True).data
         )
+
+    @extend_schema(responses={200: WarehouseMigrationItemSerializer}, parameters=[_ITEM_ID])
+    @action(methods=["GET"], detail=True, url_path=rf"items/(?P<item_id>{_UUID_PATTERN})")
+    def item(self, request: Request, pk: str, item_id: str, *args: Any, **kwargs: Any) -> Response:
+        item = migrations.find_migration_item(self.team_id, UUID(item_id))
+        if item is None or item.migration_id != UUID(pk):
+            raise exceptions.NotFound()
+        return Response(WarehouseMigrationItemSerializer(item).data)
 
     @extend_schema(request=None, responses={200: WarehouseMigrationItemSerializer}, parameters=[_ITEM_ID])
     @action(methods=["POST"], detail=True, url_path=rf"items/(?P<item_id>{_UUID_PATTERN})/skip")

@@ -1890,6 +1890,25 @@ export const warehouseMigrationsItemsList = async (
     )
 }
 
+export const getWarehouseMigrationsItemsRetrieveUrl = (projectId: string, id: string, itemId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/items/${itemId}/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsItemsRetrieve = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    options?: RequestInit
+): Promise<WarehouseMigrationItemApi> => {
+    return apiMutator<WarehouseMigrationItemApi>(getWarehouseMigrationsItemsRetrieveUrl(projectId, id, itemId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWarehouseMigrationsItemsSkipCreateUrl = (projectId: string, id: string, itemId: string) => {
     return `/api/projects/${projectId}/warehouse_migrations/${id}/items/${itemId}/skip/`
 }
