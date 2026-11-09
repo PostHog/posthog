@@ -3,7 +3,8 @@
 The creator gets an in-app notification and an email while they still have access to the project.
 They created the alert, so naming it to them shows nothing they could not already see. An alert
 whose source records no creator is noticed by nobody. A source registers how to find an alert's
-creator when Django starts, because the platform imports no source.
+creator when Django starts, because the platform imports no source. The email follows the creator's
+"Data pipeline errors" email setting, as other destination failure emails do.
 
 One destination is noticed at most once per UTC day. Every check that fires sends again, and an
 insight alert sends on every check while it fires, so a notice per send would repeat all day. The
@@ -21,7 +22,9 @@ import structlog
 
 from posthog.email import EmailMessage, is_email_available
 from posthog.models import Team, User
+from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.slack.channels import clip_text
+from posthog.tasks.email import should_send_notification, should_send_pipeline_error_notification
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DestinationRefused
@@ -144,6 +147,8 @@ def _notify(team_id: int, creator: User, key: str, message: AlertMessage, refusa
 def _email(team_id: int, creator: User, key: str, message: AlertMessage, refusal: DestinationRefused) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
+    if not _wants_pipeline_error_emails(team_id, creator):
+        return
     email = EmailMessage(
         campaign_key=key,
         template_name=EMAIL_TEMPLATE_NAME,
@@ -156,3 +161,12 @@ def _email(team_id: int, creator: User, key: str, message: AlertMessage, refusal
     )
     email.add_user_recipient(creator)
     email.send()
+
+
+def _wants_pipeline_error_emails(team_id: int, creator: User) -> bool:
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get()
+    # Only this organization's rules apply, so an admin elsewhere cannot silence this email.
+    locks = notification_locks_for_users([creator.id], organization_id=organization_id).get(creator.id, {})
+    return should_send_notification(
+        creator, "plugin_disabled", locks=locks
+    ) and should_send_pipeline_error_notification(creator, team_id=team_id, locks=locks)

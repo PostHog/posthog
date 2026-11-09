@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_notification_lock import OrganizationMemberNotificationLock
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
@@ -99,6 +101,25 @@ class TestRefusalNotices(BaseTest):
 
         assert self._recipients() == []
         self.email.assert_not_called()
+
+    @parameterized.expand([("turned off by the creator", False), ("kept on by the organization", True)])
+    def test_the_email_follows_the_data_pipeline_errors_setting(
+        self, _name: str, organization_keeps_it_on: bool
+    ) -> None:
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+        if organization_keeps_it_on:
+            OrganizationMemberNotificationLock.objects.create(
+                organization=self.organization,
+                organization_membership=OrganizationMembership.objects.get(user=self.user),
+                setting="plugin_disabled",
+                locked_value=True,
+            )
+
+        self._notify(self.user)
+
+        assert self._recipients() == [[self.user.id]]
+        assert self.email.called is organization_keeps_it_on
 
     def test_a_notice_that_fails_never_raises_and_is_tried_again_on_the_next_refusal(self) -> None:
         with patch.object(refusal_notices.cache, "get", side_effect=ConnectionError("cache down")):
