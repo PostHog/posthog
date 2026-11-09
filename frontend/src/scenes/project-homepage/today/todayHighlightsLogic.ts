@@ -390,6 +390,9 @@ export interface todayHighlightsLogicActions {
     pulseViewUpdated: () => {
         value: true
     }
+    restoreHiddenPulseNumber: (hidden: HiddenPulseNumberApi) => {
+        hidden: HiddenPulseNumberApi
+    }
     retryPulse: () => {
         value: true
     }
@@ -410,9 +413,6 @@ export interface todayHighlightsLogicActions {
     }
     setPulsePlaces: (places: PulsePlace[]) => {
         places: PulsePlace[]
-    }
-    showHiddenPulseNumber: (hidden: HiddenPulseNumberApi) => {
-        hidden: HiddenPulseNumberApi
     }
     stopWaitingForHighlights: () => {
         value: true
@@ -468,6 +468,7 @@ export interface todayHighlightsLogicMeta {
         pulseSuggestions: (
             highlights: HighlightsApi | null,
             pulsePins: PulsePinApi[],
+            pulseHidden: HiddenPulseNumberApi[],
             hiddenPulseMetrics: Record<string, true>,
             currentProjectId: number | string
         ) => PulsePinApi[]
@@ -523,7 +524,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         setHiddenPulseMetrics: (hidden: Record<string, true>) => ({ hidden }),
         setPulseHidden: (hidden: HiddenPulseNumberApi[]) => ({ hidden }),
         savePulseHidden: (hidden: HiddenPulseNumberApi[]) => ({ hidden }),
-        showHiddenPulseNumber: (hidden: HiddenPulseNumberApi) => ({ hidden }),
+        restoreHiddenPulseNumber: (hidden: HiddenPulseNumberApi) => ({ hidden }),
         forgetLocalPulseHidden: (keys: string[]) => ({ keys }),
         setPinnedPulseKeys: (metrics: PulsePinApi[]) => ({ metrics }),
         pulsePinsSaved: true,
@@ -741,10 +742,11 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 pulseSlots.flatMap((slot) => highlights?.pulse.find((metric) => metric.key === slot.key) ?? []),
         ],
         pulseSuggestions: [
-            (s) => [s.highlights, s.pulsePins, s.hiddenPulseMetrics, s.currentProjectId],
+            (s) => [s.highlights, s.pulsePins, s.pulseHidden, s.hiddenPulseMetrics, s.currentProjectId],
             (
                 highlights: HighlightsApi | null,
                 pulsePins: PulsePinApi[],
+                pulseHidden: HiddenPulseNumberApi[],
                 hiddenPulseMetrics: Record<string, true>,
                 currentProjectId: number | string
             ): PulsePinApi[] =>
@@ -752,6 +754,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                     .filter(
                         (metric) =>
                             !pulsePins.some((pin) => pin.key === metric.key) &&
+                            !pulseHidden.some((hidden) => hidden.key === metric.key) &&
                             !hiddenPulseMetrics[hiddenHighlightKey(currentProjectId, metric.key)]
                     )
                     .map((metric) => ({ key: metric.key, name: metric.name, dashboard_id: metric.dashboard_id })),
@@ -1044,15 +1047,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             }
             actions.loadHighlights()
         },
-        showHiddenPulseNumber: ({ hidden }) => {
-            const places = values.pulsePlacement.places
-            const free = PULSE_TILES - Math.min(values.pulsePins.length, PULSE_TILES)
-            const last = places[free - 1]
-            actions.setPulsePlaces(
-                places.length < free || !last
-                    ? [...places, { key: hidden.key, standIn: null }]
-                    : [...places.slice(0, free - 1), { key: hidden.key, standIn: last.standIn ?? last.key }]
-            )
+        restoreHiddenPulseNumber: ({ hidden }) => {
             actions.savePulseHidden(values.pulseHidden.filter((number) => number.key !== hidden.key))
             actions.forgetLocalPulseHidden([hidden.key])
             posthog.capture('today pulse metric unhidden', { kind: pulseKind(hidden.key), source: 'editor' })
@@ -1082,7 +1077,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 position,
             })
             toast.success({
-                title: 'Hidden from Today',
+                title: "Ignored. It won't be suggested.",
                 action: { label: 'Undo', onClick: () => actions.unhidePulseMetric(metric, position) },
             })
         },

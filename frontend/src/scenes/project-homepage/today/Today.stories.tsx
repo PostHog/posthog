@@ -1039,7 +1039,7 @@ export const HomeWithKeptNumbers: Story = {
     ],
 }
 
-export const HomeWithHiddenNumbers: Story = {
+export const HomeWithIgnoredNumbers: Story = {
     decorators: [
         keepNumbers(
             [],
@@ -1051,6 +1051,7 @@ export const HomeWithHiddenNumbers: Story = {
     ],
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Edit numbers'))
+        await userEvent.click(await within(document.body).findByText('Ignored'))
     },
 }
 

@@ -116,7 +116,7 @@ describe('todayHighlightsLogic', () => {
         expect(logic.values.hiddenPulseMetrics).toEqual({ [key]: true })
     })
 
-    it('blocks a hide until the saved choices load, and shows a hidden number in the last free place', async () => {
+    it('blocks a hide until the saved choices load, skips an ignored number at once, and restores one without placing it', async () => {
         let releasePins: () => void = () => undefined
         useMocks({
             get: {
@@ -144,12 +144,15 @@ describe('todayHighlightsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadPulsePinsSuccess']).toFinishAllListeners()
         expect([save.mock.calls.length, shown()]).toEqual([0, ['insight:a', 'insight:b', 'insight:c', 'insight:d']])
 
-        logic.actions.showHiddenPulseNumber({ key: 'insight:e', name: 'E' })
-        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
+        logic.actions.hidePulseMetric(pulse[1], 1)
+        expect(logic.values.pulseSuggestions.map((row) => row.key)).not.toContain('insight:b')
         await expectLogic(logic).toFinishAllListeners()
-        expect([save.mock.calls[0][1], shown()]).toEqual([
-            { keys: [] },
-            ['insight:a', 'insight:b', 'insight:c', 'insight:e'],
+
+        logic.actions.restoreHiddenPulseNumber({ key: 'insight:e', name: 'E' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect([save.mock.calls.at(-1)?.[1], shown()]).toEqual([
+            { keys: ['insight:b'] },
+            ['insight:a', 'insight:f', 'insight:c', 'insight:d'],
         ])
     })
 

@@ -108,8 +108,8 @@ export function TodayPulseCard({
                     {!pinned && (
                         <Button
                             size="icon-xs"
-                            aria-label="Hide from Today"
-                            tooltip="Hide from Today"
+                            aria-label="Ignore"
+                            tooltip="Ignore"
                             disabledReason={hideDisabledReason}
                             onClick={onHide}
                             className="text-muted-foreground"
