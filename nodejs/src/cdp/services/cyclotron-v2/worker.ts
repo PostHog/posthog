@@ -601,7 +601,11 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET last_heartbeat = NOW()
-                     WHERE id = $1 AND lock_id = $2`,
+                     WHERE id = (
+                         SELECT id FROM cyclotron_jobs
+                         WHERE id = $1 AND lock_id = $2
+                         FOR UPDATE SKIP LOCKED
+                     )`,
                     [row.id, lockId]
                 )
             },
