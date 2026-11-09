@@ -37,7 +37,7 @@ import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from 
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
-    resolveEmailSendingVersion,
+    resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -514,6 +514,7 @@ export class EmailService {
         let trackingEnabled = true
         let sendingDomain = ''
         let failureReason: EmailStatusReason = 'provider_error'
+        let messageId: string | undefined
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -811,7 +812,15 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait, files)
+                    messageId = await this.sendEmailWithSES(
+                        result,
+                        sendParams,
+                        from,
+                        trackingEnabled,
+                        isTest,
+                        queueWait,
+                        files
+                    )
                     break
 
                 case 'unsupported':
@@ -888,6 +897,8 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
+            const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
+            const sendVersion = appSourceVersion ? { app_source_version: appSourceVersion } : {}
             result.metrics.push({
                 team_id: invocation.teamId,
                 app_source_id: invocation.parentRunId ?? invocation.functionId,
@@ -895,6 +906,7 @@ export class EmailService {
                 metric_kind: 'email',
                 metric_name: success ? 'email_sent' : 'email_failed',
                 count: 1,
+                ...sendVersion,
             })
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
@@ -907,6 +919,7 @@ export class EmailService {
                     metric_kind: 'email',
                     metric_name: 'email_untracked',
                     count: 1,
+                    ...sendVersion,
                 })
             }
 
@@ -928,6 +941,7 @@ export class EmailService {
         }
 
         const distinctId = resolveEmailTrackingDistinctId(invocation)
+        const workflowVersion = invocation.state.renderedWorkflowVersion
         if (
             distinctId &&
             !isTest &&
@@ -941,6 +955,9 @@ export class EmailService {
                 properties: {
                     $workflow_id: invocation.functionId,
                     $workflow_action_id: invocation.state.actionId,
+                    $workflow_invocation_id: invocation.id,
+                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
+                    ...(messageId ? { $email_message_id: messageId } : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
                     ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
@@ -1286,7 +1303,7 @@ export class EmailService {
         isTest = false,
         queueWait?: EmailQueueWait,
         files: DecodedAttachment[] = []
-    ): Promise<void> {
+    ): Promise<string> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
@@ -1294,7 +1311,7 @@ export class EmailService {
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
-        const workflowVersion = resolveEmailSendingVersion(result.invocation)
+        const workflowVersion = result.invocation.state.renderedWorkflowVersion
         const trackingCode = this.trackingCodeSigner.generate(
             { ...result.invocation, distinctId, workflowVersion },
             isTest
@@ -1424,6 +1441,7 @@ export class EmailService {
             }
             sesSendDurationMs.labels({ result: 'success' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: 'success' }).inc()
+            return response.MessageId
         } catch (error: unknown) {
             sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
