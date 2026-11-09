@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1110-final-reply",
+    "kind": "ota",
+    "runtimeVersion": "1.11.0",
+    "previousRelease": "ota-1110-web-analytics-live",
+    "notes": "Copy and rate each completed mobile chat reply from its final message. In Classic chat, check that the Send arrow stays visible in dark mode."
+}
