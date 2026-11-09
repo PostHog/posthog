@@ -189,9 +189,11 @@ def _status(call: _Call) -> TranslatedResponse:
             "database": connection.get("database") or warehouse.get("database_name", ""),
             "username": connection.get("username") or "root",
         }
-    bucket = _dict(warehouse.get("data_store")).get("bucket_name")
-    if bucket:
-        out["bucket"] = bucket
+    data_store = _dict(warehouse.get("data_store"))
+    if data_store.get("bucket_name"):
+        out["bucket"] = data_store["bucket_name"]
+    if data_store.get("prefix"):
+        out["bucket_prefix"] = data_store["prefix"]
     return TranslatedResponse(resp.status_code, out)
 
 
