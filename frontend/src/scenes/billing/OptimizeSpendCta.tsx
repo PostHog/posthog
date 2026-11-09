@@ -27,8 +27,8 @@ function OptimizeSpendCtaForProject({ projectId, userId }: { projectId: string; 
                 <div className="min-w-0 flex-1">
                     <h3 className="mb-1">Find savings in your setup</h3>
                     <p className="mb-0 text-secondary">
-                        The setup agent audits how your code sends data to PostHog and opens a pull request with changes
-                        that lower your bill.
+                        The setup agent audits how your code sends data to PostHog, opens a pull request with the code
+                        changes that lower your bill, and writes a notebook with the settings to change.
                     </p>
                 </div>
                 <LemonButton
