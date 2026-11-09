@@ -3,7 +3,11 @@ import pytest
 import structlog
 from parameterized import parameterized_class
 
-from products.subscriptions.backend.temporal.results_summarizer import MAX_SUMMARY_LENGTH, build_results_summary
+from products.subscriptions.backend.temporal.results_summarizer import (
+    MAX_SUMMARY_LENGTH,
+    build_results_summary,
+    last_period_is_incomplete,
+)
 
 
 class TestBuildResultsSummaryEmpty:
@@ -24,7 +28,7 @@ class TestBuildResultsSummaryEmpty:
                 {"label": "Pageviews", "data": [100, 120, 110, 130, 150]},
                 {"label": "Signups", "data": [10, 12, 8, 15, 20]},
             ],
-            ["Pageviews", "latest=150", "avg=", "trend=up", "Signups", "latest=20"],
+            ["Pageviews", "latest=150", "change=up 15%", "avg=", "window trend=up", "Signups", "latest=20"],
         ),
         (
             "trends_with_count_only",
@@ -48,13 +52,13 @@ class TestBuildResultsSummaryEmpty:
             "trends_stable",
             "TrendsQuery",
             [{"label": "Flat metric", "data": [100, 100, 100, 100]}],
-            ["Flat metric", "trend=stable"],
+            ["Flat metric", "change=no change", "window trend=stable"],
         ),
         (
             "trends_down",
             "TrendsQuery",
             [{"label": "Declining", "data": [200, 180, 100, 80]}],
-            ["Declining", "trend=down"],
+            ["Declining", "change=down 20%", "window trend=down"],
         ),
         (
             "funnels_basic",
@@ -90,7 +94,7 @@ class TestBuildResultsSummaryEmpty:
             "lifecycle_uses_trends",
             "LifecycleQuery",
             [{"label": "New", "data": [10, 20, 30]}],
-            ["New", "latest=30", "trend=up"],
+            ["New", "latest=30", "window trend=up"],
         ),
         (
             "unknown_query_uses_generic",
@@ -165,7 +169,7 @@ class TestBuildResultsSummaryEmpty:
                 "median latest=200",
                 "overall min=10",
                 "overall max=2,900",
-                "median trend=up",
+                "median window trend=up",
             ],
         ),
     ],
@@ -211,6 +215,73 @@ class TestBuildResultsSummaryValueFormat:
         results = [{"label": "Metric", "data": [360000]}]
         summary = build_results_summary("TrendsQuery", results, value_format=None)
         assert "latest=360,000" in summary
+
+
+class TestBuildResultsSummaryIncompletePeriod:
+    def test_latest_and_change_follow_the_last_complete_period_not_the_window(self):
+        # An early spike makes the window trend fall while the latest complete period rose,
+        # and the final period is still collecting data. The summary used to report the
+        # window direction next to the rising latest value, which read as "dropped from 54 to 171".
+        days = ["2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04", "2026-04-05", "2026-04-06"]
+        results = [
+            {"label": "Daily active users", "data": [220, 210, 60, 54, 171, 40], "days": days},
+            {
+                "label": "Daily active users",
+                "data": [90, 95, 100, 98, 97, 99],
+                "days": days,
+                "compare_label": "previous",
+            },
+        ]
+
+        current, previous = build_results_summary("TrendsQuery", results, last_period_incomplete=True).split("\n")
+
+        assert "latest=171 (2026-04-05)" in current
+        assert "previous point=54 (2026-04-04)" in current
+        assert "change=up 217%" in current
+        assert "in progress=40 (2026-04-06) (incomplete period)" in current
+        assert "min=54" in current
+        assert "window trend=down" in current
+        assert "latest=99 (2026-04-06)" in previous
+        assert "in progress" not in previous
+
+    def test_only_an_incomplete_period(self):
+        results = [{"label": "Signups", "data": [12], "days": ["2026-04-06"]}]
+        summary = build_results_summary("TrendsQuery", results, last_period_incomplete=True)
+        assert summary == "- Signups: in progress=12 (2026-04-06) (incomplete period)"
+
+    @pytest.mark.parametrize(
+        "query_kind,query_results,expected",
+        [
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                },
+                True,
+            ),
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-05T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                },
+                False,
+            ),
+            (
+                "StickinessQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                },
+                False,
+            ),
+            ("TrendsQuery", {"resolved_date_range": None, "last_refresh": "2026-04-06T16:00:00+00:00"}, False),
+            ("TrendsQuery", {"resolved_date_range": {"date_to": "not a date"}, "last_refresh": "2026-04-06"}, False),
+        ],
+    )
+    def test_last_period_is_incomplete(self, query_kind, query_results, expected):
+        assert last_period_is_incomplete(query_kind, query_results) is expected
 
 
 class TestBuildResultsSummaryTruncation:

@@ -25,6 +25,7 @@ from products.subscriptions.backend.temporal.llm_change_summary import generate_
 from products.subscriptions.backend.temporal.query_results_summary import condense_query_results
 from products.subscriptions.backend.temporal.results_summarizer import (
     build_results_summary,
+    last_period_is_incomplete,
     uses_generic_results_summary,
 )
 from products.subscriptions.backend.temporal.types import (
@@ -139,7 +140,11 @@ def _build_states_from_content_snapshot(
 
         if query_results and result_payload:
             results_summary = build_results_summary(
-                query_kind, result_payload, columns=columns, value_format=value_format
+                query_kind,
+                result_payload,
+                columns=columns,
+                value_format=value_format,
+                last_period_incomplete=last_period_is_incomplete(query_kind, query_results),
             )
             fallback_reason: str | None = None
         elif query_error:

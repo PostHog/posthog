@@ -1,4 +1,5 @@
 import math
+from datetime import datetime
 from typing import Any
 
 from structlog import get_logger
@@ -12,6 +13,8 @@ MAX_SUMMARY_LENGTH = 2000
 # Query kinds whose metric values map onto the insight's Y-axis format, so summary
 # numbers should be rendered the way the chart renders them (e.g. duration, currency).
 _TREND_SUMMARY_KINDS = {"TrendsQuery", "LifecycleQuery", "StickinessQuery"}
+# Query kinds whose data points are calendar periods, so the final point can still be collecting data.
+_TIME_SERIES_KINDS = {"TrendsQuery", "LifecycleQuery"}
 
 
 def _safe_label(value: Any, fallback: str) -> str:
@@ -30,17 +33,39 @@ def uses_generic_results_summary(query_kind: str) -> bool:
     return query_kind not in _TREND_SUMMARY_KINDS and query_kind not in _SUMMARIZERS
 
 
+def last_period_is_incomplete(query_kind: str, query_results: Any) -> bool:
+    """Whether the final time bucket was still collecting data when the query ran.
+
+    A relative range such as "last 30 days" resolves its end to the end of the current day or hour,
+    which is after the refresh time. A fixed end date, or excludeIncompletePeriods, resolves it before.
+    """
+    if query_kind not in _TIME_SERIES_KINDS or not isinstance(query_results, dict):
+        return False
+    resolved_date_range = query_results.get("resolved_date_range")
+    if not isinstance(resolved_date_range, dict):
+        return False
+    date_to = resolved_date_range.get("date_to")
+    last_refresh = query_results.get("last_refresh")
+    if not date_to or not last_refresh:
+        return False
+    try:
+        return datetime.fromisoformat(str(date_to)) > datetime.fromisoformat(str(last_refresh))
+    except (TypeError, ValueError):
+        return False
+
+
 def build_results_summary(
     query_kind: str,
     results: list[Any] | None,
     columns: list[str] | None = None,
     value_format: dict[str, Any] | None = None,
+    last_period_incomplete: bool = False,
 ) -> str:
     if not results:
         return "No results"
 
     if query_kind in _TREND_SUMMARY_KINDS:
-        text = _summarize_trends(results, _sanitize_value_format(value_format))
+        text = _summarize_trends(results, _sanitize_value_format(value_format), last_period_incomplete)
     elif summarizer := _SUMMARIZERS.get(query_kind):
         text = summarizer(results)
     else:
@@ -50,7 +75,9 @@ def build_results_summary(
     return text
 
 
-def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any] | None) -> str:
+def _summarize_trends(
+    results: list[dict[str, Any]], value_format: dict[str, Any] | None, last_period_incomplete: bool = False
+) -> str:
     if _looks_like_boxplot_trend(results):
         return _summarize_boxplot_trend(results, value_format)
 
@@ -61,16 +88,13 @@ def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any
         aggregated_value = series.get("aggregated_value")
 
         if data and isinstance(data, list):
-            numeric = [v for v in data if isinstance(v, (int, float)) and math.isfinite(v)]
-            if numeric:
-                latest = numeric[-1]
-                avg = sum(numeric) / len(numeric)
-                trend = _trend_direction(numeric)
-                lines.append(
-                    f"- {label}: latest={_fmt_value(latest, value_format)}, avg={_fmt_value(avg, value_format)}, "
-                    f"min={_fmt_value(min(numeric), value_format)}, max={_fmt_value(max(numeric), value_format)}, "
-                    f"trend={trend} ({len(numeric)} points)"
+            points = _numeric_points(data, series.get("days"))
+            if points:
+                # A compare-to-previous series covers the earlier window, which has ended.
+                last_is_incomplete = (
+                    last_period_incomplete and _is_finite_number(data[-1]) and series.get("compare_label") != "previous"
                 )
+                lines.append(_format_trend_series(label, points, value_format, last_is_incomplete))
                 continue
 
         if aggregated_value is not None:
@@ -81,6 +105,69 @@ def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any
             lines.append(f"- {label}: (no data)")
 
     return "\n".join(lines) if lines else "No trend series"
+
+
+def _is_finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and math.isfinite(value)
+
+
+def _numeric_points(data: list[Any], days: Any) -> list[tuple[str, float | int]]:
+    period_labels = days if isinstance(days, list) and len(days) == len(data) else [None] * len(data)
+    return [(_period_label(day), value) for day, value in zip(period_labels, data) if _is_finite_number(value)]
+
+
+def _period_label(day: Any) -> str:
+    # Stickiness "days" are day counts, not calendar periods, so only date strings name a period.
+    if not isinstance(day, str):
+        return ""
+    return sanitize_user_text(day, GENERIC_VALUE_MAX_LEN)
+
+
+def _at(period: str) -> str:
+    return f" ({period})" if period else ""
+
+
+def _format_trend_series(
+    label: str,
+    points: list[tuple[str, float | int]],
+    value_format: dict[str, Any] | None,
+    last_is_incomplete: bool,
+) -> str:
+    complete = points[:-1] if last_is_incomplete else points
+    parts: list[str] = []
+
+    if complete:
+        latest_period, latest = complete[-1]
+        parts.append(f"latest={_fmt_value(latest, value_format)}{_at(latest_period)}")
+        if len(complete) >= 2:
+            previous_period, previous = complete[-2]
+            parts.append(f"previous point={_fmt_value(previous, value_format)}{_at(previous_period)}")
+            parts.append(f"change={_change_from(previous, latest)}")
+    if last_is_incomplete:
+        in_progress_period, in_progress = points[-1]
+        parts.append(
+            f"in progress={_fmt_value(in_progress, value_format)}{_at(in_progress_period)} (incomplete period)"
+        )
+
+    if complete:
+        values = [value for _, value in complete]
+        parts.append(
+            f"avg={_fmt_value(sum(values) / len(values), value_format)}, "
+            f"min={_fmt_value(min(values), value_format)}, max={_fmt_value(max(values), value_format)}, "
+            f"window trend={_trend_direction(values)} (later half vs earlier half of {len(values)} points)"
+        )
+
+    return f"- {label}: {', '.join(parts)}"
+
+
+def _change_from(previous: float | int, latest: float | int) -> str:
+    if latest == previous:
+        return "no change"
+    direction = "up" if latest > previous else "down"
+    if previous == 0:
+        return f"{direction} from 0"
+    pct = abs(latest - previous) / abs(previous) * 100
+    return f"{direction} {pct:,.0f}%" if pct >= 10 else f"{direction} {pct:.1f}%"
 
 
 def _looks_like_boxplot_trend(results: list[dict[str, Any]]) -> bool:
@@ -114,7 +201,7 @@ def _summarize_boxplot_trend(results: list[dict[str, Any]], value_format: dict[s
             f"median avg={_fmt_value(sum(medians) / len(medians), value_format)}, "
             f"overall min={_fmt_value(min(mins) if mins else medians[-1], value_format)}, "
             f"overall max={_fmt_value(max(maxes) if maxes else medians[-1], value_format)}, "
-            f"median trend={trend} ({len(medians)} points)"
+            f"median window trend={trend} (later half vs earlier half of {len(medians)} points)"
         )
 
     return "\n".join(lines) if lines else "No trend series"
