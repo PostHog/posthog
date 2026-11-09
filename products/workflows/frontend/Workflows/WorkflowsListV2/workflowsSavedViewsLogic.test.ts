@@ -279,16 +279,23 @@ describe('workflowsSavedViewsLogic', () => {
         logic = workflowsSavedViewsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
-        workflowsListV2Logic.actions.setValue({ filters: [status('draft'), eventTrigger], text: 'renewal' })
-        expect(logic.values.addedFilters).toEqual([eventTrigger])
+        const remount = async (): Promise<void> => {
+            logic.unmount()
+            logic = workflowsSavedViewsLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        }
+        workflowsListV2Logic.actions.setValue({ filters: [status('draft')], text: 'renewal' })
 
         applyViewById(VIEW_ID)
+        expect(logic.values.isModified).toBe(false)
+        expect(logic.values.hasAdditions).toBe(true)
+        workflowsListV2Logic.actions.setValue({ filters: [status('active'), eventTrigger], text: 'renewal' })
+        expect(logic.values.addedFilters).toEqual([eventTrigger])
+        await remount()
         applyViewById('needs-attention')
         const sharedUrl = router.values.location.search
-        logic.unmount()
-        logic = workflowsSavedViewsLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        await remount()
 
         expect(router.values.location.search).toEqual(sharedUrl)
         expect(logic.values.addedFilters).toEqual([eventTrigger])

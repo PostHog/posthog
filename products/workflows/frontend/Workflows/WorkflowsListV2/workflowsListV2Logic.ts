@@ -96,7 +96,7 @@ const LEGACY_FACET_PARAMS: { param: string; facet: string; isValid: (value: stri
     { param: 'created_by', facet: 'createdBy', isValid: isUUIDLike },
 ]
 const LEGACY_PARAMS = [...LEGACY_FACET_PARAMS.map(({ param }) => param), 'tags', 'search', 'page']
-const LIST_PARAMS = ['view', 'q', 'text', 'columns', 'added']
+const LIST_PARAMS = ['view', 'q', 'text', 'columns', 'added', 'typed']
 
 // Parsing only needs facet keys and aliases, which don't depend on the loaded rows.
 const QUERY_FACETS = buildWorkflowListFacets([])

@@ -6,7 +6,7 @@ import { PENDING_ACTION_REASONS, SavedViewAction, WorkflowSavedView } from './wo
 export interface WorkflowSavedViewActionsProps {
     activeView: WorkflowSavedView
     isModified: boolean
-    hasAddedFilters: boolean
+    hasAdditions: boolean
     activeViewConflicted: boolean
     canUpdateActiveView: boolean
     activeViewChanges: string[]
@@ -23,7 +23,7 @@ export interface WorkflowSavedViewActionsProps {
 export function WorkflowSavedViewActions({
     activeView,
     isModified,
-    hasAddedFilters,
+    hasAdditions,
     activeViewConflicted,
     canUpdateActiveView,
     activeViewChanges,
@@ -42,7 +42,7 @@ export function WorkflowSavedViewActions({
     const pendingReason = pendingAction ? PENDING_ACTION_REASONS[pendingAction] : undefined
     return (
         <div className="flex flex-wrap items-center gap-1 pb-2 shrink-0" data-attr="workflows-combined-view-actions">
-            {(isModified || hasAddedFilters || activeViewConflicted) && (
+            {(isModified || hasAdditions || activeViewConflicted) && (
                 <LemonButton
                     size="small"
                     type="tertiary"
@@ -50,7 +50,7 @@ export function WorkflowSavedViewActions({
                     loading={startedBy('reset')}
                     disabledReason={pendingReason}
                     tooltip={
-                        isModified || hasAddedFilters
+                        isModified || hasAdditions
                             ? `Discard your changes and go back to ${activeView.name}`
                             : `Load the latest version of ${activeView.name}`
                     }

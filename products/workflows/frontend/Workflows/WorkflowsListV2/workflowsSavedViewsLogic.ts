@@ -82,6 +82,7 @@ export interface workflowsSavedViewsLogicValues {
     conflictedViewId: string | null
     defaultView: WorkflowViewApi | null
     enabled: boolean
+    hasAdditions: boolean
     isModified: boolean
     myWorkflowsDeleted: boolean
     pendingAction: SavedViewAction | null
@@ -238,6 +239,7 @@ export interface workflowsSavedViewsLogicMeta {
             shownColumns: ('created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type')[]
         ) => string[]
         isModified: (activeViewChanges: string[]) => boolean
+        hasAdditions: (addedFilters: FacetFilter[], addedText: string | null) => boolean
         canUpdateActiveView: (activeView: WorkflowSavedView) => boolean
         activeViewConflicted: (conflictedViewId: string | null, activeViewId: string) => boolean
         sharedSaveDisabledReason: (activeViewConflicted: boolean) => string | undefined
@@ -468,6 +470,11 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 savedViewChanges(view, value, columns),
         ],
         isModified: [(s) => [s.activeViewChanges], (changes: string[]): boolean => changes.length > 0],
+        hasAdditions: [
+            (s) => [s.addedFilters, s.addedText],
+            (addedFilters: FacetFilter[], addedText: string | null): boolean =>
+                addedFilters.length > 0 || addedText !== null,
+        ],
         canUpdateActiveView: [(s) => [s.activeView], (view: WorkflowSavedView): boolean => !view.builtIn],
         activeViewConflicted: [
             (s) => [s.conflictedViewId, s.activeViewId],
@@ -516,7 +523,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             if (!values.available || cache.applyingView || cache.syncingUrl) {
                 return
             }
-            const next = {
+            const next: Record<string, unknown> = {
                 ...router.values.searchParams,
                 view: values.activeViewId,
                 q: serializeFacetQuery(values.value.filters),
@@ -524,13 +531,19 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 columns: values.shownColumns.join(','),
                 added: serializeFacetQuery(values.addedFilters),
             }
+            // `typed` marks the search text as the user's own, which the text alone cannot tell when it matches the view.
+            delete next.typed
+            if (values.addedText !== null) {
+                next.typed = '1'
+            }
             const raw = new URLSearchParams(router.values.location.search)
             if (
                 raw.get('view') === next.view &&
                 raw.get('q') === next.q &&
                 raw.get('text') === next.text &&
                 raw.get('columns') === next.columns &&
-                (raw.get('added') ?? '') === next.added
+                (raw.get('added') ?? '') === next.added &&
+                raw.get('typed') === (next.typed ?? null)
             ) {
                 return
             }
@@ -851,10 +864,12 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         text: raw.has('text') ? (raw.get('text') ?? '') : (view?.state.text ?? ''),
                     }
                     actions.setValue(value)
-                    // The URL keeps the text but not who typed it, so text that differs from the view counts as typed.
-                    actions.setAddedText(
-                        value.text.trim() !== (view?.state.text ?? '').trim() ? userText(value.text) : null
-                    )
+                    // A link this logic wrote marks typed text with `typed`. In an older link, text that differs from
+                    // the view counts as typed.
+                    const typed = raw.has('added')
+                        ? raw.get('typed') === '1'
+                        : value.text.trim() !== (view?.state.text ?? '').trim()
+                    actions.setAddedText(typed ? userText(value.text) : null)
                     const effectiveKeys = new Set(value.filters.map((filter) => facetFilterKey(filter)))
                     actions.setAddedFilters(
                         raw.has('added')

@@ -21,7 +21,7 @@ describe('saved workflow view actions', () => {
             <WorkflowSavedViewActions
                 activeView={{ ...BUILT_IN_WORKFLOW_VIEWS[1], id: 'shared', name: 'Active flows', builtIn: false }}
                 isModified
-                hasAddedFilters={false}
+                hasAdditions={false}
                 activeViewConflicted={false}
                 canUpdateActiveView
                 activeViewChanges={['filters']}
@@ -45,7 +45,7 @@ describe('saved workflow view actions', () => {
             <WorkflowSavedViewActions
                 activeView={{ ...BUILT_IN_WORKFLOW_VIEWS[1], id: 'shared', name: 'Active flows', builtIn: false }}
                 isModified={false}
-                hasAddedFilters={false}
+                hasAdditions={false}
                 activeViewConflicted
                 canUpdateActiveView
                 activeViewChanges={[]}
