@@ -13,9 +13,9 @@ import { serializeFacetQuery } from './FacetSearchBar/facetQuery'
 import { FacetSearchBar } from './FacetSearchBar/FacetSearchBar'
 import { WorkflowFolderContents } from './WorkflowFolderContents'
 import { WorkflowFolderDropMonitor } from './WorkflowFolderDropMonitor'
+import { WorkflowFolderSidebar } from './WorkflowFolderSidebar'
 import { workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowFolderToolbar } from './WorkflowFolderToolbar'
-import { WorkflowFolderTree } from './WorkflowFolderTree'
 import { buildWorkflowsListV2Columns } from './workflowsListV2Columns'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
 
@@ -175,12 +175,7 @@ export function WorkflowsListV2(): JSX.Element {
             )}
             {projectFilesEnabled ? (
                 <div className="flex flex-col gap-3 @min-[48rem]/main-content:flex-row min-w-0 min-h-[calc(100vh-20rem)]">
-                    <nav
-                        aria-label="Project files"
-                        className="hidden @min-[48rem]/main-content:block border rounded p-1 @min-[48rem]/main-content:w-52 @min-[64rem]/main-content:w-60 shrink-0 self-stretch bg-surface-primary"
-                    >
-                        <WorkflowFolderTree />
-                    </nav>
+                    <WorkflowFolderSidebar />
                     <div className="min-w-0 flex-1 @container">
                         <WorkflowFolderDropMonitor />
                         <WorkflowFolderToolbar />
