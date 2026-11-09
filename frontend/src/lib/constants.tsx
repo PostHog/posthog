@@ -375,7 +375,6 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_COMMUNITY_SKILLS: 'llm-analytics-community-skills', // owner: #team-ai-observability
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
     LLM_ANALYTICS_EVAL_SETTLING_STRATEGY: 'llm-analytics-eval-settling-strategy', // owner: #team-ai-observability
-    LLM_ANALYTICS_JUDGE_IMAGES: 'llm-analytics-judge-images', // owner: #team-ai-observability
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
@@ -439,7 +438,6 @@ export const FEATURE_FLAGS = {
     METRICS_QUERY_LANGUAGES: 'metrics-query-languages', // owner: #team-apm — lets a metrics insight switch between the builder, PromQL and SQL
     METRICS_SUGGESTED_DASHBOARDS: 'metrics-suggested-dashboards', // owner: #team-apm — suggests bank dashboards that fit the ingested metrics, and runs the AI analysis and generation for the team
     ML_INFERENCE_DECISIONS: 'ml-inference-decisions', // owner: #team-ai-research, gates the decisions playground; the API checks the same flag server side
-    NEW_COMMAND_K_SEARCH: 'new-command-k-search', // owner: @adamleithp #team-platform-ux, gates the Command K search with smart filters
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     NOTEBOOK_SANDBOX_FREE_COMPUTE: 'notebook-sandbox-free-compute', // owner: #team-data-tools, shows the notebook sandbox rate crossed out at $0.00 / h

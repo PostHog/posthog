@@ -1,18 +1,31 @@
+import importlib
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import BaseTest
 
+from django.apps import apps as live_apps
+from django.db import connection
 from django.utils import timezone
 
+from posthog.models.scoping import team_scope
 
-class TestCopyNodeDescriptionsToAnnotations(TestMigrations):
-    app = "data_modeling"
-    migrate_from = "0057_datamodelingjob_drop_bytes_read_column"
-    migrate_to = "0058_copy_node_descriptions_to_annotations"
+# The migration graph folds 0057 into the squash, so the test calls the data function on the live schema.
+MIGRATION = importlib.import_module(
+    "products.data_modeling.backend.migrations.0058_copy_node_descriptions_to_annotations"
+)
 
-    def setUpBeforeMigration(self, apps: Any) -> None:
+
+class TestCopyNodeDescriptionsToAnnotations(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(team_scope(self.team.id))
+        self._create_rows(live_apps)
+        MIGRATION.copy_node_descriptions(live_apps, SimpleNamespace(connection=connection))
+
+    def _create_rows(self, apps: Any) -> None:
         DAG = apps.get_model("data_modeling", "DAG")
         Node = apps.get_model("data_modeling", "Node")
         SavedQuery = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
@@ -104,7 +117,7 @@ class TestCopyNodeDescriptionsToAnnotations(TestMigrations):
         )
 
     def _view_row(self, saved_query_id: Any) -> Any:
-        Annotation = self.apps.get_model("data_modeling", "DataWarehouseSavedQueryColumnAnnotation")  # type: ignore[union-attr]
+        Annotation = live_apps.get_model("data_modeling", "DataWarehouseSavedQueryColumnAnnotation")
         return Annotation.objects.filter(saved_query_id=saved_query_id, column_name="").first()
 
     def test_copy_rules(self) -> None:
@@ -126,7 +139,7 @@ class TestCopyNodeDescriptionsToAnnotations(TestMigrations):
         assert self._view_row(self.blank_node) is None
         assert self._view_row(self.edited_twice).description == "Newer text"
 
-        TableAnnotation = self.apps.get_model("warehouse_sources", "WarehouseColumnAnnotation")  # type: ignore[union-attr]
+        TableAnnotation = live_apps.get_model("warehouse_sources", "WarehouseColumnAnnotation")
         table_row = TableAnnotation.objects.get(table_id=self.table, column_name="")
         assert (table_row.description, table_row.is_user_edited) == ("Table text", True)
         assert not TableAnnotation.objects.filter(table_id=self.deleted_table).exists()
