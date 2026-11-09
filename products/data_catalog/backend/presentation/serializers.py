@@ -545,7 +545,11 @@ class AdjustedRunSerializer(serializers.Serializer):
     sql = serializers.CharField(help_text="The SQL the agent ran.")
     reasoning = serializers.CharField(help_text="Why the judge matched the query to the metric.")
     occurred_at = serializers.DateTimeField(help_text="When the agent ran the query.")
-    session_id = serializers.CharField(allow_null=True, help_text="Agent session of the query, when known.")
+    session_id = serializers.CharField(
+        allow_null=True,
+        help_text="Agent conversation of the query, when known: the session id of the conversation's first piece. "
+        "Every query in one conversation carries the same id.",
+    )
     is_scout = serializers.BooleanField(help_text="True when a scout (scheduled agent) ran the query.")
 
 

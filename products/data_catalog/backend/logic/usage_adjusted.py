@@ -8,6 +8,7 @@ say whether the agent read the metric first.
 import json
 import asyncio
 import hashlib
+import dataclasses
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime, timedelta
@@ -30,6 +31,7 @@ from posthog.sync import database_sync_to_async
 from ..facade.contracts import AdjustedRun
 from ..facade.enums import HOGQL_DEFINITION_KIND, SCOUT_SOURCE, JudgeRelation, ShapeOutcome
 from ..models import Metric
+from .agent_sessions import stored_conversations
 from .measure_fingerprint import MeasureExtractionError, extract_measures
 from .metric_fingerprint import CatalogIndex, definition_to_hogql
 from .usage_judge import JudgeVerdict, MetricBrief, judge_pair, require_ai_consent
@@ -333,19 +335,24 @@ def _plan_detection(*, team_id: int, snapshot_id: UUID, telemetry_team_id: int) 
     index = CatalogIndex.for_team(team)
     briefs = _briefs(team)
 
-    queries = fetch_agent_queries(
-        team=team, telemetry_team=telemetry_team, window_start=window.start, window_end=window.end
+    units = stored_conversations(team_id, snapshot_id)
+    queries = in_conversations(
+        fetch_agent_queries(team=team, telemetry_team=telemetry_team, window_start=window.start, window_end=window.end),
+        units,
     )
     # A metric without a brief cannot be judged, so its groups must not take judge slots.
     groups = [group for group in build_candidate_groups(queries, index) if group.metric_id in briefs]
     selection = select_for_judging(groups)
     if selection.over_cap:
         logger.warning("data_catalog_usage_judge_cap_reached", team_id=team_id, over_cap=selection.over_cap)
-    calls = fetch_catalog_calls(
-        team=team,
-        telemetry_team=telemetry_team,
-        window_start=window.start - _CATALOG_CALL_LOOKBACK,
-        window_end=window.end,
+    calls = calls_in_conversations(
+        fetch_catalog_calls(
+            team=team,
+            telemetry_team=telemetry_team,
+            window_start=window.start - _CATALOG_CALL_LOOKBACK,
+            window_end=window.end,
+        ),
+        units,
     )
     return _DetectionPlan(selection=selection, briefs=briefs, calls_by_trace=calls)
 
@@ -359,6 +366,21 @@ def _briefs(team: Team) -> dict[UUID, MetricBrief]:
         except Exception as error:
             logger.warning("data_catalog_usage_brief_failed", metric_id=str(metric.id), error=str(error))
     return briefs
+
+
+def in_conversations(queries: Iterable[AgentQuery], units: dict[str, str]) -> list[AgentQuery]:
+    """The queries with each session id replaced by its conversation id, so a read in an earlier piece counts."""
+    return [dataclasses.replace(query, trace_id=units.get(query.trace_id, query.trace_id)) for query in queries]
+
+
+def calls_in_conversations(
+    calls_by_trace: dict[str, list[CatalogCall]], units: dict[str, str]
+) -> dict[str, list[CatalogCall]]:
+    by_unit: dict[str, list[CatalogCall]] = defaultdict(list)
+    for trace_id, calls in calls_by_trace.items():
+        unit = units.get(trace_id, trace_id)
+        by_unit[unit].extend(dataclasses.replace(call, trace_id=unit) for call in calls)
+    return {unit: sorted(calls, key=lambda call: call.occurred_at) for unit, calls in by_unit.items()}
 
 
 def _brief(metric: Metric, team: Team) -> MetricBrief:
