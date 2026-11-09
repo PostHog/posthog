@@ -44,6 +44,7 @@ describe('CodeEmailTabs', () => {
             '/api/projects/:team_id/transactional_code_emails/:id/': codeEmail,
             '/api/environments/:team_id/hog_flows/:id/': workflow,
         },
+        post: { '/api/environments/:team_id/query/': { results: [] } },
     })
 
     const renderTabs = (): void => {
@@ -100,5 +101,14 @@ describe('CodeEmailTabs', () => {
         expect(logic.values.tab).toEqual('sends')
         expect(router.values.location.pathname).toEqual(page)
         expect(router.values.searchParams).toMatchObject({ inv_search: 'Transient bounce' })
+    })
+
+    it('offers no re-run of a sensitive email, whose sends keep no content', async () => {
+        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+        renderTabs()
+
+        fireEvent.click(await screen.findByText('Sends'))
+
+        expect((await screen.findByText('Re-run…')).closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 })
