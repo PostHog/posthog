@@ -3223,18 +3223,23 @@ describe('CDP API', () => {
             let cancelUnclaimed: jest.Mock
             let rescheduleUnclaimed: jest.Mock
 
+            type ManageAction = 'cancel' | 'reschedule'
             const mintManageToken = (
                 teamId: number,
+                messageId: string,
+                action: ManageAction,
                 {
                     secret = 'local-dev-workflows-transactional-email-jwt',
                     audience = 'posthog:workflows:manage_transactional_email',
                 }: { secret?: string; audience?: string } = {}
-            ) => jwt.sign({ team_id: teamId }, secret, { audience, expiresIn: '2m' })
+            ) => jwt.sign({ team_id: teamId, message_id: messageId, action }, secret, { audience, expiresIn: '2m' })
             const manage = (
-                action: 'cancel' | 'reschedule',
+                action: ManageAction,
                 messageId: string,
                 payload: Record<string, unknown> = {},
-                headers: Record<string, string> = { Authorization: `Bearer ${mintManageToken(team.id)}` }
+                headers: Record<string, string> = {
+                    Authorization: `Bearer ${mintManageToken(team.id, messageId, action)}`,
+                }
             ) =>
                 supertest(app)
                     .post(`/api/projects/${team.id}/transactional_emails/${messageId}/${action}`)
@@ -3470,25 +3475,44 @@ describe('CDP API', () => {
             })
 
             describe.each(['cancel', 'reschedule'] as const)('on %s', (action) => {
-                it.each([
+                const otherAction: ManageAction = action === 'cancel' ? 'reschedule' : 'cancel'
+                it.each<[string, (messageId: string) => Record<string, string>]>([
                     ['no token', () => ({})],
-                    ["another team's token", () => ({ Authorization: `Bearer ${mintManageToken(team.id + 1)}` })],
+                    [
+                        "another team's token",
+                        (messageId) => ({ Authorization: `Bearer ${mintManageToken(team.id + 1, messageId, action)}` }),
+                    ],
                     [
                         'a token signed with another key',
-                        () => ({
-                            Authorization: `Bearer ${mintManageToken(team.id, { secret: 'not-the-signing-key' })}`,
+                        (messageId) => ({
+                            Authorization: `Bearer ${mintManageToken(team.id, messageId, action, {
+                                secret: 'not-the-signing-key',
+                            })}`,
                         }),
                     ],
                     [
                         'a send token',
-                        () => ({
-                            Authorization: `Bearer ${mintManageToken(team.id, {
+                        (messageId) => ({
+                            Authorization: `Bearer ${mintManageToken(team.id, messageId, action, {
                                 audience: 'posthog:workflows:send_transactional_email',
                             })}`,
                         }),
                     ],
+                    [
+                        "another message's token",
+                        () => ({
+                            Authorization: `Bearer ${mintManageToken(team.id, new UUIDT().toString(), action)}`,
+                        }),
+                    ],
+                    [
+                        "the other action's token",
+                        (messageId) => ({
+                            Authorization: `Bearer ${mintManageToken(team.id, messageId, otherAction)}`,
+                        }),
+                    ],
                 ])('rejects a request with %s', async (_desc, headers) => {
-                    const res = await manage(action, new UUIDT().toString(), { scheduled_at: inDays(2) }, headers())
+                    const messageId = new UUIDT().toString()
+                    const res = await manage(action, messageId, { scheduled_at: inDays(2) }, headers(messageId))
 
                     expect(res.status).toEqual(401)
                     expect(cancelUnclaimed).not.toHaveBeenCalled()
