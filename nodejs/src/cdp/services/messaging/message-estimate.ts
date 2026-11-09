@@ -6,5 +6,8 @@ const encodedFileBytes = (size: number): number => Math.ceil((Math.ceil(size / 3
 
 export function estimateMessageBytes(fileSizes: readonly number[], bodies: readonly string[] = []): number {
     const bodyBytes = bodies.reduce((total, body) => total + Buffer.byteLength(body, 'utf8'), 0)
-    return fileSizes.reduce((total, size) => total + encodedFileBytes(size), HEADERS_AND_MIME_BOUNDARIES_BYTES + bodyBytes)
+    return fileSizes.reduce(
+        (total, size) => total + encodedFileBytes(size),
+        HEADERS_AND_MIME_BOUNDARIES_BYTES + bodyBytes
+    )
 }
