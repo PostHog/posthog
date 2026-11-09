@@ -126,7 +126,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     }
 
     private async runSendWithFiles(invocation: CyclotronJobInvocation): Promise<void> {
-        const { backgroundTask } = await super.processBatch([withoutDeferralState(invocation)])
+        const { backgroundTask } = await super.processBatch([withoutDeferralCount(invocation)])
         await backgroundTask
     }
 
@@ -171,11 +171,11 @@ function deferral(invocation: CyclotronJobInvocation): { invocation: CyclotronJo
     }
 }
 
-function withoutDeferralState(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
+function withoutDeferralCount(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
     if (invocation.queueMetadata?.attachmentDeferrals === undefined) {
         return invocation
     }
-    const { attachmentDeferrals: _, attachmentDueAt: __, ...queueMetadata } = invocation.queueMetadata
+    const { attachmentDeferrals: _, ...queueMetadata } = invocation.queueMetadata
     return { ...invocation, queueMetadata }
 }
 

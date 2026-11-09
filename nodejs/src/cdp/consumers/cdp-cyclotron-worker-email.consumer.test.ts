@@ -185,7 +185,7 @@ describe('CdpCyclotronWorkerEmail', () => {
             expect(written(queue)).toEqual([plain.id, slow.id])
         })
 
-        it('defers the sends it has no room for, with one more deferral, a longer delay and the first due time', async () => {
+        it('defers the sends it has no room for, with one more deferral, a longer delay and the first due time, and runs an admitted one with its first due time kept', async () => {
             const { worker, queue } = workerWith({ ...roomFor(5), maxInFlight: 1 })
             const firstDueAt = Date.now() - 60_000
             const [admitted, deferred, deferredFirst] = [
@@ -201,7 +201,9 @@ describe('CdpCyclotronWorkerEmail', () => {
             const { backgroundTask } = await worker.processBatch([admitted, deferred, deferredFirst])
             await backgroundTask
 
-            expect(ran.mock.calls.map(([invocations]) => invocations)).toEqual([[{ ...admitted, queueMetadata: {} }]])
+            expect(ran.mock.calls.map(([invocations]) => invocations)).toEqual([
+                [{ ...admitted, queueMetadata: { attachmentDueAt: firstDueAt } }],
+            ])
             expect(queue.deferInvocations).toHaveBeenCalledWith([
                 {
                     invocation: { ...deferred, queueMetadata: { attachmentDeferrals: 3, attachmentDueAt: firstDueAt } },
