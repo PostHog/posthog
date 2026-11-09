@@ -56,6 +56,7 @@ DEFAULT_PRESET = NO_PRESET
 AUTOMATIC_UPDATES_ARGS = ("--automatic-updates", "always")
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
+_SESSION_TOKEN_ENV = "CODER_SESSION_TOKEN"
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
 REMOTE_REPO_PATH = "/home/coder/posthog"
 GIT_NAME_PARAMETER = "git_name"
@@ -232,10 +233,14 @@ def _resolve_coder(args: list[str]) -> list[str]:
 
 
 def _run(
-    args: list[str], *, capture_output: bool = False, timeout: float | None = None
+    args: list[str],
+    *,
+    capture_output: bool = False,
+    timeout: float | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent text handling."""
-    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True, timeout=timeout)
+    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True, timeout=timeout, env=env)
 
 
 def _execvp(file: str, args: list[str]) -> NoReturn:
@@ -996,22 +1001,90 @@ def coder_authenticated() -> bool:
     return _coder_whoami().returncode == 0
 
 
+def _env_login_hint(coder_url: str) -> str:
+    return (
+        f"  Without a terminal, set CODER_SESSION_TOKEN to a token from {coder_url}/cli-auth"
+        f" and CODER_URL to {coder_url}."
+    )
+
+
+def _coder_error(whoami: subprocess.CompletedProcess[str]) -> str:
+    if whoami.returncode == 0:
+        return "`coder whoami` returned no user."
+    errors = [line.strip() for line in whoami.stderr.splitlines() if line.strip().startswith("error:")]
+    return errors[0] if errors else f"`coder whoami` exited with status {whoami.returncode}."
+
+
+def _fail_env_token_login(coder_url: str, whoami: subprocess.CompletedProcess[str]) -> NoReturn:
+    lines = [f"Coder login with the CODER_SESSION_TOKEN set in this shell failed for {coder_url}:"]
+    if not os.environ.get("CODER_URL"):
+        lines.append(f"  Set CODER_URL to {coder_url}. The Coder CLI needs it next to CODER_SESSION_TOKEN.")
+    lines.append(f"  {_coder_error(whoami)}")
+    lines.append(f"  If the token expired, get a new one at {coder_url}/cli-auth,")
+    lines.append("  or unset CODER_SESSION_TOKEN to use the login stored on disk.")
+    _fail("\n".join(lines), cause="coder_env_token_login_failed")
+
+
+def _stored_login_works() -> bool:
+    env = {key: value for key, value in os.environ.items() if key not in (_SESSION_TOKEN_ENV, "CODER_URL")}
+    try:
+        result = _run(["coder", "whoami", "--output", "json"], capture_output=True, env=env, timeout=10)
+    except subprocess.TimeoutExpired:
+        return False
+    if result.returncode != 0:
+        return False
+    try:
+        stored_url = json.loads(result.stdout)[0]["url"]
+    except (json.JSONDecodeError, LookupError, TypeError):
+        return False
+    return stored_url.rstrip("/") == get_coder_url().rstrip("/")
+
+
+def _note_login_only_in_env() -> None:
+    if not os.environ.get(_SESSION_TOKEN_ENV) or _stored_login_works():
+        return
+    click.echo(
+        click.style(
+            "Coder login comes only from CODER_SESSION_TOKEN, and no working login is stored on disk.\n"
+            "  SSH to a devbox fails from programs that don't inherit that variable, such as an editor"
+            " or a mutagen daemon started elsewhere.\n"
+            f"  To store it, run `{coder_command_hint()} login --use-token-as-session {get_coder_url()}` in this shell."
+            " Run it again when the token changes.",
+            fg="yellow",
+        )
+    )
+
+
+def _fail_login_not_ready(
+    message: str, whoami: subprocess.CompletedProcess[str], *, cause: str = "coder_login_not_ready"
+) -> NoReturn:
+    coder_url = get_coder_url()
+    if os.environ.get(_SESSION_TOKEN_ENV):
+        _fail_env_token_login(coder_url, whoami)
+    if not sys.stdin.isatty():
+        message += f"\n{_env_login_hint(coder_url)}"
+    _fail(message, cause=cause)
+
+
 def ensure_coder_authenticated() -> None:
     """Run interactive login when needed."""
-    if coder_authenticated():
-        click.echo("Coder login is ready.")
-        return
-
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
+    whoami = _coder_whoami()
+    if whoami.returncode == 0:
+        click.echo("Coder login is ready.")
+        _note_login_only_in_env()
+        return
+
     coder_url = get_coder_url()
-    if not sys.stdin.isatty():
-        # `coder login` asks for a token pasted from the browser and fails with
-        # "paste token prompt: EOF" when stdin isn't a terminal.
-        _fail(
+    # `coder login` refuses to run while CODER_SESSION_TOKEN is set, and asks for a token pasted
+    # from the browser, failing with "paste token prompt: EOF" when stdin isn't a terminal.
+    if os.environ.get(_SESSION_TOKEN_ENV) or not sys.stdin.isatty():
+        _fail_login_not_ready(
             "Coder login needs you to paste a token, and this shell can't take input.\n"
             f"  Run `{coder_command_hint()} login {coder_url}` in a terminal, then run `hogli devbox:setup` again.",
+            whoami,
             cause="coder_login_needs_terminal",
         )
     click.echo(f"Logging in to {coder_url}...")
@@ -1027,8 +1100,9 @@ def ensure_runtime_ready() -> None:
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
-    if not coder_authenticated():
-        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", cause="coder_login_not_ready")
+    whoami = _coder_whoami()
+    if whoami.returncode != 0:
+        _fail_login_not_ready(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", whoami)
 
     _warn_version_mismatch()
 
@@ -1117,16 +1191,23 @@ def _parse_coder_user_info(payload: str) -> CoderUserInfo:
     return user_info
 
 
-def get_coder_user_info() -> CoderUserInfo:
-    """Return normalized user info for the authenticated Coder user when available."""
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _CoderUserLookup:
+    user_info: CoderUserInfo
+    first_failure_or_last_result: subprocess.CompletedProcess[str]
+
+
+def _lookup_coder_user() -> _CoderUserLookup:
+    first_failure: subprocess.CompletedProcess[str] | None = None
     for command in (_coder_user_show_me, _coder_whoami):
         result = command()
         if result.returncode != 0:
+            first_failure = first_failure or result
             continue
 
         user_info = _parse_coder_user_info(result.stdout)
         if user_info:
-            return user_info
+            return _CoderUserLookup(user_info=user_info, first_failure_or_last_result=result)
 
     result = _run(["coder", "whoami"], capture_output=True)
     if result.returncode == 0:
@@ -1135,9 +1216,16 @@ def get_coder_user_info() -> CoderUserInfo:
             if stripped_line and not stripped_line.startswith("http"):
                 username = stripped_line.split()[0].split("@")[0].lower()
                 if username:
-                    return CoderUserInfo(username=username)
+                    return _CoderUserLookup(
+                        user_info=CoderUserInfo(username=username), first_failure_or_last_result=result
+                    )
 
-    return CoderUserInfo()
+    return _CoderUserLookup(user_info=CoderUserInfo(), first_failure_or_last_result=first_failure or result)
+
+
+def get_coder_user_info() -> CoderUserInfo:
+    """Return normalized user info for the authenticated Coder user when available."""
+    return _lookup_coder_user().user_info
 
 
 def get_default_git_identity() -> tuple[str | None, str | None]:
@@ -1156,14 +1244,15 @@ def get_username() -> str:
     uncached call is a `coder` subprocess. Failures raise instead of caching,
     so an auth retry within the same process still re-probes.
     """
-    user_info = get_coder_user_info()
-    username = _first_non_empty_string(user_info.get("username"))
+    lookup = _lookup_coder_user()
+    username = _first_non_empty_string(lookup.user_info.get("username"))
     if username:
         return username.lower()
 
-    _fail(
-        "Could not determine your Coder username from `coder whoami`.\n"
-        f"  Your login may have expired. {RUNTIME_SETUP_HINT}"
+    ensure_coder_reachable()
+    _fail_login_not_ready(
+        f"Could not determine your Coder username from `coder whoami`.\n  Your login may have expired. {RUNTIME_SETUP_HINT}",
+        lookup.first_failure_or_last_result,
     )
 
 
@@ -1700,7 +1789,7 @@ class _CoderApi:
     def _session_token() -> str:
         # The CLI authenticates with CODER_SESSION_TOKEN when it is set, but
         # `coder login token` prints only the stored login (cli/login.go).
-        if token := os.environ.get("CODER_SESSION_TOKEN"):
+        if token := os.environ.get(_SESSION_TOKEN_ENV):
             return token
         stored = _run(["coder", "login", "token"], capture_output=True)
         if stored.returncode != 0:
@@ -1880,7 +1969,7 @@ def ssh_replace(name: str) -> None:
     _execvp("ssh", ["ssh", _ssh_host_alias(name)])
 
 
-def exec_replace(name: str, command: list[str]) -> None:
+def exec_replace(name: str, command: list[str], *, in_flox: bool = False) -> None:
     """Run a single command in the workspace over the ssh host alias, replacing the process.
 
     Goes through ``ssh coder.<name>`` rather than ``coder ssh <name> -- cmd``
@@ -1896,8 +1985,14 @@ def exec_replace(name: str, command: list[str]) -> None:
     ``command`` tokens are shell-quoted into one string so the remote login
     shell preserves argument boundaries -- ssh otherwise space-joins argv,
     which would split a token like ``"uname -sm"`` back into two.
+
+    ``in_flox`` runs the command from the box's checkout inside PostHog's flox
+    environment, the only place project tools such as ``pnpm`` are on ``PATH``.
     """
-    _execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+    remote_command = shlex.join(command)
+    if in_flox:
+        remote_command = f"cd {REMOTE_REPO_PATH} && exec flox activate -- {remote_command}"
+    _execvp("ssh", ["ssh", _ssh_host_alias(name), remote_command])
 
 
 def run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:

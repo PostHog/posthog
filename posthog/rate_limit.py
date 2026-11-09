@@ -536,6 +536,12 @@ class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThr
     rate = "30/day"
 
 
+# Each lookup calls the workload provider's API, often on a budget shared with the team's integration.
+class WorkloadSubjectLookupThrottle(UserRateThrottle):
+    scope = "workload_subject_lookup"
+    rate = "30/minute"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -2159,3 +2165,11 @@ class BatchExportsCountRowsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottl
 class BatchExportsCountRowsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "batch_exports_count_rows_burst"
     rate = "20/minute"
+
+
+class WarehouseMigrationCrawlThrottle(_TeamBucketRateThrottle):
+    """Creating or refreshing a warehouse migration starts a full read of the vendor account on the
+    metadata worker. One project-wide bucket, so new keys or members cannot multiply the crawls."""
+
+    scope = "warehouse_migration_crawl"
+    rate = "20/hour"

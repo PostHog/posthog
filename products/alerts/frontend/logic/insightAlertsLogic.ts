@@ -280,6 +280,10 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         alerts: {
             __default: [] as AlertType[],
             loadAlerts: async () => {
+                // Without an insight ID, the API returns every alert in the project.
+                if (!props.insightId) {
+                    return []
+                }
                 const response = await api.alerts.list(props.insightId)
                 return response.results
             },

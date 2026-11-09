@@ -52,7 +52,7 @@ export function ChartTooltip({
                         {row.label}
                     </Text>
                     <Text style={styles.value} numberOfLines={1}>
-                        {formatValue(row.value)}
+                        {row.formattedValue ?? formatValue(row.value)}
                     </Text>
                 </View>
             ))}

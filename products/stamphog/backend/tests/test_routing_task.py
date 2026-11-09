@@ -402,6 +402,20 @@ def _push(chain: RoutingChain, head_sha: str) -> None:
     chain.recorder.prs[(REPO, PR_NUMBER)]["head"]["sha"] = head_sha
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_always_routes_a_head_that_fallback_left_waiting_once(team, user, routing_chain, safety_net) -> None:
+    repo_config = _open_fallback(routing_chain, team, user)
+    assert _stored(team.id)["status"] == "waiting"
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(routing_mode="always")
+
+    _route("ready_for_review")
+    _route("ready_for_review")
+
+    assert len(_writes(routing_chain, "request_reviewers")) == 1
+    assert _stored(team.id)["status"] == "done"
+
+
 @pytest.mark.parametrize(
     "name,setup_kwargs",
     [

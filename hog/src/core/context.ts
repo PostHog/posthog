@@ -3,6 +3,7 @@ import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 import { PostHogApi } from '@/posthog/api'
 import { resolveCredentials, type Credentials } from '@/posthog/credentials'
 import { KeySession } from '@/posthog/key-session'
+import { canStepUp } from '@/posthog/scope-challenge'
 
 import type { Mode } from './agent'
 import type { CommandTree } from './command'
@@ -20,6 +21,7 @@ export class Context {
     private keySession?: Promise<KeySession>
     private loaded?: Promise<LoadedConfig | undefined>
     private tools?: Promise<ApiToolLibrary>
+    private stepUpRunning?: Promise<boolean>
 
     constructor(
         readonly runtime: Runtime,
@@ -42,8 +44,27 @@ export class Context {
     // The PostHog API client. Credentials resolve on first use, so commands that never call
     // the API work without them.
     async posthog(): Promise<PostHogApi> {
-        this.api ??= new PostHogApi(await this.session(), this.runtime.fetch)
+        this.api ??= new PostHogApi(await this.session(), this.runtime.fetch, (scopes) => this.stepUp(scopes))
         return this.api
+    }
+
+    // Called once a command knows what it will write, so a step-up comes before the first write.
+    async ensureScopes(scopes: readonly string[], action?: string): Promise<void> {
+        if (!canStepUp(await this.credentials().catch(() => undefined))) {
+            return
+        }
+        const { ensureScopes } = await import('@/posthog/login/step-up')
+        await ensureScopes(this, scopes, action)
+    }
+
+    // Requests sent at once step up one at a time, and a failed step-up, such as a cancel, fails the rest.
+    stepUp(scopes: readonly string[]): Promise<boolean> {
+        const run = (this.stepUpRunning ?? Promise.resolve(false)).then(async () => {
+            const { promptStepUp } = await import('@/posthog/login/step-up')
+            return promptStepUp(this, scopes)
+        })
+        this.stepUpRunning = run
+        return run
     }
 
     // The nearest posthog.json, or undefined when there is none. Throws `invalid_config` when it
@@ -61,7 +82,11 @@ export class Context {
     // Throws `not_authenticated` when there are none.
     credentials(): Promise<Credentials> {
         this.credentialsRequest ??= this.config().then((loaded) =>
-            resolveCredentials(this.runtime, { ...this.globals, configHost: loaded?.config.host })
+            resolveCredentials(this.runtime, {
+                ...this.globals,
+                configHost: loaded?.config.host,
+                configProjectId: loaded?.config.projectId?.toString(),
+            })
         )
         return this.credentialsRequest
     }
@@ -69,12 +94,7 @@ export class Context {
     // The key every client of this command sends, so they share its renewals.
     session(): Promise<KeySession> {
         this.keySession ??= this.credentials().then(
-            (credentials) =>
-                new KeySession(
-                    this.runtime,
-                    credentials.key,
-                    credentials.source === 'store' ? credentials.storage : null
-                )
+            (credentials) => new KeySession(this.runtime, credentials.key, credentials.storage)
         )
         return this.keySession
     }

@@ -44,12 +44,12 @@ def _series_fingerprint(
 
     Same inputs as `compute_series_fingerprint` in capture-logs, so two seeded
     series collide exactly when the real ingest would merge them. Ingest
-    fingerprints before it stamps the synthetic `$originalTimestamp` attribute
+    fingerprints before it stamps the synthetic `posthog.original_timestamp` attribute
     on a skewed point, so that key is left out here too. It does NOT have to
     equal the Rust hash: the seeder owns both the series and its samples, so it
     only has to be stable per label-set.
     """
-    identity_attributes = sorted((k, v) for k, v in attributes.items() if k != "$originalTimestamp")
+    identity_attributes = sorted((k, v) for k, v in attributes.items() if k != "posthog.original_timestamp")
     return _fingerprint(
         metric_name, metric_type, service_name, sorted(resource_attributes.items()), identity_attributes
     )

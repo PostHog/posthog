@@ -59,7 +59,17 @@ SELECT
     toString(properties.$mcp_intent) AS intent,
     toString(properties.$mcp_is_error) AS is_error_raw,
     toString(properties.$mcp_error_message) AS error_message,
-    toString(properties.$mcp_duration_ms) AS duration_ms_raw
+    toString(properties.$mcp_duration_ms) AS duration_ms_raw,
+    JSONExtractRaw(properties, '$mcp_parameters') AS parameters,
+    JSONExtractRaw(properties, '$mcp_response') AS response,
+    toString(properties.$mcp_error_type) AS error_type,
+    toString(properties.$mcp_error_status) AS error_status,
+    toString(properties.$mcp_exec_verb) AS exec_verb,
+    toString(properties.$mcp_exec_target_tool) AS exec_target_tool,
+    JSONExtractRaw(properties, '$mcp_input_keys') AS input_keys,
+    toString(properties.$mcp_error_code) AS error_code,
+    toString(properties.$mcp_error_field) AS error_field,
+    toString(properties.$mcp_llm_model) AS llm_model
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
@@ -997,10 +1007,32 @@ def list_mcp_tool_calls(
             is_error=str(row[4]).lower() in ("true", "1"),
             error_message=row[5] or "",
             duration_ms=_parse_int(row[6]),
+            parameters=row[7] or "",
+            response=row[8] or "",
+            error_type=row[9] or "",
+            error_status=row[10] or "",
+            exec_verb=row[11] or "",
+            exec_target_tool=row[12] or "",
+            input_keys=_string_list(row[13]),
+            error_code=row[14] or "",
+            error_field=row[15] or "",
+            llm_model=row[16] or "",
         )
         for row in rows[:limit]
     ]
     return contracts.MCPToolCallsPage(results=results, has_next=has_next)
+
+
+def _string_list(raw: str | None) -> list[str]:
+    # Event properties are client-supplied, so a malformed or hostile value reads as no keys.
+    try:
+        value = json.loads(raw) if raw else []
+    except (ValueError, RecursionError):
+        return []
+    if not isinstance(value, list):
+        return []
+    # isprintable() also drops lone surrogates, which the JSON renderer cannot encode.
+    return [item for item in value if isinstance(item, str) and item.strip() and item.isprintable()]
 
 
 def _parse_int(value: str | int | None) -> int | None:

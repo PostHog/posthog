@@ -11,11 +11,13 @@ import {
     MetricTitle,
     MetricValue,
 } from '@posthog/quill-components/metric'
-import { Card, CardContent, cn, Skeleton } from '@posthog/quill-primitives'
+import { Card, cn, Skeleton } from '@posthog/quill-primitives'
 
 import { formatBucketLabel } from 'lib/utils/timeBuckets'
 
 import { IntervalType } from '~/types'
+
+import { CardError } from './Card'
 
 export interface MetricTileProps {
     label: string
@@ -23,6 +25,8 @@ export interface MetricTileProps {
     formatValue: (n: number) => string
     theme: ChartTheme
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
     data?: number[]
     // Raw bucket keys, which the sparkline uses as its x-scale keys, so they must be unique per
     // point. Pre-formatted text repeats (every hour of a day reads "Sep 2") and a repeat collapses
@@ -48,6 +52,8 @@ export function MetricTile({
     formatValue,
     theme,
     loading,
+    failed = false,
+    onRetry,
     data,
     labels,
     interval,
@@ -62,15 +68,28 @@ export function MetricTile({
     className,
 }: MetricTileProps): JSX.Element {
     const hasSparkline = data != null && data.length > 0
+    const showsMetric = !loading && !failed
+    const flush = showsMetric ? hasSparkline : sparklineHeight != null
     // A stable identity per interval, so `Metric`'s memoized context does not rebuild every render.
     const formatLabel = useMemo(() => (label: string) => formatBucketLabel(label, interval), [interval])
     return (
-        <Card size="sm" flush={hasSparkline} className={cn('flex-1', className)}>
-            {loading ? (
-                <CardContent className="flex flex-col gap-2">
-                    <Skeleton className="h-3 w-16" />
-                    <Skeleton className="h-7 w-20" />
-                </CardContent>
+        <Card size="sm" flush={flush} className={cn('flex-1', className)}>
+            {failed ? (
+                <div className="grid flex-1 px-3">
+                    <div className="invisible col-start-1 row-start-1" aria-hidden>
+                        <MetricTileSkeleton sparklineHeight={sparklineHeight} />
+                    </div>
+                    <div className="col-start-1 row-start-1 flex flex-col">
+                        <div className="text-sm font-medium">{label}</div>
+                        <div className="flex flex-1 items-center justify-center py-2">
+                            <CardError onRetry={onRetry} />
+                        </div>
+                    </div>
+                </div>
+            ) : loading ? (
+                <div className="px-3">
+                    <MetricTileSkeleton sparklineHeight={sparklineHeight} />
+                </div>
             ) : (
                 <Metric
                     className="px-3 text-primary"
@@ -99,5 +118,24 @@ export function MetricTile({
                 </Metric>
             )}
         </Card>
+    )
+}
+
+// Mirrors the line boxes of the loaded tile's header, value, subtitle and sparkline, so the tile
+// keeps its height when the data arrives.
+function MetricTileSkeleton({ sparklineHeight }: { sparklineHeight?: number }): JSX.Element {
+    return (
+        <div className="flex flex-col">
+            <div className="flex h-5 items-center">
+                <Skeleton className="h-3 w-16" />
+            </div>
+            <div className="mt-2 flex h-10 items-center">
+                <Skeleton className="h-7 w-24" />
+            </div>
+            <div className="mt-1 flex h-5 items-center">
+                <Skeleton className="h-3 w-20" />
+            </div>
+            {sparklineHeight != null ? <Skeleton className="mt-3" style={{ height: sparklineHeight }} /> : null}
+        </div>
     )
 }

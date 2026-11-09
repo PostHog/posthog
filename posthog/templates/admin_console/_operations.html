@@ -26,7 +26,7 @@
                         {% include "admin_console/_badge.html" with label="Risky" tone="destructive" %}
                     {% endif %}
                     {{ operation.description }}
-                    {% if not rendered_operation.allowed %}Needs {{ operation.gate.label }}.{% endif %}
+                    {% if not rendered_operation.allowed %}Only {{ rendered_operation.gate.label }} can run this.{% endif %}
                 </span>
             </li>
         {% endwith %}

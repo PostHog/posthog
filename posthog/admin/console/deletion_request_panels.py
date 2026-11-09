@@ -13,7 +13,6 @@ from django.template.defaultfilters import filesizeformat
 from django.utils import timezone
 
 from posthog.admin.console.deletion_request_form import (
-    CLICKHOUSE_TEAM_GROUP,
     UNSUPPORTED_REQUEST_TYPES,
     DataDeletionRequestForm,
     initial_from_query,
@@ -40,8 +39,7 @@ from posthog.models.data_deletion_request import (
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-CLICKHOUSE = Owner(name="ClickHouse", crest="clickhouse")
-CLICKHOUSE_TEAM = Gate.group(CLICKHOUSE_TEAM_GROUP)
+CLICKHOUSE = Owner(name="ClickHouse", crest="clickhouse", staff_group="ClickHouse Team")
 
 STATUS_TONES = {
     RequestStatus.PENDING: Tone.INFO,
@@ -222,7 +220,7 @@ class DeletionRequestStatsPanel(Panel):
                 label="Preview stats",
                 handler=preview_stats,
                 description="Counts the matching events without saving, for example while you change the criteria.",
-                gate=CLICKHOUSE_TEAM,
+                gate=Gate.owner(),
             ),
         ]
 
@@ -527,7 +525,7 @@ class DeletionRequestWorkflowPanel(Panel):
                         "Until the deletion job picks it up, move the request back to draft. "
                         "Data that a run already deleted cannot be restored."
                     ),
-                    gate=CLICKHOUSE_TEAM,
+                    gate=Gate.owner(),
                 )
             )
         if obj.status in (RequestStatus.PENDING, RequestStatus.APPROVED):
@@ -555,7 +553,7 @@ class DeletionRequestWorkflowPanel(Panel):
                         "Until the next run starts, move the request back to draft. Data that a run already "
                         "deleted cannot be restored."
                     ),
-                    gate=CLICKHOUSE_TEAM,
+                    gate=Gate.owner(),
                 )
             )
         if obj.status != RequestStatus.COMPLETED and obj.request_type not in UNVERIFIABLE_TYPES:
@@ -565,7 +563,7 @@ class DeletionRequestWorkflowPanel(Panel):
                     label="Verify deletion",
                     handler=verify,
                     description="Counts the matching rows in ClickHouse. When none remain, the request is completed.",
-                    gate=CLICKHOUSE_TEAM,
+                    gate=Gate.owner(),
                 )
             )
         return operations
@@ -613,9 +611,10 @@ def _show_notices(request: HttpRequest, notices: list[StaffEditNotice]) -> None:
 def _refuse_clickhouse_team_type(request: HttpRequest, form: DataDeletionRequestForm) -> HttpResponse | None:
     # The create form hides these types from everyone else, and the edit form cannot, because record forms are
     # built without the request. This check covers both, and a hand-built POST.
-    if not form.needs_clickhouse_team() or CLICKHOUSE_TEAM.allows(request):
+    staff_gate = Gate.owner().resolve(CLICKHOUSE)
+    if not form.needs_clickhouse_team() or staff_gate.allows(request):
         return None
-    form.add_error("request_type", f"Only {CLICKHOUSE_TEAM.label} can pick this type.")
+    form.add_error("request_type", f"Only {staff_gate.label} can pick this type.")
     return HttpResponse(status=400)
 
 
@@ -718,7 +717,7 @@ class DeletionRequestCriteriaPanel(Panel):
                 description="Creates a draft with the same criteria and opens it.",
                 # A copy is a new request, so only ClickHouse Team members copy types the create form does not
                 # offer everyone.
-                gate=CLICKHOUSE_TEAM if obj.request_type in UNSUPPORTED_REQUEST_TYPES else None,
+                gate=Gate.owner() if obj.request_type in UNSUPPORTED_REQUEST_TYPES else None,
             )
         )
         return operations
@@ -749,7 +748,7 @@ class NewDeletionRequestTool(ConsoleTool):
                 key="create",
                 label="Create deletion request",
                 handler=create_request,
-                form_class=DataDeletionRequestForm.for_staff(CLICKHOUSE_TEAM.allows(request)),
+                form_class=DataDeletionRequestForm.for_staff(Gate.owner().resolve(self.owner).allows(request)),
                 # Support links prefill the form, for example ?team_id=2&events=$pageview.
                 form_initial={"request_type": RequestType.EVENT_REMOVAL.value, **initial_from_query(request.GET)},
                 description="Creates a draft and opens it. Nothing is deleted yet.",

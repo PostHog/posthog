@@ -26,7 +26,8 @@ const WEEK = '2026-09-28T00:00:00.000Z'
 const PRIOR_WEEK = '2026-09-21T00:00:00.000Z'
 const CONTRACT = '2026-01-01T00:00:00.000Z'
 // Runners $600 ($400 in this repository), builds $400, Depot CI $1,200 ($900 here): $2,200.
-// The week before: runners $200, builds $200, Depot CI $300: $700. The contract so far: $50,000.
+// The week before: runners $200, builds $200, Depot CI $300: $700. The contract so far, which
+// includes both weeks: $50,000. Every other day has no usage.
 const DEPOT_USAGE = {
     [WEEK]: {
         githubActionsJobs: [
@@ -47,7 +48,7 @@ const DEPOT_USAGE = {
         containerBuild: [{ minutesBilled: 5_000 }],
     },
     [CONTRACT]: {
-        githubActionsJobs: [{ repo: 'PostHog/posthog', total: { minutesBilled: 10_000_000 } }],
+        githubActionsJobs: [{ repo: 'PostHog/posthog', total: { minutesBilled: 9_275_000 } }],
         depotCi: [{ repo: 'PostHog/posthog', workflowPath: 'ci-backend.yml', vcpuMinutesBilled: 2_000_000 }],
         containerBuild: [{ minutesBilled: 100_000 }],
     },
@@ -70,8 +71,14 @@ const SLOW_WORKFLOWS_NOTE = [
 ].join('\n')
 let importCount = 0
 
-async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, workflowHealth = WORKFLOW_HEALTH } = {}) {
+async function runDigest(
+    t,
+    { env = {}, depotUsage = DEPOT_USAGE, workflowHealth = WORKFLOW_HEALTH, performanceNow } = {}
+) {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: new Date('2026-10-05T13:00:00Z') })
+    if (performanceNow) {
+        t.mock.method(performance, 'now', performanceNow)
+    }
     const settings = { ...ENV, ...env }
     const previousEnv = Object.fromEntries(Object.keys(settings).map((key) => [key, process.env[key]]))
     Object.assign(process.env, settings)
@@ -135,6 +142,7 @@ async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, workflowHealth
 }
 
 function tableText(blocks) {
+    assert.ok(blocks[1].rows.flat().every((cell) => cell.text.length > 0), 'Slack rejects an empty table cell')
     return blocks[1].rows.slice(1).map((row) => row.map((cell) => cell.text))
 }
 
@@ -143,21 +151,24 @@ describe('weekly engineering analytics digest', () => {
         ['', {}],
         [
             ' after a transient Depot failure',
-            { depotUsage: { ...DEPOT_USAGE, [WEEK]: [new Response('', { status: 503 }), DEPOT_USAGE[WEEK]] } },
+            {
+                depotUsage: {
+                    ...DEPOT_USAGE,
+                    [WEEK]: [new Response('', { status: 503 }), DEPOT_USAGE[WEEK]],
+                },
+            },
         ],
     ]) {
         it(`reports Depot spend for complete UTC weeks and the contract${name}`, async (t) => {
             const { blocks, requests, maxDepotInFlight } = await runDigest(t, override)
             assert.equal(maxDepotInFlight, 1)
-            const contractRanges = requests
+            const depotRanges = requests
                 .filter((request) => request.url.startsWith('https://api.depot.dev/'))
                 .map((request) => JSON.parse(request.body))
-                .slice(-10)
-            assert.deepEqual(
-                contractRanges.map((range) => range.startAt.slice(0, 10)),
-                Array.from({ length: 10 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}-01`)
-            )
-            assert.equal(contractRanges.at(-1).endAt, '2026-10-05T00:00:00.000Z')
+            assert.ok(depotRanges.every((range) => Date.parse(range.endAt) - Date.parse(range.startAt) === 86_400_000))
+            const contractRanges = depotRanges.slice(depotRanges.findIndex((range) => range.startAt === CONTRACT))
+            assert.equal(contractRanges.length, 263)
+            assert.equal(contractRanges.at(-1).endAt, PRIOR_WEEK)
             const overviewUrl = new URL(requests.find((request) => request.url.includes('/repo_overview/')).url)
             assert.equal(overviewUrl.searchParams.get('date_from'), WEEK)
             assert.equal(overviewUrl.searchParams.get('date_to'), '2026-10-05T00:00:00.000Z')
@@ -210,12 +221,21 @@ describe('weekly engineering analytics digest', () => {
         })
     }
 
-    for (const [name, allowance, expected] of [
-        ['a used-up contract', '50000', /The contract is used up\.$/],
-        ['a contract that lasts', '1000000', /it lasts until the contract ends on 2027-01-01\.$/],
+    for (const [name, env, expected] of [
+        ['a used-up contract', { DEPOT_CONTRACT_USD: '50000' }, /The contract is used up\.$/],
+        [
+            'a contract that lasts',
+            { DEPOT_CONTRACT_USD: '1000000' },
+            /it lasts until the contract ends on 2027-01-01\.$/,
+        ],
+        [
+            'a contract that starts inside the prior week',
+            { DEPOT_CONTRACT_START: '2026-09-24' },
+            /^Depot contract: \$2,200 of \$60,000 used through 2026-10-04/,
+        ],
     ]) {
         it(`describes ${name}`, async (t) => {
-            const { blocks } = await runDigest(t, { env: { DEPOT_CONTRACT_USD: allowance } })
+            const { blocks } = await runDigest(t, { env })
             assert.match(blocks[2].text.text, expected)
         })
     }
@@ -227,6 +247,11 @@ describe('weekly engineering analytics digest', () => {
             {
                 depotUsage: { ...DEPOT_USAGE, [CONTRACT]: new Response('confidential-response', { status: 404 }) },
             },
+        ],
+        [
+            'the contract reads run past their time budget',
+            // The import reads the clock once, then each of the 14 days of the two weeks reads it once.
+            { performanceNow: ((calls) => () => (++calls > 15 ? 21 * 60 * 1000 : 0))(0) },
         ],
     ]) {
         it(`posts spend without the contract sentence when ${name}`, async (t) => {

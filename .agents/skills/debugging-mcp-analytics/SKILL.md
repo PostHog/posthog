@@ -72,9 +72,11 @@ These are the failure modes that produce a plausible-looking answer rather than 
    `coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))`.
    It exists because a single-exec server can report the tool two different ways, and the two
    eras of data coexist. Today `services/mcp` resolves the inner tool itself and passes it
-   straight in as the tool name (`execToolName()` in `src/hono/tool-executor.ts`, which falls
-   back to the literal `exec` when the inner command isn't recognized), so
-   `$mcp_tool_name` usually already holds the real tool. `$mcp_exec_tool_call_name` is
+   straight in as the tool name (`analyticsToolName()` in `src/hono/tool-executor.ts`), so
+   `$mcp_tool_name` usually already holds the real tool. It reads the literal `exec` for the
+   discovery verbs (`info`, `schema`, `search`, `learn`, `help`, `tools`), which are most
+   `exec` rows, and for calls naming an unknown tool. Split that bucket by `$mcp_exec_verb`
+   and `$mcp_exec_target_tool` before reading it as unresolved calls. `$mcp_exec_tool_call_name` is
    registered in `posthog/taxonomy/taxonomy.py` and coalesced defensively here, but **nothing
    on master emits it** — treat it as historical rows plus in-flight work, not current
    producer behaviour. Either way, aggregate through the coalesce: hand-rolling

@@ -61,7 +61,6 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
     EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
-    NEW_SDK_SOURCE,
     HarnessLabelQueryRunner,
     display_person_properties,
     effective_tool_expr,
@@ -119,6 +118,7 @@ _ToolDetailQuery = (
     | MCPToolDescriptionsQuery
     | MCPToolFailureOccurrencesQuery
     | MCPToolFailuresQuery
+    | MCPToolNeighborsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolStatsQuery
     | MCPToolTopUsersQuery
@@ -778,9 +778,10 @@ class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleInten
         )
 
 
-_WINDOW_FN: dict[NeighborDirection, str] = {
-    NeighborDirection.BEFORE: "lagInFrame",
-    NeighborDirection.AFTER: "leadInFrame",
+# The sequence shifted one place, so each call lines up with its neighbour without a lambda capturing `tools`.
+_NEIGHBORS_SQL: dict[NeighborDirection, str] = {
+    NeighborDirection.BEFORE: "arrayPushFront(arrayPopBack(tools), NULL)",
+    NeighborDirection.AFTER: "arrayPushBack(arrayPopFront(tools), NULL)",
 }
 
 
@@ -796,52 +797,35 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        # The CTE collects every tool call in qualifying conversations (not just the target
-        # tool) so the window function can see each call's neighbour; the target tool is
-        # selected in the outer WHERE. window_fn is chosen from a fixed map, never input.
-        window_fn = _WINDOW_FN[self.query.neighborDirection]
-        # Built from a fixed function name + hardcoded window, never user input; passed to
-        # parse_expr as a variable (not a literal f-string) so hogql-fstring-audit stays clean.
-        neighbor_expr = (
-            f"{window_fn}(tool) OVER ("
-            "PARTITION BY conv_id ORDER BY timestamp "
-            "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)"
-        )
-        cte_where = ast.And(
-            exprs=[
-                parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
-                parse_expr(
-                    "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
-                ),
-                parse_expr(
-                    "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
-                ),
-                parse_expr(
-                    "properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}
-                ),
-                parse_expr("notEmpty({conv_id})", placeholders={"conv_id": parse_expr(CONVERSATION_ID_SQL)}),
-                # In the CTE so a filtered-out call cannot count as a neighbour either.
-                *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
-            ]
+        # groupArray, not a window function: a window sorts every call in the range by conversation,
+        # which costs several times the scan on a busy server.
+        where = _tool_call_where(
+            self.query,
+            self.query_date_range,
+            self.team,
+            scope_to_tool=False,
+            extra=[parse_expr("notEmpty({conv_id})", placeholders={"conv_id": parse_expr(CONVERSATION_ID_SQL)})],
         )
         return parse_select(
             """
-            WITH tool_calls AS (
-                SELECT
-                    {_CONVERSATION_ID} AS conv_id,
-                    timestamp,
-                    {effective_tool} AS tool
-                FROM events
-                WHERE {cte_where}
-            )
             SELECT neighbor_tool, count() AS co_occurrences
             FROM (
-                SELECT
-                    tool,
-                    {neighbor_expr} AS neighbor_tool
-                FROM tool_calls
+                SELECT arrayJoin(arrayFilter((neighbor, tool) -> tool = {tool}, {neighbors}, tools)) AS neighbor_tool
+                FROM (
+                    SELECT arrayMap(call -> call.2, arraySort(call -> call.1, groupArray((timestamp, tool)))) AS tools
+                    FROM (
+                        SELECT
+                            {_CONVERSATION_ID} AS conv_id,
+                            timestamp,
+                            {effective_tool} AS tool
+                        FROM events
+                        WHERE {where}
+                    )
+                    GROUP BY conv_id
+                    HAVING has(tools, {tool})
+                )
             )
-            WHERE tool = {tool} AND neighbor_tool IS NOT NULL AND neighbor_tool != '' AND neighbor_tool != tool
+            WHERE neighbor_tool IS NOT NULL AND neighbor_tool != '' AND neighbor_tool != {tool}
             GROUP BY neighbor_tool
             ORDER BY co_occurrences DESC
             LIMIT 5
@@ -849,8 +833,8 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
             placeholders={
                 "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
                 "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
-                "neighbor_expr": parse_expr(neighbor_expr),
-                "cte_where": cte_where,
+                "neighbors": parse_expr(_NEIGHBORS_SQL[self.query.neighborDirection]),
+                "where": where,
                 "tool": ast.Constant(value=self.query.toolName),
             },
         )
