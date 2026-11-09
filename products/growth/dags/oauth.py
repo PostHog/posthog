@@ -1,15 +1,24 @@
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.conf import settings
-from django.db.models import Model, Q, QuerySet
+from django.db.models import Exists, Model, OuterRef, Q, QuerySet
 from django.utils import timezone
 
 import dagster
 
 from posthog.dags.common import JobOwners
-from posthog.models.oauth import OAuthAccessToken, OAuthDeviceGrant, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+from posthog.models.oauth import (
+    OAuthAccessToken,
+    OAuthApplication,
+    OAuthDeviceGrant,
+    OAuthGrant,
+    OAuthIDToken,
+    OAuthRefreshToken,
+)
+from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
 
 def batch_delete_model(queryset: QuerySet, query: Q, context: dagster.OpExecutionContext, token_type: str) -> int:
@@ -137,4 +146,99 @@ oauth_clear_expired_oauth_tokens_schedule = dagster.ScheduleDefinition(
     cron_schedule="19 2 * * *",
     execution_timezone="UTC",
     name="oauth_cleanup_daily_schedule",
+)
+
+
+def stale_oauth_applications(now: datetime) -> QuerySet:
+    """Self-registered (DCR and CIMD) applications with no token that is valid now or was
+    valid inside the grace period.
+
+    Only self-registered clients qualify. A client that is deleted can register again: a CIMD
+    client is created again on its next authorization, and a DCR client calls the registration
+    endpoint again. Apps that PostHog staff or an organization set up, partners, and apps that
+    other rows still point at are never candidates.
+    """
+    cutoff = now - timedelta(seconds=settings.OAUTH_STALE_APPLICATION_GRACE_PERIOD)
+    app = OuterRef("pk")
+    return (
+        OAuthApplication.objects.filter(
+            Q(is_dcr_client=True) | Q(is_cimd_client=True),
+            created__lt=cutoff,
+            organization__isnull=True,
+            is_first_party=False,
+            is_verified=False,
+            is_provisioning_partner=False,
+            _provisioning_config={},
+        )
+        .exclude(Exists(OAuthAccessToken.objects.filter(application=app, expires__gte=cutoff)))
+        # An unrevoked refresh token can still mint access tokens, whatever its age.
+        .exclude(
+            Exists(
+                OAuthRefreshToken.objects.filter(application=app).filter(
+                    Q(revoked__isnull=True) | Q(revoked__gte=cutoff)
+                )
+            )
+        )
+        .exclude(Exists(OAuthIDToken.objects.filter(application=app, expires__gte=cutoff)))
+        .exclude(Exists(OAuthGrant.objects.filter(application=app, expires__gte=cutoff)))
+        .exclude(Exists(OAuthDeviceGrant.objects.filter(client_id=OuterRef("client_id"), expires__gte=cutoff)))
+        .exclude(Exists(OrganizationProvisioning.objects.filter(application=app)))
+        .exclude(Exists(TeamProvisioningConfig.objects.filter(application=app)))
+    )
+
+
+class ClearStaleOAuthApplicationsConfig(dagster.Config):
+    dry_run: bool = False
+
+
+@dagster.op
+def clear_stale_oauth_applications(
+    context: dagster.OpExecutionContext, config: ClearStaleOAuthApplicationsConfig
+) -> None:
+    """Delete self-registered OAuth applications that no longer have a valid token."""
+    batch_size = getattr(settings, "CLEAR_EXPIRED_TOKENS_BATCH_SIZE", 1000)
+    batch_interval = getattr(settings, "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL", 0.1)
+    now = timezone.now()
+
+    candidates = stale_oauth_applications(now)
+    found = candidates.count()
+    found_cimd = candidates.filter(is_cimd_client=True).count()
+    context.log.info(f"Found {found} stale OAuth applications ({found_cimd} CIMD, {found - found_cimd} DCR)")
+
+    deleted = 0
+    if not config.dry_run:
+        # Walk forward by primary key, so an app that is kept is checked once rather than again in
+        # every batch.
+        candidates = stale_oauth_applications(now).order_by("id")
+        last_id = None
+        while ids := list(
+            (candidates.filter(id__gt=last_id) if last_id else candidates).values_list("id", flat=True)[:batch_size]
+        ):
+            # Re-check each batch, so an app that got a token after the count above is kept.
+            deleted += OAuthApplication.objects.filter(id__in=ids).delete()[1].get(OAuthApplication._meta.label, 0)
+            last_id = ids[-1]
+            context.log.debug(f"{deleted} stale OAuth applications deleted")
+            time.sleep(batch_interval)
+
+    context.log.info(f"Stale OAuth applications deleted: {deleted}")
+    context.add_output_metadata(
+        {
+            "stale_applications_found": dagster.MetadataValue.int(found),
+            "stale_cimd_applications_found": dagster.MetadataValue.int(found_cimd),
+            "stale_applications_deleted": dagster.MetadataValue.int(deleted),
+            "dry_run": dagster.MetadataValue.bool(config.dry_run),
+        }
+    )
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_GROWTH.value})
+def oauth_clear_stale_oauth_applications_job():
+    clear_stale_oauth_applications()
+
+
+oauth_clear_stale_oauth_applications_schedule = dagster.ScheduleDefinition(
+    job=oauth_clear_stale_oauth_applications_job,
+    cron_schedule="49 2 * * *",
+    execution_timezone="UTC",
+    name="oauth_stale_application_cleanup_daily_schedule",
 )
