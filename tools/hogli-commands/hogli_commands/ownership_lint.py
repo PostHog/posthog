@@ -1,11 +1,12 @@
 """Find tests that no team owns: new test files, and directories missing from the baseline.
 
-Shared by the CI gates (test_unowned_test_directories.py and `hogli lint:test-owners`) and the
-`test-owners` preflight check.
+The CI gates (test_unowned_test_directories.py and `hogli lint:test-owners`) and the `test-owners`
+preflight check use it.
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ from owners_yaml.schema import DEFAULT_ALIAS_FILES, OWNERS_FILENAME
 
 from hogli_commands.change_detection import matches_globs
 from hogli_commands.preflight_checks import Outcome, Scope
-from hogli_commands.size_lint import _merge_base
+from hogli_commands.size_lint import _merge_base, _rename_map
 
 BASELINE = Path("posthog/test/repo_invariants/unowned_test_directories_baseline.txt")
 PRUNE = "PYTHONPATH=.:tools/hogli-commands python posthog/test/repo_invariants/test_unowned_test_directories.py"
@@ -89,26 +90,30 @@ def drift_problems(drift: BaselineDrift) -> list[str]:
     ]
 
 
-def _added_paths(merge_base: str, files: Iterable[str], committed_only: bool) -> set[str]:
-    """Paths that `merge_base` lacks. Rename detection keeps a moved file out of the set."""
-    added = _git_paths(
-        "diff", "--name-only", "--diff-filter=A", "--find-renames", merge_base, *(["HEAD"] if committed_only else [])
+def _added_paths(resolver: OwnersResolver, merge_base: str, committed_only: bool) -> set[str]:
+    """Paths that `merge_base` lacks. A test moved from an unowned path is left out, because it had no
+    owner before the move either. A test moved out of a team's path counts as new."""
+    diff_range = (merge_base, *(["HEAD"] if committed_only else []))
+    moved_from = _rename_map(*diff_range)
+    added = {
+        path
+        for path in _git_paths("diff", "--name-only", "--diff-filter=AR", "--find-renames", *diff_range)
+        if path not in moved_from or not is_unowned_test(resolver, moved_from[path])
+    }
+    if not committed_only:
+        added |= _git_paths("ls-files", "--others", "--exclude-standard")
+    return added
+
+
+def new_unowned_tests(resolver: OwnersResolver, merge_base: str, committed_only: bool) -> list[str]:
+    """The baseline lists directories, so only this check reports a new unowned test in a listed directory."""
+    return sorted(
+        path for path in _added_paths(resolver, merge_base, committed_only) if is_unowned_test(resolver, path)
     )
-    if committed_only:
-        return added
-    untracked = set(files) - _git_paths("ls-files", "--cached")
-    return added | untracked
 
 
-def new_test_problems(
-    resolver: OwnersResolver, files: Iterable[str], merge_base: str, committed_only: bool
-) -> list[str]:
-    """The baseline lists directories, so this is what stops a new unowned test in a listed directory."""
-    return [
-        f"{path} is a new test that no team owns: name the team in its nearest owners.yaml"
-        for path in sorted(_added_paths(merge_base, files, committed_only))
-        if is_unowned_test(resolver, path)
-    ]
+def _new_test_problem(path: str) -> str:
+    return f"{path} is a new test that no team owns: name the team in its nearest owners.yaml"
 
 
 def check_test_owners(scope: Scope) -> Outcome:
@@ -117,7 +122,7 @@ def check_test_owners(scope: Scope) -> Outcome:
         return "pass", "no test or ownership file changed"
     resolver, files = _tree(scope.committed_only)
     problems = [
-        *new_test_problems(resolver, files, scope.merge_base, scope.committed_only),
+        *map(_new_test_problem, new_unowned_tests(resolver, scope.merge_base, scope.committed_only)),
         *drift_problems(_drift(resolver, files)),
     ]
     if not problems:
@@ -134,9 +139,22 @@ def cmd_lint_test_owners(against: str | None, committed: bool) -> None:
     merge_base = _merge_base(against)
     if merge_base is None:
         raise click.ClickException(f"no merge base with {against or 'origin/master or master'}")
-    problems = new_test_problems(*_tree(committed), merge_base, committed)
-    for problem in problems:
-        click.echo(problem)
-    if problems:
-        click.echo(HINT)
-        raise SystemExit(1)
+    resolver, _ = _tree(committed)
+    paths = new_unowned_tests(resolver, merge_base, committed)
+    if not paths:
+        return
+    # GitHub Actions shows a `::warning` line as an annotation. Depot CI forwards only the step summary to the GitHub check.
+    in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
+    for path in paths:
+        click.echo(
+            f"::warning file={path},title=lint:test-owners::{_new_test_problem(path)}"
+            if in_actions
+            else _new_test_problem(path)
+        )
+    click.echo(HINT)
+    if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with Path(summary_path).open("a", encoding="utf-8") as summary:
+            summary.write(
+                "### New tests with no team owner\n\n" + "".join(f"- `{path}`\n" for path in paths) + f"\n{HINT}\n\n"
+            )
+    raise SystemExit(1)

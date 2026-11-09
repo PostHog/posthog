@@ -103,6 +103,7 @@ class TestLintTestOwners:
             pytest.param("nobody/test_new.py", None, 1, id="new_test_in_a_baseline_directory_fails"),
             pytest.param("team/test_new.py", None, 0, id="new_test_with_a_team_owner_passes"),
             pytest.param("nobody/test_renamed.py", "nobody/test_c.py", 0, id="moved_unowned_test_passes"),
+            pytest.param("nobody/test_moved.py", "team/test_a.py", 1, id="test_moved_out_of_a_team_path_fails"),
         ],
     )
     def test_checks_each_test_file_the_branch_adds(
@@ -115,7 +116,14 @@ class TestLintTestOwners:
         git(repo, "add", "-A")
         git(repo, "commit", "-q", "-m", "add a test")
 
-        result = CliRunner().invoke(ownership_lint.cmd_lint_test_owners, ["--against", "HEAD~1", "--committed"])
+        summary = repo / "step_summary.md"
+
+        result = CliRunner().invoke(
+            ownership_lint.cmd_lint_test_owners,
+            ["--against", "HEAD~1", "--committed"],
+            env={"GITHUB_ACTIONS": None, "GITHUB_STEP_SUMMARY": str(summary)},
+        )
 
         assert result.exit_code == exit_code
         assert exit_code == 0 or f"{path} is a new test that no team owns" in result.output
+        assert exit_code == 0 or f"- `{path}`" in summary.read_text()
