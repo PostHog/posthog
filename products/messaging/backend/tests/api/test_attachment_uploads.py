@@ -133,6 +133,13 @@ class TestAttachmentUploads(APIBaseTest):
                 None,
             ),
             (
+                "an_answer_with_an_unknown_status",
+                _cdp_answers(200, {"files": [{**UPLOAD_INVOICE, "status": "pending"}, PRESENT_LOGO]}),
+                503,
+                "delivery_unavailable",
+                None,
+            ),
+            (
                 "an_answer_for_other_files",
                 _cdp_answers(200, {"files": [PRESENT_LOGO, UPLOAD_INVOICE]}),
                 503,
@@ -259,6 +266,7 @@ class TestAttachmentUploadsRequest(SimpleTestCase):
             ("no_files", {"files": []}, ("files",), "min_length"),
             ("a_hash_that_is_not_hex", {"files": [{"sha256": "z" * 64, "size": 1}]}, ("files", 0, "sha256"), "invalid"),
             ("an_empty_file", {"files": [{"sha256": INVOICE, "size": 0}]}, ("files", 0, "size"), "min_value"),
+            ("more_than_ten_empty_files", {"files": [{}] * 11}, ("files",), "max_length"),
         ]
     )
     def test_refuses_a_malformed_file_list(self, _name, body, path, code):

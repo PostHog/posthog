@@ -59,8 +59,16 @@ class AttachmentUploadFileSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
 
+class _ShortListField(serializers.ListField):
+    def to_internal_value(self, data: Any) -> list[Any]:
+        # DRF validates every item before it checks the length, so a long list of bad items costs one error per item.
+        if isinstance(data, list) and self.max_length is not None and len(data) > self.max_length:
+            self.fail("max_length", max_length=self.max_length)
+        return super().to_internal_value(data)
+
+
 class AttachmentUploadsRequestSerializer(serializers.Serializer):
-    files = serializers.ListField(
+    files = _ShortListField(
         child=AttachmentUploadFileSerializer(),
         min_length=1,
         max_length=MAX_ATTACHMENTS,
