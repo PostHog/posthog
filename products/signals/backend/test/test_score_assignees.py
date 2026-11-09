@@ -1,11 +1,14 @@
 import io
 import sys
 import json
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from unittest.mock import patch
+
+from owners_yaml.matcher import PatternMatcher
 
 from products.signals.scripts.score_assignees import Commit, History, Member, Roster, load_history, main, rank_assignees
 
@@ -339,10 +342,20 @@ def test_roster_json_rejects_invalid_identity_fields(entry: dict) -> None:
 
 
 @pytest.mark.parametrize("input_mode", ["single", "positional", "file", "stdin"])
-def test_cli_preserves_valid_paths_and_reports_individual_errors(
-    repository: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], input_mode: str
+@pytest.mark.parametrize("owned", [False, True])
+def test_cli_reuses_ownership_and_preserves_per_path_results(
+    repository: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], input_mode: str, owned: bool
 ) -> None:
-    (repository / "CODEOWNERS").write_text("/src/player/ @example-org/player-team @owner\n")
+    rules = [f"{'/src/player/' if owned else '/unmatched/'} @example-org/player-team @owner"]
+    rules.extend(f"/unrelated-{index}/ @other" for index in range(10))
+    (repository / "CODEOWNERS").write_text("\n".join(rules))
+    match_counts: Counter[str] = Counter()
+    match_pattern = PatternMatcher.test
+
+    def counted_match(matcher: PatternMatcher, path: str) -> bool:
+        match_counts[path] += 1
+        return match_pattern(matcher, path)
+
     roster = repository / "roster.json"
     roster.write_text(
         json.dumps(
@@ -368,17 +381,21 @@ def test_cli_preserves_valid_paths_and_reports_individual_errors(
         patch("products.signals.scripts.score_assignees.git", return_value=str(repository)),
         patch(
             "products.signals.scripts.score_assignees.load_history",
-            return_value=History(commits=(commit("owner", 1),), complete=True),
+            return_value=History(
+                commits=tuple(commit("owner", 1, serial=index) for index in range(100)), complete=True
+            ),
         ),
+        patch.object(PatternMatcher, "test", counted_match),
     ):
         main()
     output = json.loads(capsys.readouterr().out)
+    assert max(match_counts.values()) <= len(rules)
     if input_mode == "single":
-        assert output["recommended_assignee"] == "owner"
+        assert output["recommended_assignee"] == ("owner" if owned else None)
         assert output["schema_version"] == 4
     else:
         assert [result["path"] for result in output["results"]] == [TARGET, "src/player"]
-        assert all(result["recommended_assignee"] == "owner" for result in output["results"])
+        assert all(result["recommended_assignee"] == ("owner" if owned else None) for result in output["results"])
         assert [error["path"] for error in output["errors"]] == ["missing.py", "../outside.py"]
 
 

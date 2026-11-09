@@ -75,12 +75,18 @@ class RepositoryOwnership(OwnersResolver):
     def __init__(self, repo: Path) -> None:
         super().__init__(repo_root=repo)
         self.codeowners = load_codeowners(repo)
+        self._ownership_by_path: dict[str, Ownership] = {}
 
     def alias_files(self) -> tuple[str, ...]:
         # Repository manifests can use an unrelated owners field, so only read ownership files.
         return ()
 
     def ownership_for(self, path: str) -> Ownership:
+        if path not in self._ownership_by_path:
+            self._ownership_by_path[path] = self._resolve_ownership(path)
+        return self._ownership_by_path[path]
+
+    def _resolve_ownership(self, path: str) -> Ownership:
         ownership = self.resolve(path)
         if ownership.source is not None:
             return Ownership(owners=tuple(owner.lower() for owner in ownership.owners or ()), source=ownership.source)
@@ -493,7 +499,15 @@ def decide_agent_action(
     )
 
 
-def rank_assignees(repo: Path, path: str, roster: Roster, history: History, now: datetime) -> AssigneeRanking:
+def rank_assignees(
+    repo: Path,
+    path: str,
+    roster: Roster,
+    history: History,
+    now: datetime,
+    *,
+    resolver: RepositoryOwnership | None = None,
+) -> AssigneeRanking:
     repo = repo.resolve()
     target = (repo / path).resolve()
     if now.tzinfo is None:
@@ -501,7 +515,7 @@ def rank_assignees(repo: Path, path: str, roster: Roster, history: History, now:
     if not target.is_relative_to(repo) or not target.exists() or target == repo:
         raise ValueError("Path must exist inside the repository and cannot be the repository root")
     path = target.relative_to(repo).as_posix()
-    resolver = RepositoryOwnership(repo)
+    resolver = resolver or RepositoryOwnership(repo)
     ownership = resolver.ownership_for(f"{path}/__assignee_scope__" if target.is_dir() else path)
     owners = set(ownership.owners)
     scopes = traversal_scopes(path, owners, resolver)
@@ -619,7 +633,7 @@ def main() -> None:
             scope = traversal_scopes(path, owners, resolver)[-1]
             if scope not in histories:
                 histories[scope] = load_history(repo, scope, now)
-            results.append(asdict(rank_assignees(repo, path, roster, histories[scope], now)))
+            results.append(asdict(rank_assignees(repo, path, roster, histories[scope], now, resolver=resolver)))
         except (ValueError, OSError, subprocess.SubprocessError) as error:
             if not batch:
                 parser.error(str(error))
