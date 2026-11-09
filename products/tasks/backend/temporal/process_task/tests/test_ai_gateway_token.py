@@ -22,9 +22,9 @@ from posthog.security.outbound_proxy import internal_requests
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.signals.backend.facade.testing import claim_trial, trial_incomplete_sources
+from products.signals.backend.facade.trial import TrialExecutionRefused
 from products.signals.backend.models import SignalReport
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
-from products.signals.backend.trial.policy import TrialExecutionRefused
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 from products.tasks.backend.exceptions import (
