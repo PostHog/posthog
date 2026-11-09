@@ -88,14 +88,33 @@ function namedSecretInputs(params: SecretOriginRequest['params']): Set<string | 
     ])
 }
 
-function textLeaves(value: unknown): string[] {
+function textLeaves(value: unknown, withKeys = false): string[] {
     if (typeof value === 'string') {
         return [value]
     }
     if (Array.isArray(value)) {
-        return value.flatMap(textLeaves)
+        return value.flatMap((item) => textLeaves(item, withKeys))
     }
-    return isRecord(value) ? Object.values(value).flatMap(textLeaves) : []
+    if (!isRecord(value)) {
+        return []
+    }
+    return Object.entries(value).flatMap(([key, item]) => [...(withKeys ? [key] : []), ...textLeaves(item, withKeys)])
+}
+
+/**
+ * The editor lists the keys of a `secret_<key>` dictionary paired with a plain `<key>` dictionary, as
+ * `exposes_secret_dictionary_keys` in products/cdp/backend/validation.py decides. The API hides the keys of every other
+ * secret dictionary, so those keys are secret text too.
+ */
+function exposesSecretDictionaryKeys(inputKey: string, schema: HogFunctionInputSchemaType[]): boolean {
+    if (!inputKey.startsWith('secret_')) {
+        return false
+    }
+    const plainKey = inputKey.slice('secret_'.length)
+    return (
+        schema.some((field) => field.key === inputKey && field.type === 'dictionary') &&
+        schema.some((field) => field.key === plainKey && field.type === 'dictionary' && !field.secret)
+    )
 }
 
 function inputTexts(
@@ -106,7 +125,7 @@ function inputTexts(
     const secretKeys = new Set((schema ?? []).filter((field) => field.secret).map((field) => field.key))
     return Object.entries(inputs ?? {})
         .filter(([key]) => !secretKeys.has(key))
-        .flatMap(([, input]) => textLeaves(isRecord(input) ? input.value : null))
+        .flatMap(([, input]) => textLeaves(isRecord(input) ? input.value : null, true))
 }
 
 function publicTexts(hogFunction: CheckedHogFunction): Set<string> {
@@ -143,9 +162,9 @@ function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRe
     }
 
     const named = namedSecretInputs(request.params)
-    // A value the function also holds in its hog code or in a plain input of the function or of a mapping, such as
-    // `application/json` in both the plain and the secret headers, is not secret, and sending it to another origin
-    // leaks nothing. Without this, an enforced team could not send such a value to a second origin at all.
+    // A key or value the function also holds in its hog code or in a plain input of the function or of a mapping, such
+    // as `Content-Type` or `application/json` in both the plain and the secret headers, is not secret, and sending it
+    // to another origin leaks nothing. Without this, an enforced team could not send such a value to a second origin at all.
     const knownTexts = publicTexts(hogFunction)
     const sentTexts = [
         request.url,
@@ -158,13 +177,16 @@ function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRe
         !knownTexts.has(secret) &&
         sentTexts.some((text) => typeof text === 'string' && text.includes(secret))
 
-    const secrets = Object.values(encryptedInputs).flatMap((input) => (isRecord(input) ? textLeaves(input.value) : []))
+    const schema = hogFunction.inputs_schema ?? []
+    const secretTexts = (inputKey: string, input: unknown): string[] =>
+        isRecord(input) ? textLeaves(input.value, !exposesSecretDictionaryKeys(inputKey, schema)) : []
+    const secrets = Object.entries(encryptedInputs).flatMap(([inputKey, input]) => secretTexts(inputKey, input))
     const carried: CarriedSecret[] = []
     for (const [inputKey, input] of Object.entries(encryptedInputs)) {
         if (!isRecord(input)) {
             continue
         }
-        if (named.has(inputKey) || textLeaves(input.value).some(isSent)) {
+        if (named.has(inputKey) || secretTexts(inputKey, input).some(isSent)) {
             const checked = origins.map((origin) => ({ origin, outcome: originOutcome(input.allowed_origins, origin) }))
             const { origin, outcome } = checked.find(({ outcome }) => outcome === 'mismatch') ?? checked[0]
             carried.push({ inputKey, origin: withoutSecrets(origin, secrets), outcome })

