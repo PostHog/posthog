@@ -1,5 +1,0 @@
-**/node_modules
-**/dist
-**/.tmp
-**/*.test.ts
-**/tests

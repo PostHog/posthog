@@ -1,10 +1,9 @@
 name: Ingestion Node CI
 
-# Every job here checks out ingestion/ and nothing else, so no change outside that tree can affect these
-# checks. The databases come from ingestion/pinned/schema and ingestion's own migrations; no Python runs.
-#
-# Until @posthog/hog-engine and the AI research native addons are published, the ingestion package links
-# them from the rest of the repository, and this workflow cannot install from the ingestion/ checkout alone.
+# The ingestion packages are members of the root pnpm workspace, so every job installs from the root
+# lockfile filtered to @posthog/ingestion and its dependencies, and turbo builds those dependencies
+# (including the native addons, which is why the Rust toolchain is installed). The databases come from
+# ingestion/pinned/schema and ingestion's own migrations; no Python runs.
 
 on:
     workflow_dispatch:
@@ -51,6 +50,21 @@ jobs:
                         - 'ingestion/pinned/**'
                         - 'ingestion/ci/**'
                         - 'ingestion/rust/persons_migrations/**'
+                        # Workspace dependencies consumed by path.
+                        - 'nodejs/packages/hog-engine/**'
+                        - 'common/hogvm/typescript/**'
+                        - 'rust/common/hogvm/**'
+                        - 'rust/replay-anonymizer/**'
+                        - 'rust/replay-anonymizer-node/**'
+                        - 'rust/ai-research/**'
+                        - 'rust/Cargo.toml'
+                        - 'rust/Cargo.lock'
+                        - 'package.json'
+                        - 'pnpm-lock.yaml'
+                        - 'pnpm-workspace.yaml'
+                        - 'turbo.json'
+                        - 'patches/**'
+                        - '.nvmrc'
                         # The clientwarnings e2e replays capture's envelope fixture and the no-drift test reads the generated table.
                         - 'ingestion/rust/ingestion_warnings/*.json'
                         - '.github/workflows/ingestion-node.yml'
@@ -66,20 +80,24 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: ingestion
                   clean: false
             - uses: ./ingestion/ci/actions/pnpm-install
               with:
-                  install-command: pnpm --dir ingestion/node install --frozen-lockfile
-                  node-version-file: ingestion/node/.nvmrc
-            - name: Build the shared library
-              run: pnpm --dir ingestion/node/packages/common build
+                  install-command: pnpm --filter=@posthog/ingestion... install --frozen-lockfile
+            - uses: ./ingestion/ci/actions/setup-rust
+              with:
+                  toolchain: 1.91.1
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+            - uses: ./ingestion/ci/actions/setup-sccache
+            - name: Build the dependencies
+              run: bin/turbo --filter=@posthog/ingestion prepare
             - name: Typecheck
-              run: pnpm --dir ingestion/node typescript:check
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion typescript:check
             - name: Lint
-              run: pnpm --dir ingestion/node -r lint
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion lint
             - name: Check formatting
-              run: pnpm --dir ingestion/node -r format:check
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion format:check
 
     test:
         name: Test (${{ matrix.package }}, ${{ matrix.lane }} ${{ matrix.shard }}/${{ matrix.shard_count }})
@@ -105,7 +123,6 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: ingestion
                   clean: false
             - name: Log in to Docker Hub
               continue-on-error: true
@@ -126,11 +143,13 @@ jobs:
                   echo "127.0.0.1 db redis7 kafka clickhouse objectstorage seaweedfs" | sudo tee -a /etc/hosts
             - uses: ./ingestion/ci/actions/pnpm-install
               with:
-                  install-command: pnpm --dir ingestion/node install --frozen-lockfile
-                  node-version-file: ingestion/node/.nvmrc
+                  install-command: pnpm --filter=@posthog/ingestion... install --frozen-lockfile
             - uses: ./ingestion/ci/actions/setup-rust
               with:
                   toolchain: 1.91.1
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+            - uses: ./ingestion/ci/actions/setup-sccache
             - uses: ./ingestion/ci/actions/setup-sqlx-cli
             # The Django tables the services read come from the pinned schema; the persons tables from ingestion's
             # own migrations.
@@ -146,8 +165,8 @@ jobs:
                   python3 ingestion/ci/bin/clickhouse_apply.py ingestion/pinned/schema/clickhouse.sql
             - name: Download MaxMind database
               run: ingestion/ci/bin/download-mmdb
-            - name: Build the shared library
-              run: pnpm --dir ingestion/node/packages/common build
+            - name: Build the dependencies
+              run: bin/turbo --filter=@posthog/ingestion prepare
             - name: Test with Jest
               id: run-tests
               continue-on-error: true
@@ -160,9 +179,9 @@ jobs:
                   HOG_BYTECODE_CACHE_DIR: ${{ github.workspace }}/ingestion/node/packages/ingestion/tests/fixtures/hog-bytecode
               run: |
                   if [ "${{ matrix.package }}" = "common" ]; then
-                      pnpm --dir ingestion/node/packages/common test
+                      pnpm --filter=@posthog/node-common test
                   else
-                      pnpm --dir ingestion/node/packages/ingestion test:${{ matrix.lane }}
+                      pnpm --filter=@posthog/ingestion test:${{ matrix.lane }}
                   fi
             - name: Quarantine gate
               uses: ./ingestion/ci/actions/trunk-quarantine-gate

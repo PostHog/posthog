@@ -28,6 +28,7 @@
 FROM rust:1.91.1-slim-bookworm AS native-addon
 WORKDIR /build/rust
 COPY rust ./
+COPY ingestion/rust ../ingestion/rust
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=ml-mirror-image-scrub-cargo-target,target=/build/rust/target,sharing=locked \

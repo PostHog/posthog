@@ -1,8 +1,8 @@
 #
-# Dockerfile.node - nodejs Only
-#
-# This Dockerfile builds only the nodejs (Node.js app) without Django, frontend, or other PostHog components.
-# Use this for running standalone Node.js plugin server instances.
+# The ingestion Node services (@posthog/ingestion). Built from the repository root, like
+# Dockerfile.node, because the package and the native addons it uses are members of the root
+# pnpm workspace and the rust/ cargo workspace. ingestion/node/Dockerfile.dockerignore limits
+# the context.
 #
 
 #
@@ -38,9 +38,17 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /code
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .nvmrc ./
-COPY packages/common/package.json ./packages/common/
-COPY packages/ingestion/package.json ./packages/ingestion/
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json .nvmrc ./
+COPY ./bin/turbo ./bin/turbo
+COPY ./patches ./patches
+# The native addons build from the cargo workspace, which lists ingestion/rust as members.
+COPY ./rust ./rust
+COPY ./ingestion/rust ./ingestion/rust
+COPY ./common/esbuilder/ ./common/esbuilder/
+COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
+COPY ./nodejs/packages/hog-engine/ ./nodejs/packages/hog-engine/
+COPY ./ingestion/node/packages/common/ ./ingestion/node/packages/common/
+COPY ./ingestion/node/packages/ingestion/package.json ./ingestion/node/packages/ingestion/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Use system librdkafka from Confluent instead of the bundled version
@@ -50,12 +58,10 @@ RUN rm -rf /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v* && \
     npm install -g corepack@0.36.0
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/ingestion... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
-COPY packages/common/ ./packages/common/
-COPY packages/ingestion/ ./packages/ingestion/
-RUN NODE_OPTIONS="--max-old-space-size=16384" pnpm --dir packages/common build && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --dir packages/ingestion build
+COPY ./ingestion/node/packages/ingestion/ ./ingestion/node/packages/ingestion/
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/ingestion build
 
 #
 # Runtime stage: Minimal image with only nodejs runtime dependencies
@@ -102,12 +108,27 @@ RUN groupadd -g 10001 posthog && \
 # Add in the compiled nodejs & its runtime dependencies from the build stage
 COPY --from=build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=build --chown=posthog:posthog /code/package.json /code/package.json
-COPY --from=build --chown=posthog:posthog /code/packages/common/dist /code/packages/common/dist
-COPY --from=build --chown=posthog:posthog /code/packages/common/node_modules /code/packages/common/node_modules
-COPY --from=build --chown=posthog:posthog /code/packages/common/package.json /code/packages/common/package.json
-COPY --from=build --chown=posthog:posthog /code/packages/ingestion/dist /code/packages/ingestion/dist
-COPY --from=build --chown=posthog:posthog /code/packages/ingestion/node_modules /code/packages/ingestion/node_modules
-COPY --from=build --chown=posthog:posthog /code/packages/ingestion/package.json /code/packages/ingestion/package.json
+COPY --from=build --chown=posthog:posthog /code/rust/common/hogvm/node/package.json /code/rust/common/hogvm/node/package.json
+COPY --from=build --chown=posthog:posthog /code/rust/common/hogvm/node/index.js /code/rust/common/hogvm/node/index.js
+COPY --from=build --chown=posthog:posthog /code/rust/common/hogvm/node/index.node /code/rust/common/hogvm/node/index.node
+COPY --from=build --chown=posthog:posthog /code/rust/replay-anonymizer-node/dist /code/rust/replay-anonymizer-node/dist
+COPY --from=build --chown=posthog:posthog /code/rust/replay-anonymizer-node/package.json /code/rust/replay-anonymizer-node/package.json
+COPY --from=build --chown=posthog:posthog /code/rust/replay-anonymizer-node/index.node /code/rust/replay-anonymizer-node/index.node
+COPY --from=build --chown=posthog:posthog /code/rust/ai-research/replay-core-v4-node/dist /code/rust/ai-research/replay-core-v4-node/dist
+COPY --from=build --chown=posthog:posthog /code/rust/ai-research/replay-core-v4-node/package.json /code/rust/ai-research/replay-core-v4-node/package.json
+COPY --from=build --chown=posthog:posthog /code/rust/ai-research/replay-core-v4-node/index.node /code/rust/ai-research/replay-core-v4-node/index.node
+COPY --from=build --chown=posthog:posthog /code/common/hogvm/typescript/dist /code/common/hogvm/typescript/dist
+COPY --from=build --chown=posthog:posthog /code/common/hogvm/typescript/node_modules /code/common/hogvm/typescript/node_modules
+COPY --from=build --chown=posthog:posthog /code/common/hogvm/typescript/package.json /code/common/hogvm/typescript/package.json
+COPY --from=build --chown=posthog:posthog /code/nodejs/packages/hog-engine/dist /code/nodejs/packages/hog-engine/dist
+COPY --from=build --chown=posthog:posthog /code/nodejs/packages/hog-engine/node_modules /code/nodejs/packages/hog-engine/node_modules
+COPY --from=build --chown=posthog:posthog /code/nodejs/packages/hog-engine/package.json /code/nodejs/packages/hog-engine/package.json
+COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/common/dist /code/ingestion/node/packages/common/dist
+COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/common/node_modules /code/ingestion/node/packages/common/node_modules
+COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/common/package.json /code/ingestion/node/packages/common/package.json
+COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/ingestion/dist /code/ingestion/node/packages/ingestion/dist
+COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/ingestion/node_modules /code/ingestion/node/packages/ingestion/node_modules
+COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/ingestion/package.json /code/ingestion/node/packages/ingestion/package.json
 
 USER posthog
 
@@ -115,4 +136,4 @@ ARG COMMIT_HASH
 RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
 
 ENV NODE_ENV=production
-CMD ["node", "packages/ingestion/dist/index.js"]
+CMD ["node", "ingestion/node/packages/ingestion/dist/index.js"]

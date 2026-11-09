@@ -99,5 +99,4 @@
 # The Node services: event, session replay, error tracking, metrics and AI research modes.
 - image: ingestion-node
   dockerfile: ./ingestion/node/Dockerfile
-  context: ./ingestion/node/
   project: mtvzx98zjn

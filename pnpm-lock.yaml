@@ -1791,16 +1791,16 @@ importers:
         specifier: 1.9.0
         version: 1.9.0
       '@posthog/ai-research-v4-native':
-        specifier: link:../../../../rust/ai-research/replay-core-v4-node
+        specifier: workspace:*
         version: link:../../../../rust/ai-research/replay-core-v4-node
       '@posthog/hog-engine':
-        specifier: link:../../../../nodejs/packages/hog-engine
+        specifier: workspace:*
         version: link:../../../../nodejs/packages/hog-engine
       '@posthog/node-common':
         specifier: workspace:*
         version: link:../common
       '@posthog/replay-anonymizer':
-        specifier: link:../../../../rust/replay-anonymizer-node
+        specifier: workspace:*
         version: link:../../../../rust/replay-anonymizer-node
       '@posthog/siphash':
         specifier: 1.1.1

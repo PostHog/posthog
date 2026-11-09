@@ -42,6 +42,8 @@ COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY ./bin/turbo ./bin/turbo
 COPY ./patches ./patches
 COPY ./rust ./rust
+# The cargo workspace lists ingestion/rust as members, so the native addon builds need it present.
+COPY ./ingestion/rust ./ingestion/rust
 COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
