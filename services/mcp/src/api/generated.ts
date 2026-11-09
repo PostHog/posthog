@@ -56037,6 +56037,7 @@ export namespace Schemas {
 
 
     export const MarketingAnalyticsRecommendationLevel = {
+      Account: 'account',
       Campaign: 'campaign',
       SearchTerm: 'search_term',
     } as const;
@@ -56055,6 +56056,7 @@ export namespace Schemas {
       KeywordGap: 'keyword_gap',
       SpendWithoutConversions: 'spend_without_conversions',
       StrikingDistance: 'striking_distance',
+      KeywordTracking: 'keyword_tracking',
     } as const;
 
     export interface MarketingAnalyticsRecommendationStep {
@@ -56083,7 +56085,7 @@ export namespace Schemas {
       rule: MarketingAnalyticsRecommendationRule;
       /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
       steps?: MarketingAnalyticsRecommendationStep[] | null;
-      /** The campaign name or the search term the recommendation is about. */
+      /** The ad account, campaign or search term the recommendation is about. */
       subject: string;
     }
 
