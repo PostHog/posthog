@@ -153,6 +153,21 @@ export class EmailSuppressionService {
     }
 
     /**
+     * For checks before an email is queued. The send path checks again and holds the email while the
+     * list cannot be read, so here an unreadable list counts as not suppressed.
+     */
+    public async isKnownSuppressed(teamId: number, email: string, options?: SuppressionCheckOptions): Promise<boolean> {
+        try {
+            return await this.isSuppressed(teamId, email, options)
+        } catch (error) {
+            if (error instanceof SuppressionLookupError) {
+                return false
+            }
+            throw error
+        }
+    }
+
+    /**
      * Record one or more soft (Transient) bounces. Increments each address's consecutive-bounce
      * counter and auto-suppresses it in the same statement once it reaches the threshold. Manual
      * entries keep their suppressed state untouched, and complaint entries keep their reason.
