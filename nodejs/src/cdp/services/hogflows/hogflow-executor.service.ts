@@ -76,18 +76,22 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
     'exit_on_trigger_not_matched_or_conversion',
 ])
 
-// The email service keeps two values for one send in the job's stored metadata: teamCapped when the team sending
-// cap delays it, and attachmentLoadTries while its files fail to load. The actions after it in the same dequeue
-// start from this executor's result, so both stay off them. Otherwise a later email would count its queue wait as
-// a cap delay, and would start with the earlier email's spent load retries.
+// The email service keeps three values for one send in the job's stored metadata: teamCapped when the team sending
+// cap delays it, and attachmentLoadTries and sendBudgetClaimed while its files fail to load. The actions after it in
+// the same dequeue start from this executor's result, so all three stay off them. Otherwise a later email would count
+// its queue wait as a cap delay, would start with the earlier email's spent load retries, and would skip the sending
+// limits the earlier email paid.
+const PER_SEND_METADATA_KEYS = ['teamCapped', 'attachmentLoadTries', 'sendBudgetClaimed'] as const
+
 function withoutPerSendMetadata(
     metadata: CyclotronJobInvocationHogFlow['queueMetadata']
 ): CyclotronJobInvocationHogFlow['queueMetadata'] {
-    if (!metadata || !('teamCapped' in metadata || 'attachmentLoadTries' in metadata)) {
+    if (!metadata || !PER_SEND_METADATA_KEYS.some((key) => key in metadata)) {
         return metadata
     }
-    const { teamCapped: _teamCapped, attachmentLoadTries: _attachmentLoadTries, ...rest } = metadata
-    return rest
+    return Object.fromEntries(
+        Object.entries(metadata).filter(([key]) => !(PER_SEND_METADATA_KEYS as readonly string[]).includes(key))
+    )
 }
 
 export function createHogFlowInvocation(

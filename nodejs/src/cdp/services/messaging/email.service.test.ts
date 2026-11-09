@@ -1534,6 +1534,29 @@ describe('EmailService', () => {
                 ])
             })
 
+            it('charges the sending limits once for a send that retries while its files fail to load', async () => {
+                sesAccepts()
+                const claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null, reserved: false })
+                const claimAllOrNothing = jest.fn().mockResolvedValue({ granted: true, retryAfterMs: null })
+                service['workflowEmailRateLimiter'] = { claimOrReserve } as unknown as RateLimiterService
+                service['teamEmailRateLimiter'] = { claimAllOrNothing } as unknown as RateLimiterService
+                service['sesConfig'].teamEmailCapMode = 'enforce'
+                jest.spyOn(service['teamWorkflowsConfigService'], 'getEmailSendingTier').mockResolvedValue(0)
+                invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 120, period: 'minute' } }
+                jest.spyOn(attachmentStore, 'load').mockRejectedValueOnce(
+                    new AttachmentStoreUnavailableError(new Error('connect ECONNREFUSED'))
+                )
+
+                const retried = await service.executeSendEmail(invocation)
+                const result = await service.executeSendEmail(retried.invocation)
+
+                expect(retried.finished).toBe(false)
+                expect(result.finished).toBe(true)
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(claimOrReserve).toHaveBeenCalledTimes(1)
+                expect(claimAllOrNothing).toHaveBeenCalledTimes(1)
+            })
+
             it.each([
                 ['was never uploaded', () => Promise.resolve(attachmentFile())],
                 ['belongs to another team', async () => await uploadAttachment(team.id + 1, { filename: 'a.pdf' })],

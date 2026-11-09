@@ -3597,6 +3597,7 @@ if (not res.success) { throw Error(res.error) }`,
         it.each([
             ['the team cap label', { teamCapped: true }],
             ['the attachment load retry count', { attachmentLoadTries: 10 }],
+            ['the mark that the sending limits are already charged', { sendBudgetClaimed: true }],
         ])('keeps %s on the email it belongs to, not on the email after it', async (_name, perSendMetadata) => {
             await insertEmailSetup('ses')
             const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
