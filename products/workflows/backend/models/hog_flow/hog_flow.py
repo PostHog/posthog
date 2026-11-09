@@ -48,6 +48,8 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
     "conditional_branch",
     "random_cohort_branch",
     "exit",
+    # Sends through PostHog's shared sandbox sender, never a team's own sender or delivery settings.
+    "email_sandbox",
 ]
 
 # The trigger's own kinds, which live in the workflow's `trigger` field rather than on an action.
@@ -106,6 +108,7 @@ MESSAGING_ACTION_TYPES: Final[list[str]] = [
     "function_email",
     "function_sms",
     "function_push",
+    "email_sandbox",
 ]
 
 # Action types that read person data and therefore cannot be used in person-less ("row-scoped")

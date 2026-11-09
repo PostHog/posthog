@@ -171,6 +171,7 @@ from products.workflows.backend.facade.tasks import (
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
+    sync_sandbox_sender_tenant_state,
 )
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
@@ -376,6 +377,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="30"),
         reconcile_ses_tenant_states.s(),
         name="ses tenant reputation reconciliation",
+    )
+
+    # The sandbox sender's SES tenant status, mirrored every minute: the sandbox worker refuses to
+    # send on a stale mirror, so a missed run delays sends rather than sending while paused.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sync_sandbox_sender_tenant_state.s(),
+        name="workflows sandbox sender tenant state",
     )
 
     # Workflow email trust tiers - daily at 7:15 AM UTC, after the tenant reconciliation above.

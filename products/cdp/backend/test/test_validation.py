@@ -916,6 +916,36 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     @parameterized.expand(
         [
+            ("sandbox_sender", "email_sandbox", False),
+            ("slack_row_in_rotation", "slack", True),
+        ]
+    )
+    def test_email_sender_of_another_kind_rejected_at_save(self, _name: str, kind: str, in_rotation: bool) -> None:
+        own_sender = self._create_email_integration()
+        other_kind = Integration.objects.create(team=self.team, kind=kind, integration_id="not-an-email", config={})
+        from_value = (
+            {"integrationId": own_sender.id, "integrationIds": [own_sender.id, other_kind.id]}
+            if in_rotation
+            else {"integrationId": other_kind.id}
+        )
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(from_value)
+        assert "This sender can't send email from a workflow" in str(ctx.value.detail)
+
+    def test_email_sender_of_another_kind_already_stored_is_not_revalidated(self) -> None:
+        sandbox_sender = Integration.objects.create(
+            team=self.team, kind="email_sandbox", integration_id="posthog-managed-sandbox", config={}
+        )
+
+        validated = self._validate_email_from(
+            {"integrationId": sandbox_sender.id}, existing_from=[{"integrationId": sandbox_sender.id}]
+        )
+
+        assert validated["email"]["value"]["from"] == {"integrationId": sandbox_sender.id}
+
+    @parameterized.expand(
+        [
             ("person", "{person?.id}"),
             ("groups", "{groups.organization.id}"),
             ("source", "{source.name}"),

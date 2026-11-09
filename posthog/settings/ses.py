@@ -29,6 +29,11 @@ SES_TENANT_CONFIGURATION_SETS: list[str] = [
     if cs.strip()
 ]
 
+# The sandbox sender: one shared SES tenant and From address that send for every team that has
+# not verified a domain yet. Unset leaves the tenant poll idle and the status without an address.
+SES_SANDBOX_FROM_ADDRESS = os.getenv("SES_SANDBOX_FROM_ADDRESS", "").strip().lower()
+SES_SANDBOX_TENANT_NAME = os.getenv("SES_SANDBOX_TENANT_NAME", "").strip()
+
 # SNS topics allowed to deliver SES tenant reputation events (EventBridge -> SNS -> webhook).
 # Empty (the default) leaves the webhook inert: the SNS signature proves a message came from AWS,
 # but only the allowlist proves it came from *our* topic.

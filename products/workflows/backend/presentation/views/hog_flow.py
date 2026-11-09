@@ -264,6 +264,11 @@ from products.workflows.backend.facade.proposals import (
     version_outcome,
 )
 from products.workflows.backend.facade.revisions import get_revision, list_revisions, restore_revision
+from products.workflows.backend.facade.sandbox_email import (
+    SANDBOX_EMAIL_ACTION_TYPE,
+    sandbox_adoption_enabled,
+    validate_sandbox_email_action,
+)
 from products.workflows.backend.facade.schedules import (
     compute_next_occurrences,
     create_schedule,
@@ -1586,6 +1591,11 @@ class HogFlowActionSerializer(serializers.Serializer):
             "function_push also accepts sensitive?: <bool> (default false) - when true, the notification is "
             "still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps "
             "no variables, so it can't be rerun. "
+            "email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, "
+            "inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, "
+            "html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, "
+            "so it takes no sender, reply-to, template, headers or attachments. Needs text or html. "
+            "Only workflows, not broadcasts or templates, can hold it. "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
             "delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of "
@@ -1995,12 +2005,38 @@ class HogFlowActionSerializer(serializers.Serializer):
                 }
             )
 
+    def _validate_sandbox_email(self, data: dict, *, strict: bool) -> dict:
+        stored = self.context.get("stored_sandbox_action_ids") or set()
+        return validate_sandbox_email_action(
+            data,
+            stored_sandbox_action_ids=stored,
+            adoption_enabled=data.get("id") in stored or self._sandbox_adoption_enabled(),
+            require_complete=strict,
+        )
+
+    def _sandbox_adoption_enabled(self) -> bool:
+        get_team = self.context.get("get_team")
+        # Outside a request (internal re-saves) there is no team to evaluate the flag for, and those
+        # saves only re-persist steps that were accepted before.
+        if get_team is None:
+            return True
+        if "_sandbox_adoption_enabled" not in self.context:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            self.context["_sandbox_adoption_enabled"] = sandbox_adoption_enabled(
+                get_team(), user if isinstance(user, User) else None
+            )
+        return self.context["_sandbox_adoption_enabled"]
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
         # (MCP/API) get full validation even on drafts so a broken or unsupported config fails at create
         # time rather than being silently stored and surfacing only at enable.
         strict = _should_validate_strictly(self.context, is_draft)
+
+        if data.get("type") == SANDBOX_EMAIL_ACTION_TYPE:
+            return self._validate_sandbox_email(data, strict=strict)
 
         trigger_is_function = False
         if data.get("type") == "trigger":
@@ -3590,6 +3626,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
 
+        # Sandbox steps the flow already holds, live or in its staged draft, stay editable without the
+        # adoption flag. Unlike the gated templates above a draft counts too: every save checks a new
+        # sandbox step against the flag, lenient drafts included, so a stored one was allowed once.
+        self.context["stored_sandbox_action_ids"] = {
+            action["id"]
+            for action in [
+                *((instance.actions if instance else None) or []),
+                *(((instance.draft or {}).get("actions") if instance else None) or []),
+            ]
+            if isinstance(action, dict) and action.get("id") and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+        }
+
         self.context["stored_static_cohort_ids"] = static_cohort_ids(instance.actions if instance else None)
         self.context["stored_opt_out_category_ids"] = opt_out_category_ids(instance.actions if instance else None)
 
@@ -3761,6 +3809,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 raise serializers.ValidationError({"actions": f"Duplicate action id(s): {', '.join(duplicate_ids)}"})
 
         actions = data.get("actions", instance.actions if instance else [])
+        origin_product = data.get("origin_product", instance.origin_product if instance else None)
+        if origin_product and any(
+            isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE for action in actions or []
+        ):
+            raise serializers.ValidationError(
+                {"actions": "Only workflows can use the sandbox sender. Choose a verified email sender for this step."}
+            )
         stored = instance or self.context.get("instance")
         require_viewer_access_to_added_actions(
             self.context,

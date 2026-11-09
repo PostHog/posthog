@@ -114,6 +114,50 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
         )
 
 
+def _load_senders(integration_ids: set[int], context: dict, *, team_id: int) -> dict[int, tuple[str, str]]:
+    """The kind and verified domain of each sender row, or empty strings for an id with no row.
+
+    A drip sequence validates one action at a time, so the rows go in a request-scoped cache.
+    """
+    shared_cache = context.get("email_integration_domain_cache")
+    cache: dict[int, tuple[str, str]] = shared_cache if isinstance(shared_cache, dict) else {}
+    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in cache]
+    if missing_ids:
+        for row in IntegrationManager.any.with_source_rows().get_many(team_id, missing_ids).values():
+            config = row.config or {}
+            domain = (
+                (config.get("domain") or email_domain(config.get("email") or "") or "") if row.kind == "email" else ""
+            )
+            cache[row.id] = (row.kind, domain.lower())
+        for integration_id in missing_ids:
+            cache.setdefault(integration_id, ("", ""))
+    return {integration_id: cache[integration_id] for integration_id in integration_ids}
+
+
+def _validate_email_sender_kind(from_value: dict, context: dict) -> None:
+    """Reject a newly chosen sender row that is not an email sender, such as the sandbox sender.
+
+    The send path only resolves `email` rows, so another kind fails at send time. Ids already stored
+    on the step (live or draft) are grandfathered, and ids with no row are left to the send path.
+    """
+    get_team = context.get("get_team")
+    if get_team is None:
+        return
+    existing = context.get("existing_email_from") or []
+    stored_ids: set[int] = set()
+    for stored in existing if isinstance(existing, list) else [existing]:
+        if isinstance(stored, dict):
+            stored_ids |= _sender_integration_ids(stored)
+    new_ids = _sender_integration_ids(from_value) - stored_ids
+    if not new_ids:
+        return
+    senders = _load_senders(new_ids, context, team_id=get_team().id)
+    if any(kind and kind != "email" for kind, _domain in senders.values()):
+        raise serializers.ValidationError(
+            {"input": "This sender can't send email from a workflow. Choose a verified email sender."}
+        )
+
+
 def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     """Reject a literal custom sender address the send path would refuse.
 
@@ -168,22 +212,12 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     if not integration_ids:
         return
 
-    # An empty cached domain means the id resolved to no email integration for this team; the
-    # save is not blocked on it (there is no domain to compare), matching the uncached behavior.
-    shared_cache = context.get("email_integration_domain_cache")
-    domain_cache: dict[int, str] = shared_cache if isinstance(shared_cache, dict) else {}
-    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in domain_cache]
-    if missing_ids:
-        for integration in IntegrationManager.email.credentials.get_many(get_team().id, missing_ids).values():
-            config = integration.config or {}
-            domain_cache[integration.id] = (
-                config.get("domain") or email_domain(config.get("email") or "") or ""
-            ).lower()
-        for integration_id in missing_ids:
-            domain_cache.setdefault(integration_id, "")
+    # An empty domain means the id resolved to no email integration for this team; the save is
+    # not blocked on it (there is no domain to compare), matching the uncached behavior.
+    senders = _load_senders(integration_ids, context, team_id=get_team().id)
 
     for integration_id in sorted(integration_ids):
-        integration_domain = domain_cache.get(integration_id) or ""
+        integration_domain = senders[integration_id][1]
         if integration_domain and override_domain != integration_domain:
             raise serializers.ValidationError(
                 {
@@ -1009,6 +1043,7 @@ class InputsItemSerializer(serializers.Serializer):
                             {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
                         )
 
+                _validate_email_sender_kind(from_value, self.context)
                 _validate_email_sender_override(from_value, self.context)
 
             if (

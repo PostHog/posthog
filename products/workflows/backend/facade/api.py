@@ -2,7 +2,7 @@ from collections.abc import Collection, Iterable, Iterator
 from typing import Any
 from uuid import UUID
 
-from django.db.models import F
+from django.db.models import F, Q
 
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
@@ -29,7 +29,11 @@ from products.workflows.backend.facade.contracts import (
     WorkflowVisionScanDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
-from products.workflows.backend.models.hog_flow.hog_flow import opt_out_category_ids, static_cohort_ids
+from products.workflows.backend.models.hog_flow.hog_flow import (
+    MESSAGING_ACTION_TYPES,
+    opt_out_category_ids,
+    static_cohort_ids,
+)
 from products.workflows.backend.services import email_utm_defaults
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.default_email_sender import (
@@ -48,6 +52,7 @@ from products.workflows.backend.services.existing_email_tools import (
 )
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 from products.workflows.backend.services.owned_workflow_health import list_owned_workflow_health
+from products.workflows.backend.services.sandbox_email.validation import SANDBOX_EMAIL_ACTION_TYPE
 from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
@@ -257,7 +262,17 @@ def get_workflow_summary(*, team_id: int, workflow_id: str) -> WorkflowSummary:
 
 
 def has_active_workflows(*, team_id: int) -> bool:
-    return HogFlow.objects.filter(team_id=team_id, status=HogFlow.State.ACTIVE).exists()
+    """Whether the team runs a workflow, the activation signal for the Workflows product.
+
+    A workflow whose only messages go through the sandbox sender doesn't count: it reaches the
+    team's own members, not its users.
+    """
+    active = HogFlow.objects.filter(team_id=team_id, status=HogFlow.State.ACTIVE)
+    sends_own_messages = Q()
+    for action_type in MESSAGING_ACTION_TYPES:
+        if action_type != SANDBOX_EMAIL_ACTION_TYPE:
+            sends_own_messages |= Q(actions__contains=[{"type": action_type}])
+    return active.filter(~Q(actions__contains=[{"type": SANDBOX_EMAIL_ACTION_TYPE}]) | sends_own_messages).exists()
 
 
 def has_active_workflow_for_warehouse_table(*, team_id: int, trigger_source: str, table_name: str) -> bool:
