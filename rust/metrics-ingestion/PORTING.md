@@ -53,7 +53,6 @@ Each file holds a scenario and the outputs Node recorded for it.
 - The rate limiter falls back to the global bucket size when a script reply is missing, as Node does. The keyed limiter in `logs-ingestion` falls back to the team's size, which is why this crate has its own limiter.
 - A Kafka message without a timestamp gives a usage record dated at the flush, as Node does for an undefined timestamp. What node-rdkafka passes for a missing broker timestamp was not checked.
 - Header maps keep insertion order. A JavaScript object lists integer-like keys first, which no reader of the headers depends on.
-- After a failed side effect, the Rust scheduler reports the failure once and clears it. Node keeps it latched, so every later background task fails too. Both end the process on the first failure.
 - The pipeline is built per batch. Node builds it once; a Node pipeline that threw is not reused either, because the process exits.
 - The Kafka source, outputs and shadow counters come from `logs-ingestion`, so their Prometheus names start with `logs_ingestion_`. The metrics-specific counters keep Node's `metrics_ingestion_*` names.
 - `USAGE_INGESTION_TLS=true` is not supported, as in the logs consumer.

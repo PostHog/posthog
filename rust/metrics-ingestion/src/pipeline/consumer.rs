@@ -1,13 +1,14 @@
 //! `metrics-pipeline-consumer.ts` and `metrics-ingestion-pipeline.ts`.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use ingestion_framework::errors::shared_error;
 use ingestion_framework::{
     before_batch_step, create_ok_context, new_batching_pipeline, passthrough_after_batch_step,
     per_element, BatchingPipeline, BatchingPipelineOptions, IngestionOutputs, KafkaMessage,
-    PipelineConfig, PromiseScheduler, SideEffectHandlingConfig, SideEffectScheduler,
+    PipelineConfig, PromiseScheduler, SideEffect, SideEffectHandlingConfig, SideEffectScheduler,
 };
 use logs_ingestion::pipeline::app_metrics::AppMetricsAggregator;
 use logs_ingestion::pipeline::{QuotaLimiting, TeamManager, UsageRecordBatch};
@@ -95,10 +96,46 @@ fn create_metrics_ingestion_pipeline(
     )
 }
 
+/// `FailureLatchingPromiseScheduler`. The first failed side effect stays latched, so every later
+/// background task fails and no offset is stored for its batch or a later one.
+#[derive(Clone, Default)]
+pub struct FailureLatchingScheduler {
+    inner: PromiseScheduler,
+    failure: Arc<Mutex<Option<Arc<anyhow::Error>>>>,
+}
+
+impl SideEffectScheduler for FailureLatchingScheduler {
+    fn schedule(&self, side_effect: SideEffect) {
+        let failure = self.failure.clone();
+        self.inner.schedule(SideEffect::spawn(async move {
+            side_effect.wait().await.map_err(|error| {
+                let error = Arc::new(error);
+                failure.lock().unwrap().get_or_insert_with(|| error.clone());
+                shared_error(error)
+            })
+        }));
+    }
+}
+
+impl FailureLatchingScheduler {
+    /// `waitForAll` rejects with a pending failure first, then the latch decides.
+    pub async fn wait_for_all_or_fail(&self) -> anyhow::Result<()> {
+        self.inner.wait_for_all().await?;
+        match self.failure.lock().unwrap().as_ref() {
+            Some(error) => Err(shared_error(error.clone())),
+            None => Ok(()),
+        }
+    }
+
+    pub async fn wait_for_all_settled(&self) {
+        self.inner.wait_for_all_settled().await;
+    }
+}
+
 pub struct MetricsPipelineConsumer {
     context: Arc<MetricsPipelineContext>,
     /// One for the consumer, as in Node, so a background task also waits for side effects of a later batch.
-    scheduler: PromiseScheduler,
+    scheduler: FailureLatchingScheduler,
 }
 
 impl MetricsPipelineConsumer {
@@ -113,7 +150,7 @@ impl MetricsPipelineConsumer {
         );
         Self {
             context: Arc::new(MetricsPipelineContext { deps, rate_limiter }),
-            scheduler: PromiseScheduler::new(),
+            scheduler: FailureLatchingScheduler::default(),
         }
     }
 
@@ -171,7 +208,7 @@ impl MetricsPipelineConsumer {
         let scheduler = self.scheduler.clone();
         let context = self.context.clone();
         Ok(async move {
-            scheduler.wait_for_all().await?;
+            scheduler.wait_for_all_or_fail().await?;
             let deps = &context.deps;
             let team_ids: Vec<i64> = usage
                 .entries()
