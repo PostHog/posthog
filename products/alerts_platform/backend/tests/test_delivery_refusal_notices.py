@@ -89,7 +89,7 @@ class TestRefusalNotices(BaseTest):
         assert {call.args[0] for call in self.email.return_value.add_user_recipient.call_args_list} == {self.user}
 
     @parameterized.expand([("left the organization", True), ("no recorded creator", False)])
-    def test_the_project_is_told_when_the_creator_cannot_be_reached(self, _name: str, has_creator: bool) -> None:
+    def test_nobody_is_told_when_the_creator_cannot_be_reached(self, _name: str, has_creator: bool) -> None:
         creator = None
         if has_creator:
             creator = User.objects.create_and_join(self.organization, "former@example.com", None)
@@ -97,25 +97,11 @@ class TestRefusalNotices(BaseTest):
 
         self._notify(creator)
 
-        assert self._recipients() == [sorted([self.user.id, self.teammate.id])]
+        assert self._recipients() == []
         self.email.assert_not_called()
-
-    def test_nobody_denied_the_alerts_source_is_told(self) -> None:
-        checked: list[str] = []
-
-        def only_the_teammate(_resolver: object, user_ids: list[int], resource_type: str, _team: object) -> list[int]:
-            checked.append(resource_type)
-            return [user_id for user_id in user_ids if user_id == self.teammate.id]
-
-        with patch.object(refusal_notices.RecipientsResolver, "filter_by_access_control", only_the_teammate):
-            self._notify(self.user)
-
-        assert self._recipients() == [[self.teammate.id]]
-        self.email.assert_not_called()
-        assert set(checked) == {"logs"}
 
     def test_a_notice_that_fails_never_raises_and_is_tried_again_on_the_next_refusal(self) -> None:
-        with patch.object(refusal_notices.cache, "add", side_effect=ConnectionError("cache down")):
+        with patch.object(refusal_notices.cache, "get", side_effect=ConnectionError("cache down")):
             self._notify(self.user)
         with patch.object(refusal_notices, "create_notification", side_effect=RuntimeError("notifications down")):
             self._notify(self.user)

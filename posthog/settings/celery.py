@@ -27,7 +27,6 @@ CELERY_IMPORTS: list[str] = [
     # Not a `<app>/tasks.py`, so autodiscovery walks past it — the app package holds a `tasks/`
     # namespace package instead, and importing that doesn't reach the module inside.
     "products.tasks.backend.tasks.tasks",
-    "products.alerts_platform.backend.tasks.refusal_notices",
     "products.legal_documents.backend.tasks.tasks",
     "products.aeo.backend.tasks.tasks",
     "products.business_knowledge.backend.tasks.tasks",
