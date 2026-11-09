@@ -176,6 +176,28 @@ class TestLegalDocumentsConsolePanel(BaseTest):
         [
             ("refetch", "get", "refetch-pdf", str, "?from=bookmark&document={id}#panel-legal-documents"),
             ("delete", "get", "delete", str, "legal-documents/delete/?from=bookmark&document={id}"),
+            # Django admin reads each of these spellings as the same document, so each must miss its delete view.
+            (
+                "delete_uppercase",
+                "post",
+                "delete",
+                lambda id: str(id).upper(),
+                "legal-documents/delete/?from=bookmark&document={id}",
+            ),
+            (
+                "delete_without_hyphens",
+                "post",
+                "delete",
+                lambda id: id.hex,
+                "legal-documents/delete/?from=bookmark&document={id}",
+            ),
+            (
+                "delete_admin_quoted",
+                "post",
+                "delete",
+                lambda id: f"urn_3Auuid_3A{id}",
+                "legal-documents/delete/?from=bookmark&document={id}",
+            ),
         ]
     )
     def test_the_old_document_url_lands_in_the_console_of_the_document_organization(
@@ -191,6 +213,14 @@ class TestLegalDocumentsConsolePanel(BaseTest):
         assert response.status_code == 302
         expected = target.format(id=document.id)
         assert response["Location"] == f"/admin/console/organizations/{self.organization.pk}/{expected}"
+        assert LegalDocument.objects.filter(id=document.id).exists()
+
+    def test_an_old_delete_url_without_a_document_id_is_not_found(self) -> None:
+        document = self._document()
+
+        response = self.client.post("/admin/legal_documents/legaldocument/not-a-uuid/delete/", {"post": "yes"})
+
+        assert response.status_code == 404
         assert LegalDocument.objects.filter(id=document.id).exists()
 
     def test_the_delete_form_preselects_the_document_the_old_url_named(self) -> None:

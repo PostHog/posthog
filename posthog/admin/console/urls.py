@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from django.contrib import admin
+from django.contrib.admin.utils import unquote
 from django.http import Http404, HttpRequest, HttpResponse
 from django.urls import path, re_path
 
@@ -44,8 +45,13 @@ MOVED_DELETION_REQUEST_ACTIONS = {
 }
 
 
-def legal_document_redirect(request: HttpRequest, pk: UUID, target: str) -> HttpResponse:
-    document_id = pk
+def legal_document_redirect(request: HttpRequest, object_id: str, target: str) -> HttpResponse:
+    # Django admin unquotes the object ID and reads it as any spelling of a UUID (uppercase, without hyphens),
+    # so this does the same, and no spelling of a document ID reaches the admin delete view.
+    try:
+        document_id = UUID(unquote(object_id))
+    except ValueError:
+        raise Http404("Unknown legal document")
     # The old document URLs carry only the document ID, so the organization is looked up to find the panel.
     organization_id = get_organization_id_for_staff(document_id)
     if organization_id is None:
@@ -147,14 +153,15 @@ urlpatterns = [
         MovedToConsole.page_redirect("AI observability dataset retention", "/admin/console/tools/ai-observability/"),
     ),
     path(
-        "admin/legal_documents/legaldocument/<uuid:pk>/refetch-pdf/",
+        "admin/legal_documents/legaldocument/<path:object_id>/refetch-pdf/",
         admin.site.admin_view(legal_document_redirect),
         {"target": "#panel-legal-documents"},
     ),
     # The Delete button of the Django admin change page leads to the console operation, which says what a delete
-    # leaves behind: PandaDoc's copy of a signed document, and the AI opt-outs of a BAA.
+    # leaves behind: PandaDoc's copy of a signed document, and the AI opt-outs of a BAA. The pattern matches every
+    # object ID the admin delete route does, so a document is never deleted without that cleanup.
     path(
-        "admin/legal_documents/legaldocument/<uuid:pk>/delete/",
+        "admin/legal_documents/legaldocument/<path:object_id>/delete/",
         admin.site.admin_view(legal_document_redirect),
         {"target": "legal-documents/delete/"},
     ),
