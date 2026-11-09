@@ -7,6 +7,7 @@ from django.utils import timezone
 from products.tasks.backend.logic.services.compute_settlement import (
     TeamComputeDelta,
     reconcile_compute_settlement,
+    reconcile_window_since,
     unpark_sandbox_compute,
     wallet_team_id,
 )
@@ -30,6 +31,7 @@ class Command(BaseCommand):
             choices=[
                 SandboxSession.ComputeSettleParkReason.ATTEMPTS_EXHAUSTED.value,
                 SandboxSession.ComputeSettleParkReason.HTTP_400.value,
+                SandboxSession.ComputeSettleParkReason.HTTP_402.value,
             ],
             default=None,
             help="Unpark rows parked for this reason within --since/--until so the sweep retries them",
@@ -44,6 +46,12 @@ class Command(BaseCommand):
             raise CommandError("--since must be an ISO-8601 timestamp")
         if timezone.is_naive(since) or timezone.is_naive(until) or until <= since:
             raise CommandError("--since and --until must be timezone-aware and --until must follow --since")
+        window_since = reconcile_window_since(since)
+        if window_since != since:
+            self.stdout.write(f"Window start clamped to GATEWAY_COMPUTE_SETTLE_SINCE ({window_since.isoformat()})")
+            since = window_since
+            if since >= until:
+                raise CommandError("--until must follow the GATEWAY_COMPUTE_SETTLE_SINCE cutoff")
         unpark = options["unpark"]
         if isinstance(unpark, str):
             count = unpark_sandbox_compute(unpark, since, until)

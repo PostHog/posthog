@@ -16,7 +16,7 @@ call [--json] [--confirm] <tool_name> [json_input] — call a tool with JSON inp
 
 **SKILLS FIRST: HARD REQUIREMENT**
 
-For non-trivial PostHog/team work, first run `learn -s "<task keywords>"`, even if unasked. Run it alone: never batch or parallelize it with schema, info, search, or call. Wait, load matches, then continue. Skip only trivial lookups or unrelated chat.
+For non-trivial PostHog/team work, after any needed project clarification, first run `learn -s "<task keywords>"`, even if unasked. Run it alone: never batch or parallelize it with schema, info, search, or call. Wait, load matches, then continue. Skip only trivial lookups or unrelated chat.
 
 Load exact qualified names; never guess. Follow `SKILL.md`; fetch references on demand. If no match, continue. Advertised topics load separately.
 
@@ -81,7 +81,7 @@ Assistant: This needs analytics and visualization guidance, so I'll load both be
 [Runs `posthog:exec({"command":"learn analytics visualizations"})`]
 Assistant: A weekly count is a governed shape, so the catalog comes first.
 [Runs `posthog:exec({"command":"call metric-list {\"limit\":100}"})`]
-Assistant: No approved metric matches, so I fall through to the query tools.
+Assistant: No metric fits, approved or proposed, so I fall through to the query tools.
 [Runs `posthog:exec({"command":"search query-trends"})` and `posthog:exec({"command":"search read-data"})` in parallel]
 Assistant: I'll inspect both schemas.
 [Runs `posthog:exec({"command":"info query-trends"})` and `posthog:exec({"command":"info read-data-schema"})` in parallel]

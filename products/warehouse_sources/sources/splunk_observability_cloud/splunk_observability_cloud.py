@@ -3,7 +3,7 @@ import json
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 import requests
@@ -18,10 +18,14 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.splunk_observability_cloud.settings import (
     DETECTOR_EVENTS_RESULT_CAP,
+    EVENT_SEARCH_PAGE_SIZE,
+    EVENT_SEARCH_RESULT_CAP,
     MAX_OFFSET,
     PAGE_SIZE,
     SIGNALFLOW_DEFAULT_LOOKBACK_DAYS,
     SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS,
+    SYNTHETIC_RUNS_DEFAULT_LOOKBACK_DAYS,
+    SYNTHETICS_PAGE_SIZE,
     SplunkObservabilityCloudEndpointConfig,
 )
 
@@ -43,7 +47,7 @@ class SplunkObservabilityCloudRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SplunkObservabilityCloudResumeConfig:
     # Offset of the next page to fetch within the current endpoint (or current detector
     # for the detector_events fan-out).
@@ -51,6 +55,19 @@ class SplunkObservabilityCloudResumeConfig:
     # Stable bookmark for the detector_events fan-out: the detector currently being
     # processed. None for every other endpoint.
     detector_id: str | None = None
+    # Bookmark for the synthetic_runs fan-out: the test and the page of its runs to fetch next,
+    # plus the run window of the interrupted attempt. A retry keeps that window, so tests it
+    # skips and tests it still reads cover the same time range.
+    test_id: int | None = None
+    page: int | None = None
+    window_start: str | None = None
+    window_end: str | None = None
+    # Start of the current event search window. The search caps each query at 10,000
+    # results, so a long history is read as a series of windows; `offset` is within it.
+    event_start_ms: int | None = None
+    # Ids of events at `event_start_ms` that an earlier window already yielded. A resumed full
+    # refresh appends rows, so it must skip them again.
+    event_boundary_ids: list[str] | None = None
 
 
 def normalize_realm(realm: str) -> str:
@@ -71,7 +88,8 @@ def _stream_base_url(realm: str) -> str:
 
 
 def _get_headers(access_token: str) -> dict[str, str]:
-    return {"X-SF-TOKEN": access_token, "Accept": "application/json"}
+    # The Synthetics API documents Content-Type as required, also on GET requests.
+    return {"X-SF-TOKEN": access_token, "Accept": "application/json", "Content-Type": "application/json"}
 
 
 def _to_epoch_ms(value: Any) -> int:
@@ -89,6 +107,24 @@ def _ms_to_datetime(value: Any) -> datetime | None:
     return datetime.fromtimestamp(int(value) / 1000, tz=UTC)
 
 
+def _to_iso8601(value: Any) -> str:
+    return (
+        datetime.fromtimestamp(_to_epoch_ms(value) / 1000, tz=UTC)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def _parse_iso8601(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type(
         (
@@ -102,8 +138,15 @@ def _ms_to_datetime(value: Any) -> datetime | None:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+def _fetch(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    method: str = "GET",
+    json_body: Any = None,
+) -> Any:
+    response = session.request(method, url, headers=headers, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 429 or response.status_code >= 500:
         raise SplunkObservabilityCloudRetryableError(
@@ -134,7 +177,8 @@ def _build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
 
 def _extract_page(config: SplunkObservabilityCloudEndpointConfig, data: Any) -> list[dict[str, Any]]:
     if config.response_style == "wrapped":
-        results = data.get("results", []) if isinstance(data, dict) else []
+        results = data.get(config.data_key) if isinstance(data, dict) else None
+        results = results if isinstance(results, list) else []
     else:
         results = data if isinstance(data, list) else []
     return [row for row in results if isinstance(row, dict)]
@@ -162,7 +206,9 @@ def _paginate(
         params.update(config.extra_params)
         params.update(extra_params or {})
         url = _build_url(base_url, path if path is not None else config.path, params)
-        data = _fetch(session, url, headers, logger)
+        # The only POST endpoint is a search whose filters are all optional.
+        json_body: dict[str, Any] | None = {} if config.method == "POST" else None
+        data = _fetch(session, url, headers, logger, method=config.method, json_body=json_body)
         rows = _extract_page(config, data)
 
         if not rows:
@@ -269,6 +315,222 @@ def _normalize_event_row(row: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(row)
     normalized["timestamp"] = _ms_to_datetime(row.get("timestamp"))
     return normalized
+
+
+def _has_next_page(data: Any) -> bool:
+    return isinstance(data, dict) and bool(data.get("nextPageLink"))
+
+
+def _iter_synthetic_test_ids(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SplunkObservabilityCloudResumeConfig],
+) -> list[int]:
+    tests_config = SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS["synthetic_tests"]
+    test_ids: list[int] = []
+    page = 1
+    while page <= MAX_OFFSET // SYNTHETICS_PAGE_SIZE:
+        url = _build_url(base_url, tests_config.path, {"page": page, "perPage": SYNTHETICS_PAGE_SIZE})
+        data = _fetch(session, url, headers, logger)
+        rows = _extract_page(tests_config, data)
+        test_ids.extend(int(row["id"]) for row in rows if row.get("id") is not None)
+        # No rows were yielded yet, so resuming from the loaded state loses nothing.
+        resumable_source_manager.safe_point()
+        if not rows or not _has_next_page(data):
+            break
+        page += 1
+    return test_ids
+
+
+def _paginate_pages(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: SplunkObservabilityCloudEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SplunkObservabilityCloudResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk a Synthetics page/perPage list endpoint, yielding one list of rows per page."""
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    page = resume.page if resume is not None and resume.page else 1
+    while True:
+        params = {**config.extra_params, "page": page, "perPage": SYNTHETICS_PAGE_SIZE}
+        data = _fetch(session, _build_url(base_url, config.path, params), headers, logger)
+        rows = _extract_page(config, data)
+        has_more = bool(rows) and _has_next_page(data)
+        if has_more and page * SYNTHETICS_PAGE_SIZE >= MAX_OFFSET:
+            logger.warning(f"Splunk Observability Cloud: page cap reached, truncating results. endpoint={config.name}")
+            has_more = False
+        if has_more:
+            resumable_source_manager.save_state(SplunkObservabilityCloudResumeConfig(page=page + 1))
+        if rows:
+            yield rows
+        if not has_more:
+            return
+        page += 1
+
+
+def _normalize_synthetic_run_row(row: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(row)
+    normalized["timestamp"] = _parse_iso8601(row.get("timestamp"))
+    return normalized
+
+
+def _get_synthetic_run_rows(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: SplunkObservabilityCloudEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SplunkObservabilityCloudResumeConfig],
+    start_time: str,
+    end_time: str,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over every synthetic test and page through its runs within [start_time, end_time].
+
+    The bookmark is the test id plus the next page of its runs. If the bookmarked test was
+    deleted before the retry, the walk starts again from the first test; merge dedupes the
+    rows it reads again.
+    """
+    test_ids = _iter_synthetic_test_ids(session, base_url, headers, logger, resumable_source_manager)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    remaining = test_ids
+    page = 1
+    if resume is not None and resume.test_id is not None and resume.test_id in test_ids:
+        remaining = test_ids[test_ids.index(resume.test_id) :]
+        page = resume.page or 1
+        start_time = resume.window_start or start_time
+        end_time = resume.window_end or end_time
+
+    for index, test_id in enumerate(remaining):
+        path = config.path.format(test_id=test_id)
+        while True:
+            params = {"page": page, "perPage": SYNTHETICS_PAGE_SIZE, "startTime": start_time, "endTime": end_time}
+            data = _fetch(session, _build_url(base_url, path, params), headers, logger)
+            rows = _extract_page(config, data)
+            has_more = bool(rows) and _has_next_page(data)
+            if has_more and page * SYNTHETICS_PAGE_SIZE >= MAX_OFFSET:
+                logger.warning(
+                    f"Splunk Observability Cloud: synthetic run page cap reached, truncating results. test_id={test_id}"
+                )
+                has_more = False
+
+            if has_more:
+                resumable_source_manager.save_state(
+                    SplunkObservabilityCloudResumeConfig(
+                        test_id=test_id, page=page + 1, window_start=start_time, window_end=end_time
+                    )
+                )
+            elif index + 1 < len(remaining):
+                resumable_source_manager.save_state(
+                    SplunkObservabilityCloudResumeConfig(
+                        test_id=remaining[index + 1], page=1, window_start=start_time, window_end=end_time
+                    )
+                )
+
+            if rows:
+                yield [_normalize_synthetic_run_row(row) for row in rows]
+            else:
+                resumable_source_manager.safe_point()
+
+            if not has_more:
+                break
+            page += 1
+        page = 1
+
+
+def _get_event_search_rows(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: SplunkObservabilityCloudEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SplunkObservabilityCloudResumeConfig],
+    start_ms: int,
+    end_ms: int,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read every event in [start_ms, end_ms] from a windowed event search.
+
+    One query returns at most 10,000 events, whatever the offset. The request sorts by event
+    time, so when a window reaches the cap the next window starts at the latest timestamp
+    read. Events at that timestamp that were already yielded are skipped.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    window_start = start_ms
+    offset = 0
+    if resume is not None and resume.event_start_ms is not None:
+        window_start = resume.event_start_ms
+        offset = resume.offset
+
+    start_param, end_param = config.window_params
+    already_yielded: set[str] = set(resume.event_boundary_ids or []) if resume is not None else set()
+    latest_ms: int | None = None
+    ids_at_latest: set[str] = set()
+
+    while True:
+        limit = min(EVENT_SEARCH_PAGE_SIZE, EVENT_SEARCH_RESULT_CAP - offset)
+        params = {
+            **config.extra_params,
+            start_param: window_start,
+            end_param: end_ms,
+            "offset": offset,
+            "limit": limit,
+        }
+        data = _fetch(session, _build_url(base_url, config.path, params), headers, logger)
+        rows = _extract_page(config, data)
+
+        for row in rows:
+            timestamp = row.get("timestamp")
+            if timestamp is None:
+                continue
+            timestamp = int(timestamp)
+            if latest_ms is None or timestamp > latest_ms:
+                latest_ms = timestamp
+                ids_at_latest = set()
+            if timestamp == latest_ms and row.get("id") is not None:
+                ids_at_latest.add(str(row["id"]))
+
+        offset += len(rows)
+        next_state: SplunkObservabilityCloudResumeConfig | None = None
+        if len(rows) >= limit and offset < EVENT_SEARCH_RESULT_CAP:
+            next_state = SplunkObservabilityCloudResumeConfig(
+                offset=offset, event_start_ms=window_start, event_boundary_ids=sorted(already_yielded)
+            )
+        elif len(rows) >= limit:
+            if latest_ms is None:
+                logger.warning("Splunk Observability Cloud: event search page had no timestamps; stopping the read")
+            elif latest_ms <= window_start:
+                # The search cannot page past this timestamp, so skip to the next millisecond
+                # instead of stopping: later events, and later syncs, still make progress.
+                logger.warning(
+                    f"Splunk Observability Cloud: more than {EVENT_SEARCH_RESULT_CAP} events share one timestamp; "
+                    f"some events at it are skipped. timestamp_ms={window_start}"
+                )
+                next_state = SplunkObservabilityCloudResumeConfig(offset=0, event_start_ms=window_start + 1)
+            else:
+                next_state = SplunkObservabilityCloudResumeConfig(
+                    offset=0, event_start_ms=latest_ms, event_boundary_ids=sorted(ids_at_latest)
+                )
+
+        if next_state is not None:
+            resumable_source_manager.save_state(next_state)
+
+        fresh = [row for row in rows if row.get("id") is None or str(row["id"]) not in already_yielded]
+        if fresh:
+            yield [_normalize_event_row(row) for row in fresh]
+        else:
+            resumable_source_manager.safe_point()
+
+        if next_state is None:
+            return
+        if next_state.event_start_ms != window_start:
+            window_start = next_state.event_start_ms or window_start
+            offset = 0
+            already_yielded = ids_at_latest
+            ids_at_latest = set(ids_at_latest)
 
 
 def _iter_sse_events(response: requests.Response) -> Iterator[tuple[str, str]]:
@@ -419,6 +681,40 @@ def get_rows(
         yield from _get_signalflow_rows(session, realm, access_token, program, start_ms, now_ms, logger)
         return
 
+    if config.pagination == "none":
+        rows = _extract_page(
+            config, _fetch(session, _build_url(base_url, config.path, config.extra_params), headers, logger)
+        )
+        if rows:
+            yield rows
+        return
+
+    if config.fan_out_over_synthetic_tests:
+        if should_use_incremental_field and db_incremental_field_last_value is not None:
+            start_time = _to_iso8601(db_incremental_field_last_value)
+        else:
+            start_time = _to_iso8601(
+                now_ms - int(timedelta(days=SYNTHETIC_RUNS_DEFAULT_LOOKBACK_DAYS).total_seconds() * 1000)
+            )
+        yield from _get_synthetic_run_rows(
+            session, base_url, headers, config, logger, resumable_source_manager, start_time, _to_iso8601(now_ms)
+        )
+        return
+
+    if config.pagination == "page":
+        yield from _paginate_pages(session, base_url, headers, config, logger, resumable_source_manager)
+        return
+
+    if config.is_event_search:
+        if should_use_incremental_field and db_incremental_field_last_value is not None:
+            start_ms = _to_epoch_ms(db_incremental_field_last_value)
+        else:
+            start_ms = 0
+        yield from _get_event_search_rows(
+            session, base_url, headers, config, logger, resumable_source_manager, start_ms, now_ms
+        )
+        return
+
     if config.fan_out_over_detectors:
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             from_ms = _to_epoch_ms(db_incremental_field_last_value)
@@ -474,17 +770,27 @@ def splunk_observability_cloud_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # The detector_events fan-out is not globally time-ordered (events arrive grouped
-        # by detector), so declare desc to persist the incremental watermark only at
-        # successful job end instead of checkpointing a misleading per-batch max.
-        # SignalFlow data messages stream in ascending logical-timestamp order.
-        sort_mode="desc" if endpoint_config.fan_out_over_detectors else "asc",
+        sort_mode=_sort_mode(endpoint_config),
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="month" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
     )
+
+
+def _sort_mode(config: SplunkObservabilityCloudEndpointConfig) -> Literal["asc", "desc"] | None:
+    # The detector_events fan-out is not globally time-ordered (events arrive grouped
+    # by detector), so declare desc to persist the incremental watermark only at
+    # successful job end instead of checkpointing a misleading per-batch max.
+    if config.fan_out_over_detectors:
+        return "desc"
+    # Synthetic runs arrive grouped by test. The event search restarts its window at the
+    # cap, and its sort field is not documented as the same value as the row timestamp.
+    if config.fan_out_over_synthetic_tests or config.is_event_search:
+        return None
+    # SignalFlow data messages stream in ascending logical-timestamp order.
+    return "asc"
 
 
 def validate_credentials(realm: str, access_token: str) -> tuple[bool, str | None]:

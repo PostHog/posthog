@@ -1,11 +1,13 @@
+import { useActions } from 'kea'
 import { useMemo } from 'react'
 
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-import { TodayPaneRow } from './TodayPaneRow'
 import { productPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
+import { todayProductsLogic } from './todayProductsLogic'
 import { TodayProductStarButton } from './TodayProductStarButton'
 
 export interface TodayProductRowProps {
@@ -17,6 +19,10 @@ export interface TodayProductRowProps {
     starred: boolean
     /** Every row in the Starred group has a star, so those rows show it only on hover. */
     inStarredGroup: boolean
+    /** The catalog group the row sits in, null for the Starred group. */
+    category: string | null
+    /** The row's index within its group. */
+    position: number
 }
 
 export function TodayProductRow({
@@ -27,12 +33,15 @@ export function TodayProductRow({
     active,
     starred,
     inStarredGroup,
+    category,
+    position,
 }: TodayProductRowProps): JSX.Element {
+    const { productOpened } = useActions(todayProductsLogic)
     // The shared card stores the payload, so it must keep its identity between renders.
     const preview = useMemo(() => productPreview(label, product), [label, product])
     return (
         <TodayPreviewTrigger payload={preview}>
-            <TodayPaneRow
+            <SidebarRow
                 value={value}
                 label={label}
                 icon={<NavProductIcon item={product} />}
@@ -41,6 +50,7 @@ export function TodayProductRow({
                 action={<TodayProductStarButton product={product} starred={starred} />}
                 // Like the current navigation, a starred row keeps its filled star in view.
                 actionVisible={starred && !inStarredGroup}
+                onClick={() => productOpened(product, inStarredGroup ? 'starred' : 'all', category, position)}
                 // pinned: tracking API, do not rename.
                 dataAttr={inStarredGroup ? 'today-tool-starred' : 'today-tool'}
             />

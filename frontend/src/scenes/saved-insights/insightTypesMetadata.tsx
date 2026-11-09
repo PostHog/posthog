@@ -684,6 +684,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPDashboardQuery]: {
+        name: 'MCP dashboard',
+        description: 'Every section of the MCP Analytics dashboard in one request.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.MCPToolSampleIntentsQuery]: {
         name: 'MCP tool sample intents',
         description: 'Recent sampled intents for a single MCP tool.',

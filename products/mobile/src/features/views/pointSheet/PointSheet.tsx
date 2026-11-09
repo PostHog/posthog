@@ -5,7 +5,7 @@ import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from '
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { ACTORS_LIMIT } from '@/api/actors'
 import { safeHttpsUrl } from '@/lib/urls'
-import type { ActorRow, InsightSnapshot } from '@/model/views'
+import type { ActorRow, InsightSnapshot, ViewKind } from '@/model/views'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { formatAxisDate, formatChange, formatTooltipDate } from '@/ui/chart/chartMath'
 import { tooltipContent } from '@/ui/chart/chartSeries'
@@ -47,7 +47,7 @@ interface PointSheetProps {
 
 type Page = 'point' | 'recordings' | 'people'
 
-function openLink(url: string | undefined, viewType: 'insight' | 'recordings' | 'person'): void {
+function openLink(url: string | undefined, viewType: ViewKind | 'recordings' | 'person'): void {
     const safe = url ? safeHttpsUrl(url) : undefined
     if (!safe) {
         return
@@ -132,7 +132,7 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
         setPage(includeRecordings ? 'recordings' : 'people')
         void actors.load(input)
     }
-    const title = formatTooltipDate(point.at, point.interval)
+    const title = point.label ?? formatTooltipDate(point.at, point.interval)
     const maxHeight = Math.round(height * 0.7)
 
     return (
@@ -175,7 +175,10 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
                                     title="Open on web"
                                     detail={scope ? undefined : 'Not available in the demo'}
                                     onPress={() =>
-                                        openLink(viewWebUrl(scope, `/insights/${snapshot.shortId}`), 'insight')
+                                        openLink(
+                                            viewWebUrl(scope, source.web?.path ?? `/insights/${snapshot.shortId}`),
+                                            source.web?.viewType ?? 'insight'
+                                        )
                                     }
                                     disabled={!scope}
                                     chevron={false}
@@ -183,12 +186,14 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
                                 />
                             </View>
                             <View style={styles.chips}>
-                                <Chip
-                                    icon={<InfoIcon size={17} />}
-                                    label="About this chart"
-                                    onPress={() => onOpenAbout(source)}
-                                    testID="point-about"
-                                />
+                                {source.about === false ? null : (
+                                    <Chip
+                                        icon={<InfoIcon size={17} />}
+                                        label="About this chart"
+                                        onPress={() => onOpenAbout(source)}
+                                        testID="point-about"
+                                    />
+                                )}
                                 <CopyValueChip point={point} formatValue={formatValue} />
                             </View>
                         </>
@@ -246,7 +251,7 @@ function SeriesRows({ point, formatValue, selectable, selectedKey, onSelect }: S
                             {selectable && selected ? <CheckIcon size={16} color={colors.ink} /> : null}
                         </View>
                         <Text style={selectable ? styles.rowValueSmall : styles.rowValue}>
-                            {formatValue(row.value)}
+                            {row.formattedValue ?? formatValue(row.value)}
                         </Text>
                         {row.previous ? (
                             <Text style={styles.compare}>{compareText(row, point, formatValue)}</Text>
@@ -396,7 +401,7 @@ function CopyValueChip({
             icon={copied ? <CheckIcon size={16} /> : <CopyIcon size={16} />}
             label={copied ? 'Copied' : 'Copy value'}
             onPress={() => {
-                void Clipboard.setStringAsync(formatValue(top.value)).then(() => setCopied(true))
+                void Clipboard.setStringAsync(top.formattedValue ?? formatValue(top.value)).then(() => setCopied(true))
             }}
             testID="point-copy"
         />
