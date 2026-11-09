@@ -127,19 +127,21 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("api_alias_deleted", "filed_through_the_api", "alias"),
-            ("legacy_alias_deleted", "stored_before_refs_were_canonical", "alias"),
-            ("canonical_deleted_beside_legacy_alias", "stored_before_refs_were_canonical", "canonical"),
+            ("api_alias_deleted", "api", "alias"),
+            ("legacy_alias_deleted", "upper_hex", "alias"),
+            ("canonical_deleted_beside_upper_hex_alias", "upper_hex", "canonical"),
+            ("canonical_deleted_beside_braced_alias", "braced", "canonical"),
+            ("canonical_deleted_beside_urn_alias", "urn", "canonical"),
         ]
     )
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_deleting_one_spelling_of_a_workflow_ref_keeps_the_workflow_and_the_other_file(
-        self, _name: str, origin: str, deleted_row: str, _reload: MagicMock
+        self, _name: str, spelling: str, deleted_row: str, _reload: MagicMock
     ) -> None:
         workflow = HogFlow.objects.create(team=self.team, name="Renewal", created_by=self.user)
         files_url = f"/api/projects/{self.team.id}/file_system/"
         canonical_id = FileSystem.objects.get(team=self.team, type="hog_flow", ref=str(workflow.id)).id
-        if origin == "filed_through_the_api":
+        if spelling == "api":
             created = self.client.post(
                 files_url, {"path": "Renewal copy", "type": "hog_flow", "ref": workflow.id.hex}, format="json"
             )
@@ -147,13 +149,13 @@ class TestWorkflowFolders(APIBaseTest):
             self.assertEqual(created.json()["ref"], str(workflow.id))
             alias_id = created.json()["id"]
         else:
+            stored_ref = {
+                "upper_hex": workflow.id.hex.upper(),
+                "braced": f"{{{workflow.id}}}",
+                "urn": f"urn:uuid:{workflow.id}",
+            }[spelling]
             alias_id = FileSystem.objects.create(
-                team=self.team,
-                path="Renewal copy",
-                depth=1,
-                type="hog_flow",
-                ref=workflow.id.hex.upper(),
-                shortcut=False,
+                team=self.team, path="Renewal copy", depth=1, type="hog_flow", ref=stored_ref, shortcut=False
             ).id
         deleted_id, kept_id = (alias_id, canonical_id) if deleted_row == "alias" else (canonical_id, alias_id)
 

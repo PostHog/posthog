@@ -143,14 +143,19 @@ def canonical_file_system_ref(entry_type: str, ref: str) -> str:
     return _canonical_ref(registration, ref) if registration else ref
 
 
-def file_system_ref_has_spellings(entry_type: str) -> bool:
-    """Whether the lookup field of this type accepts more than one spelling of a key, such as a UUID
-    without hyphens or an integer with leading zeros. A text key matches only itself."""
+def file_system_ref_canonical_pattern(entry_type: str) -> Optional[str]:
+    """A regex that only the canonical spelling of this type's key matches, or None when the lookup field
+    accepts no other spelling. A UUID key also accepts upper case, no hyphens, braces or a `urn:uuid:`
+    prefix, and an integer key accepts a sign or leading zeros. A text key matches only itself."""
     registration = get_file_system_registration(entry_type)
     if registration is None:
-        return False
-    model = apps.get_model(registration.app_label, registration.model_name)
-    return isinstance(model._meta.get_field(registration.lookup_field), (UUIDField, IntegerField))
+        return None
+    field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(registration.lookup_field)
+    if isinstance(field, UUIDField):
+        return r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    if isinstance(field, IntegerField):
+        return r"^(0|-?[1-9][0-9]*)$"
+    return None
 
 
 def _ref_translation_queryset(

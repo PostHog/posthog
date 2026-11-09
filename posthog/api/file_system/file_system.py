@@ -24,7 +24,7 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.functions import Concat, Lower, Replace
+from django.db.models.functions import Concat, Lower
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -39,7 +39,7 @@ from posthog.api.file_system.access_levels import (
     canonical_file_system_ref,
     denied_short_id_refs,
     entries_missing_access_level,
-    file_system_ref_has_spellings,
+    file_system_ref_canonical_pattern,
     filter_workflow_files_by_access_level,
 )
 from posthog.api.file_system.deletion import (
@@ -162,29 +162,25 @@ class FileSystemFrequentQuerySerializer(serializers.Serializer):
     )
 
 
-def _normalized_ref_key(ref: str) -> str:
-    return ref.replace("-", "").lower().lstrip("0")
-
-
 def _stored_spellings(team_id: int, file_type: str, refs: set[str]) -> dict[str, set[str]]:
     """For each canonical ref, every stored ref of this type that reaches the same object.
 
-    Rows written before refs were canonicalized can spell a UUID without hyphens or in upper case,
-    or an integer with leading zeros. Lowercased, without hyphens and without leading zeros, they
-    match the canonical key, which narrows the candidates for the canonical check to confirm. The
-    match expression has no index, so one query covers every ref of the type in a deletion batch.
+    Rows written before refs were canonicalized can spell a key in any form its lookup field accepts,
+    such as a UUID in upper case or in braces, or an integer with leading zeros. One query per type finds
+    the rows not in canonical spelling, so it covers a whole deletion batch, and the canonical check maps
+    each of them to its object.
     """
     spellings = {ref: {ref} for ref in refs}
-    if not refs or not file_system_ref_has_spellings(file_type):
+    canonical_pattern = file_system_ref_canonical_pattern(file_type)
+    if not refs or canonical_pattern is None:
         return spellings
-    candidates = (
-        FileSystem.objects.filter(team_id=team_id, type=file_type, shortcut=False)
-        .annotate(normalized_ref=Func(Lower(Replace("ref", Value("-"), Value(""))), Value("0"), function="LTRIM"))
-        .filter(normalized_ref__in={_normalized_ref_key(ref) for ref in refs})
+    other_spellings = (
+        FileSystem.objects.filter(team_id=team_id, type=file_type, shortcut=False, ref__isnull=False)
+        .exclude(ref__regex=canonical_pattern)
         .values_list("ref", flat=True)
         .distinct()
     )
-    for stored in candidates:
+    for stored in other_spellings:
         canonical = canonical_file_system_ref(file_type, stored)
         if canonical in spellings:
             spellings[canonical].add(stored)
@@ -1163,7 +1159,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for (team_id, file_type, ref, _row_key), group in sorted(
             entries_by_group.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "", kv[0][3])
         ):
-            if ref is None:
+            if not ref:
                 # No ref means no shared backing object, so there is no sibling set to count and
                 # nothing for a concurrent delete to race us to. Locking on (team, type, NULL)
                 # would instead row-lock every ref-less row of this type in the team for the rest
