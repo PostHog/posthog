@@ -37,12 +37,14 @@ from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
     FailMaterializationInputs,
+    GetDAGStructureInputs,
     MaterializeViewInputs,
     PrepareQueryableTableInputs,
     QualityBlockMaterializationInputs,
     SucceedMaterializationInputs,
     create_data_modeling_job_activity,
     fail_materialization_activity,
+    get_dag_structure_activity,
     materialize_view_activity,
     prepare_queryable_table_activity,
     quality_block_materialization_activity,
@@ -484,6 +486,36 @@ class TestFailMaterializationActivity:
         assert system_props["last_run_job_id"] == str(ajob.id)
         assert system_props["last_run_error"] == "Query failed: timeout"
         assert "last_run_at" in system_props
+
+    async def test_unknown_table_revert_marks_node_ephemeral(
+        self, activity_environment, ateam, anode, ajob, asaved_query, adag
+    ):
+        asaved_query.is_materialized = True
+        await database_sync_to_async(asaved_query.save)(update_fields=["is_materialized"])
+        ajob.parent_workflow_id = "execute-dag-workflow"
+        await database_sync_to_async(ajob.save)(update_fields=["parent_workflow_id"])
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            error="Unknown table old_source",
+        )
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+        ):
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        await database_sync_to_async(anode.refresh_from_db)()
+        dag = await activity_environment.run(
+            get_dag_structure_activity,
+            GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id)),
+        )
+        assert asaved_query.is_materialized is False
+        assert anode.type == NodeType.VIEW
+        assert str(anode.id) in dag.ephemeral_nodes
 
     @pytest.mark.parametrize(
         "previous_error,error",
