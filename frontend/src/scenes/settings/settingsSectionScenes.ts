@@ -39,16 +39,6 @@ export function settingsSectionSceneForPath(path: string): SettingsSectionScene 
     )
 }
 
-/**
- * The page a section with its own scene opens at, or null for a section the settings page renders.
- * Takes a `/settings/:section` id, which can carry either the environment or the project prefix.
- */
-export function settingsSectionScenePage(sectionId: string): string | null {
-    const toProjectId = (id: string): string => id.replace(/^environment-/, 'project-')
-    const scene = SETTINGS_SECTION_SCENES.find((s) => toProjectId(s.sectionId) === toProjectId(sectionId))
-    return scene?.url ?? null
-}
-
 export function settingsSectionSceneScope(sectionId: SettingSectionId): string | undefined {
     const scene = SETTINGS_SECTION_SCENES.find((s) => s.sectionId === sectionId)
     return scene ? SettingLevelNames[scene.level] : undefined

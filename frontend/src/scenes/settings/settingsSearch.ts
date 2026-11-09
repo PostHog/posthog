@@ -2,7 +2,6 @@ import FuseClass from 'fuse.js'
 import { type ReactNode, isValidElement } from 'react'
 
 import { createFuse } from 'lib/utils/fuseSearch'
-import { urls } from 'scenes/urls'
 
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId } from './types'
 
@@ -20,7 +19,6 @@ export interface SearchIndexEntry {
     keywords: string
     sectionKeywords: string
     description: string
-    to: string
 }
 
 // Helping kea-typegen navigate the exported default class for Fuse
@@ -88,7 +86,6 @@ export function buildSettingsSearchIndex(
                 settingTitle: sectionTitle,
                 keywords: '',
                 description: '',
-                to: section.to ?? urls.settings(section.id),
             })
             continue
         }
@@ -104,7 +101,6 @@ export function buildSettingsSearchIndex(
                 settingTitle: indexedTitle(setting.title, setting.id),
                 keywords: keywordText(setting.keywords),
                 description: settingDescription(setting),
-                to: urls.settings(section.id, setting.id),
             })
         }
     }

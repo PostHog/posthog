@@ -104,15 +104,6 @@ describe('settingsSearch', () => {
         expect(search('snippet version')).toContain('js-snippet-version')
     })
 
-    test.each([
-        ['a section that links to a page of its own at that page', 'organization-billing', '/organization/billing'],
-        ['a setting at its anchor in its section', 'replay-retention', '/settings/environment-replay#replay-retention'],
-    ])('opens %s', (_description, settingId, expectedTo) => {
-        const result = buildSettingsSearchIndex(SECTIONS, () => true).find((entry) => entry.settingId === settingId)
-
-        expect(result?.to).toBe(expectedTo)
-    })
-
     it('leaves out a setting that is not visible to this user', () => {
         const isVisible = (setting: Setting): boolean => setting.id !== 'organization-ai-training-opt-out'
 
