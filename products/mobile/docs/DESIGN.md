@@ -14,6 +14,14 @@ Keep the 1024px source images at their existing scale; the plugin supplies Andro
 spacing. Icon changes need a new native build and cannot ship through an over-the-air update.
 See [Android's adaptive icon guidelines](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive).
 
+## Splash and in-app branding
+
+The native splash follows the device appearance. The animated splash and in-app logos
+use the app's Appearance setting. Light uses the gradient artwork. Dark uses the
+[official white artwork](https://brand.posthog.com/logo) for the logomark and landscape logo.
+The checked-in artwork comes from `@posthog/brand`. With `rsvg-convert` installed, run
+`pnpm brand:generate app` from `products/mobile` to refresh the in-app SVGs and dark splash PNG.
+
 ## Tokens
 
 The app follows the device's light or dark setting unless the Appearance setting in Settings picks Light or Dark; `useColorSchemeName` combines that override (`appearanceStore`) with the device scheme.
@@ -28,7 +36,6 @@ Scheme-independent values live in `src/ui/tokens.ts`. Colors and everything deri
   `surface` for cards, pills, sheets, floating cards, text fields and menus;
   `onInk` for text and icons on an `ink` fill; `onAccent` for text and icons on an `accent` fill.
   `white` is literal white in both schemes, only for text on a fixed color, such as avatar initials.
-  The logomark's head and the wordmark use `ink`, so they stay visible on a dark background.
 - `accent` (`accentHover` when pressed) fills the primary call to action: Sign in, Hand off, Send a decision.
   `orange` stays for warnings, failures, destructive actions, the P0/P1 priority and the report `alert` accent.
 - Some roles shared `border` or `ink` in light but need their own value in dark:
