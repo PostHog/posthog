@@ -40,15 +40,12 @@ export const isLiquidRenderTimeLimitError = (error: unknown): boolean =>
 // the render context with the same check against thread CPU time, and keeps the LiquidJS error message.
 const cpuTimeRenderLimit = (limitMs: number): Context['renderLimit'] => {
     const deadline = threadCpuMs() + limitMs
-    const limiter = {
-        use: (): void => {},
-        check: (): void => {
-            if (threadCpuMs() > deadline) {
-                throw new Error(LIQUID_RENDER_LIMIT_MESSAGE)
-            }
-        },
+    const check = (): void => {
+        if (threadCpuMs() > deadline) {
+            throw new Error(LIQUID_RENDER_LIMIT_MESSAGE)
+        }
     }
-    return limiter as unknown as Context['renderLimit']
+    return { check } as unknown as Context['renderLimit']
 }
 
 export class LiquidRenderBudget {
