@@ -186,6 +186,8 @@ def _stored_spellings(team_id: int, file_type: str, refs: set[str]) -> dict[str,
         .distinct()
     )
     for stored in other_spellings:
+        if stored is None:
+            continue
         canonical = canonical_file_system_ref(file_type, stored)
         if canonical in spellings:
             spellings[canonical].add(stored)

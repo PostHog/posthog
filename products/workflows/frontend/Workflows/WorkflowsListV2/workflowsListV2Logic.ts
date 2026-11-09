@@ -205,10 +205,10 @@ function parseJsonOr(raw: string, fallback: unknown): unknown {
 export interface workflowsListV2LogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     sortedItems: FileSystemEntry[] // projectTreeDataLogic
-    filesByRef: Record<string, FileSystemEntry>
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     facets: FacetDefinition<WorkflowListRow>[]
+    filesByRef: Record<string, FileSystemEntry>
     filteredRows: WorkflowListRow[]
     hasHealthFilter: boolean
     isUnfilteredAutomationView: boolean
@@ -574,7 +574,10 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         },
     })),
     selectors({
-        filesByRef: [(s) => [s.sortedItems], workflowFilesByRef],
+        filesByRef: [
+            (s) => [s.sortedItems],
+            (sortedItems: FileSystemEntry[]): Record<string, FileSystemEntry> => workflowFilesByRef(sortedItems),
+        ],
         hasHealthFilter: [
             (s) => [s.value],
             (value: FacetSearchValue): boolean => value.filters.some((filter) => filter.facet === 'health'),
