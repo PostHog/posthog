@@ -48,9 +48,9 @@ _POOL_KEYS = frozenset({"source", "size", "name"})
 class ReasonLimits:
     """The longest reason, in characters, of an entry in each tier."""
 
-    top: int = 240
-    worth_a_look: int = 160
-    later: int = 100
+    top: int = 140
+    worth_a_look: int = 110
+    later: int = 80
 
 
 @frozen
