@@ -7,6 +7,7 @@ sends its event once, so a late chart there would be a second message.
 """
 
 import datetime as dt
+from dataclasses import replace
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -32,7 +33,7 @@ with workflow.unsafe.imports_passed_through():
         InsightChartInputs,
         render_platform_insight_chart_activity,
     )
-    from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest, SourceKind
+    from products.alerts_platform.backend.facade.contracts import NO_LATE_IMAGE, AlertDeliveryRequest, SourceKind
     from products.alerts_platform.backend.facade.platform_metrics import (
         ChartRenderOutcome,
         increment_chart_renders,
@@ -61,12 +62,10 @@ def add_late_platform_insight_chart_activity(inputs: AddLateChartInputs) -> int:
     """Adds the chart to the Slack messages the firing opened, and returns how many it edited."""
     from products.alerts_platform.backend.facade.delivery import add_late_image  # noqa: PLC0415
 
-    edited = 0
-    waiting = 0
-    for request in inputs.deliveries:
-        result = add_late_image(request, chart_detail(inputs.chart))
-        edited += result.edited
-        waiting += result.waiting
+    # The evaluation's request names every part, and the delivery workflow sends each part on its own.
+    parts = [replace(request, part=part) for request in inputs.deliveries for part in range(max(request.parts, 1))]
+    result = sum((add_late_image(part, chart_detail(inputs.chart)) for part in parts), NO_LATE_IMAGE)
+    edited, waiting = result.edited, result.waiting
     # A destination the firing went to through a HogFunction never gets a message to edit, so it
     # waits only while nothing is edited, and the window ends the wait for an alert that has only those.
     if not edited and waiting:

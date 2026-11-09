@@ -405,15 +405,21 @@ def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -
     )
     if image is None:
         return NO_LATE_IMAGE
+
     # A firing this alert already sent through its HogFunctions has no native message for an emitted-events
     # destination to edit, so that destination does not wait for one.
-    natively_sent = tuple(transition for transition in firings if not _sent_through_hog_functions(request, transition))
+    @cache
+    def natively_sent() -> tuple[AnnouncedTransition, ...]:
+        return tuple(transition for transition in firings if not _sent_through_hog_functions(request, transition))
+
     thread_store = DatabaseThreadStore(request.team_id)
     result = NO_LATE_IMAGE
     for subscribed_destination in _destinations(request, firing_event, _platform_destinations(request)):
         transport_class = _TRANSPORTS.get(subscribed_destination.data["type"])
-        transitions = natively_sent if subscribed_destination.receives_emitted_events else firings
-        if transport_class is None or not issubclass(transport_class, RootImageEditor) or not transitions:
+        if transport_class is None or not issubclass(transport_class, RootImageEditor):
+            continue
+        transitions = natively_sent() if subscribed_destination.receives_emitted_events else firings
+        if not transitions:
             continue
         try:
             result += add_late_image_to_target(

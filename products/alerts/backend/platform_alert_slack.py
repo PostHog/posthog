@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from posthog.slack.channels import clip_text
+from posthog.slack.channels import clip_text, image_block
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import absolute_uri
 
@@ -99,7 +99,7 @@ def render_insight_slack_message(
     fallback = f"{kind} ‘{name}’ triggered"
     blocks = _slack_blocks(
         chart={
-            **({"type": "image", "image_url": image.url, "alt_text": image.alt_text} if image else {"type": "divider"}),
+            **(image_block(image.url, image.alt_text) if image else {"type": "divider"}),
             "block_id": SLACK_IMAGE_SLOT_BLOCK_ID,
         },
         alert_id=str(alert_id),
