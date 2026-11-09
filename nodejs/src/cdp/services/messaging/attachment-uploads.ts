@@ -149,7 +149,7 @@ export class AttachmentUploads {
         try {
             return await settleBeforeAbortEvenWhileCredentialsStall(
                 deadline,
-                this.verifySend(store, teamId, refs, bodies)
+                this.verifySend(store, teamId, refs, bodies, deadline)
             )
         } catch (error) {
             if (deadline.aborted) {
@@ -163,13 +163,15 @@ export class AttachmentUploads {
         store: AttachmentStore,
         teamId: number,
         refs: AttachmentRef[],
-        bodies: () => Promise<string[]>
+        bodies: () => Promise<string[]>,
+        deadline: AbortSignal
     ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
         let verified: Awaited<ReturnType<AttachmentStore['acceptForSend']>>
         try {
             const needsUntil = new Date(Date.now() + SEND_NEEDS_FILES_FOR_MS)
-            verified = await store.acceptForSend(teamId, refs, needsUntil)
+            verified = await store.acceptForSend(teamId, refs, needsUntil, deadline)
         } catch (error) {
+            deadline.throwIfAborted()
             if (error instanceof AttachmentStoreUnavailableError) {
                 return { refused: unavailable(teamId, 'Could not verify the files of a send', error) }
             }
@@ -178,12 +180,14 @@ export class AttachmentUploads {
         if ('refusal' in verified) {
             return { refused: { status: 400, body: { error: verified.refusal, sha256: verified.sha256 } } }
         }
+        deadline.throwIfAborted()
         let messageBodies: string[]
         try {
             messageBodies = await bodies()
         } catch (error) {
             return { refused: unavailable(teamId, 'Could not load the email step of a send', error) }
         }
+        deadline.throwIfAborted()
         const sizes = verified.files.map((file) => file.sizeBytes)
         const attachmentBytes = sizes.reduce((total, size) => total + size, 0)
         const messageBytes = estimateMessageBytes(sizes, messageBodies)

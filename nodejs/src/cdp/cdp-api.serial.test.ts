@@ -50,7 +50,12 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
-import { ATTACHMENT_LIFETIME_MS, S3AttachmentStore, buildAttachmentStore } from './services/messaging/attachment-store'
+import {
+    ATTACHMENT_LIFETIME_MS,
+    AcceptedForSend,
+    S3AttachmentStore,
+    buildAttachmentStore,
+} from './services/messaging/attachment-store'
 import {
     ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX,
     ATTACHMENT_VERIFICATION_DEADLINE_MS,
@@ -2953,6 +2958,13 @@ describe('CDP API', () => {
             })
 
             const slowStoreCallMs = ATTACHMENT_VERIFICATION_DEADLINE_MS * 0.8
+            const storeCallsAfterTheDeadline: string[] = []
+            const abandonedWorkRan = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+            const heldUntilReleased = <T>(): { held: Promise<T>; release: (value: T) => void } => {
+                let release!: (value: T) => void
+                const held = new Promise<T>((resolve) => (release = resolve))
+                return { held, release }
+            }
             it.each<[string, () => Promise<{ options?: SendOptions; fix: () => void | Promise<void> }>]>([
                 [
                     'no attachment store',
@@ -2994,6 +3006,56 @@ describe('CDP API', () => {
                     },
                 ],
                 [
+                    'an attachment store whose HEAD outlasts the deadline, on a file that needs keeping',
+                    () => {
+                        const { held, release } = heldUntilReleased<void>()
+                        const outlastingHead = (
+                            jest.spyOn(attachmentStore.s3, 'send') as jest.SpyInstance
+                        ).mockImplementation(async (command: unknown) => {
+                            if (command instanceof HeadObjectCommand) {
+                                await held
+                                return {
+                                    ContentLength: invoice.size,
+                                    LastModified: new Date(Date.now() - ATTACHMENT_LIFETIME_MS),
+                                }
+                            }
+                            storeCallsAfterTheDeadline.push((command as object).constructor.name)
+                            return {}
+                        })
+                        return Promise.resolve({
+                            fix: async () => {
+                                release()
+                                await abandonedWorkRan()
+                                outlastingHead.mockRestore()
+                            },
+                        })
+                    },
+                ],
+                [
+                    'an attachment store that answers only after the deadline',
+                    () => {
+                        const { held, release } = heldUntilReleased<AcceptedForSend>()
+                        const answersLate = { acceptForSend: () => held } as unknown as S3AttachmentStore
+                        api['attachmentUploads'] = attachmentsFor(`${team.id}`, answersLate)
+                        return Promise.resolve({
+                            fix: async () => {
+                                release({
+                                    files: [
+                                        {
+                                            sha256: invoice.sha256,
+                                            filename: 'invoice.pdf',
+                                            contentType: 'application/pdf',
+                                            sizeBytes: invoice.size,
+                                        },
+                                    ],
+                                })
+                                await abandonedWorkRan()
+                                await restoreStore()
+                            },
+                        })
+                    },
+                ],
+                [
                     'the template lookup of the email step fails',
                     async () => {
                         const options = await storedTemplateRendering({ html: '<p>{{ variables.chunk }}</p>' }, 'x')
@@ -3007,21 +3069,26 @@ describe('CDP API', () => {
                     },
                 ],
             ])(
-                'answers 503 within the deadline when %s, warns, and its key sends once that is fixed',
+                'answers 503 within the deadline when %s, warns, stops checking, and its key sends once that is fixed',
                 async (_name, arrange) => {
                     const warn = jest.spyOn(logger, 'warn')
+                    storeCallsAfterTheDeadline.length = 0
                     const { options, fix } = await arrange()
                     const key = newKey()
 
                     const startedAt = Date.now()
                     const refused = await sendWithFiles(key, [reference(invoice)], options)
                     const refusedAfterMs = Date.now() - startedAt
+                    const bodiesLoadedAfterTheAnswer = jest.spyOn(api as any, 'messageBodies')
                     await fix()
+                    const bodiesLoadedBeforeTheRetry = bodiesLoadedAfterTheAnswer.mock.calls.length
                     const retried = await sendWithFiles(key, [reference(invoice)], options)
 
                     expect(refused.status).toBe(503)
                     expect(refused.body).toEqual({ error: 'delivery_unavailable' })
                     expect(refusedAfterMs).toBeLessThan(ATTACHMENT_VERIFICATION_DEADLINE_MS + 1_000)
+                    expect(storeCallsAfterTheDeadline).toEqual([])
+                    expect(bodiesLoadedBeforeTheRetry).toBe(0)
                     expect(warn).toHaveBeenCalledWith(
                         '⚠️',
                         expect.any(String),
