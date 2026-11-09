@@ -1,10 +1,10 @@
 import { useLocalSearchParams } from 'expo-router'
 import type { ReactElement } from 'react'
 
+import { LiveScreen } from '@/features/live/LiveScreen'
 import { viewEntryParam } from '@/features/views/viewRoutes'
-import { WebAnalyticsScreen } from '@/features/views/webAnalytics/WebAnalyticsScreen'
 
-export default function WebAnalyticsRoute(): ReactElement {
+export default function LiveRoute(): ReactElement {
     const { from } = useLocalSearchParams<{ from?: string }>()
-    return <WebAnalyticsScreen from={viewEntryParam(from)} />
+    return <LiveScreen from={viewEntryParam(from)} chrome="stack" />
 }

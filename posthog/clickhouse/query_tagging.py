@@ -300,7 +300,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
-            NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            NodeKind.MCP_DASHBOARD_QUERY
+            | NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
             | NodeKind.MCP_MODEL_BREAKDOWN_QUERY
             | NodeKind.MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
