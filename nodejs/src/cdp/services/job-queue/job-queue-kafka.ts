@@ -60,9 +60,8 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
         await this.kafkaConsumer.connect(async (messages) => {
-            // A batch error crashes the worker, and the consumer's shutdown path can throw again and replace
-            // the original error. Log the batch here so that the crash log names the partitions, offsets and
-            // functions that a restart will replay.
+            // A batch error crashes the worker, and the consumer logs only the error. Log the batch too, so that
+            // on-call can find the partitions, offsets and functions that a restart replays.
             try {
                 const { backgroundTask } = await this.consumeKafkaBatch(messages)
                 return {
@@ -264,7 +263,6 @@ export function serializeInvocation(invocation: CyclotronJobInvocation): Cyclotr
 
 export type KafkaBatchSummary = {
     partitions: { partition: number; firstOffset: number; lastOffset: number; messages: number }[]
-    // `teamId:functionId` pairs read from the message headers, so the summary needs no payload parsing.
     functions: string[]
 }
 
@@ -288,7 +286,7 @@ export function summarizeKafkaBatch(messages: Message[]): KafkaBatchSummary {
         }
 
         const headers = parseKafkaHeaders(message.headers)
-        functions.add(`${headers.teamId ?? 'unknown'}:${headers.functionId ?? 'unknown'}`)
+        functions.add(`${headers.teamId ?? 'unknown'}:${headers.functionId ?? headers.hogFunctionId ?? 'unknown'}`)
     }
 
     return {

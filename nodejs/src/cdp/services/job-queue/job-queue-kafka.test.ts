@@ -17,13 +17,12 @@ describe('CyclotronJobQueueKafka', () => {
             topic: 'cdp_cyclotron_hog',
             partition,
             offset,
-            // An empty value makes the batch throw before any invocation runs.
             value: null,
             size: 0,
             headers: [{ teamId: Buffer.from(teamId) }, { functionId: Buffer.from(functionId) }],
         })
 
-        it('logs the partitions, offsets and functions of the batch and rethrows the error', async () => {
+        const startQueue = async (backgroundTask: () => Promise<unknown>): Promise<EachBatch> => {
             let eachBatch: EachBatch | undefined
             jest.mocked(createKafkaConsumer).mockReturnValue({
                 connect: (callback: EachBatch) => {
@@ -31,27 +30,49 @@ describe('CyclotronJobQueueKafka', () => {
                     return Promise.resolve()
                 },
             } as any)
-            const loggerError = jest.spyOn(logger, 'error')
-
             const queue = new CyclotronJobQueueKafka(
                 undefined,
                 { CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: false, CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' },
                 500
             )
-            await queue.startAsConsumer('hog', () => Promise.resolve({ backgroundTask: Promise.resolve() }))
+            await queue.startAsConsumer('hog', () => Promise.resolve({ backgroundTask: backgroundTask() }))
+            return eachBatch!
+        }
 
-            await expect(
-                eachBatch!([
-                    message(7, 120, '2', 'fn-b'),
-                    message(3, 41, '1', 'fn-a'),
-                    message(7, 118, '2', 'fn-b'),
-                    message(7, 119, '1', 'fn-a'),
-                ])
-            ).rejects.toThrow('Bad message')
+        const runBatch = async (eachBatch: EachBatch, messages: Message[]): Promise<void> => {
+            const result = await eachBatch(messages)
+            await result?.backgroundTask
+        }
+
+        it.each([
+            {
+                stage: 'batch',
+                // An empty value makes the batch throw before any invocation runs.
+                value: null,
+                backgroundTask: () => Promise.resolve(),
+                error: 'Bad message',
+            },
+            {
+                stage: 'background_task',
+                value: Buffer.from(JSON.stringify({ id: 'inv', teamId: 1, functionId: 'fn-a', queue: 'hog' })),
+                backgroundTask: () => Promise.reject(new Error('background task failed')),
+                error: 'background task failed',
+            },
+        ])('logs the $stage failure with its partitions, offsets and functions and rethrows it', async (c) => {
+            const eachBatch = await startQueue(c.backgroundTask)
+            const loggerError = jest.spyOn(logger, 'error')
+            const messages = [
+                message(7, 120, '2', 'fn-b'),
+                message(3, 41, '1', 'fn-a'),
+                message(7, 118, '2', 'fn-b'),
+                message(7, 119, '1', 'fn-a'),
+            ].map((m) => ({ ...m, value: c.value }))
+
+            await expect(runBatch(eachBatch, messages)).rejects.toThrow(c.error)
 
             expect(loggerError).toHaveBeenCalledWith('🔄', 'cdp_cyclotron_kafka_batch_failed', {
-                stage: 'batch',
-                error: expect.stringContaining('Bad message'),
+                stage: c.stage,
+                error: expect.stringContaining(c.error),
                 topic: 'cdp_cyclotron_hog',
                 partitions: [
                     { partition: 3, firstOffset: 41, lastOffset: 41, messages: 1 },
