@@ -443,8 +443,6 @@ export class CyclotronV2Worker {
             released = true
         }
 
-        // Heartbeats continue until the release write settles, so a slow write can't let the janitor take the job back
-        // and run it twice.
         const releaseWrite =
             <A extends unknown[]>(method: string, write: (...args: A) => Promise<unknown>) =>
             async (...args: A): Promise<void> => {

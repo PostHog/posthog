@@ -33,7 +33,6 @@ const jobLatenessHistogram = new Histogram({
     buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900],
 })
 
-// Counted from the start of the stop, to fit one send with files (20 s deadline) in the default 30 s termination grace.
 export const CONSUMER_STOP_DEADLINE_MS = 25_000
 
 async function settleBefore(deadline: number, work: Promise<unknown>): Promise<boolean> {
@@ -68,7 +67,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
-    // Tracked per write: a batch's writes run in a fail-fast Promise.all, so the batch can reject while siblings write.
     private resultWrites = new PromiseScheduler()
     private stopDeadline?: number
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
@@ -178,7 +176,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 writes: this.resultWrites.promises.size,
             })
         }
-        // pg's Pool.end() waits for every checked-out client, so a blocked query would hold the stop forever.
         if (!(await settleBefore(deadline, worker.disconnect()))) {
             logger.warn('CyclotronV2 stop deadline passed before the pool closed')
         }
@@ -191,7 +188,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         }
     }
 
-    // A reschedule to now can be claimed again before its write returns, so only this claim is removed.
     private forgetPendingJob(job: CyclotronV2DequeuedJob): void {
         if (this.pendingJobs.get(job.id) === job) {
             this.pendingJobs.delete(job.id)
@@ -203,7 +199,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         if (!manager) {
             return
         }
-        // A batch that outlived the consumer's stop deadline can still hold this pool in bulkCreateJobs.
         if (this.stopDeadline === undefined) {
             await manager.disconnect()
         } else if (!(await settleBefore(this.stopDeadline, manager.disconnect()))) {
@@ -384,7 +379,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 } catch (err) {
                     const message = err instanceof Error ? err.message : String(err)
                     if (message.includes('already released')) {
-                        // Benign race: the release write settled first, so the wrapper refuses the heartbeat.
                         logger.debug('CyclotronV2 heartbeat skipped for released job', { id: inv.id })
                     } else {
                         // Real failure (connection error, pool exhaustion, query timeout) —
@@ -404,7 +398,6 @@ export function reportResultWriteFailure(queue: string, error: unknown): void {
     logger.warn('CyclotronV2 failed to write batch results', { queue, error: String(error) })
 }
 
-// A deferral moves the job's scheduled time, so a deferred job is late from when it first became due.
 function dueTimeOf(
     job: CyclotronV2DequeuedJob,
     invocation: CyclotronJobInvocation

@@ -16,8 +16,6 @@ import { settleAllThenThrowFirst } from '../utils/settle-all'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
 
-// A send's result is written within this long of its deadline, so a stopping pod still writes it before the consumer's
-// stop deadline. Calls still running after it keep the send's reservation, not its result.
 const CALLS_SETTLE_BEFORE_WRITE_MS = 3_000
 
 export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
@@ -43,8 +41,6 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         return results
     }
 
-    // A send with files leaves its batch once admitted, so its downloads never hold the next dequeue. The returned
-    // background task covers it, so the job queue's stop waits for it as for any result write.
     public override async processBatch(
         invocations: CyclotronJobInvocation[]
     ): Promise<{ backgroundTask: Promise<any>; invocationResults: CyclotronJobInvocationResult[] }> {
@@ -65,7 +61,6 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
             }
         }
         const besideTheBatch = [deferrals.length ? this.deferWithHeartbeat(deferrals) : Promise.resolve(), ...sends]
-        // Settled results never reject, so a send that fails while the plain batch runs leaves no unhandled rejection.
         const besideTheBatchSettled = Promise.allSettled(besideTheBatch)
 
         let batch: Awaited<ReturnType<CdpCyclotronWorkerHogFlow['processBatch']>>
@@ -105,7 +100,6 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         await backgroundTask
     }
 
-    // Only a send with files has calls to wait for, so a plain batch writes at once.
     protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
         await callsSettledWithin(CALLS_SETTLE_BEFORE_WRITE_MS)
         await super.queueInvocationResults(results)
@@ -145,7 +139,6 @@ function deferral(invocation: CyclotronJobInvocation): { invocation: CyclotronJo
     }
 }
 
-// The deferral state only spaces deferrals in a row and measures their lateness, so an admitted send drops it.
 function withoutDeferralState(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
     if (invocation.queueMetadata?.attachmentDeferrals === undefined) {
         return invocation

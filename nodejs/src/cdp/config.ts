@@ -215,8 +215,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: string
     CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: string
     CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: number
-    // The email worker runs sends with files beside its batches, at most this many at once. The memory they may
-    // reserve is this fraction of the pod's memory, after an allowance for a full batch without files.
     CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: number
     CDP_EMAIL_ATTACHMENTS_MEMORY_FRACTION: number
     // Comma-separated team ids, or "*", that may upload and send files. Empty refuses every team.
