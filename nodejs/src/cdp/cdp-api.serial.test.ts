@@ -2891,13 +2891,19 @@ describe('CDP API', () => {
             )
 
             it.each([
-                ['content whose body fits beside the files', false, 1, true],
-                ['content whose body does not fit beside the files', false, 600_000, false],
+                ['content whose body fits beside the files', false, 1, true, true],
+                ['content whose body does not fit beside the files', false, 600_000, false, true],
                 // The request carries 300 KB, which would fit, and the template renders it twice.
-                ['a template whose rendered body fits beside the files', true, 1, true],
-                ['a template whose rendered body does not fit beside the files', true, 300_000, false],
-            ])('counts the bodies of %s', async (_name, fromTemplate, length, fits) => {
+                ['a template whose rendered body fits beside the files', true, 1, true, true],
+                ['a template whose rendered body does not fit beside the files', true, 300_000, false, true],
+                ['a template whose step cannot be built at accept, as no body', true, 300_000, true, false],
+            ])('counts the bodies of %s', async (_name, fromTemplate, length, fits, buildsAtAccept) => {
                 const chunk = 'x'.repeat(length)
+                if (!buildsAtAccept) {
+                    jest.spyOn(api['hogFlowFunctionsService'], 'buildHogFunction').mockRejectedValueOnce(
+                        new Error('template could not be built')
+                    )
+                }
                 let options: Parameters<typeof sendWithFiles>[2]
                 if (fromTemplate) {
                     await insertHogFunctionTemplate(hub.postgres, emailTemplate)
@@ -2930,6 +2936,7 @@ describe('CDP API', () => {
                 if (fits) {
                     expect(res.status).toBe(202)
                     expect(res.body).toMatchObject({ attachment_count: 1, attachment_bytes: large.size })
+                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
                 } else {
                     expect(res.status).toBe(400)
                     expect(res.body).toEqual({
