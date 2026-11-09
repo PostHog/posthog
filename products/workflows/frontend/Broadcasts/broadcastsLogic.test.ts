@@ -228,11 +228,15 @@ describe('broadcastsLogic', () => {
     })
 
     it('drops only the run statuses when the list reloads, keeping the tag and counts on screen', () => {
-        logic.actions.setRowDetails(LIVE.id, { latestBatchJob: null, totals: {}, batchJobStatuses: ['active'] })
+        logic.actions.setRowDetails(LIVE.id, {
+            latestBatchJob: RUN,
+            totals: { email_sent: 7 },
+            batchJobStatuses: ['active'],
+        })
 
         logic.actions.loadBroadcasts()
 
-        expect(logic.values.rowDetailsById[LIVE.id]).toEqual({ latestBatchJob: null, totals: {} })
+        expect(logic.values.rowDetailsById[LIVE.id]).toEqual({ latestBatchJob: RUN, totals: { email_sent: 7 } })
     })
 
     it('flags a failed load and clears the flag on the next attempt', async () => {
@@ -244,8 +248,10 @@ describe('broadcastsLogic', () => {
 
         expect(logic.values.loadFailed).toBe(true)
         expect(toastError).toHaveBeenCalledWith("Couldn't load broadcasts. Refresh the page to try again.")
+        useMocks({ get: { '/api/projects/:team_id/hog_flows/': listResolver } })
         logic.actions.loadBroadcasts()
         expect(logic.values.loadFailed).toBe(false)
+        await expectLogic(logic).toDispatchActions(['loadBroadcastsSuccess'])
     })
 
     describe('saving a row’s tags', () => {
@@ -273,13 +279,7 @@ describe('broadcastsLogic', () => {
         ])(
             'shows the edit at once and stores the saved tags, reloading only under a tag filter ($tagFilter)',
             async ({ tagFilter, reloads }) => {
-                logic.actions.setFiltersFromUrl({
-                    search: '',
-                    status: 'all',
-                    createdBy: null,
-                    tags: tagFilter,
-                    page: 1,
-                })
+                logic.actions.setFiltersFromUrl({ ...logic.values.filters, tags: tagFilter })
                 await expectLogic(logic).toDispatchActions(['loadBroadcastsSuccess'])
                 const loadsBefore = listed.length
                 saveResponse = { updated: [{ id: DRAFT.id, tags: ['vip', 'new'] }], skipped: [] }
