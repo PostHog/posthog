@@ -77,11 +77,11 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
 ])
 
 // The email service keeps three values for one send in the job's stored metadata: teamCapped when the team sending
-// cap delays it, and attachmentLoadTries and sendBudgetClaimed while its files fail to load. The actions after it in
+// cap delays it, and attachmentLoadTries and teamBudgetClaimed while its files fail to load. The actions after it in
 // the same dequeue start from this executor's result, so all three stay off them. Otherwise a later email would count
-// its queue wait as a cap delay, would start with the earlier email's spent load retries, and would skip the sending
-// limits the earlier email paid.
-const PER_SEND_METADATA_KEYS = ['teamCapped', 'attachmentLoadTries', 'sendBudgetClaimed'] as const
+// its queue wait as a cap delay, would start with the earlier email's spent load retries, and would skip the team
+// budget the earlier email paid.
+const PER_SEND_METADATA_KEYS = ['teamCapped', 'attachmentLoadTries', 'teamBudgetClaimed'] as const
 
 function withoutPerSendMetadata(
     metadata: CyclotronJobInvocationHogFlow['queueMetadata']

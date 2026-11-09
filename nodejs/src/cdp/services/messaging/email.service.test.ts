@@ -1534,7 +1534,7 @@ describe('EmailService', () => {
                 ])
             })
 
-            it('charges the sending limits once for a send that retries while its files fail to load', async () => {
+            it('charges the team budget once but paces every try of a send whose files fail to load', async () => {
                 sesAccepts()
                 const claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null, reserved: false })
                 const claimAllOrNothing = jest.fn().mockResolvedValue({ granted: true, retryAfterMs: null })
@@ -1553,7 +1553,7 @@ describe('EmailService', () => {
                 expect(retried.finished).toBe(false)
                 expect(result.finished).toBe(true)
                 expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                expect(claimOrReserve).toHaveBeenCalledTimes(1)
+                expect(claimOrReserve).toHaveBeenCalledTimes(2)
                 expect(claimAllOrNothing).toHaveBeenCalledTimes(1)
             })
 
