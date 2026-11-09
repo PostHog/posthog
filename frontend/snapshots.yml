@@ -12593,9 +12593,9 @@ snapshots:
     scenes-app-inbox-focused-setup--paused-reminder--light:
         hash: v1.k794b7964.41b6bcc6d2de7d68b9bf72f1a3a248c326c44dea7905d7bcc1161ad09526d7e9.QsmJmhJ0CE7F08oOOjP9PhKhV5BDVCvW1CXDWtD5QlI
     scenes-app-inbox-focused-setup--quick-activated--dark:
-        hash: v1.k794b7964.653864650883238be09ff223e227c4aef6d637308cd9cb5337bbd122ba0e16c6.KmAERZYNS8d-FYi019q153Z49JfnWLSi5oewFlizVZs
+        hash: v1.k794b7964.cf4a1a4dcabf3e44d17a86dc6ae17ffa8b3e9ed32c0a0384910ce9e3c4279de1.D5158sGOY1gyeth48lyv2_dVih5F1_67HV7pCMwP7l0
     scenes-app-inbox-focused-setup--quick-activated--light:
-        hash: v1.k794b7964.fd316d377c5a14dc45c7359ea18419d3da11c4c8a9e3c33edb29f7c20c42d82c.8bPWIes64TfbjuoTB-n963_IoRvpIj4q1ZATzDvvUj0
+        hash: v1.k794b7964.eaeeab88bd7ff534fb412547cd1879335f92c77212e794aae2438744c575546c.D0B-BKgWWZ4o4_Im4IKGIv4mqcasTkJPbq00750uSL0
     scenes-app-inbox-focused-setup--quick-activation-failed--dark:
         hash: v1.k794b7964.5be3ea2ca1b0fc3f73bebe7cb6fd6594f8b2464747267e6063c6f40ce3191d49.wbnLZzbhUG9p-lw0leQKJi6gIlb8GXolublF2gAlXx8
     scenes-app-inbox-focused-setup--quick-activation-failed--light:
@@ -12733,9 +12733,9 @@ snapshots:
     scenes-app-inbox-scene--empty-with-many-scouts--light:
         hash: v1.k794b7964.49f146b6f7d911ede15b4132858c7fadee216ba3356602fbbaf22435bc617c61.8uW9y03sO0KCYQr6pAkIkBJuqAnnvIylezQVOXg8oOI
     scenes-app-inbox-scene--guided-onboarding-complete--dark:
-        hash: v1.k794b7964.80a3d8bbd386091f6c17d3de0178ac2bb00c9368a54550ab6d845a37f2417bc3.-LKfuV7PTEBcFCmmHUnfL-Y_IIsCOhofsFlnFzqLUdU
+        hash: v1.k794b7964.2a9b8db252d19dc8612f20731dd1bec6c3fb9750ea381e98ea469fab6b44f067.qZX0MqJ8lYVGAcjz7G1v2a_AdunOVL4xwqfG37SKGVA
     scenes-app-inbox-scene--guided-onboarding-complete--light:
-        hash: v1.k794b7964.476742f0f8472b32d45e3a47a6bca5aed126a66ae353ec3c145eab216e073817.41OeGZz6vcpdt_7YNw3GaQbLWKG4CBSSxOF-plQ6NPw
+        hash: v1.k794b7964.b6aac0b26fd3ee32209a17b3daff0fc7cbd9c4a2abfbcba4b80bab5c0bf7c386.2DKdzB41aOZzWc9oa4ZkXEMuAmOCGvG0bqK-QGtDyxs
     scenes-app-inbox-scene--inbox--dark:
         hash: v1.k794b7964.33cde46dc5e8e5d65c513a98cc9483862750f5cab828cf173f6536676c7b3985.wuWtLhUEqwmgH4rjPJvoF3E8CcjQaqOM2qvXWjzj6N8
     scenes-app-inbox-scene--inbox--light:
