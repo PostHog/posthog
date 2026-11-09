@@ -41,6 +41,7 @@ import { ChartDisplayType, InsightShortId, InsightModel } from '~/types'
 
 import { BIEditorView, DEFAULT_BI_CONFIG, buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { CONNECTION_SAVE_AS_VIEW_REASON } from 'products/data_warehouse/frontend/shared/viewEngine'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
@@ -2127,6 +2128,32 @@ describe('sqlEditorLogic', () => {
 
             expect(openForm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Save as view' }))
             expect(checkIncremental).not.toHaveBeenCalled()
+            openForm.mockRestore()
+        })
+
+        it.each([
+            { source: { connectionId: 'source-id' }, reason: CONNECTION_SAVE_AS_VIEW_REASON },
+            { source: { connectionId: 'source-id', sendRawQuery: true }, reason: CONNECTION_SAVE_AS_VIEW_REASON },
+            { source: { executionTarget: 'managed_trino' as const, sendRawQuery: true }, reason: null },
+            { source: {}, reason: null },
+        ])('gates saving as a view on the query engine ($source)', async ({ source, reason }) => {
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.setQueryInput('SELECT 1 AS value')
+            logic.actions.setSourceQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, ...source },
+            })
+
+            await logic.asyncActions.saveAsView()
+
+            expect(logic.values.saveAsViewDisabledReason).toEqual(reason)
+            expect(openForm).toHaveBeenCalledTimes(reason ? 0 : 1)
             openForm.mockRestore()
         })
 
