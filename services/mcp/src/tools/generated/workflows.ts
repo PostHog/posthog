@@ -24,6 +24,9 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
     handler: async (context: Context, params: z.infer<ReturnType<typeof BroadcastsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.folder !== undefined) {
+            body['folder'] = params.folder
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -112,6 +115,9 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
             async (context: Context, params: z.infer<ReturnType<typeof WorkflowsCreateSchema>>) => {
                 const projectId = await context.stateManager.getProjectId()
                 const body: Record<string, unknown> = {}
+                if (params.folder !== undefined) {
+                    body['folder'] = params.folder
+                }
                 if (params.name !== undefined) {
                     body['name'] = params.name
                 }

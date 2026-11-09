@@ -185,7 +185,7 @@ describe('workflowsListV2Logic', () => {
         )
         logic.actions.setValue({ filters: [{ facet: 'in', value: 'Campaigns', negated: false }], text: '' })
         expect(shownIds(logic)).toEqual([workflow.id])
-        expect(projectTreeDataLogic.values.itemsByRef[`hog_flow::${workflow.id}`].id).toBe('original')
+        expect(logic.values.filesByRef[`hog_flow::${workflow.id}`].id).toBe('original')
     })
 
     it('loads every page of workflows, newest first', async () => {

@@ -530,6 +530,10 @@ describe('WorkflowsScene', () => {
         expect(document.querySelector('input[data-attr="workflows-search"]')).toBeNull()
         await act(async () => {})
         expect(listRequests).toEqual([])
+
+        act(() => router.actions.push(urls.workflows('channels')))
+        await waitFor(() => expect(document.querySelector('[data-attr="workflows-table"]')).toBeNull())
+        expect(workflowsLogic.findMounted()).not.toBeNull()
     })
 
     describe('project folders', () => {

@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.api.file_system.access_levels import filter_workflow_files_by_access_level
 from posthog.constants import AvailableFeature
 from posthog.models.file_system.file_system import FileSystem
@@ -256,23 +258,36 @@ class TestWorkflowFolders(APIBaseTest):
         reloaded = self.client.get(f"{files_url}{entry['id']}/")
         self.assertEqual(reloaded.json()["path"], "Campaigns/Retention/Welcome email")
 
+    @parameterized.expand(
+        [
+            ("_create_in_folder", False, "Campaigns/Retention/Renewal"),
+            ("folder", True, "Campaigns/Retention/Renewal"),
+            ("folder", False, "Unfiled/Workflows/Renewal"),
+        ]
+    )
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_new_workflow_is_created_in_the_requested_project_folder(self, _reload: MagicMock) -> None:
-        created = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/",
-            {
-                "name": "Renewal",
-                "_create_in_folder": "Campaigns/Retention",
-                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
-                "edges": [],
-            },
-            format="json",
-        )
+    def test_new_workflow_is_created_in_the_requested_project_folder(
+        self, field: str, project_files: bool, path: str, _reload: MagicMock
+    ) -> None:
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: key == "workflows-project-files" and project_files,
+        ):
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/",
+                {
+                    "name": "Renewal",
+                    field: "Campaigns/Retention",
+                    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                    "edges": [],
+                },
+                format="json",
+            )
         self.assertEqual(created.status_code, 201, created.content)
         files = self.client.get(
             f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": created.json()["id"]}
         ).json()["results"]
-        self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
+        self.assertEqual([file["path"] for file in files], [path])
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_workflow_move_survives_reload_and_rename(self, _reload: MagicMock) -> None:

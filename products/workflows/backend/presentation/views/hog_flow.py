@@ -45,6 +45,7 @@ from posthog.api.app_metrics2 import (
     AppMetricsMixin,
     AppMetricsRequestSerializer,
     AppMetricsTotalsResponseSerializer,
+    fetch_app_metric_totals_by_source,
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
@@ -402,6 +403,21 @@ def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
 LISTED_ORIGIN_PRODUCTS: list[str] = [
     origin for origin in HogFlowOriginProduct.values if origin != HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS
 ]
+
+
+WORKFLOWS_LIST_V2_FLAG = "workflows-list-v2"
+WORKFLOWS_PROJECT_FILES_FLAG = "workflows-project-files"
+
+
+def _rolled_out_to(flag: str, user: User, team: Team) -> bool:
+    organization_id = str(team.organization_id)
+    return feature_enabled_or_false(
+        flag,
+        str(user.distinct_id),
+        groups={"organization": organization_id, "project": str(team.uuid)},
+        group_properties={"organization": {"id": organization_id}, "project": {"id": str(team.uuid)}},
+        send_feature_flag_events=False,
+    )
 
 
 def _code_sends_rolled_out(team: Any) -> bool:
@@ -3376,6 +3392,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     _create_in_folder = serializers.CharField(
         required=False, allow_blank=True, write_only=True, help_text="Project folder for a newly created workflow."
     )
+    folder = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text="Project folder to create the workflow in, such as 'Campaigns/Retention'. Read only when "
+        "creating a workflow.",
+    )
     origin_product = serializers.ChoiceField(
         choices=HogFlowOriginProduct.choices,
         required=False,
@@ -3697,12 +3720,25 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
-        return super().to_internal_value(data)
+        validated = super().to_internal_value(data)
+        # `_create_in_folder` is the file-system convention, but MCP tools drop underscore fields, so agents send `folder`.
+        folder = validated.pop("folder", None)
+        request = self.context.get("request")
+        if (
+            folder
+            and self.instance is None
+            and not validated.get("_create_in_folder")
+            and request is not None
+            and _rolled_out_to(WORKFLOWS_PROJECT_FILES_FLAG, cast(User, request.user), self.context["get_team"]())
+        ):
+            validated["_create_in_folder"] = folder
+        return validated
 
     class Meta:
         fields = [
             "id",
             "_create_in_folder",
+            "folder",
             "name",
             "description",
             "tags",
@@ -3977,7 +4013,7 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
 
     class Meta(HogFlowSerializer.Meta):
         # Set on create only.
-        fields = [field for field in HogFlowSerializer.Meta.fields if field != "source_record"]
+        fields = [field for field in HogFlowSerializer.Meta.fields if field not in ("source_record", "folder")]
 
     def validate(self, data: dict) -> dict:
         instance = cast(Optional[WorkflowEditState], self.instance)
@@ -7225,7 +7261,16 @@ class HogFlowViewSet(
         if params.get("before"):
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
 
-        totals = fetch_run_totals_by_workflow(team_id=self.team_id, after=after_date, before=before_date)
+        # The list that reads these counts launches behind its flag, and so does the way it counts runs.
+        if _rolled_out_to(WORKFLOWS_LIST_V2_FLAG, cast(User, request.user), self.team):
+            totals = fetch_run_totals_by_workflow(team_id=self.team_id, after=after_date, before=before_date)
+        else:
+            totals = fetch_app_metric_totals_by_source(
+                team_id=self.team_id,
+                app_source=self.app_source,
+                after=after_date,
+                before=before_date,
+            )
         # The ClickHouse query is only team-scoped, so intersect with the workflows the caller can
         # actually see. Keeps the aggregate consistent with workflows-list/-get access control (hog
         # flows aren't an access-control resource today, so this is a no-op now but won't silently
