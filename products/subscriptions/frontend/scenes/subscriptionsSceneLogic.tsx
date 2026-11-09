@@ -6,11 +6,11 @@ import { Sorting } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -652,7 +652,8 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
             }
         },
         setSubscriptionEnabled: async ({ id, enabled }) => {
-            const ok = await toggleSubscriptionEnabled(id, enabled)
+            const owner = values.subscriptions.find((subscription) => subscription.id === id)?.created_by ?? null
+            const ok = await toggleSubscriptionEnabled(id, enabled, owner)
             if (ok) {
                 actions.setSubscriptionEnabledSuccess(id)
             } else {

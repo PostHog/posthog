@@ -20,7 +20,7 @@ import { KpiTiles } from '../dashboard/KpiTiles'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
-import { mcpDashboardOverviewLogic } from '../mcpDashboardOverviewLogic'
+import { mcpDashboardOverviewLogic, rankedToolsEmptyMessage, rankToolsByErrorRate } from '../mcpDashboardOverviewLogic'
 import { FacetShareCard } from './FacetShareCard'
 import { LabScoreboard } from './LabScoreboard'
 import { harnessErrorRateRows } from './leaderboardShares'
@@ -42,10 +42,10 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         activityRowsLoading,
         harnessRows,
         harnessRowsLoading,
-        kpis,
+        headlineKpis,
         kpisLoading,
-        users,
-        usersLoading,
+        periodTotals,
+        periodTotalsLoading,
         intentClusterCount,
         kpiIncompleteTail,
         activityIncompleteTail,
@@ -54,8 +54,20 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         sessionRowsLoading,
         modelRowsLoading,
         toolRowsLoading,
+        failedLoads,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport } = useActions(mcpDashboardOverviewLogic)
+    const {
+        setDateFilter,
+        reloadAll,
+        markFilterInteraction,
+        openToolReport,
+        loadKPIs,
+        loadPeriodTotals,
+        loadActivityRows,
+        loadHarnessRows,
+        loadToolRows,
+        loadSessionRows,
+    } = useActions(mcpDashboardOverviewLogic)
     const {
         facets,
         facetsLoading,
@@ -92,8 +104,10 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const reliabilityUnavailable = reliabilityFailed || reliabilityRows.length === 0
     const harnessErrorRows = useMemo(() => harnessErrorRateRows(harnessRows), [harnessRows])
     const errorRateLines = useMemo(
-        () => [{ key: 'error-rate', label: 'Error rate', data: reliabilitySeries.errorRatePct }],
-        [reliabilitySeries]
+        () => [
+            { key: 'error-rate', label: 'Error rate', color: theme.colors[4], data: reliabilitySeries.errorRatePct },
+        ],
+        [reliabilitySeries, theme]
     )
     const latencyLines = useMemo(
         () => [
@@ -124,11 +138,15 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
 
             <Section title="Key metrics">
                 <KpiTiles
-                    kpis={kpis}
-                    users={users}
+                    kpis={headlineKpis}
+                    users={periodTotals.users}
                     intentClusterCount={intentClusterCount}
                     kpisLoading={kpisLoading}
-                    usersLoading={usersLoading}
+                    usersLoading={periodTotalsLoading}
+                    kpisFailed={failedLoads.kpis}
+                    usersFailed={failedLoads.periodTotals}
+                    onRetryKpis={loadKPIs}
+                    onRetryUsers={loadPeriodTotals}
                     showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
                     theme={theme}
                     interval={interval}
@@ -137,6 +155,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 <ActivityChart
                     daily={dailyActivity}
                     loading={activityRowsLoading}
+                    failed={failedLoads.activityRows}
+                    onRetry={loadActivityRows}
                     theme={theme}
                     timezone={timezone}
                     interval={interval}
@@ -177,6 +197,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                             filters={queryFilters}
                             colorOf={modelColorOf}
                             rowLabels={modelRowLabelMap}
+                            fillHeight
                         />
                     )}
                 </TwoColumns>
@@ -192,7 +213,14 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         interval={interval}
                         colorOf={labColorOf}
                     />
-                    <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
+                    <HarnessBarChart
+                        rows={harnessRows}
+                        loading={harnessRowsLoading}
+                        failed={failedLoads.harnessRows}
+                        onRetry={loadHarnessRows}
+                        theme={theme}
+                        fillHeight
+                    />
                 </TwoColumns>
             </Section>
 
@@ -248,6 +276,15 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     />
                 </TwoColumns>
                 <TwoColumns>
+                    <ToolErrorRateChart
+                        rows={rankToolsByErrorRate(toolRows)}
+                        emptyMessage={rankedToolsEmptyMessage(toolRows)}
+                        loading={toolRowsLoading}
+                        failed={failedLoads.toolRows}
+                        onRetry={loadToolRows}
+                        theme={theme}
+                        onToolClick={openToolReport}
+                    />
                     <FacetShareCard
                         title="Why calls fail"
                         rows={facets.errorType}
@@ -255,22 +292,23 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         failed={failedFacet('errorType')}
                         theme={theme}
                     />
-                    <ToolErrorRateChart
-                        rows={harnessErrorRows}
-                        loading={harnessRowsLoading}
-                        theme={theme}
-                        title="Error rate by harness"
-                        emptyMessage="No harness data yet."
-                    />
                 </TwoColumns>
                 <TwoColumns>
                     <ToolErrorRateChart
-                        rows={toolRows}
-                        loading={toolRowsLoading}
+                        rows={harnessErrorRows}
+                        loading={harnessRowsLoading}
+                        failed={failedLoads.harnessRows}
+                        onRetry={loadHarnessRows}
                         theme={theme}
-                        onToolClick={openToolReport}
+                        title="Error rate by harness"
+                        emptyMessage="No harness data in this date range. Try a wider range."
                     />
-                    <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
+                    <NotableSessionsTable
+                        sessions={notableSessions}
+                        loading={sessionRowsLoading}
+                        failed={failedLoads.sessionRows}
+                        onRetry={loadSessionRows}
+                    />
                 </TwoColumns>
             </Section>
         </div>

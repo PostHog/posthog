@@ -23,6 +23,7 @@ from hogli_commands.product.checks import (
     PackageJsonScriptsCheck,
     ProductYamlCheck,
     ProductYamlOwnersCheck,
+    SystemChecksCheck,
     WiringInterfaceCheck,
     _has_test_files,
     _is_noop_script,
@@ -45,6 +46,7 @@ from hogli_commands.product.isolation import (
     facade_unapproved_wiring,
     has_narrowed_turbo_inputs,
     has_real_facade,
+    has_tach_interface,
     permanent_interface_modules,
     routes_in_turbo_inputs,
     uncovered_carveout_modules,
@@ -1090,6 +1092,56 @@ from = [
 
 
 # ---------------------------------------------------------------------------
+# has_tach_interface
+# ---------------------------------------------------------------------------
+
+_TACH_INTERFACE_MENTIONS = r"""
+[[modules]]
+path = "products.review_hog"
+depends_on = [
+    # Facade-only (enforced by stamphog's [[interfaces]] block)
+    "products.stamphog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.field_notes"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.models\\.Task",
+]
+from = [
+    "products.tasks",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products\\.(stamphog|visual_review)",
+]
+"""
+
+
+class TestHasTachInterface:
+    @pytest.mark.parametrize(
+        "name, expected",
+        [
+            pytest.param("review_hog", False, id="comment_mentions_interfaces"),
+            pytest.param("field_notes", False, id="next_product_interfaces_block_follows"),
+            pytest.param("tasks", True, id="named_in_from"),
+            pytest.param("stamphog", True, id="named_in_from_regex"),
+        ],
+    )
+    def test_detection(self, name: str, expected: bool) -> None:
+        assert has_tach_interface(name, _TACH_INTERFACE_MENTIONS) is expected
+
+
+# ---------------------------------------------------------------------------
 # permanent-interface marker
 # ---------------------------------------------------------------------------
 
@@ -1563,24 +1615,22 @@ class TestImportSurfaceCheck:
                 0,
                 id="unsealed_consumer_reaching_facade",
             ),
-            # An unsealed product has no routes/presentation contract, so that layout stays
-            # its own business.
-            pytest.param(
-                {
-                    "webhook_consumers.py": "from .facade.api import f\n",
-                    "facade/api.py": "",
-                    "routes.py": "from .api.views import V\n",
-                    "api/views.py": "",
-                },
-                True,
-                0,
-                id="unsealed_routes_stay_unchecked",
-            ),
+            # The routes and presentation contracts name every product, so an unsealed product
+            # without a consumer is held to them too.
             pytest.param(
                 {"routes.py": "from .api.views import V\n", "api/views.py": ""},
-                False,
-                0,
-                id="unsealed_without_consumer_does_not_run",
+                True,
+                1,
+                id="unsealed_routes_from_unmarked_package",
+            ),
+            pytest.param(
+                {
+                    "presentation/views.py": "from products.p.backend.summary.read import LIMIT\n",
+                    "summary/read.py": "",
+                },
+                True,
+                1,
+                id="unsealed_presentation_from_unmarked_package",
             ),
         ],
     )
@@ -1691,6 +1741,16 @@ _CANONICAL_SINGLE_NAME_TACH = (
 )
 
 
+_FACADE_PLUS_LEGACY_TACH = (
+    "[[interfaces]]\n"
+    'expose = ["backend\\\\.facade.*"]\n'
+    'from = ["products.alpha"]\n'
+    "[[interfaces]]\n"
+    'expose = ["backend\\\\.models.*"]\n'
+    'from = ["products.alpha"]\n'
+)
+
+
 class TestValidateFacadeAlternation:
     @pytest.mark.parametrize(
         "products, tach, expected_substrings",
@@ -1712,6 +1772,8 @@ class TestValidateFacadeAlternation:
             ),
             # On-disk single-name `from` (no alternation) parses.
             ([("alpha", True)], _CANONICAL_SINGLE_NAME_TACH, []),
+            # A product still draining legacy leaks may expose its facade without contracts.py.
+            ([("alpha", False)], _FACADE_PLUS_LEGACY_TACH, []),
             # Non-listed isolated products are tolerated — having
             # facade/contracts.py is just scaffolding, not a commitment to
             # canonical exposure.
@@ -1728,6 +1790,7 @@ class TestValidateFacadeAlternation:
             "stale_entry_missing_on_disk",
             "stale_entry_not_isolated",
             "on_disk_single_name_form_parses",
+            "facade_block_with_legacy_leaks_needs_no_contracts",
             "isolated_but_not_in_alternation_is_tolerated",
         ],
     )
@@ -1869,6 +1932,13 @@ class TestValidateTachReferences:
                 '[[interfaces]]\nexpose = ["backend\\\\.x.*"]\nfrom = ["products.missing_iface"]\n',
                 [("missing_dep", "dangling dependency"), ("missing_iface", "dangling interface")],
             ),
+            # Dangling depends_on listed after a comment that names [[interfaces]].
+            (
+                '[[modules]]\npath = "products.alpha"\ndepends_on = [\n'
+                "    # Facade-only (enforced by beta's [[interfaces]] block)\n"
+                '    "products.ghost",\n]\n',
+                [("products.ghost", "dangling dependency")],
+            ),
         ],
         ids=[
             "clean_interface",
@@ -1876,6 +1946,7 @@ class TestValidateTachReferences:
             "dangling_depends_on",
             "clean_depends_on",
             "both_dangling",
+            "dangling_depends_on_after_interfaces_comment",
         ],
     )
     def test_references(self, tach: str, expected_substrings: list[tuple[str, str]]) -> None:
@@ -3094,3 +3165,139 @@ class TestFacadeShapeBaseline:
         recorded = FacadeShapeCheck().run(ctx)
         assert recorded.issues == []
         assert recorded.lines == ["⚠ facade shape debt: 1 rows"]
+
+
+# ---------------------------------------------------------------------------
+# SystemChecksCheck — Django system checks live in backend/checks.py
+# ---------------------------------------------------------------------------
+
+_READY_IMPORTS_CHECKS = """
+from django.apps import AppConfig
+
+
+class PConfig(AppConfig):
+    name = "products.p.backend"
+
+    def ready(self):
+        from products.p.backend import checks  # noqa: F401
+"""
+
+_READY_WITHOUT_CHECKS = """
+from django.apps import AppConfig
+
+
+class PConfig(AppConfig):
+    name = "products.p.backend"
+"""
+
+_CHECKS_MODULE = """
+from posthog.checks import register_check
+
+P_CHECK = "{check_id}"
+
+
+@register_check(P_CHECK)
+def check_p(app_configs, **kwargs):
+    return []
+"""
+
+_DJANGO_REGISTER_ELSEWHERE = """
+from django.core import checks
+
+
+@checks.register()
+def check_p(app_configs, **kwargs):
+    return []
+"""
+
+
+def _system_checks_ctx(tmp_path: Path, files: dict[str, str]) -> CheckContext:
+    product_dir = tmp_path / "p"
+    backend = product_dir / "backend"
+    backend.mkdir(parents=True)
+    for rel, content in files.items():
+        (backend / rel).parent.mkdir(parents=True, exist_ok=True)
+        (backend / rel).write_text(content)
+    return CheckContext(
+        name="p",
+        product_dir=product_dir,
+        backend_dir=backend,
+        has_facade_contracts=False,
+        structure={},
+        detailed=False,
+    )
+
+
+class TestSystemChecksCheck:
+    @pytest.mark.parametrize(
+        "files, expected",
+        [
+            ({"apps.py": _READY_WITHOUT_CHECKS}, []),
+            (
+                {"apps.py": _READY_IMPORTS_CHECKS, "checks.py": _CHECKS_MODULE.format(check_id="posthog.p.E001")},
+                [],
+            ),
+            (
+                {
+                    "apps.py": _READY_IMPORTS_CHECKS.replace(
+                        "from products.p.backend import checks", "from . import checks"
+                    ),
+                    "checks.py": _CHECKS_MODULE.format(check_id="posthog.p.W001"),
+                },
+                [],
+            ),
+            (
+                {"apps.py": _READY_WITHOUT_CHECKS, "logic/settings_guard.py": _DJANGO_REGISTER_ELSEWHERE},
+                ["backend/logic/settings_guard.py registers a Django system check"],
+            ),
+            (
+                {"apps.py": _READY_IMPORTS_CHECKS, "checks.py": _CHECKS_MODULE.format(check_id="p.E001")},
+                ["check ID 'p.E001'"],
+            ),
+            (
+                {"apps.py": _READY_IMPORTS_CHECKS, "checks.py": _CHECKS_MODULE.format(check_id="posthog.other.E001")},
+                ["check ID 'posthog.other.E001'"],
+            ),
+            (
+                {"apps.py": _READY_WITHOUT_CHECKS, "checks.py": _CHECKS_MODULE.format(check_id="posthog.p.E001")},
+                ["never imported by apps.py ready()"],
+            ),
+            (
+                {
+                    "apps.py": _READY_WITHOUT_CHECKS,
+                    "logic/guard.py": "import posthog.checks as checks\n\n\n@checks.register_check('posthog.p.W001')\n"
+                    "def check_p(app_configs, **kwargs):\n    return []\n",
+                },
+                ["backend/logic/guard.py registers a Django system check"],
+            ),
+            (
+                {
+                    "apps.py": _READY_IMPORTS_CHECKS.replace(
+                        "        from products.p.backend import checks",
+                        "        from typing import TYPE_CHECKING\n\n        if TYPE_CHECKING:\n"
+                        "            from products.p.backend import checks",
+                    ),
+                    "checks.py": _CHECKS_MODULE.format(check_id="posthog.p.E001"),
+                },
+                ["never imported by apps.py ready()"],
+            ),
+            (
+                {
+                    "apps.py": _READY_IMPORTS_CHECKS.replace(
+                        "        from products.p.backend import checks",
+                        "        import typing\n\n        if not typing.TYPE_CHECKING:\n"
+                        "            from products.p.backend import checks",
+                    ),
+                    "checks.py": _CHECKS_MODULE.format(check_id="posthog.p.E001"),
+                },
+                [],
+            ),
+        ],
+    )
+    def test_system_check_placement_ids_and_registration(
+        self, tmp_path: Path, files: dict[str, str], expected: list[str]
+    ) -> None:
+        issues = SystemChecksCheck().run(_system_checks_ctx(tmp_path, files)).issues
+        assert len(issues) == len(expected), issues
+        for fragment, issue in zip(expected, issues):
+            assert fragment in issue

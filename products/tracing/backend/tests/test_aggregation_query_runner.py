@@ -256,3 +256,148 @@ class TestTraceSpansTreePercentiles(_TraceSpansTestBase):
         )
         edge = next(n for n in response.results if n.name == self.CHILD_NAME)
         self.assertAlmostEqual(getattr(edge, field), expected_nano, delta=MS_TO_NANO)
+
+
+class TestTraceSpansAggregationGroupByEndpoint(_TraceSpansTestBase):
+    SERVICE = "api"
+    SERVER, CLIENT = 2, 3
+    SPANS = [
+        ("/users/1", SERVER, {"http.method": "GET", "http.route": "/users/{id}"}),
+        ("/users/2", SERVER, {"http.request.method": "GET", "http.route": "/users/{id}"}),
+        ("GET", SERVER, {"http.method": "GET", "http.route": "/orders"}),
+        ("GET", SERVER, {"http.method": "GET", "http.route": "/items"}),
+        ("GET /health", SERVER, {"http.method": "GET"}),
+        ("RunActivity:sync", SERVER, {}),
+        ("GET", CLIENT, {"http.method": "GET", "http.route": "/upstream"}),
+    ]
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+        base = dt.datetime(2026, 6, 2, 8, 0, 0)
+        ts_str = base.strftime("%Y-%m-%d %H:%M:%S.%f")
+        end_str = (base + dt.timedelta(milliseconds=10)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        rows: list[str] = []
+        for i, (name, kind, attributes) in enumerate(cls.SPANS):
+            attribute_map = "map(" + ", ".join(f"'{key}__str', '{value}'" for key, value in attributes.items()) + ")"
+            rows.append(
+                f"('019e8762-0000-0000-0000-{i:012d}', {cls.team.id}, '{_b64(i.to_bytes(16, 'big'))}', "
+                f"'{_b64((100 + i).to_bytes(8, 'big'))}', '', '{name}', {kind}, '{ts_str}', '{end_str}', "
+                f"'{ts_str}', 0, '{cls.SERVICE}', {attribute_map})"
+            )
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str) VALUES "
+            + ",".join(rows)
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "by_span_name",
+                False,
+                {("/users/1", 1), ("/users/2", 1), ("GET", 3), ("GET /health", 1), ("RunActivity:sync", 1)},
+            ),
+            (
+                "by_endpoint",
+                True,
+                {("GET /users/{id}", 2), ("GET /orders", 1), ("GET /items", 1), ("GET /health", 1)},
+            ),
+        ]
+    )
+    def test_rows(self, _name, group_by_endpoint, expected):
+        response = run_aggregation_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            group_by_endpoint=group_by_endpoint,
+        )
+        self.assertEqual({(row.name, row.count) for row in response.results}, expected)
+
+
+class TestTraceSpansAggregationHealth(_TraceSpansTestBase):
+    SERVICE = "api"
+    # (name, hour inside the query window or its previous period, span count, error count)
+    GROUPS = [
+        ("GET /orders", 6, 100, 0),
+        ("GET /orders", 8, 100, 10),
+        ("GET /items", 6, 100, 0),
+        ("GET /items", 8, 100, 0),
+        ("GET /new", 8, 5, 0),
+        # Ranks first in the baseline and last in the current window.
+        ("GET /legacy", 6, 300, 0),
+        ("GET /legacy", 8, 1, 0),
+    ]
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+        values: list[str] = []
+        for name, hour, count, errors in cls.GROUPS:
+            for j in range(count):
+                i = len(values)
+                ts = dt.datetime(2026, 6, 2, hour, 0, 0) + dt.timedelta(seconds=j)
+                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+                end_str = (ts + dt.timedelta(milliseconds=10)).strftime("%Y-%m-%d %H:%M:%S.%f")
+                status = 2 if j >= count - errors else 0
+                values.append(
+                    f"('019e8763-0000-0000-0000-{i:012d}', {cls.team.id}, '{_b64(i.to_bytes(16, 'big'))}', "
+                    f"'{_b64((1000 + i).to_bytes(8, 'big'))}', '', '{name}', 2, '{ts_str}', '{end_str}', "
+                    f"'{ts_str}', {status}, '{cls.SERVICE}')"
+                )
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(values)
+        )
+
+    def test_classifies_each_row_against_the_previous_period(self):
+        response = run_aggregation_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            include_health=True,
+        )
+        statuses = {row.name: row.health_status for row in response.results}
+        self.assertEqual(
+            {name: statuses[name] for name in ("GET /orders", "GET /items", "GET /new")},
+            {"GET /orders": "regressed", "GET /items": "ok", "GET /new": "new"},
+        )
+        self.assertIsNone(response.compare)
+
+    def test_api_compare_rows_follow_the_visible_page(self):
+        # The view over-fetches one row for has_more, so the baseline also holds the row it drops.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/aggregate/",
+            {
+                "query": {
+                    "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                    "compareFilter": {"compare": True},
+                    "includeHealth": True,
+                    "limit": 1,
+                    "offset": 2,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        data = response.json()
+        self.assertEqual([row["name"] for row in data["results"]], ["GET /new"])
+        self.assertEqual(data["compare"], [])
+
+    @parameterized.expand(
+        [("previous_period", None, None), ("compare_filter", CompareFilter(compare=True), ["GET /legacy"])]
+    )
+    def test_a_paged_row_keeps_its_baseline(self, _name, compare_filter, expected_compare):
+        response = run_aggregation_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            compare_filter=compare_filter,
+            include_health=True,
+            limit=1,
+            offset=3,
+        )
+        self.assertEqual([row.name for row in response.results], ["GET /legacy"])
+        self.assertNotEqual(response.results[0].health_status, "new")
+        self.assertEqual(None if response.compare is None else [row.name for row in response.compare], expected_compare)

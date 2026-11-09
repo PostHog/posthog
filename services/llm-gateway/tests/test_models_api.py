@@ -207,7 +207,7 @@ class TestListModelsEndpoint:
 
 class TestListModelsForProductEndpoint:
     def test_returns_models_for_llm_gateway(self, client: TestClient):
-        response = client.get("/llm_gateway/v1/models")
+        response = client.get("/django/v1/models")
         assert response.status_code == 200
         data = response.json()
         model_ids = {m["id"] for m in data["data"]}

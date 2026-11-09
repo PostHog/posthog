@@ -2,37 +2,20 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useLayoutEffect, useRef } from 'react'
 
-import { Skeleton, Text } from '@posthog/quill'
+import { Text } from '@posthog/quill'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { TodayExplore } from './TodayExplore'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
+import { TodayHomeComposer } from './TodayHomeComposer'
 import { reportIdFromPath, todayLogic } from './todayLogic'
-import { TodayPulse } from './TodayPulse'
-import { TodayPulseEditor } from './TodayPulseEditor'
+import { TodayPulseSection } from './TodayPulseSection'
 import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
 
 const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
-
-function TodayPulseSkeleton(): JSX.Element {
-    return (
-        <ul className="TodayPulse" aria-busy aria-label="Loading key numbers">
-            {['w-14', 'w-16', 'w-20'].map((width) => (
-                <li key={width} className="TodayPulse__metric">
-                    <span className="TodayPulse__name">
-                        <Skeleton className={`inline-block h-3 align-middle ${width}`} />
-                    </span>
-                    <span className="TodayPulse__row">
-                        <span className="TodayPulse__value">
-                            <Skeleton className="inline-block h-4 w-28 align-middle" />
-                        </span>
-                    </span>
-                </li>
-            ))}
-        </ul>
-    )
-}
 
 function TodayMetaLine(): JSX.Element {
     const { now } = useValues(todayLogic)
@@ -55,11 +38,14 @@ export function TodayHomePage(): JSX.Element {
         highlightsLoading,
         highlightsFailed,
         highlightsPending,
+        pulsePending,
         pulseTiles,
-        pulsePinsLoaded,
+        pulseSlots,
     } = useValues(todayHighlightsLogic)
     const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
+    const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
+    const homeComposer = useFeatureFlag('TODAY_HOME_COMPOSER') && postHogAiTasks
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)
@@ -73,7 +59,9 @@ export function TodayHomePage(): JSX.Element {
         highlightsLoading,
         highlightsFailed,
         highlightsPending,
+        pulsePending,
         pulseTiles,
+        pulseSlots,
         pulseViewUpdated,
         currentProjectId,
         useSampleData,
@@ -112,17 +100,11 @@ export function TodayHomePage(): JSX.Element {
                         {greeting}
                     </Text>
                 </div>
-                <div className="TodayHome__metaRow">
-                    <TodayMetaLine />
-                    {!highlightsPending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
-                </div>
+                <TodayMetaLine />
+                {homeComposer ? <TodayHomeComposer /> : null}
             </section>
             <div className="TodayHome__body">
-                {highlightsPending ? (
-                    <TodayPulseSkeleton />
-                ) : highlights && pulseTiles.length > 0 ? (
-                    <TodayPulse metrics={pulseTiles} />
-                ) : null}
+                <TodayPulseSection />
                 {isNewProject && recentObjects.length === 0 ? <TodayExplore /> : <TodayRecents />}
                 <TodayForYou />
             </div>

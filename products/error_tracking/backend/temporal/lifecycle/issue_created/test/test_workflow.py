@@ -219,14 +219,17 @@ def test_embedding_failure_classification_and_capture(
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
-def test_embedding_hands_the_judge_its_text_before_clickhouse_has_it(
+def test_embedding_hands_elixir_issue_to_judge_before_clickhouse_has_it(
     generate_embedding: MagicMock,
     get_team: MagicMock,
     fetch_event_properties: MagicMock,
     render_stacktrace: MagicMock,
 ) -> None:
     get_team.return_value.organization.is_ai_data_processing_approved = True
-    fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
+    fetch_event_properties.return_value = {
+        "$lib": "posthog-elixir",
+        "$exception_list": [{"type": "TypeError", "value": "boom"}],
+    }
     render_stacktrace.return_value = "TypeError: boom"
     generate_embedding.return_value = MagicMock(embedding=[0.1, 0.2])
 
@@ -413,6 +416,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     reopened_alerts: list[IssueReopenedWorkflowInputs] = []
     reopened_events: list[IssueReopenedWorkflowInputs] = []
     reopened_signals: list[IssueReopenedWorkflowInputs] = []
+    reopened_summaries: list[IssueReopenedWorkflowInputs] = []
     reopened_target = AutoMergeReopenedTarget(
         notification_id=str(uuid.uuid4()),
         issue_id=str(uuid.uuid4()),
@@ -502,6 +506,11 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     async def emit_reopened_signal(inputs: IssueReopenedWorkflowInputs) -> None:
         reopened_signals.append(inputs)
 
+    @activity.defn(name="generate_issue_reopened_summary_activity")
+    async def generate_reopened_summary(inputs: IssueReopenedWorkflowInputs) -> str:
+        reopened_summaries.append(inputs)
+        return "generated"
+
     @activity.defn(name="emit_issue_created_signal_activity")
     async def emit_signal(inputs: IssueCreatedWorkflowInputs) -> None:
         signal_attempts[inputs.issue_id] = signal_attempts.get(inputs.issue_id, 0) + 1
@@ -527,6 +536,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 dispatch_reopened_alert,
                 emit_reopened_event,
                 emit_reopened_signal,
+                generate_reopened_summary,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -644,6 +654,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     assert reopened_alerts == [expected_reopened]
     assert reopened_events == [expected_reopened]
     assert reopened_signals == [expected_reopened]
+    assert reopened_summaries == [expected_reopened]
 
 
 @pytest.mark.asyncio

@@ -16,7 +16,10 @@ ONE_DETAIL = "Review it in the data catalog."
 MANY_DETAIL = "Review them in the data catalog."
 CERTIFICATION_SUGGESTION_NOUN = "certification suggestion"
 
-MODEL_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE})
+MODEL_KINDS = frozenset(
+    {WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE, WarehouseSuggestionKind.DEPRECATE}
+)
+MODEL_SUBJECT_KINDS = frozenset({WarehouseSuggestionSubjectKind.SAVED_QUERY})
 ONE_MODEL_TITLE = "1 model suggestion waits for review"
 MANY_MODEL_TITLE = "{count} model suggestions wait for review"
 ONE_MODEL_DETAIL = "Review it in Models."
@@ -50,7 +53,7 @@ def find_catalog_approvals(context: HighlightContext) -> HighlightFindings:
 
 
 def find_model_suggestions(context: HighlightContext) -> HighlightFindings:
-    count = _open_count(context, MODEL_KINDS)
+    count = _open_count(context, MODEL_KINDS, MODEL_SUBJECT_KINDS)
     if not count:
         return HighlightFindings()
     one = count == 1
@@ -86,8 +89,12 @@ def _pending_groups(context: HighlightContext) -> list[PendingGroup]:
     return groups
 
 
-def _open_count(context: HighlightContext, kinds: frozenset[WarehouseSuggestionKind]) -> int:
-    return actionable_open_count(context.team, context.user, kinds, _writable_subject_kinds(context))
+def _open_count(
+    context: HighlightContext,
+    kinds: frozenset[WarehouseSuggestionKind],
+    subject_kinds: frozenset[WarehouseSuggestionSubjectKind] = frozenset(WarehouseSuggestionSubjectKind),
+) -> int:
+    return actionable_open_count(context.team, context.user, kinds, _writable_subject_kinds(context) & subject_kinds)
 
 
 def _writable_subject_kinds(context: HighlightContext) -> frozenset[WarehouseSuggestionSubjectKind]:

@@ -29,7 +29,7 @@ def query_current_branch_health(
     *, curated: CuratedGitHubSource, date_from: datetime, branch: str
 ) -> CurrentBranchHealth:
     response = curated.run(
-        _SELECT.replace("__RUNS_SOURCE__", curated.run_source()),
+        _SELECT.replace("__RUNS_SOURCE__", curated.run_source(live=True)),
         query_type="engineering_analytics.current_branch_health",
         placeholders={
             "date_from": ast.Constant(value=date_from),
