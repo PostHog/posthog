@@ -5,6 +5,17 @@ import { logger } from '~/common/utils/logger'
 import { formatMailbox } from '../email.service'
 import { SandboxMessage } from './sandbox-message'
 
+// The sandbox feedback webhook attributes SES events by these exact names.
+export const SANDBOX_SES_TAGS = {
+    team: 'ph_sbx_team',
+    flow: 'ph_sbx_flow',
+    run: 'ph_sbx_run',
+    action: 'ph_sbx_action',
+    version: 'ph_sbx_version',
+    test: 'ph_sbx_test',
+    parentRun: 'ph_sbx_parent_run',
+} as const
+
 export type SandboxSendTags = {
     teamId: number
     hogFlowId: string
@@ -12,6 +23,7 @@ export type SandboxSendTags = {
     actionId: string
     flowVersion: number
     isTest: boolean
+    parentRunId?: string
 }
 
 export type SandboxSesResult =
@@ -65,12 +77,13 @@ export class SandboxSesClient {
             ConfigurationSetName: this.settings.configurationSet,
             TenantName: this.settings.tenantName,
             EmailTags: [
-                { Name: 'ph_sbx_team', Value: String(tags.teamId) },
-                { Name: 'ph_sbx_flow', Value: tags.hogFlowId },
-                { Name: 'ph_sbx_run', Value: tags.invocationId },
-                { Name: 'ph_sbx_action', Value: tags.actionId },
-                { Name: 'ph_sbx_version', Value: String(tags.flowVersion) },
-                { Name: 'ph_sbx_test', Value: String(tags.isTest) },
+                { Name: SANDBOX_SES_TAGS.team, Value: String(tags.teamId) },
+                { Name: SANDBOX_SES_TAGS.flow, Value: tags.hogFlowId },
+                { Name: SANDBOX_SES_TAGS.run, Value: tags.invocationId },
+                { Name: SANDBOX_SES_TAGS.action, Value: tags.actionId },
+                { Name: SANDBOX_SES_TAGS.version, Value: String(tags.flowVersion) },
+                { Name: SANDBOX_SES_TAGS.test, Value: String(tags.isTest) },
+                ...(tags.parentRunId ? [{ Name: SANDBOX_SES_TAGS.parentRun, Value: tags.parentRunId }] : []),
             ],
             Content: {
                 Simple: {

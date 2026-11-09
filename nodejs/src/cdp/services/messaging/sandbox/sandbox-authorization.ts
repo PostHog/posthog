@@ -113,13 +113,13 @@ function pickStoredAddress(
 
 // A connection that arrives after the deadline runs no SQL, and one still busy at the deadline is destroyed rather
 // than returned to the pool, so a stalled database cannot pile abandoned reads onto the shared primary pool.
-async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
+export async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
     db: PostgresRouter,
     text: string,
     values: unknown[],
-    timeoutMs: number
+    timeoutMs: number,
+    tag: string = 'sandbox-email-authorization'
 ): Promise<Row[]> {
-    const tag = 'sandbox-email-authorization'
     let expired = false
     let timer: NodeJS.Timeout | undefined
     const deadline = new Promise<never>((_, reject) => {

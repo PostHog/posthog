@@ -1,11 +1,16 @@
 import { Counter, Histogram } from 'prom-client'
 
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { MessageOptOutRecord } from '../../../types'
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { FrequencyCapCheck } from '../recipient-preferences.service'
-import { SandboxAuthorization, readSandboxAuthorization } from './sandbox-authorization'
+import {
+    AUTHORIZATION_TIMEOUT_MS,
+    SandboxAuthorization,
+    queryPrimaryBeforeDeadline,
+    readSandboxAuthorization,
+} from './sandbox-authorization'
 import { SandboxCapClaim, SandboxCaps, claimSandboxCaps } from './sandbox-caps'
 import { SandboxRenderedEmailSchema, buildSandboxMessage } from './sandbox-message'
 import {
@@ -22,7 +27,7 @@ export const SANDBOX_INTEGRATION_ID = 'posthog-managed-sandbox'
 export type SandboxSendOutcome =
     | { status: 'accepted'; messageId: string }
     | { status: 'skipped' | 'failed'; reason: string }
-    | { status: 'retry'; reason: string }
+    | { status: 'retry'; reason: string; capsClaimed?: true }
 
 export type SandboxSendRequest = {
     teamId: number
@@ -31,11 +36,14 @@ export type SandboxSendRequest = {
     actionId: string
     flowVersion: number
     isTest: boolean
+    parentRunId?: string
     email: unknown
     categoryId?: string
     categoryType?: 'marketing' | 'transactional'
     optOuts?: MessageOptOutRecord[]
     frequencyCap?: () => Promise<FrequencyCapCheck>
+    /** An earlier attempt of this step visit already holds the daily cap tokens. */
+    capsClaimed?: boolean
 }
 
 export type SandboxEmailServiceDeps = {
@@ -97,15 +105,7 @@ export class SandboxEmailService {
         if (!address) {
             return { status: 'skipped', reason: 'invalid_recipient' }
         }
-        const recipientCheck = await this.deps.checkRecipient({
-            teamId: request.teamId,
-            address: email.data.to.email,
-            categoryId: request.categoryId,
-            categoryType: request.categoryType,
-            optOuts: request.optOuts ?? [],
-            isTest: request.isTest,
-            frequencyCap: request.frequencyCap ?? (() => Promise.resolve({ capped: false })),
-        })
+        const recipientCheck = await this.checkRecipient(request, address, email.data.to.email)
         if (!recipientCheck.ok) {
             return refusal(recipientCheck.reason)
         }
@@ -121,13 +121,15 @@ export class SandboxEmailService {
         if (!tenant.ok) {
             return refusal(tenant.reason)
         }
-        const caps = await this.deps.claimCaps({
-            organizationId: authorization.organizationId,
-            teamId: request.teamId,
-            storedAddress: authorization.storedAddress,
-        })
-        if (!caps.ok) {
-            return refusal(caps.reason)
+        if (!request.capsClaimed) {
+            const caps = await this.deps.claimCaps({
+                organizationId: authorization.organizationId,
+                teamId: request.teamId,
+                storedAddress: authorization.storedAddress,
+            })
+            if (!caps.ok) {
+                return refusal(caps.reason)
+            }
         }
         const message = buildSandboxMessage({
             email: email.data,
@@ -136,10 +138,51 @@ export class SandboxEmailService {
             fromAddress: this.deps.fromAddress,
             recipient: authorization.storedAddress,
         })
-        const { teamId, hogFlowId, invocationId, actionId, flowVersion, isTest } = request
-        return await this.deps.ses.send(message, { teamId, hogFlowId, invocationId, actionId, flowVersion, isTest })
+        const { teamId, hogFlowId, invocationId, actionId, flowVersion, isTest, parentRunId } = request
+        const sent = await this.deps.ses.send(message, {
+            teamId,
+            hogFlowId,
+            invocationId,
+            actionId,
+            flowVersion,
+            isTest,
+            ...(parentRunId ? { parentRunId } : {}),
+        })
+        return sent.status === 'retry' ? { ...sent, capsClaimed: true } : sent
+    }
+
+    /** Checks the trimmed address, and also the rendered spelling its unsubscribe link carries when the two differ. */
+    private async checkRecipient(
+        request: SandboxSendRequest,
+        address: string,
+        rendered: string
+    ): Promise<SandboxRecipientCheck> {
+        const base = {
+            teamId: request.teamId,
+            categoryId: request.categoryId,
+            categoryType: request.categoryType,
+            optOuts: request.optOuts ?? [],
+            isTest: request.isTest,
+        }
+        if (rendered !== address) {
+            const linkCheck = await this.deps.checkRecipient({
+                ...base,
+                address: rendered,
+                frequencyCap: NO_FREQUENCY_CAP,
+            })
+            if (!linkCheck.ok) {
+                return linkCheck
+            }
+        }
+        return await this.deps.checkRecipient({
+            ...base,
+            address,
+            frequencyCap: request.frequencyCap ?? NO_FREQUENCY_CAP,
+        })
     }
 }
+
+const NO_FREQUENCY_CAP = (): Promise<FrequencyCapCheck> => Promise.resolve({ capped: false })
 
 function refusal(reason: string): SandboxSendOutcome {
     return RETRYABLE_REFUSALS.has(reason) ? { status: 'retry', reason } : { status: 'skipped', reason }
@@ -185,10 +228,11 @@ export function createSandboxEmailService({
 }
 
 export async function hasSandboxSenderRow(db: PostgresRouter, teamId: number): Promise<boolean> {
-    const { rows } = await db.query(
-        PostgresUse.COMMON_WRITE,
+    const rows = await queryPrimaryBeforeDeadline(
+        db,
         `SELECT 1 FROM posthog_integration WHERE team_id = $1 AND kind = 'email_sandbox' AND integration_id = $2`,
         [teamId, SANDBOX_INTEGRATION_ID],
+        AUTHORIZATION_TIMEOUT_MS,
         'sandbox-email-provisioned'
     )
     return rows.length > 0

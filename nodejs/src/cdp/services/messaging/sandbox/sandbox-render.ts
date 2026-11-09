@@ -1,6 +1,10 @@
+import { DateTime } from 'luxon'
+
 import { CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals, HogFunctionType } from '../../../types'
 import { HogInputsService } from '../../hog-inputs.service'
+import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
+import { actionIdForLogging } from '../../hogflows/hogflow-utils'
 import { SandboxRenderedEmail, SandboxRenderedEmailSchema } from './sandbox-message'
 
 export class SandboxRenderError extends Error {}
@@ -29,6 +33,15 @@ export async function renderSandboxEmail(
         throw new SandboxRenderError('The rendered sandbox email is missing a recipient, subject, or content')
     }
     return parsed.data
+}
+
+/** Writes why a sandbox email failed to render to the run's own logs, where the workflow author reads it. */
+export function logRenderFailure({ action, result }: ActionHandlerOptions<SandboxEmailAction>, error: unknown): void {
+    result.logs.push({
+        level: 'error',
+        timestamp: DateTime.now(),
+        message: `${actionIdForLogging(action)} Sandbox email failed to render: ${error instanceof Error ? error.message : String(error)}`,
+    })
 }
 
 function sandboxEmailFunction(invocation: CyclotronJobInvocationHogFlow, action: SandboxEmailAction): HogFunctionType {

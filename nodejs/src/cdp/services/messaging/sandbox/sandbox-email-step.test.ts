@@ -137,8 +137,10 @@ describe('SandboxEmailSendStep', () => {
 
     it('renders and sends on the sandbox queue, then the hogflow queue runs the next action', async () => {
         const executor = buildExecutor()
+        const batchRun = runOnHogflowQueue()
+        batchRun.parentRunId = 'batch-run-1'
 
-        const routed = await executor.execute(runOnHogflowQueue())
+        const routed = await executor.execute(batchRun)
         expect(ses.send).not.toHaveBeenCalled()
         expect(routed.invocation.queue).toBe('emailsandbox')
 
@@ -153,6 +155,7 @@ describe('SandboxEmailSendStep', () => {
             actionId: 'email',
             flowVersion: 3,
             isTest: false,
+            parentRunId: 'batch-run-1',
         })
         expect(sent.invocation.queue).toBe('hogflow')
         expect(sent.invocation.state.currentAction?.id).toBe('email')
@@ -205,6 +208,18 @@ describe('SandboxEmailSendStep', () => {
             'email_sandbox_blocked',
             0,
         ],
+        [
+            'SES throttles once while one daily cap token is left',
+            (): void => {
+                let tokens = 1
+                serviceOverrides.claimCaps = () =>
+                    Promise.resolve(tokens-- > 0 ? { ok: true } : { ok: false, reason: 'daily_cap_reached' })
+                ses.send.mockResolvedValueOnce({ status: 'retry', reason: 'ses_throttled' })
+            },
+            { status: 'accepted', message_id: 'ses-1' },
+            'email_sandbox_sent',
+            2,
+        ],
     ])('stores the outcome when %s and continues past it', async (_name, arrange, stepResult, metric, sesCalls) => {
         arrange()
         const executor = buildExecutor()
@@ -219,6 +234,20 @@ describe('SandboxEmailSendStep', () => {
         expect(handedBack.invocation.queue).toBe('hogflow')
         expect(finished.invocation.state.currentAction?.id).toBe('wait')
         expect(finished.invocation.state.variables?.email_result).toEqual(stepResult)
+    })
+
+    it('logs why the template failed to render', async () => {
+        const action = hogFlow.actions.find((candidate) => candidate.id === 'email')!
+        ;(action.config as any).inputs.email.value.subject = '{{ person.properties.missing }}'
+        const executor = buildExecutor()
+
+        const routed = await executor.execute(runOnHogflowQueue())
+        const [rendered] = await runSandboxQueue(executor, routed.invocation)
+
+        expect(rendered.logs.map(({ level, message }) => [level, message])).toContainEqual([
+            'error',
+            expect.stringContaining('failed to render: The rendered sandbox email is missing a recipient, subject'),
+        ])
     })
 
     it('backs off on the sandbox queue from 30 seconds up to 15 minutes between retries', async () => {

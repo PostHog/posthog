@@ -11,7 +11,7 @@ import {
     SandboxEmailTestClient,
 } from '../../hogflows/actions/email_sandbox'
 import { SandboxRenderedEmail } from './sandbox-message'
-import { renderSandboxEmail } from './sandbox-render'
+import { logRenderFailure, renderSandboxEmail } from './sandbox-render'
 
 export const SANDBOX_TEST_TOKEN_TTL_SECONDS = 120
 const SANDBOX_TEST_TIMEOUT_MS = 10_000
@@ -43,7 +43,8 @@ export class SandboxEmailTester implements SandboxEmailTestClient {
                 options.action,
                 this.deps.siteUrl
             )
-        } catch {
+        } catch (error) {
+            logRenderFailure(options, error)
             return { status: 'failed', reason: 'render_failed' }
         }
         if (options.hogExecutorOptions?.functions) {

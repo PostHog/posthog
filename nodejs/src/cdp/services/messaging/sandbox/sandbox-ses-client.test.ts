@@ -21,33 +21,46 @@ describe('SandboxSesClient', () => {
     }
     const settings = { configurationSet: 'sandbox-config-set', tenantName: 'sandbox-tenant' }
 
-    it('sends to one To address through the sandbox configuration set and tenant, tagged with the run', async () => {
-        const send = jest.fn().mockResolvedValue({ MessageId: 'ses-1' })
+    const runTags = [
+        { Name: 'ph_sbx_team', Value: '2' },
+        { Name: 'ph_sbx_flow', Value: tags.hogFlowId },
+        { Name: 'ph_sbx_run', Value: tags.invocationId },
+        { Name: 'ph_sbx_action', Value: 'action_email_sandbox_1' },
+        { Name: 'ph_sbx_version', Value: '4' },
+        { Name: 'ph_sbx_test', Value: 'false' },
+    ]
+    const parentRunId = '0190f0f0-0000-7000-8000-000000000003'
 
-        await expect(new SandboxSesClient({ send }, settings).send(message, tags)).resolves.toEqual({
-            status: 'accepted',
-            messageId: 'ses-1',
-        })
+    it.each([
+        ['a workflow run', tags, runTags],
+        [
+            'a batch-triggered run, with its parent run',
+            { ...tags, parentRunId },
+            [...runTags, { Name: 'ph_sbx_parent_run', Value: parentRunId }],
+        ],
+    ])(
+        'sends to one To address through the sandbox configuration set and tenant, tagged with %s',
+        async (_name, sendTags, emailTags) => {
+            const send = jest.fn().mockResolvedValue({ MessageId: 'ses-1' })
 
-        const command: SendEmailCommand = send.mock.calls[0][0]
-        expect(command.input).toMatchObject({
-            FromEmailAddress: '"Acme via PostHog" <sandbox@send.example.com>',
-            Destination: { ToAddresses: ['Member@Example.com'] },
-            ConfigurationSetName: 'sandbox-config-set',
-            TenantName: 'sandbox-tenant',
-            EmailTags: [
-                { Name: 'ph_sbx_team', Value: '2' },
-                { Name: 'ph_sbx_flow', Value: tags.hogFlowId },
-                { Name: 'ph_sbx_run', Value: tags.invocationId },
-                { Name: 'ph_sbx_action', Value: 'action_email_sandbox_1' },
-                { Name: 'ph_sbx_version', Value: '4' },
-                { Name: 'ph_sbx_test', Value: 'false' },
-            ],
-        })
-        expect(command.input.Destination).not.toHaveProperty('CcAddresses')
-        expect(command.input.Destination).not.toHaveProperty('BccAddresses')
-        expect(command.input).not.toHaveProperty('ReplyToAddresses')
-    })
+            await expect(new SandboxSesClient({ send }, settings).send(message, sendTags)).resolves.toEqual({
+                status: 'accepted',
+                messageId: 'ses-1',
+            })
+
+            const command: SendEmailCommand = send.mock.calls[0][0]
+            expect(command.input).toMatchObject({
+                FromEmailAddress: '"Acme via PostHog" <sandbox@send.example.com>',
+                Destination: { ToAddresses: ['Member@Example.com'] },
+                ConfigurationSetName: 'sandbox-config-set',
+                TenantName: 'sandbox-tenant',
+            })
+            expect(command.input.EmailTags).toEqual(emailTags)
+            expect(command.input.Destination).not.toHaveProperty('CcAddresses')
+            expect(command.input.Destination).not.toHaveProperty('BccAddresses')
+            expect(command.input).not.toHaveProperty('ReplyToAddresses')
+        }
+    )
 
     const sesError = (name: string, httpStatusCode?: number): Error =>
         Object.assign(new Error(name), { name, $metadata: { httpStatusCode } })

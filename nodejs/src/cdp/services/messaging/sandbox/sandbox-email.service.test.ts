@@ -1,5 +1,17 @@
-import { SandboxAuthorization } from './sandbox-authorization'
-import { SandboxEmailService, SandboxEmailServiceDeps, SandboxSendRequest } from './sandbox-email.service'
+import { EventEmitter } from 'events'
+import { PoolClient } from 'pg'
+
+import { PostgresRouter } from '~/common/utils/db/postgres'
+
+import { RecipientManagerRecipient, RecipientsManagerService } from '../../managers/recipients-manager.service'
+import { AUTHORIZATION_TIMEOUT_MS, SandboxAuthorization } from './sandbox-authorization'
+import {
+    SandboxEmailService,
+    SandboxEmailServiceDeps,
+    SandboxSendRequest,
+    hasSandboxSenderRow,
+} from './sandbox-email.service'
+import { checkSandboxRecipient } from './sandbox-recipient-checks'
 
 describe('SandboxEmailService', () => {
     const now = new Date('2026-01-01T12:00:00.000Z')
@@ -191,31 +203,83 @@ describe('SandboxEmailService', () => {
         expect(deps.claimCaps).not.toHaveBeenCalled()
     })
 
-    it('checks preferences under the address its unsubscribe link carries, and authorizes the trimmed address', async () => {
+    it.each([
+        ['the trimmed address', 'member@example.com'],
+        ['the padded address its unsubscribe link carried', ' member@example.com '],
+    ])('refuses a padded recipient who opted out under %s', async (_name, optedOutIdentifier) => {
+        const recipients = new RecipientsManagerService({} as PostgresRouter)
+        jest.spyOn(recipients, 'get').mockImplementation(({ identifier }) => {
+            const recipient: RecipientManagerRecipient = {
+                id: 'recipient',
+                team_id: 2,
+                identifier,
+                preferences: identifier === optedOutIdentifier ? { news: 'OPTED_OUT' } : {},
+                created_at: '',
+                updated_at: '',
+            }
+            return Promise.resolve(recipient)
+        })
+        const frequencyCap = jest.fn().mockResolvedValue({ capped: false })
+        const deps = fakeDeps({
+            checkRecipient: (check) =>
+                checkSandboxRecipient(
+                    { suppression: { lookupSuppression: () => Promise.resolve(false) }, recipients },
+                    check
+                ),
+        })
+
+        await expect(
+            new SandboxEmailService(deps).send(
+                request({
+                    email: { to: { email: ' member@example.com ' }, subject: 'Hi', text: 'Hello' },
+                    categoryId: 'news',
+                    categoryType: 'marketing',
+                    frequencyCap,
+                })
+            )
+        ).resolves.toEqual({ status: 'skipped', reason: 'opted_out' })
+        expect(deps.ses.send).not.toHaveBeenCalled()
+        expect(deps.claimCaps).not.toHaveBeenCalled()
+    })
+
+    it('hands the run opt-outs, category, and frequency cap to the recipient check', async () => {
         const deps = fakeDeps()
         const frequencyCap = jest.fn()
         const optOuts = [{ identifier: 'member@example.com', categoryId: 'news' }]
 
         await new SandboxEmailService(deps).send(
-            request({
-                email: { to: { email: ' member@example.com ' }, subject: 'Hi', text: 'Hello' },
-                categoryId: 'news',
-                categoryType: 'marketing',
-                optOuts,
-                frequencyCap,
-                isTest: true,
-            })
+            request({ categoryId: 'news', categoryType: 'marketing', optOuts, frequencyCap, isTest: true })
         )
 
-        expect(deps.authorize).toHaveBeenCalledWith(expect.objectContaining({ recipient: 'member@example.com' }))
+        expect(deps.checkRecipient).toHaveBeenCalledTimes(1)
         expect(deps.checkRecipient).toHaveBeenCalledWith({
             teamId: 2,
-            address: ' member@example.com ',
+            address: 'member@example.com',
             categoryId: 'news',
             categoryType: 'marketing',
             optOuts,
             isTest: true,
             frequencyCap,
         })
+    })
+
+    it('gives up on a provisioning read the database never answers, and destroys that connection', async () => {
+        jest.useFakeTimers()
+        try {
+            const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
+            const stalled = Object.assign(new EventEmitter(), {
+                query: jest.fn(() => new Promise<never>(() => undefined)),
+                release: jest.fn(),
+            })
+            jest.spyOn(router, 'connect').mockResolvedValue(stalled as unknown as PoolClient)
+
+            const read = hasSandboxSenderRow(router, 1).catch((error: Error) => error)
+            await jest.advanceTimersByTimeAsync(AUTHORIZATION_TIMEOUT_MS)
+
+            expect(await read).toEqual(expect.objectContaining({ message: expect.stringContaining('deadline') }))
+            expect(stalled.release).toHaveBeenCalledWith(expect.any(Error))
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

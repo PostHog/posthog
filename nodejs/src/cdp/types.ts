@@ -584,6 +584,8 @@ export type HogFlowInvocationContext = {
         frequencyCapHoldDeadlineAt?: string
         sandboxEmail?: SandboxEmailOutcome
         sandboxEmailRetries?: number
+        // Set once a sandbox send attempt holds the daily cap tokens, so its retries do not spend more.
+        sandboxEmailCapsClaimed?: boolean
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.

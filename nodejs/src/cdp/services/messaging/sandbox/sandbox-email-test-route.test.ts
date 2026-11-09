@@ -94,7 +94,9 @@ describe('sandbox email test sends', () => {
             fetch,
         })
 
-    const testRun = (hogExecutorOptions: ActionHandlerOptions<SandboxEmailAction>['hogExecutorOptions'] = {}) => {
+    const testRun = (
+        hogExecutorOptions: ActionHandlerOptions<SandboxEmailAction>['hogExecutorOptions'] = {}
+    ): ActionHandlerOptions<SandboxEmailAction> => {
         const invocation = createExampleHogFlowInvocation(
             hogFlow,
             { currentAction: { id: 'email', startedAtTimestamp: 0 } },
@@ -203,11 +205,16 @@ describe('sandbox email test sends', () => {
 
         const action = hogFlow.actions.find((candidate) => candidate.id === 'email')!
         ;(action.config as any).inputs.email.value.subject = ''
-        await expect(tester(fetch).send(testRun({ functions: {} }))).resolves.toEqual({
+        const failedRun = testRun({ functions: {} })
+        await expect(tester(fetch).send(failedRun)).resolves.toEqual({
             status: 'failed',
             reason: 'render_failed',
         })
         expect(fetch).not.toHaveBeenCalled()
+        expect(failedRun.result.logs.map(({ level, message }) => [level, message])).toContainEqual([
+            'error',
+            expect.stringContaining('failed to render: The rendered sandbox email is missing a recipient, subject'),
+        ])
     })
 
     it.each<[string, () => Promise<FetchResponse>]>([
