@@ -3,7 +3,8 @@ name: signals-scout-observability-gaps
 scout-display-name: Observability gaps
 description: >
   Signals scout for observability gaps — significant event volumes with no insight, dashboard,
-  or alert coverage. Recommends new insights, dashboards, or alerts as the product evolves.
+  or alert coverage, and viewed insights that measure something other than what their labels
+  say. Recommends new insights, dashboards, or alerts, and fixes to misleading ones.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the analytics and entity
@@ -46,7 +47,7 @@ The opposite end has a fast path too. On a mature project (thousands of insights
 
 Once saturation is documented, the default run shape changes: check the tripwire against the fresh profile, then run **at most one fresh probe** — an angle no prior run has covered — to earn the close-out rather than inherit it. If the tripwire is untriggered and the probe comes back clean, close out empty in minutes. Don't re-run coverage SQL a run verified hours ago; that's duplication, not diligence.
 
-One asymmetry to bake in: the **coverage** families (1, 3, 4, 5, 6) saturate _permanently_ on a mature team — every high-volume event already has dense coverage — but **insight drift (family 2) does not.** Drift is generated continuously as the product renames and sunsets events, so on an otherwise-saturated team it is the one durably productive angle. Lead with it and treat the coverage families as inherit-saturation unless their tripwire fires.
+One asymmetry to bake in: the **coverage** families (1, 3, 4, 5, 6) saturate _permanently_ on a mature team — every high-volume event already has dense coverage — but **insight drift (family 2) and the insight sense check (family 7) do not.** Drift is generated continuously as the product renames and sunsets events, and new insights keep getting built and viewed, so on an otherwise-saturated team these are the durably productive angles. Lead with them and treat the coverage families as inherit-saturation unless their tripwire fires.
 
 When several probe angles exist (new-event emergence, alert coverage, insight drift), **rotate**: each run picks the _stalest_ angle — the one untouched longest — and inherits the others' recent readings. Rotating earns a genuinely fresh close-out each tick without re-running identical SQL hourly.
 
@@ -173,6 +174,15 @@ Direct calls:
 
 Strong signal: property has 5-50 distinct values (not unbounded), event > 5000/day, no insight breaks down by it. Weak signal: property has 1000+ distinct values (would explode the chart) or ≤ 2 values (no information added).
 
+#### 7. Insight sense check — a viewed insight that measures something other than its label
+
+The insight exists and is viewed, but its definition does not match what its name, description, or series labels claim.
+The typical case is a series labelled "Users with X" on `math: total`, so one person stuck in a loop reads as a jump in affected users.
+At most weekly, check up to 5 of the most-viewed trends insights the rotation has not checked recently.
+Heuristics (unit named in the label vs the math, a ratio of totals, a share that can pass 100%, a description the query contradicts, one person driving the series) only pick where to look.
+The finding is decided by one counterfactual `query-trends` call that re-runs the insight with the math the label implies: if the two curves agree, the label is loose but harmless; if they diverge in a way a reader would act on, recommend the smallest fix.
+Gate, rotation log, hints, thresholds, and the report shape are in [`references/insight-sense-check.md`](references/insight-sense-check.md); read it before running this family.
+
 ### Decide — author or edit a report
 
 A finding here recommends an action, not surfaces a problem. The generic report mechanics — search the inbox first (via the `report:observability_gaps:<gap>` pointer, else an `inbox-reports-list` search on the gap's _specific_ entity, not a broad word like `gap`), edit-vs-author, the status rules, reviewer routing, the retry and cross-run deduplication rules, and the `priority` / `repository` / actionability fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. Layer the observability-gaps judgment on top.
@@ -197,7 +207,7 @@ Then, for each candidate that clears the bar:
 - **Remember / Park** a below-bar candidate via the watch lifecycle below.
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already covers it.
 
-Sibling courtesy: broken upstream capture (an event that stopped firing) belongs to the error-tracking scout; a configured alert that's firing-but-missed to the insight-alerts scout; a viewed insight's own anomaly to the anomaly-detection scout. Your unique angle is always the structural _coverage gap_, not the anomaly on top of it.
+Sibling courtesy: broken upstream capture (an event that stopped firing) belongs to the error-tracking scout; a configured alert that's firing-but-missed to the insight-alerts scout; a viewed insight's own anomaly to the anomaly-detection scout. Your unique angle is always the structural _coverage gap_, or a chart whose definition does not match its label (family 7), never the anomaly on top of it.
 
 ### Park, then author — the watch lifecycle
 
@@ -237,6 +247,7 @@ Direct calls (read-only):
 - `query-trends` — confirm recent-window volume + reach numbers cited in evidence.
 - `query-paths` — sequence detection for funnel candidates.
 - `insights-list` — paginated insight catalog (use sparingly; SQL is faster).
+- `insights-trending-retrieve` / `insight-get` — the most-viewed insights and one insight's full query, for the family 7 sense check.
 - `dashboards-get-all` — active dashboards + tags.
 - `alerts-list` — existing alert configurations and what events they target.
 - `execute-sql` over `system.insights` / `system.dashboards` / `system.cohorts` — the fast path for "does an insight reference event X?" type queries.
