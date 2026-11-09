@@ -48,6 +48,7 @@
     },
     "dependencies": {
         "@expo/metro-runtime": "~58.0.15",
+        "@posthog/react-native-plugin": "2.12.7",
         "@react-native-async-storage/async-storage": "2.2.0",
         "@react-native-community/datetimepicker": "9.2.1",
         "@react-native-masked-view/masked-view": "0.3.2",
