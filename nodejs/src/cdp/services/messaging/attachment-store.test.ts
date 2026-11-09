@@ -221,22 +221,25 @@ describe('S3AttachmentStore', () => {
             })
         })
 
-        it('refuses a send naming the first file that is missing under the team', async () => {
+        it('refuses a send naming the first file that is missing under the team, and copies none of the others', async () => {
             const [uploaded, othersTeam, never] = [file(), file(), file()]
             await upload(1, uploaded)
             await upload(2, othersTeam)
+            const createdAt = await lastModified(1, uploaded.sha256)
+            const send = jest.spyOn(store.s3, 'send')
 
-            const answer = await store.acceptForSend(
+            const answer = await storeAt(new Date(createdAt.getTime() + 2 * DAY_MS)).acceptForSend(
                 1,
                 [
                     { sha256: uploaded.sha256, filename: 'a.pdf' },
                     { sha256: othersTeam.sha256, filename: 'b.pdf' },
                     { sha256: never.sha256, filename: 'c.pdf' },
                 ],
-                new Date()
+                new Date(createdAt.getTime() + 38 * DAY_MS)
             )
 
             expect(answer).toEqual({ refusal: 'attachment_not_uploaded', sha256: othersTeam.sha256 })
+            expect(selfCopiesOf(send, 1, uploaded.sha256)).toBe(0)
         })
 
         it('throws unavailable when the bucket cannot be reached', async () => {
