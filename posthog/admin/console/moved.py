@@ -92,6 +92,7 @@ class MovedKeyActions:
 
     @staticmethod
     def personal_api_key(pk: str) -> str | None:
+        # nosemgrep: idor-lookup-without-user -- staff-only redirect behind admin_view; it finds the key's owner to link there
         user_id = PersonalAPIKey.objects.filter(pk=pk).values_list("user_id", flat=True).first()
         if user_id is None:
             return None
@@ -99,6 +100,7 @@ class MovedKeyActions:
 
     @staticmethod
     def project_secret_api_key(pk: str) -> str | None:
+        # nosemgrep: idor-lookup-without-team -- staff-only redirect behind admin_view; it finds the key's team to link there
         team_id = ProjectSecretAPIKey.objects.filter(pk=pk).values_list("team_id", flat=True).first()
         if team_id is None:
             return None
