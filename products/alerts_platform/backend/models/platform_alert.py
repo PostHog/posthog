@@ -168,7 +168,6 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         # Pinned: the name predates this app, and removing this renames a live table.
         db_table = "alerts_platformalertconfiguration"
         indexes = [
-            # Only an alert with no source row records its creator, so most rows stay out of the index.
             models.Index(
                 fields=["created_by"],
                 name="platform_alert_cfg_creator_idx",
