@@ -208,14 +208,13 @@ const runningSuiteRun = {
 export function catalogStoryMocks({ databaseFails = false }: { databaseFails?: boolean } = {}): Mocks {
     return {
         get: {
-            '/api/environments/:team_id/data_modeling_nodes/': { results: nodes, count: nodes.length },
-            '/api/environments/:team_id/data_modeling_edges/': { results: [], count: 0 },
-            '/api/environments/:team_id/warehouse_saved_queries/': {
+            '/api/projects/:team_id/data_modeling_nodes/': { results: nodes, count: nodes.length },
+            '/api/projects/:team_id/data_modeling_edges/': { results: [], count: 0 },
+            '/api/projects/:team_id/warehouse_saved_queries/': {
                 results: savedQueries,
                 count: savedQueries.length,
             },
-            '/api/projects/:team_id/warehouse_saved_queries/': { results: savedQueries, count: savedQueries.length },
-            '/api/environments/:team_id/warehouse_saved_queries/:id/run_history/': ({ params }) => [
+            '/api/projects/:team_id/warehouse_saved_queries/:id/run_history/': ({ params }) => [
                 200,
                 runHistoryFor(params.id as string),
             ],
@@ -235,7 +234,7 @@ export function catalogStoryMocks({ databaseFails = false }: { databaseFails?: b
         },
         post: {
             '/api/projects/:team_id/data_quality_runs/': runningSuiteRun,
-            '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
+            '/api/projects/:team_id/query/:query_kind/': async ({ request }) => {
                 const { query } = (await request.json()) as { query: { kind: string } }
                 if (query.kind !== NodeKind.DatabaseSchemaQuery) {
                     return [200, {}]
