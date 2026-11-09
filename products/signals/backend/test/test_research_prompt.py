@@ -588,6 +588,11 @@ class TestBuildReportPresentationPrompt:
             assert "without a GitHub account" in prompt
             assert "not an eligibility list" in prompt
             assert "If absent in an older image" in prompt
+            assert "Team membership, implementation authorship, and review alone do not establish" in prompt
+            assert "leave that candidate unselected" in prompt
+            assert "Do not add the original author as an extra reviewer" in prompt
+        else:
+            assert "leave that candidate unselected" not in prompt
 
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)

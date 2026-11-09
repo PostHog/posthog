@@ -1459,8 +1459,14 @@ Do not treat an unavailable team roster as an empty team, or give an old snapsho
 Run `posthog-assignee-evidence --repo <repository-root> --roster <roster.json> -- <path> [<path> ...]`.
 For a JSON list, use `--paths-file <paths.json>` instead of positional paths; `--paths-file -` reads the list from stdin.
 One positional path returns its ranking directly. Multiple paths or `--paths-file` return `results` and per-path `errors`.
-Read ownership source, direct versus parent evidence, dates, exclusions, warnings, and `agent_decision`; scores are relative evidence, not probabilities.
-For `confirm_owner`, confirm the candidate's current responsibility for the affected behavior against the cited change and its review.
+Read ownership source, direct versus parent evidence, dates, exclusions, warnings, and `agent_decision`; scores rank evidence, not responsibility.
+`is_named_owner` means the ownership rule names that person. `matches_owner_team` means team membership only.
+Team membership, implementation authorship, and review alone do not establish current individual responsibility.
+Before selecting anyone, find current responsibility evidence for the affected work: an applicable individual ownership rule, an entity owner, or a current scoped handoff or responsibility statement.
+Check that this evidence is current and has no later human correction. If you cannot verify responsibility, leave that candidate unselected.
+Do not add the original author as an extra reviewer solely because they implemented the component.
+A reviewer who supplies expertise also needs a specific current role in the work; a past change alone does not justify selection.
+For `confirm_owner`, verify that the individual ownership rule is current and applies to the affected behavior. A cited change or review does not confirm ownership.
 For `needs_investigation`, inspect the affected function, callers, current entity owner, and relevant changes or reviews. Check at most three relevant PRs across the report.
 For `unresolved` or a per-path error, continue with project evidence and entity ownership; abstain only if all available evidence is insufficient.
 A shallow or truncated history is incomplete evidence. Do not fetch unbounded history to force a recommendation.
@@ -1517,12 +1523,18 @@ def build_report_presentation_prompt(
             else "Use project context, report evidence, and human reviewer corrections to find project members.\n"
             "Use evidence about the affected behavior or entity to establish responsibility."
         )
+        responsibility_check = (
+            "For each candidate, verify current individual responsibility for the affected work. "
+            "Implementation or review history supplies leads for this check; it does not replace the check."
+            if assignee_evidence_enabled and code_available
+            else "For each candidate, check current responsibility or substantive work on that behavior, such as an implementation or review."
+        )
         visual_sections.append(f"""## Select reviewers
 
 Return `reviewer_decision` after you check who should act on this report.
 {reviewer_evidence}
 Identify the affected behavior or entity, and the specific files or component when code is involved.
-For each candidate, check current responsibility or substantive work on that behavior, such as an implementation or review.
+{responsibility_check}
 Do not select a person based only on broad directory activity, commit counts, job titles, or mechanical edits.
 If an ownership rule names a team, check individual evidence; do not select the first members in the roster.
 First read `recent_reviewer_corrections` from `scout-project-profile-get`. It lists recent human reviewer edits on every plan.

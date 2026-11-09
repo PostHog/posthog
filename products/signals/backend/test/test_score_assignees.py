@@ -73,7 +73,7 @@ def commit(login: str, age: int, path: str = TARGET, serial: int = 0, subject: s
         ),
     ],
 )
-def test_selects_current_owner_with_nearest_recent_work(
+def test_ranks_team_contributors_without_claiming_personal_ownership(
     repository: Path, members: list[Member], commits: list[Commit], expected: str | None
 ) -> None:
     result = rank_assignees(
@@ -83,8 +83,13 @@ def test_selects_current_owner_with_nearest_recent_work(
         History(commits=tuple(commits), complete=True),
         NOW,
     )
-    assert result.recommended_assignee == expected
-    assert (result.agent_decision.case == "confirm_owner") == (expected is not None)
+    assert result.recommended_assignee is None
+    assert result.agent_decision.case != "confirm_owner"
+    if expected is not None:
+        assert result.candidates[0].login == expected
+        assert result.candidates[0].matches_owner_team
+        assert not result.candidates[0].is_named_owner
+        assert "unverified_responsibility" in result.agent_decision.reason_codes
     assert result.owners == ("player-team",)
     assert result.scopes == (TARGET, "src/player")
     assert all(candidate.login != "former" for candidate in result.candidates)
@@ -119,10 +124,32 @@ def test_directory_uses_its_own_ownership_and_ignores_other_teams(repository: Pa
         NOW,
     )
     assert result.owners == ("player-team",)
-    assert result.recommended_assignee == (None if exclude_file else "owner")
+    assert result.recommended_assignee is None
+    assert "unverified_responsibility" in result.agent_decision.reason_codes
     assert next(candidate for candidate in result.candidates if candidate.login == "unrelated").evidence_shas == ()
     if exclude_file:
         assert all(candidate.evidence == () for candidate in result.candidates)
+
+
+@pytest.mark.parametrize("has_recent_work", [False, True])
+def test_named_ownership_takes_precedence_over_team_contribution(repository: Path, has_recent_work: bool) -> None:
+    (repository / "src/player/owners.yaml").write_text("version: 1\nowners: [player-team, '@named']\n")
+    result = rank_assignees(
+        repository,
+        TARGET,
+        Roster(generated_at=NOW, members=(member("contributor"), member("named", "other-team"))),
+        History(
+            commits=(commit("contributor", 1),) + ((commit("named", 30),) if has_recent_work else ()), complete=True
+        ),
+        NOW,
+    )
+    assert result.recommended_assignee == "named"
+    assert result.agent_decision.case == "confirm_owner"
+    assert result.agent_decision.reason_codes == ("named_owner_rule",)
+    assert result.candidates[0].is_named_owner
+    assert not result.candidates[0].matches_owner_team
+    assert result.candidates[1].matches_owner_team
+    assert not result.candidates[1].is_named_owner
 
 
 def test_commit_is_not_counted_twice_and_unknown_authors_are_not_guessed(repository: Path) -> None:
@@ -176,6 +203,7 @@ def test_roster_json_rejects_invalid_identity_fields(entry: dict) -> None:
 def test_cli_preserves_valid_paths_and_reports_individual_errors(
     repository: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], input_mode: str
 ) -> None:
+    (repository / "src/player/owners.yaml").write_text("version: 1\nowners: [player-team, '@owner']\n")
     roster = repository / "roster.json"
     roster.write_text(
         json.dumps(
@@ -208,7 +236,7 @@ def test_cli_preserves_valid_paths_and_reports_individual_errors(
     output = json.loads(capsys.readouterr().out)
     if input_mode == "single":
         assert output["recommended_assignee"] == "owner"
-        assert output["schema_version"] == 2
+        assert output["schema_version"] == 3
     else:
         assert [result["path"] for result in output["results"]] == [TARGET, "src/player"]
         assert all(result["recommended_assignee"] == "owner" for result in output["results"])
@@ -234,7 +262,7 @@ def test_unowned_paths_only_produce_provisional_candidates(repository: Path) -> 
     assert result.agent_decision.case == "needs_investigation"
     assert "no_declared_owner" in result.agent_decision.reason_codes
     assert result.agent_decision.max_pull_requests == 3
-    assert all(not candidate.matches_declared_ownership for candidate in result.candidates)
+    assert all(not candidate.matches_owner_team and not candidate.is_named_owner for candidate in result.candidates)
 
 
 @pytest.mark.parametrize("exclusion", ["none", "manual", "inactive"])
