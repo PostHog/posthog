@@ -151,6 +151,7 @@ pub async fn run(config: ServiceConfig) -> anyhow::Result<()> {
     let guard = manager.monitor_background();
 
     let loop_config = config.consumer_loop.clone();
+    let drain_timeout = config.shutdown_timeout;
     let consumer_task = tokio::spawn(async move {
         let handle = consumer_handle;
         let _scope = handle.process_scope();
@@ -163,15 +164,23 @@ pub async fn run(config: ServiceConfig) -> anyhow::Result<()> {
             &move || tick_handle.report_healthy(),
         )
         .await;
-        consumer.stop().await;
+        if let Err(error) = &result {
+            handle.signal_failure(format!("{error:#}"));
+        }
+        // Node drains side effects without a limit. The shutdown deadline bounds it here.
+        if tokio::time::timeout(drain_timeout, consumer.stop())
+            .await
+            .is_err()
+        {
+            tracing::warn!("side effects still pending at the shutdown deadline");
+        }
         outputs.flush(Duration::from_secs(10));
-        match &result {
-            Ok(stats) => tracing::info!(
+        if let Ok(stats) = &result {
+            tracing::info!(
                 batches = stats.batches,
                 messages = stats.messages,
                 "consumer stopped"
-            ),
-            Err(error) => handle.signal_failure(format!("{error:#}")),
+            );
         }
         result
     });
