@@ -88,7 +88,9 @@ describe('llmProviderKeysLogic', () => {
         ],
         ['an OpenAI-compatible base URL', true, makeKey('openai_compatible'), 400, 'base_url'],
         ['a name', true, makeKey('openai'), 400, 'name'],
-        ['a System One base URL', false, makeKey('system_one'), 400, 'base_url'],
+        ['a System One base URL', true, makeKey('system_one'), 400, 'base_url'],
+        ['a System One model ID', true, makeKey('system_one'), 400, 'system_one_model'],
+        ['a System One model ID on a non-System One key', false, makeKey('openai'), 400, 'system_one_model'],
         ['an Azure endpoint on a non-Azure key', false, makeKey('openai'), 400, 'azure_endpoint'],
         ['an Azure endpoint with a server error', false, makeKey('azure_openai'), 500, 'azure_endpoint'],
         ['a 400 without a field', false, makeKey('azure_openai'), 400, null],
@@ -149,7 +151,69 @@ describe('llmProviderKeysLogic', () => {
             })
                 .toDispatchActions(['updateProviderKeyFailure'])
                 .toFinishAllListeners()
-            expect(logic.values.editKeyFieldError).toEqual(expectedFieldError)
+            expect(logic.values.keyFieldError).toEqual(expectedFieldError)
+            expect(toast.mock.calls).toEqual(expectedToasts)
+        })
+    })
+
+    describe('creating a key', () => {
+        let logic: ReturnType<typeof llmProviderKeysLogic.build>
+
+        afterEach(() => {
+            logic.unmount()
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            [
+                'shows a rejected System One model ID under its input without a toast',
+                'system_one_model',
+                { field: 'system_one_model', message: 'The endpoint returned 404 for this model ID.' },
+                [],
+            ],
+            [
+                'toasts a rejected field that the add modal has no inline error for',
+                'base_url',
+                null,
+                [['Failed to create API key: The endpoint returned 404 for this model ID.']],
+            ],
+        ])('%s', async (_, attr, expectedFieldError, expectedToasts) => {
+            useMocks({
+                get: {
+                    '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
+                    '/api/environments/:teamId/llm_analytics/evaluation_config/': { active_provider_key: null },
+                },
+                post: {
+                    '/api/environments/:teamId/llm_analytics/provider_keys/': () => [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'invalid',
+                            detail: 'The endpoint returned 404 for this model ID.',
+                            attr,
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            logic = llmProviderKeysLogic()
+            logic.mount()
+            const toast = jest.spyOn(lemonToast, 'error').mockReturnValue('')
+
+            await expectLogic(logic, () => {
+                logic.actions.createProviderKey({
+                    payload: {
+                        provider: 'system_one',
+                        name: 'Custom',
+                        api_key: '',
+                        base_url: 'https://decisions.example.com/v1',
+                        system_one_model: 'example-model',
+                    },
+                })
+            })
+                .toDispatchActions(['createProviderKeyFailure'])
+                .toFinishAllListeners()
+            expect(logic.values.keyFieldError).toEqual(expectedFieldError)
             expect(toast.mock.calls).toEqual(expectedToasts)
         })
     })
