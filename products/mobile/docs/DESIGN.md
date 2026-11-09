@@ -6,8 +6,8 @@ This file records how it maps to React Native.
 ## App icon
 
 On iOS, the Icon Composer bundles in `assets/` keep the background and hedgehog on separate layers.
-Default uses the color mark on white. Dark uses the monochrome mark on a dark fill. Clear and
-Tinted use the monochrome mark with the system's glass and tint effects. Dev and Preview add
+Default uses the color mark on white. Dark uses the white square logomark on a dark fill.
+Clear and Tinted use the monochrome mark with the system's glass and tint effects. Dev and Preview add
 their labels on a separate layer. Preview all four appearances on the iOS Home Screen when
 changing the icon. [Apple's Icon Composer guide](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer)
 
