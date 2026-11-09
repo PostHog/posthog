@@ -17,6 +17,7 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
+    Skeleton,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
@@ -170,6 +171,20 @@ function FilterAllRow({
             {icon}
             <span className="truncate">{label}</span>
         </DropdownMenuCheckboxItem>
+    )
+}
+
+/** Placeholder rows shaped like option rows, so the menu keeps its size while options load. */
+function FilterSkeletonRows({ count }: { count: number }): React.ReactElement {
+    return (
+        <div role="status" aria-label="Loading" className="flex flex-col gap-1 p-1">
+            {Array.from({ length: count }, (_, i) => (
+                <div key={i} className="flex h-7 items-center gap-2 px-2">
+                    <Skeleton className="size-3.5 shrink-0" />
+                    <Skeleton className="h-3 flex-1" />
+                </div>
+            ))}
+        </div>
     )
 }
 
@@ -373,7 +388,8 @@ export function FilterSearchSubMenu({
                             )}
                         </div>
                     ) : loading ? (
-                        <div className="p-2 text-xs text-muted-foreground">Loading…</div>
+                        // A full list while the first page loads; a couple of rows under the list while more load.
+                        <FilterSkeletonRows count={known.length === 0 ? 5 : 2} />
                     ) : null}
                 </DropdownMenuSubContent>
             </DropdownMenuSub>

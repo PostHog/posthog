@@ -11,7 +11,7 @@ import {
     ComboboxItem,
     ComboboxList,
     ComboboxValue,
-    Spinner,
+    Skeleton,
     useComboboxAnchor,
 } from '@posthog/quill'
 
@@ -186,9 +186,10 @@ function TagsComboboxBody({
                             )}
                         </span>
                     ) : loading ? (
-                        <span className="flex items-center gap-2">
-                            <Spinner />
-                            Loading {customValueNoun}s...
+                        <span role="status" aria-label={`Loading ${customValueNoun}s`} className="flex flex-col gap-2">
+                            <Skeleton className="h-3 w-3/4" />
+                            <Skeleton className="h-3 w-1/2" />
+                            <Skeleton className="h-3 w-2/3" />
                         </span>
                     ) : trimmed ? (
                         `No matching ${customValueNoun}s`
