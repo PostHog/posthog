@@ -50,10 +50,10 @@ export type WorkflowFolderFileRow = { id: string; name: string; path: string } &
 export interface workflowFoldersLogicValues {
     folderStates: Record<string, FolderState> // projectTreeDataLogic
     folders: Record<string, FileSystemEntry[]> // projectTreeDataLogic
-    filesByRef: Record<string, FileSystemEntry> // workflowsListV2Logic
     savedItems: FileSystemEntry[] // projectTreeDataLogic
     currentTeamId: number | null // teamLogic
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
+    filesByRef: Record<string, FileSystemEntry> // workflowsListV2Logic
     matchesText: MatchesText<WorkflowListRow> // workflowsListV2Logic
     projectFilesEnabled: boolean // workflowsListV2Logic
     rows: WorkflowListRow[] // workflowsListV2Logic
@@ -61,8 +61,6 @@ export interface workflowFoldersLogicValues {
     browserLoadFailed: boolean
     browserReady: boolean
     browserReadyLoading: boolean
-    otherFilesReady: boolean
-    otherFilesReadyLoading: boolean
     childFolders: {
         count: number
         name: string
@@ -92,6 +90,8 @@ export interface workflowFoldersLogicValues {
     matchingRows: WorkflowListRow[]
     matchingTemplates: FileSystemEntry[]
     movingWorkflowId: string | null
+    otherFilesReady: boolean
+    otherFilesReadyLoading: boolean
     otherFilesScanFailed: boolean
     otherProductFileCount: number
     selectableFiles: Record<string, FileSystemEntry>
