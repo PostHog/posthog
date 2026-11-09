@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Value, When
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
@@ -313,20 +314,27 @@ def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> se
     return set(qs.values_list("full_name", flat=True))
 
 
+@frozen
+class _SelectorRuntime:
+    model: str | None
+    runtime_adapter: str | None
+    reasoning_effort: str | None
+
+
 def _resolve_repo_selection_runtime(
     model: str | None, runtime_adapter: str | None, reasoning_effort: str | None
-) -> tuple[str | None, str | None, str | None]:
-    """The caller's (model, runtime adapter, reasoning effort), or the selector default when it names no model.
+) -> _SelectorRuntime:
+    """The caller's runtime, or the selector default when it names no model.
 
     The default replaces the model and the adapter together, because the agent server derives the
     provider from the adapter and a Codex model on the Claude adapter cannot be routed.
     """
     if model is not None or runtime_adapter is not None:
-        return model, runtime_adapter, reasoning_effort
-    return (
-        DEFAULT_REPO_SELECTION_MODEL,
-        DEFAULT_REPO_SELECTION_RUNTIME_ADAPTER,
-        reasoning_effort or DEFAULT_REPO_SELECTION_REASONING_EFFORT,
+        return _SelectorRuntime(model=model, runtime_adapter=runtime_adapter, reasoning_effort=reasoning_effort)
+    return _SelectorRuntime(
+        model=DEFAULT_REPO_SELECTION_MODEL,
+        runtime_adapter=DEFAULT_REPO_SELECTION_RUNTIME_ADAPTER,
+        reasoning_effort=reasoning_effort or DEFAULT_REPO_SELECTION_REASONING_EFFORT,
     )
 
 
@@ -828,7 +836,7 @@ async def select_repository(
         visibility=visibility,
         source_repository=_eligible_source_repository(source_repository, candidate_repos),
     )
-    model, runtime_adapter, reasoning_effort = _resolve_repo_selection_runtime(model, runtime_adapter, reasoning_effort)
+    runtime = _resolve_repo_selection_runtime(model, runtime_adapter, reasoning_effort)
     sandbox_context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
@@ -840,9 +848,9 @@ async def select_repository(
         disable_skills=True,
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
         # The caller's per-step runtime/model override, or the selector default when it names none.
-        model=model,
-        runtime_adapter=runtime_adapter,
-        reasoning_effort=reasoning_effort,
+        model=runtime.model,
+        runtime_adapter=runtime.runtime_adapter,
+        reasoning_effort=runtime.reasoning_effort,
         service_tier=service_tier,
     )
 

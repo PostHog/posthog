@@ -154,7 +154,11 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
     ]
 )
 def test_caller_runtime_overrides_the_selector_default(_name, requested, expected) -> None:
-    assert _resolve_repo_selection_runtime(*requested) == expected
+    model, runtime_adapter, reasoning_effort = requested
+    runtime = _resolve_repo_selection_runtime(
+        model=model, runtime_adapter=runtime_adapter, reasoning_effort=reasoning_effort
+    )
+    assert (runtime.model, runtime.runtime_adapter, runtime.reasoning_effort) == expected
 
 
 @parameterized.expand(
