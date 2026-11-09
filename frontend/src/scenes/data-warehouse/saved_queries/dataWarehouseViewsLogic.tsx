@@ -90,6 +90,7 @@ export interface DataWarehouseSavedQueryUpdate extends Partial<DataWarehouseSave
     edited_history_id?: string
     folder_id?: string | null
     soft_update?: boolean
+    acknowledge_breaking_changes?: boolean
 }
 
 export async function renameDataWarehouseSavedQuery(viewId: string, name: string): Promise<void> {

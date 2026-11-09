@@ -62,6 +62,11 @@ Invalid cadence values return 400.
 `soft_update` skips column inference and external table discovery on create and update, and skips the revision conflict check on update.
 Query validation and revision updates still run.
 
+An update that removes columns used by a direct downstream view returns `breaking_column_change` before it writes the query.
+The response names the removed columns and up to three affected views that the caller can access.
+Send the same update with `acknowledge_breaking_changes=true` to confirm the change.
+The SQL editor shows this response in a confirmation dialog and retries only after confirmation.
+
 `deleted` is read-only.
 Use DELETE to remove a saved query so DAG cleanup, join cleanup, materialization cleanup, and name release run together.
 Create does not upsert deleted rows.
