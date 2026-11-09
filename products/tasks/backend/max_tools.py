@@ -189,7 +189,10 @@ Use this tool when the user wants to:
                 if task.runtime == Task.Runtime.PI:
                     return {"error": "unsupported_runtime"}
 
-                task_run = task.create_run(_trial_admission=trial_admission)
+                try:
+                    task_run = task.create_run(_trial_admission=trial_admission)
+                except tasks_facade.TaskDoneError:
+                    return {"error": "task_done"}
                 enqueue_or_start_workflow(
                     task_run,
                     start_workflow=lambda **kwargs: async_to_sync(execute_task_processing_workflow_async)(**kwargs),
@@ -211,6 +214,8 @@ Use this tool when the user wants to:
             return f"Task with ID {task_id} not found", {"error": "not_found"}
         if result.get("error") == "unsupported_runtime":
             return "Pi tasks cannot be run through the ACP task workflow.", result
+        if result.get("error") == "task_done":
+            return str(tasks_facade.TaskDoneError()), result
 
         return (
             f"Started execution of task '{result['title']}' ({result['slug']}).\n"

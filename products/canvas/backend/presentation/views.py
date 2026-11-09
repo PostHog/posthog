@@ -1706,7 +1706,9 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 )
             ),
             404: OpenApiResponse(description="Build not found for this canvas."),
-            409: OpenApiResponse(description="The canvas has no authoring task to route the fix to."),
+            409: OpenApiResponse(
+                description="The canvas has no authoring task to route the fix to, or the authoring task is done."
+            ),
             429: OpenApiResponse(description="The team's compute quota is exhausted; retry later."),
         },
     )
@@ -1769,6 +1771,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 {"detail": "The team's compute quota is exhausted; retry later."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
+        if outcome == "task_done":
+            return Response({"detail": str(tasks_facade.TaskDoneError())}, status=status.HTTP_409_CONFLICT)
         self._log_canvas_activity(
             canvas,
             "fix_requested",
@@ -1799,7 +1803,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         responses={
             202: CanvasAgentRequestResultSerializer,
             403: OpenApiResponse(description="Agent requests are not declared or the caller is a sandbox."),
-            409: OpenApiResponse(description="The canvas has no authoring task."),
+            409: OpenApiResponse(description="The canvas has no authoring task, or the authoring task is done."),
             429: OpenApiResponse(
                 description=(
                     "The request was denied for compute: the team's quota is exhausted (retry later), "
@@ -1858,6 +1862,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 {"detail": "The team's compute quota is exhausted; retry later."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
+        if outcome == "task_done":
+            return Response({"detail": str(tasks_facade.TaskDoneError())}, status=status.HTTP_409_CONFLICT)
         self._log_canvas_activity(
             canvas,
             "agent_requested",

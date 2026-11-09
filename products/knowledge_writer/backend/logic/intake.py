@@ -102,7 +102,7 @@ def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
         return IntakeOutcome(status="duplicate")
     except WriterSectionBusy:
         return IntakeOutcome(status="section_busy")
-    except WriterRerunTaken:
+    except (WriterRerunTaken, tasks_facade.TaskDoneError):
         return IntakeOutcome(status="duplicate", task_id=existing_task.id if existing_task is not None else None)
     if joining is not None:
         return IntakeOutcome(status="joined", task_id=task_id, pull_request_url=joining.url)

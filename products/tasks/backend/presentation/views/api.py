@@ -1625,6 +1625,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ),
             ),
             404: OpenApiResponse(description="Task not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
@@ -2046,6 +2047,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if error.missing_artifact_ids is not None:
                 body["missing_artifact_ids"] = error.missing_artifact_ids
             return Response(body, status=status.HTTP_400_BAD_REQUEST)
+        if error.code == "task_done":
+            return _task_done_response()
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2409,6 +2412,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _validation_error_response(self, error: tasks_contracts.TaskRunValidationError) -> Response:
         if error.kind == "detail":
             return Response({"detail": error.detail}, status=status.HTTP_400_BAD_REQUEST)
+        if error.code == "task_done":
+            return _task_done_response()
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2423,6 +2428,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),

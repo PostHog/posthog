@@ -6921,7 +6921,7 @@ def bootstrap_task_run(
     except TaskDoneError as error:
         return contracts.TaskRunCreateResult(
             error=contracts.TaskRunValidationError(
-                kind="validation_error", code="invalid_input", detail=str(error), attr="status"
+                kind="validation_error", code="task_done", detail=str(error), attr="status"
             )
         )
     except TaskOwnershipChangedError:
@@ -10064,7 +10064,14 @@ def warm_task_resume_sandbox(
             expected_resume_from_run_id=previous_run.id,
             required_existing_state=stable_selection,
         )
-    except (PermissionDenied, QuotaLimitExceeded, Throttled, WarmSourceChanged, TaskOwnershipChangedError):
+    except (
+        PermissionDenied,
+        QuotaLimitExceeded,
+        Throttled,
+        WarmSourceChanged,
+        TaskOwnershipChangedError,
+        TaskDoneError,
+    ):
         # TaskOwnershipChangedError guards a handoff that lands after the check above but before the
         # locked create_run, keeping this best-effort endpoint from returning a server error.
         return None
@@ -10384,6 +10391,12 @@ def run_task(
                     # A previous activation attempt may have moved these out of staging before delivery failed.
                     _, warm_missing_artifact_ids = get_task_run_artifacts_by_id(warm_run, warm_missing_artifact_ids)
                 if not warm_missing_artifact_ids:
+                    if (done_error := wake_refusal(task, source="warm_activation")) is not None:
+                        return contracts.TaskRunResult(
+                            error=contracts.TaskValidationError(
+                                kind="validation_error", code="task_done", detail=str(done_error), attr="status"
+                            )
+                        )
                     if warm_staged_artifacts:
                         _attach_staged_artifacts_to_run(
                             warm_run,
@@ -10735,7 +10748,7 @@ def run_task(
     except TaskDoneError as error:
         return contracts.TaskRunResult(
             error=contracts.TaskValidationError(
-                kind="validation_error", code="invalid_input", detail=str(error), attr="status"
+                kind="validation_error", code="task_done", detail=str(error), attr="status"
             )
         )
     except TaskOwnershipChangedError:
@@ -13119,7 +13132,7 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     transaction and dispatches its processing workflow on commit with
     ``skip_user_check``.
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
-    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
+    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated`` / ``task_done``.
     """
     from products.signals.backend.facade.self_driving import (
         self_driving_quota_gate,  # noqa: PLC0415 -- resolve the gate before locking the task
@@ -13165,6 +13178,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
             return "forbidden"
         if reason := get_compute_quota_denial_reason(task):
             return _canvas_fix_denial_outcome(reason)
+        if wake_refusal(task, source="canvas_fix") is not None:
+            return "task_done"
         run = task.latest_run
         if run is not None and not run.is_terminal:
             try:

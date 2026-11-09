@@ -244,6 +244,13 @@ class SandboxSession(BaseSandboxService):
                 user_id=self.user.pk,
             )
             return None
+        except tasks_facade.TaskDoneError:
+            logger.info(
+                "sandbox_warm_task_done",
+                conversation_id=str(self.conversation.id),
+                user_id=self.user.pk,
+            )
+            return None
 
         return SandboxRouteResult(
             task_id=str(task_id),

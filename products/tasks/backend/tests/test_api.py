@@ -15935,6 +15935,41 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         mock_post.assert_not_called()
 
+    @parameterized.expand([("run", "run/", {}), ("bootstrap", "runs/", {"environment": "cloud"})])
+    @patch("products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload")
+    def test_run_and_bootstrap_return_conflict_on_a_done_task(
+        self, _name: str, path: str, body: dict, mock_payload: MagicMock
+    ) -> None:
+        mock_payload.return_value = {"user": "enforce"}
+        task = self.create_task()
+        Task.objects.filter(pk=task.pk).update(
+            profile="user", status=Task.Status.DONE, status_reason=Task.StatusReason.CLOSED
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/{path}", body, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertFalse(task.runs.exists())
+
+    @patch("products.tasks.backend.logic.services.warm.SandboxWarmer.warm", side_effect=tasks_facade.TaskDoneError)
+    @patch("products.tasks.backend.facade.api._resolve_cloud_pr_authorship_mode", return_value=(None, None))
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    def test_warm_resume_returns_empty_when_the_task_is_done(
+        self, _mock_warm_enabled: MagicMock, _mock_authorship: MagicMock, mock_warm: MagicMock
+    ) -> None:
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.COMPLETED
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/warm/", {"resume_from_run_id": str(run.id)}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.content, b"")
+        mock_warm.assert_called_once()
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_pi_rpc_control_command_skips_code_access(self, mock_post):
