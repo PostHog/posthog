@@ -143,6 +143,27 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         assert (result.affected, result.total) == (3, 6)
 
+    def test_excluded_static_cohort_is_left_out_of_preview_and_send(self):
+        people = [
+            _create_person(team=self.team, distinct_ids=[f"user-{i}"], properties={"subscribed": "true"})
+            for i in range(1, 5)
+        ]
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(team=self.team, name="Already contacted", is_static=True)
+        cohort.insert_users_by_list(["user-1", "user-2"], team_id=self.team.id)
+        filters = {
+            "properties": [
+                *FILTERS["properties"],
+                {"key": "id", "type": "cohort", "value": cohort.pk, "operator": "not_in"},
+            ]
+        }
+
+        result = get_person_audience_count_v2(self.team, filters)
+        sent_to = get_batch_audience_person_ids(self.team, filters)
+
+        assert (result.affected, result.total) == (2, 4)
+        assert sorted(sent_to) == sorted(str(person.uuid) for person in people[2:])
+
     def test_dedupe_count_matches_deduped_audience_size(self):
         # Duplicate emails (case/whitespace variants) collapse to one send group; persons
         # without an email keep their own group. Small data exercises the exact fallback.
