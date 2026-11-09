@@ -17,6 +17,7 @@ const TREE: FlameNode = {
     children: [
         { name: 'query', value: 40, group: 'db' },
         { name: 'failed', value: 20, group: 'api', color: '#ff0000' },
+        { name: 'inherited', value: 10, group: 'toString' },
     ],
 }
 
@@ -36,5 +37,7 @@ describe('computeFlameColors', () => {
         expect(fillOf(custom, 'query')).toBe(fillOf(palette, 'root'))
         expect(fillOf(custom, 'failed')).not.toBe(fillOf(custom, 'root'))
         expect(fillOf(custom, 'failed')).toBe(fillOf(palette, 'failed'))
+        // A group named like an Object.prototype member still takes a palette slot.
+        expect(fillOf(custom, 'inherited')).toBe(fillOf(palette, 'query'))
     })
 })

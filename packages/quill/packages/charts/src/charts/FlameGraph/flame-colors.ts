@@ -136,7 +136,8 @@ export function computeFlameColors(
         const key = colorBy === 'group' ? node.group : node.name
         let keyFill = key ? keyFills.get(key) : undefined
         if (key && keyFill === undefined) {
-            const groupColor = colorBy === 'group' ? groupColors?.[key] : undefined
+            const groupColor =
+                colorBy === 'group' && groupColors && Object.hasOwn(groupColors, key) ? groupColors[key] : undefined
             keyFill = groupColor ? customFill(groupColor) : slotFills[nextSlot++ % slotFills.length]
             keyFills.set(key, keyFill)
         }
