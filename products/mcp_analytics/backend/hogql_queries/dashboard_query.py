@@ -41,6 +41,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
+from posthog.models.instance_setting import get_instance_setting
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.base import (
@@ -566,7 +567,7 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
             workload=self.workload,
             ch_user=self.ch_user,
         )
-        if runner.modifiers == self.modifiers:
+        if runner.modifiers == self.modifiers and get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
             runner._shared_database = self.shared_database
         return runner.calculate().results
 
