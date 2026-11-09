@@ -2653,8 +2653,9 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
-    if run is not None:
-        run.mark_completed(notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"})
+    if run is not None and run.mark_completed(
+        notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"}
+    ):
         _observe_claimed_terminal(run, error_type=None)
     return True
 
@@ -2674,8 +2675,7 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
-    if run is not None:
-        run.mark_failed(error, error_type=error_type)
+    if run is not None and run.mark_failed(error, error_type=error_type):
         _observe_claimed_terminal(run, error_type=error_type)
         resume_workflow_step_for_run(run)
     return True

@@ -3623,6 +3623,8 @@ class TaskRun(models.Model):
             stored_status = (
                 TaskRun.objects.select_for_update().filter(pk=self.pk).values_list("status", flat=True).first()
             )
+            if stored_status is None:
+                return "refused"
             if expected_status is None:
                 refused = stored_status != self.status and stored_status in {
                     self.Status.COMPLETED,
@@ -3644,7 +3646,7 @@ class TaskRun(models.Model):
             self.save(update_fields=update_fields)
         return "repeated" if stored_status == self.status else "moved"
 
-    def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> None:
+    def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> bool:
         """Mark the progress as completed.
 
         ``notify=False`` skips the push notification — for janitor-style finalization of a run
@@ -3656,7 +3658,7 @@ class TaskRun(models.Model):
         self.completed_at = django_timezone.now()
         write = self._save_terminal_status(["status", "completed_at"])
         if write == "refused":
-            return
+            return False
         if write == "moved":
             observe_task_run_terminal(self, error_type=None, termination_reason=None)
         self.publish_stream_state_event()
@@ -3664,11 +3666,11 @@ class TaskRun(models.Model):
             "task_run_completed",
             {"duration_seconds": self._duration_seconds(), **(analytics_properties or {})},
         )
-        if not notify:
-            return
-        from products.tasks.backend.push_dispatcher import notify_task_run_completed
+        if notify:
+            from products.tasks.backend.push_dispatcher import notify_task_run_completed
 
-        notify_task_run_completed(self)
+            notify_task_run_completed(self)
+        return True
 
     def track_structured_result(self):
         """Track a structured result event with properties from the run output."""
