@@ -75,6 +75,10 @@ class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
 
 
+class HistoryTableDropRefusedError(Exception):
+    """A history table can't be dropped now. The message says why and can be shown to the user."""
+
+
 class UnreadableSourceInputsError(ValueError):
     """A source's stored inputs do not decode to a mapping. The message never holds the value, because the
     value can hold credentials."""
@@ -88,6 +92,7 @@ CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY = "connection_fields_stripped_typed_in"
 STRIPPED_STORE_KEYS: frozenset[str] = frozenset(
     {CONNECTION_FIELDS_STRIPPED_KEY, CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY}
 )
+DEAD_CREDENTIALS_CLEARED_KEY = "dead_credentials_cleared_at"
 
 SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing or cannot be read"
 

@@ -6162,6 +6162,7 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    ORGANIZATION_IP_RESTRICTIONS = 'OrganizationIPRestrictions',
     OAUTH_APPLICATION = 'OAuthApplication',
     WORKLOAD_TRUST_POLICY = 'WorkloadTrustPolicy',
     WORKLOAD_TRUST_POLICY_REQUEST = 'WorkloadTrustPolicyRequest',
@@ -6705,6 +6706,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     /** The history table's name, or `null` when the table keeps no history. Older history tables end in `_cdc`. */
     history_table_name?: string | null
+    /** The history table registered for the schema, whether or not its mode still writes it. Set on retrieve only. */
+    registered_history_table_name?: string | null
     /**
      * Why the last sync run could not merge rows on this table's primary key, or `null` when no such
      * failure is current. A later run that succeeds, or fails for another reason, clears it.

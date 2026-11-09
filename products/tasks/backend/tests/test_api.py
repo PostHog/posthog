@@ -140,6 +140,8 @@ from products.tasks.backend.temporal.process_task.utils import get_cached_github
 
 from ee.billing.quota_limiting import QuotaResource
 
+SLACK_PROFILE = get_task_profile("slack")
+
 BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 # The catalog gates no model behind a rollout flag now, so the write paths that re-check
@@ -2806,6 +2808,8 @@ class TestTaskAPI(BaseTaskAPITest):
             custom_image_id=None,
             initial_permission_mode=None,
             signal_report_id=None,
+            task_runtime=None,
+            json_schema=None,
         )
 
         update = self.client.patch(
@@ -2936,7 +2940,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
-        self.assertEqual((task.profile, task.options, task.idempotency_key), (None, None, None))
+        self.assertEqual((task.profile, task.options, task.idempotency_key), ("user", None, None))
 
     def test_create_task_with_hogdesk_origin_product(self):
         # HogDesk creates Code tasks from a support ticket's Code chat with this
@@ -3058,7 +3062,7 @@ class TestTaskAPI(BaseTaskAPITest):
             team=self.team,
             title="Slack task",
             description="Created from Slack",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             user_id=self.user.id,
             repository="posthog/posthog",
             create_pr=True,
@@ -3734,6 +3738,33 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["code"], "signal_report_task_cap")
         mock_workflow.assert_not_called()
         self.assertFalse(TaskRun.objects.filter(task=task, status=TaskRun.Status.QUEUED).exists())
+
+    @parameterized.expand(
+        [
+            ("implementation", "implementation", ["acme/web", "acme/assets"]),
+            ("discussion", "discussion", None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_inbox_started_implementation_run_gets_the_extra_repositories(
+        self, _name, relationship, expected_access, _mock_workflow
+    ):
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
+
+        SignalTeamConfig.objects.create(
+            team=self.team, implementation_repositories=["acme/assets", "other-owner/assets"]
+        )
+        report = SignalReport.objects.create(team=self.team)
+        create_response = self._post_signal_report_task(report.id, relationship)
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=create_response.json()["id"])
+
+        run_response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(run_response.status_code, status.HTTP_200_OK, run_response.json())
+        run = TaskRun.objects.get(task=task)
+        self.assertEqual(run.state.get("github_access_repositories"), expected_access)
+        self.assertEqual("`acme/assets`" in task.description, expected_access is not None)
 
     def test_discussion_task_cap_per_report_counts_free_form_labels(self):
         from products.signals.backend.models import SignalReport
@@ -7127,7 +7158,6 @@ ACP_ONLY_ENFORCED_PROFILE = replace(
     ACP_ONLY_PROFILE, key="test.acp_only_enforced", enforced_checks=frozenset({ContractCheck.RUNTIMES})
 )
 REPORT_PROFILE = replace(PUBLIC_PROFILE, key="test.report", source_kind=SourceKind.SIGNAL_REPORT)
-SIGNAL_REPORT_ORIGIN_PROFILE = replace(REPORT_PROFILE, key="test.signal_report", origin_product="signal_report")
 TEST_PUBLIC_PROFILES = {
     profile.key: profile
     for profile in (
@@ -7137,7 +7167,6 @@ TEST_PUBLIC_PROFILES = {
         ACP_ONLY_PROFILE,
         ACP_ONLY_ENFORCED_PROFILE,
         REPORT_PROFILE,
-        SIGNAL_REPORT_ORIGIN_PROFILE,
     )
 }
 UNKNOWN_SOURCE_ID = str(uuid.uuid4())
@@ -7376,9 +7405,7 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
         with patch(
             "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
         ):
-            response = self._create(
-                profile="test.signal_report", source={"kind": "signal_report", "id": str(report.id)}
-            )
+            response = self._create(profile="signals.inbox", source={"kind": "signal_report", "id": str(report.id)})
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         task = Task.objects.get(id=response.json()["id"])
@@ -7391,7 +7418,7 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
                 task.source_id,
                 task.repository,
             ),
-            ("test.signal_report", "signal_report", report.id, "signal_report", str(report.id), "acme/web"),
+            ("signals.inbox", "signal_report", report.id, "signal_report", str(report.id), "acme/web"),
         )
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [str(task.id)])
 
@@ -7410,7 +7437,7 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
         ):
             statuses = [
                 self._create(
-                    profile="test.signal_report", source={"kind": "signal_report", "id": str(report.id)}
+                    profile="signals.inbox", source={"kind": "signal_report", "id": str(report.id)}
                 ).status_code
                 for report in reports
             ]
@@ -7588,6 +7615,50 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
 
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertEqual(second.json()["id"], first.json()["id"])
+
+    @parameterized.expand(
+        [
+            ("origin_omitted", {}, "user"),
+            ("user_created", {"origin_product": "user_created"}, "user"),
+            ("error_tracking", {"origin_product": "error_tracking"}, "error_tracking"),
+            ("loop", {"origin_product": "loop"}, "loop"),
+            ("posthog_ai", {"origin_product": "posthog_ai"}, "posthog_ai"),
+        ]
+    )
+    def test_an_origin_only_create_stores_the_public_profile_of_its_origin(
+        self, _name: str, payload: dict[str, Any], profile_key: str
+    ) -> None:
+        response = self._create(**payload)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual((task.profile, task.options, task.source_kind), (profile_key, None, None))
+
+    def test_an_origin_only_create_without_a_public_profile_is_refused_like_a_reserved_origin(self) -> None:
+        with patch("products.tasks.backend.presentation.serializers.public_profile_for_origin", return_value=None):
+            response = self._create(origin_product="error_tracking")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["attr"], "origin_product")
+        self.assertIn("reserved for server-created tasks", response.json()["detail"])
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+
+    @parameterized.expand(
+        [
+            ("origin_only", {}, True),
+            ("profile_only", {"profile": "test.public"}, True),
+            ("profile_and_options", {"profile": "test.public", "options": {"runtime": "pi"}}, False),
+            ("profile_and_key", {"profile": "test.public", "idempotency_key": "warm-1"}, False),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._find_idling_warm_run", return_value=None)
+    def test_only_a_plain_create_looks_for_a_warm_run_to_reuse(
+        self, _name: str, payload: dict[str, Any], looks: bool, mock_find_warm_run
+    ) -> None:
+        response = self._create(branch="main", **payload)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(mock_find_warm_run.called, looks)
 
 
 class TestTaskRepositoriesAction(BaseTaskAPITest):

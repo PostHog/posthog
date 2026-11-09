@@ -217,6 +217,7 @@ from products.tasks.backend.public_create import (
     options_from_request as options_from_request,
     public_idempotency_key as public_idempotency_key,
     request_fingerprint as request_fingerprint,
+    uses_public_create as uses_public_create,
 )
 from products.tasks.backend.repository_config_analytics import (
     capture_repository_config_changed,
@@ -2055,6 +2056,12 @@ def collect_task_run_state_metrics(
 # --- Writes ---
 
 
+def mark_slack_task_manual_billing(*, team_id: int, task_id: str) -> None:
+    Task.objects.get(team_id=team_id, id=task_id, origin_product=Task.OriginProduct.SLACK)
+    for run_id in TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list("id", flat=True):
+        TaskRun.update_state_atomic(run_id, updates={"billing_product": "posthog_ai"})
+
+
 def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, user_id: int) -> None:
     """Link only a saved Slack task; a repeated activity must not add another discussion entry."""
     from products.signals.backend.facade.api import record_slack_report_discussion
@@ -2078,8 +2085,7 @@ def create_and_run_task(
     title: str,
     description: str,
     user_id: int,
-    origin_product: "Task.OriginProduct | None" = None,
-    profile: TaskProfile | None = None,
+    profile: TaskProfile,
     repository: str | None = None,
     create_pr: bool = True,
     mode: str = "background",
@@ -2089,7 +2095,6 @@ def create_and_run_task(
     signal_report_id: str | None = None,
     free_trial_enabled: bool | None = None,
     continue_admitted_pipeline: bool = False,
-    internal: bool | None = None,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
     source: TaskSource | None = None,
@@ -2117,9 +2122,8 @@ def create_and_run_task(
     materializes it at or after that time. The run still stores its complete execution settings.
 
     """
-    origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
+    origin = resolve_task_origin(profile=profile)
     origin_product = cast("Task.OriginProduct", origin.origin_product)
-    internal = origin.internal
     columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=extra.get("hog_flow_id"))
     signal_report_id = columns.signal_report_id
     if columns.hog_flow_id is not None:
@@ -2133,13 +2137,12 @@ def create_and_run_task(
             team, report_id=signal_report_id, stage="task_create", enabled=free_trial_enabled
         )
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
-    if channel is None and not internal and not readable_without_channel(origin_product, profile):
+    if channel is None and not origin.internal and not readable_without_channel(origin_product, profile):
         channel = _ensure_personal_channel(team.id, user_id)[0]
     task = Task.create_and_run(
         team=team,
         title=title,
         description=description,
-        origin_product=origin_product,
         profile=profile,
         user_id=user_id,
         repository=repository,
@@ -2150,7 +2153,6 @@ def create_and_run_task(
         scheduled_at=scheduled_at,
         branch=branch,
         signal_report_id=signal_report_id,
-        internal=internal,
         sandbox_environment_id=sandbox_environment_id,
         **extra,
     )
@@ -2360,8 +2362,7 @@ def create_task_without_run(
     *,
     team,
     user_id: int,
-    origin_product: "Task.OriginProduct | None" = None,
-    profile: TaskProfile | None = None,
+    profile: TaskProfile,
     title: str = "",
     description: str = "",
     repository: str | None = None,
@@ -2375,18 +2376,16 @@ def create_task_without_run(
     For callers that own run creation themselves — e.g. the sandbox warm path, which boots the first
     run via the warming facade. ``team`` is a core ``posthog.Team`` (not a tasks model).
     """
-    origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=None)
     if channel is None:
         channel = (
             None
-            if readable_without_channel(origin.origin_product, profile)
+            if readable_without_channel(profile.origin_product, profile)
             else _ensure_personal_channel(team.id, user_id)[0]
         )
     task = Task.create_without_run(
         team=team,
         title=title,
         description=description,
-        origin_product=cast("Task.OriginProduct", origin.origin_product),
         profile=profile,
         user_id=user_id,
         repository=repository,
@@ -8140,6 +8139,8 @@ def create_task(
 
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
+        implementation_access_instruction,
+        implementation_access_repositories,
         is_pull_request_run_request,
         record_report_task,
     )
@@ -8153,6 +8154,7 @@ def create_task(
     validated_data["team"] = team
     validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
     profile = find_task_profile(validated_data.get("profile"))
+    reuses_no_warm_run = uses_public_create(validated_data)
     source = validated_data.pop("source", None)
     if source is not None:
         columns = apply_task_source(source, signal_report_id=None, hog_flow_id=None)
@@ -8231,7 +8233,7 @@ def create_task(
     # requests that must agree on the origin — when they disagree the lookup misses and we cold-create,
     # which costs latency but can never hand over a Run booted under another product's budget or
     # PR-authorship rules.
-    if warm_branch_provided and user_id is not None and profile is None:
+    if warm_branch_provided and user_id is not None and not reuses_no_warm_run:
         # Post-defaults comparison: warm runs are provisioned with the default triple
         # filled in, so the requested selection must be resolved the same way to match.
         warm_selection = _with_ai_run_defaults(
@@ -8265,6 +8267,8 @@ def create_task(
                 custom_image_id=warm_custom_image_id,
                 initial_permission_mode=warm_initial_permission_mode,
                 signal_report_id=str(signal_report.id) if report_discussion and signal_report is not None else None,
+                task_runtime=validated_data.get("runtime"),
+                json_schema=validated_data.get("json_schema"),
             )
         )
         if warm_run is not None and not _warm_sandbox_selection_is_accessible(
@@ -8509,6 +8513,16 @@ def create_task(
                     }
                 )
             validated_data["github_integration"] = pilot_integration
+
+    if signal_report_id and signal_report_task_relationship in (None, "implementation"):
+        if repository := validated_data.get("repository"):
+            # Tells the agent about the repositories `run_task` adds to its token, as auto-start does.
+            validated_data["description"] = (validated_data.get("description") or "") + (
+                implementation_access_instruction(
+                    repository=repository,
+                    access_repositories=implementation_access_repositories(team_id=team_id, repository=repository),
+                )
+            )
 
     if report_ref:
         validated_data["source_kind"] = SourceKind.SIGNAL_REPORT.value
@@ -9060,6 +9074,8 @@ def _find_idling_warm_run(
     custom_image_id: str | UUID | None = None,
     initial_permission_mode: str | None = None,
     signal_report_id: str | UUID | None = None,
+    task_runtime: str | None = None,
+    json_schema: dict[str, Any] | None = None,
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
@@ -9075,7 +9091,8 @@ def _find_idling_warm_run(
     authorship rules to another.
 
     Reuse also requires the warm Run's runtime, model, sandbox environment, and custom image selections to
-    match the request, plus its permission mode when the caller states one. Reasoning effort is deliberately
+    match the request, plus its permission mode and task runtime when the caller states them. The warm Task's
+    output schema must equal the requested one. Reasoning effort is deliberately
     excluded: activation applies the final effort before the first turn. Other mismatches return ``None`` so
     the caller cold-creates on the correct sandbox.
     The optional repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
@@ -9125,6 +9142,10 @@ def _find_idling_warm_run(
             state.get("custom_image_id") or None,
         )
         if have != wanted:
+            continue
+        if task_runtime is not None and run.task.runtime != task_runtime:
+            continue
+        if (json_schema or None) != (run.task.json_schema or None):
             continue
         # Asymmetric on purpose, and load-bearing: a warm Run's state ALWAYS holds a concrete permission
         # mode (warm_task_sandbox writes one unconditionally), while callers that never send one — the
@@ -9457,6 +9478,7 @@ def warm_task_sandbox(
     team_id: int,
     user_id: int,
     *,
+    profile: TaskProfile,
     repository: str | None,
     repositories: list[str] | None = None,
     github_integration_id: int | None,
@@ -9467,18 +9489,16 @@ def warm_task_sandbox(
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
     client_provenance: TaskClientProvenance | None = None,
-    origin_product: str = Task.OriginProduct.USER_CREATED,
     initial_permission_mode: str | None = None,
     signal_report_id: str | UUID | None = None,
     code_access_allowed: bool = False,
 ) -> contracts.WarmTaskDTO | None:
     """Warm a full idling Run for a cloud task while the user composes.
 
-    ``origin_product`` is stamped on the draft Task and fixes what the warm can later be reused for: it
-    selects the OAuth app, the warm quota gate (``USER_CREATED`` has no billing gate; ``POSTHOG_AI`` runs
+    ``profile`` is stamped on the draft Task and fixes what the warm can later be reused for: it
+    selects the OAuth app, the warm quota gate (the ``user`` profile has no billing gate; ``posthog_ai`` runs
     the AI-credit check), the warm-pool caps, and PR authorship. None of these can change at activation,
-    so a submit only reuses a warm born under the same origin. Defaults to ``USER_CREATED`` for the
-    Code-app callers that predate the parameter.
+    so a submit only reuses a warm born under the same origin.
 
     Births a draft Task, then ``SandboxWarmer.warm()`` provisions an interactive
     Run that boots, optionally clones and checks out ``branch``, then starts the agent on the selected
@@ -9567,7 +9587,7 @@ def warm_task_sandbox(
     existing = _find_idling_warm_run(
         team_id,
         user_id,
-        origin_product=origin_product,
+        origin_product=profile.origin_product,
         repository=repository,
         repositories=normalized_repositories,
         github_integration_id=github_integration_id,
@@ -9587,7 +9607,7 @@ def warm_task_sandbox(
         team=team,
         title="",
         description="",
-        origin_product=Task.OriginProduct(origin_product),
+        profile=profile,
         user_id=user_id,
         repositories=normalized_repositories,
         signal_report_id=str(signal_report_id) if signal_report_id is not None else None,
@@ -9868,6 +9888,7 @@ def run_task(
     """
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
+        implementation_access_repositories,
         is_report_implementation_task,
     )
     from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
@@ -10262,6 +10283,15 @@ def run_task(
         run_state_values.pop("provider")
     extra_state = extra_state or {}
     extra_state["pr_base_branch"] = branch
+    # Auto-start stamps the project's extra repositories at task creation. A task started from the
+    # inbox gets them here, because the key is PATCH-protected and a client cannot send it.
+    if is_implementation and task.repository and "github_access_repositories" not in extra_state:
+        access_repositories = implementation_access_repositories(team_id=team_id, repository=task.repository)
+        if access_repositories:
+            cloned_repositories = [name.lower() for name in (task.repositories or [task.repository])]
+            extra_state["github_access_repositories"] = list(
+                dict.fromkeys([*cloned_repositories, *access_repositories])
+            )
     for key, value in run_state_values.items():
         if value is not None:
             extra_state[key] = value.value if hasattr(value, "value") else value

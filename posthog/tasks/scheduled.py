@@ -152,6 +152,7 @@ from products.tasks.backend.facade.tasks import (
     sweep_inactive_tasks_task,
     sweep_queued_gateway_usage,
 )
+from products.ui_customization.backend.facade.tasks import delete_orphaned_fragments
 from products.visual_review.backend.facade.tasks import (
     send_visual_review_debt_digests,
     sweep_visual_review_artifacts,
@@ -280,6 +281,9 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
+    )
     add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
     add_periodic_task_with_expiry(
         sender,
@@ -1032,13 +1036,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*/12", minute="26"),
         update_survey_iteration.s(),
         name="update survey iteration based on date",
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*/12", minute="28"),
         update_survey_adaptive_sampling.s(),
         name="update survey's sampling feature flag rollout  based on date",
     )
@@ -1306,12 +1310,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # AEO citation-tracking POC: daily citation checks for allowlisted, flag-enabled teams.
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="7", minute="30"),
+        # Hourly through the morning: the first dispatch starts the day's run and the later
+        # ones resume it if a worker rollout killed it. The runner skips the prompts already
+        # checked that day and the per-team lease makes a dispatch during a live run a no-op.
+        crontab(hour="7-15", minute="30"),
         run_aeo_citation_checks_task.s(),
         name="AEO citation checks",
-        # Well under the daily interval, so a backed-up queue drops the stale dispatch
-        # instead of fanning out a second day's checks and paying for them twice.
-        expires_seconds=60 * 60,
+        # Under the dispatch interval, so a backed-up queue drops the stale dispatch
+        # instead of the next one finding it still queued.
+        expires_seconds=50 * 60,
     )
 
     # MCP registry daily sync: crawl the official registry, aggregate measured servers,

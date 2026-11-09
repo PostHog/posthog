@@ -17,6 +17,7 @@ import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
+import type { ValueMatcher } from '~/types'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import type { DecodedAttachment } from '../hogflows/transactional-email'
@@ -36,7 +37,7 @@ import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from 
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
-    resolveEmailSendingVersion,
+    resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -44,7 +45,7 @@ import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
-import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
+import { addUtmTagsToEmail, addWorkflowRunTagToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
 import {
     PreferencesTokenSource,
@@ -71,6 +72,7 @@ const sesThrottleResponsesTotal = new Counter({
 const AUTO_SUBMITTED_HEADER_NAME = 'Auto-Submitted'
 const AUTO_SUBMITTED_HEADER_VALUE = 'auto-generated'
 const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME, Value: AUTO_SUBMITTED_HEADER_VALUE }
+const SES_HEADER_VALUE_MAX_LENGTH = 870
 
 /**
  * SES error codes that signal a transient rate-limit shape — safe to retry
@@ -359,6 +361,7 @@ export interface EmailServiceConfig {
     teamEmailCapMode?: TeamEmailCapMode
     teamEmailTierDailyCaps?: number[]
     utmLinkScannerTeams?: string
+    workflowRunLinkTagTeams?: string
 }
 
 /**
@@ -437,6 +440,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private untrackedConfigSetWarningLogged = false
+    private workflowRunLinkTagTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -463,6 +467,16 @@ export class EmailService {
               })
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
+        this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
+    }
+
+    private tagsLinksWithWorkflowRun(
+        invocation: CyclotronJobInvocationHogFunction,
+        trackingEnabled: boolean,
+        isTest: boolean
+    ): boolean {
+        const sensitive = invocation.hogFunction?.metadata?.sensitive === true
+        return trackingEnabled && !isTest && !sensitive && this.workflowRunLinkTagTeams(invocation.teamId)
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
@@ -501,6 +515,7 @@ export class EmailService {
         let trackingEnabled = true
         let sendingDomain = ''
         let failureReason: EmailStatusReason = 'provider_error'
+        let messageId: string | undefined
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -754,7 +769,7 @@ export class EmailService {
 
             // Tagged before click tracking wraps the links, so the tags land on the destination URL.
             const metadata = invocation.hogFunction.metadata
-            const sendParams =
+            const utmTaggedParams =
                 metadata?.utm_tags_enabled === true && params.html
                     ? {
                           ...paramsWithReplyTo,
@@ -779,6 +794,17 @@ export class EmailService {
                           ),
                       }
                     : paramsWithReplyTo
+            const sendParams =
+                utmTaggedParams.html && this.tagsLinksWithWorkflowRun(invocation, trackingEnabled, isTest)
+                    ? {
+                          ...utmTaggedParams,
+                          html: addWorkflowRunTagToEmail(utmTaggedParams.html, {
+                              runId: invocation.id,
+                              senderEmail: from.email,
+                              siteUrl: this.siteUrl,
+                          }),
+                      }
+                    : utmTaggedParams
 
             const files = await this.loadAttachments(invocation.id, invocation.teamId, params.attachments)
 
@@ -787,7 +813,15 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait, files)
+                    messageId = await this.sendEmailWithSES(
+                        result,
+                        sendParams,
+                        from,
+                        trackingEnabled,
+                        isTest,
+                        queueWait,
+                        files
+                    )
                     break
 
                 case 'unsupported':
@@ -864,6 +898,8 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
+            const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
+            const sendVersion = appSourceVersion ? { app_source_version: appSourceVersion } : {}
             result.metrics.push({
                 team_id: invocation.teamId,
                 app_source_id: invocation.parentRunId ?? invocation.functionId,
@@ -871,6 +907,7 @@ export class EmailService {
                 metric_kind: 'email',
                 metric_name: success ? 'email_sent' : 'email_failed',
                 count: 1,
+                ...sendVersion,
             })
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
@@ -883,6 +920,7 @@ export class EmailService {
                     metric_kind: 'email',
                     metric_name: 'email_untracked',
                     count: 1,
+                    ...sendVersion,
                 })
             }
 
@@ -904,6 +942,7 @@ export class EmailService {
         }
 
         const distinctId = resolveEmailTrackingDistinctId(invocation)
+        const workflowVersion = invocation.state.renderedWorkflowVersion
         if (
             distinctId &&
             !isTest &&
@@ -917,6 +956,9 @@ export class EmailService {
                 properties: {
                     $workflow_id: invocation.functionId,
                     $workflow_action_id: invocation.state.actionId,
+                    $workflow_invocation_id: invocation.id,
+                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
+                    ...(messageId ? { $email_message_id: messageId } : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
                     ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
@@ -1262,7 +1304,7 @@ export class EmailService {
         isTest = false,
         queueWait?: EmailQueueWait,
         files: DecodedAttachment[] = []
-    ): Promise<void> {
+    ): Promise<string> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
@@ -1270,7 +1312,7 @@ export class EmailService {
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
-        const workflowVersion = resolveEmailSendingVersion(result.invocation)
+        const workflowVersion = result.invocation.state.renderedWorkflowVersion
         const trackingCode = this.trackingCodeSigner.generate(
             { ...result.invocation, distinctId, workflowVersion },
             isTest
@@ -1400,6 +1442,7 @@ export class EmailService {
             }
             sesSendDurationMs.labels({ result: 'success' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: 'success' }).inc()
+            return response.MessageId
         } catch (error: unknown) {
             sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
@@ -1416,10 +1459,16 @@ export class EmailService {
         recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>,
         source: PreferencesTokenSource | undefined
     ): MessageHeader[] {
+        const listUnsubscribe = (tokenSource: PreferencesTokenSource | undefined): string =>
+            `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient, tokenSource)}>`
+        let listUnsubscribeValue = listUnsubscribe(source)
+        if (source && listUnsubscribeValue.length > SES_HEADER_VALUE_MAX_LENGTH) {
+            listUnsubscribeValue = listUnsubscribe({ appSourceId: source.appSourceId, instanceId: source.instanceId })
+        }
         return [
             {
                 Name: 'List-Unsubscribe',
-                Value: `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient, source)}>`,
+                Value: listUnsubscribeValue,
             },
             {
                 Name: 'List-Unsubscribe-Post',

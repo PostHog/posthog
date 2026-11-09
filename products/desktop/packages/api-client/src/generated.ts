@@ -10538,6 +10538,57 @@ export namespace Schemas {
          */
         rule: ExperimentHealthCheckRule | null;
     };
+    export type ExperimentHealthReleaseCondition = {
+        /**
+         * The share of the users matching the condition set's filters who get the flag, from 0 to 100.
+         */
+        rollout_percentage: number;
+        /**
+         * The number of filters a user must match, such as properties and cohorts. 0 matches all users.
+         */
+        property_count: number;
+        /**
+         * The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when it assigns them by user.
+         */
+        aggregation_group_type_index: number | null;
+    };
+    export type ExperimentHealthSetup = {
+        /**
+         * The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a request depends on the sets before it and on `early_exit`.
+         */
+        release_conditions: Array<ExperimentHealthReleaseCondition>;
+        /**
+         * Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the user out. Otherwise such a user goes on to the next set.
+         */
+        early_exit: boolean;
+        /**
+         * The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.
+         *
+         * * `distinct_id` - User ID (default)
+         * * `device_id` - Device ID
+         */
+        bucketing_identifier: BucketingIdentifierEnum;
+        /**
+         * The flag's own group type, which the exposure counts and the results use. A condition set can override it. Null for users.
+         */
+        aggregation_group_type_index: number | null;
+        /**
+         * The flag's `evaluation_runtime`. Null on the flag reads as all.
+         *
+         * * `server` - Server
+         * * `client` - Client
+         * * `all` - All
+         */
+        evaluation_runtime: EvaluationRuntimeEnum;
+        /**
+         * The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag has none.
+         */
+        evaluation_contexts: Array<string>;
+        /**
+         * The flag's 'Persist flag across authentication steps' setting.
+         */
+        ensure_experience_continuity: boolean;
+    };
     export type ExperimentHealth = {
         /**
          * Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`.
@@ -10547,6 +10598,7 @@ export namespace Schemas {
          * The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`.
          */
         checks: Array<ExperimentHealthCheckResult>;
+        setup?: (ExperimentHealthSetup | null) | undefined;
     };
     /**
      * Full experiment representation for the detail, create, and update endpoints.
@@ -11483,6 +11535,14 @@ export namespace Schemas {
          * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
          */
         history_table_name: string | null;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        drop_history_table?: boolean | undefined;
+        /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         */
+        registered_history_table_name: string | null;
         /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          */
@@ -16091,6 +16151,7 @@ export namespace Schemas {
         responses_limit: number | null;
         iteration_count: number | null;
         iteration_frequency_days: number | null;
+        repeat_until_stopped: boolean | null;
         iteration_start_dates: Array<string | null> | null;
         current_iteration: number | null;
         current_iteration_start_date: string | null;
@@ -17282,6 +17343,10 @@ export namespace Schemas {
         /**
          * Mixin for serializers to add user access control fields
          */
+        repeat_until_stopped?: (boolean | null) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         /**
          * Mixin for serializers to add user access control fields
@@ -17589,6 +17654,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
@@ -17642,6 +17708,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
