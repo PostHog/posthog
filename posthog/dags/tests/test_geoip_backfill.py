@@ -54,6 +54,7 @@ class SeededEvent:
     written_minutes_ago: int
     person_properties: dict[str, Any]
     event: str = "$pageview"
+    person_uuid: UUID | None = None
 
     @property
     def uuid(self) -> UUID:
@@ -70,7 +71,7 @@ def seed(cluster: ClickhouseCluster, now: datetime, events: list[SeededEvent]) -
             event.team_id,
             f"user-{event.label}",
             now,
-            uuid4(),
+            event.person_uuid or uuid4(),
             json.dumps(event.person_properties),
             now,
             "full",

@@ -1247,6 +1247,28 @@ class FakePersonHogClient:
             written.version = request.min_version
         return person_pb2.RaisePersonVersionResponse(person=written, raised=raised)
 
+    def update_person_properties(
+        self, request: person_pb2.UpdatePersonPropertiesRequest, timeout: float | None = None
+    ) -> person_pb2.UpdatePersonPropertiesResponse:
+        self.calls.append(_Call("update_person_properties", request))
+        person = self._live(self._persons_by_id.get((request.team_id, request.person_id)))
+        if person is None:
+            return person_pb2.UpdatePersonPropertiesResponse(updated=False)
+        properties = json.loads(person.properties or b"{}")
+        updated = dict(properties)
+        for key, value in json.loads(request.set_once_properties or b"{}").items():
+            updated.setdefault(key, value)
+        updated.update(json.loads(request.set_properties or b"{}"))
+        for key in request.unset_properties:
+            updated.pop(key, None)
+        changed = updated != properties
+        if changed:
+            person.properties = json.dumps(updated).encode()
+            person.version += 1
+        written = person_pb2.Person()
+        written.CopyFrom(person)
+        return person_pb2.UpdatePersonPropertiesResponse(person=written, updated=changed)
+
     def restore_persons(
         self, request: person_pb2.RestorePersonsRequest, timeout: float | None = None
     ) -> person_pb2.RestorePersonsResponse:
