@@ -118,7 +118,8 @@ ADMISSION_POLL_INTERVAL = dt.timedelta(seconds=2)
 # the batch costs the admission rounds plus one check's budget, not one per check. The last check
 # can end while an earlier record still runs, so the tail holds two records and their failures,
 # or one record and the stop of a failed check's queries. A firing's claim follows its record, and a
-# failed check claims nothing.
+# failed check claims nothing. A firing's inbox signal is sent beside its claim, within the claim and
+# metrics investigation's share.
 EVALUATION_BUDGET = (
     PLAN_SCHEDULE_TO_CLOSE
     + ADMISSION_RUN_BUDGET
@@ -427,13 +428,12 @@ def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsIn
 async def emit_platform_insight_firing_signals_activity(inputs: FiringSignalsInputs) -> None:
     """Sends the inbox signals that recorded firings asked for, side by side. Each send gives up on
     its own, and a failed one never touches the recorded firing."""
-    from asgiref.sync import sync_to_async  # noqa: PLC0415
-
+    from posthog.sync import database_sync_to_async  # noqa: PLC0415
     from posthog.temporal.alerts.alert_firing_signal import dispatch_alert_firing_signal  # noqa: PLC0415
 
     from products.alerts.backend.platform_firing_signal import prepare_platform_firing_signals  # noqa: PLC0415
 
-    signals = await sync_to_async(prepare_platform_firing_signals, thread_sensitive=False)(inputs.requests)
+    signals = await database_sync_to_async(prepare_platform_firing_signals, thread_sensitive=False)(inputs.requests)
     # On the event loop, not in a thread: emit_signal needs the default executor.
     await asyncio.gather(*(dispatch_alert_firing_signal(signal) for signal in signals))
 

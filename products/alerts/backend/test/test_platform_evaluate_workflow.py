@@ -17,6 +17,8 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.alerts.retry_policy import ALERT_SIGNAL_SCHEDULE_TO_CLOSE
+
 from products.alerts.backend.platform_chart_detail import (
     CHART_ASSET_ID_KEY,
     CHART_PENDING_KEY,
@@ -33,7 +35,9 @@ from products.alerts.backend.platform_source_cycle import PLATFORM_LLM_CHECKS
 from products.alerts.backend.temporal.platform_evaluate import (
     CHECK_HEARTBEAT_TIMEOUT,
     CHECK_RETRY_POLICY,
+    CLAIM_SCHEDULE_TO_CLOSE,
     EVALUATION_BUDGET,
+    METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE,
     REAL_TIME_CHECK_HEARTBEAT_TIMEOUT,
     AdmittedInsightCheck,
     ClaimInsightInvestigationsInputs,
@@ -493,6 +497,8 @@ async def test_a_firing_records_the_chart_rendered_after_its_check(
 
 def test_the_binding_holds_the_whole_batch() -> None:
     assert source_evaluation_timeout(SourceKind.INSIGHT) > EVALUATION_BUDGET
+    # The inbox signal runs beside the claim, so it must fit the claim's share of the budget.
+    assert ALERT_SIGNAL_SCHEDULE_TO_CLOSE <= CLAIM_SCHEDULE_TO_CLOSE + METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE
 
 
 async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_its_thread_ends() -> None:
