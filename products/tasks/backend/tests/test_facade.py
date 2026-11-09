@@ -354,6 +354,7 @@ class TestFacadeReadsAndMappers(TestCase):
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "store_skills_bridge": True,
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
+                "billing_product": "posthog_ai",
                 "sandbox_jwt_kid": "secret",
                 "unknown_server_context": {"title": "Saved context"},
                 "posthog_mcp_scopes": "read_only",
@@ -378,6 +379,8 @@ class TestFacadeReadsAndMappers(TestCase):
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("store_skills_bridge" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
+        # The agent picks its gateway fallback product from this; dropped, the fallback 403s.
+        assert ("billing_product" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
         assert "unknown_server_context" not in detail.state
         assert "posthog_mcp_scopes" not in detail.state
