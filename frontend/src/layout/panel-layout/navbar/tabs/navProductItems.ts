@@ -18,7 +18,6 @@ import {
 // These pages are tabs of Event definitions, so the sidebar lists only that entry for them.
 const DEFINITIONS_TAB_HREFS = new Set(DEFINITIONS_TABS.filter((tab) => tab.key !== 'events').map((tab) => tab.url))
 
-/** The nav entry of Persons, which covers cohorts and every group type too. */
 export const PEOPLE_AND_GROUPS_NAV: { label: string; iconType: FileSystemIconType } = {
     label: 'People and groups',
     iconType: 'persons',

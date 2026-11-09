@@ -145,9 +145,8 @@ function productsPaneListsPath(path: string): boolean {
 }
 
 /**
- * Whether an open Products pane stays open on this page. A product it lists stays there even when Analytics also lists
- * it, like Dashboards. Every People list page stays there too, so Support, or a tab like Cohorts opened from Persons,
- * does not switch the rail.
+ * Whether an open Products pane stays open on this page: a product it lists, even one Analytics lists too, or any
+ * People list page, so a tab like Cohorts opened from Persons does not switch the rail.
  */
 function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
     return (
@@ -192,12 +191,12 @@ export interface todayShellLogicValues {
     mobileSidebarOpen: boolean
     onAiPage: boolean
     paneHasSidebar: boolean
+    peoplePaneLinksTabs: boolean
     phoneCanGoBack: boolean
     phoneHeaderHidden: boolean
     phoneHeaderShown: boolean
     phoneLayout: boolean
     phonePages: TodayPhonePage[]
-    peoplePaneLinksTabs: boolean
     pickedPane: TodayRailPane | null
     routePane: TodayRailPane | null
     sidebarBreadcrumbShown: boolean
@@ -276,7 +275,6 @@ export interface todayShellLogicMeta {
         routePane: (location: { hash: string; pathname: string; search: string }) => TodayRailPane | null
         activePane: (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null) => TodayRailPane
         paneHasSidebar: (activePane: TodayRailPane) => boolean
-        peoplePaneLinksTabs: (todayRailEnabled: boolean, activePane: TodayRailPane) => boolean
         leftNavWidth: (
             sidebarOpen: boolean,
             sidebarWidth: number,
@@ -291,6 +289,7 @@ export interface todayShellLogicMeta {
             paneHasSidebar: boolean
         ) => boolean
         todayRailEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        peoplePaneLinksTabs: (todayRailEnabled: boolean, activePane: TodayRailPane) => boolean
         onAiPage: (location: { hash: string; pathname: string; search: string }) => boolean
         phoneHeaderHidden: (
             onAiPage: boolean,
@@ -361,7 +360,6 @@ export const todayShellLogic = kea<todayShellLogicType>([
     reducers({
         // The last pane picked on the rail, or reached through a route that belongs to one, stays open on other pages.
         // The locationChanged listener sets it after a page change, because the drill-in rule reads the previous page from the cache.
-        // It persists, so a reload keeps the open pane wherever the page still belongs to it.
         pickedPane: [
             null as TodayRailPane | null,
             { persist: true },
@@ -448,8 +446,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV],
         ],
-        // The People pane links to every People page and each of its tabs, so a page shows neither its own tabs nor its
-        // own name while that pane is open. From the Products pane a page keeps both.
+        // The People pane links every People page and tab, so those pages hide their tabs and name while it is open.
         peoplePaneLinksTabs: [
             (s) => [s.todayRailEnabled, s.activePane],
             (todayRailEnabled: boolean, activePane: TodayRailPane): boolean =>

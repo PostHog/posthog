@@ -9,9 +9,8 @@ import { ActivitySceneTabs } from './ActivitySceneTabs'
 import { ActivitySceneTabKey } from './activitySceneTabsLogic'
 
 /**
- * The tabs and title of Persons, Cohorts and each group type page. The People pane links to every one of these pages,
- * so there the page shows no tabs. Any other pane under today-rail-nav, like Products, lists them as one product, so
- * the title names that product and the tabs sit below it.
+ * The tabs and title of Persons, Cohorts and each group type page. The People pane links to each page, so there it
+ * shows no tabs. Other panes list them as one product, so the title names it and the tabs sit below.
  */
 export function PeopleSceneHeader({
     activeKey,

@@ -17,7 +17,6 @@ jest.mock('~/layout/scenes/components/SceneTitleSection', () => ({
 
 describe('PeopleSceneHeader', () => {
     beforeEach(() => {
-        // The open rail pane persists, so clear it between cases.
         localStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
@@ -28,9 +27,7 @@ describe('PeopleSceneHeader', () => {
     })
 
     test.each([
-        // The People pane links to every tab, so the page keeps its own name and shows no tabs.
         [true, 'people', 'Cohorts', false, false],
-        // The Products pane lists the pages as one product, so its name leads and the tabs follow.
         [true, 'products', 'People and groups', true, true],
         [false, 'people', 'Cohorts', true, false],
     ] as [boolean, TodayRailPane, string, boolean, boolean][])(

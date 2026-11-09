@@ -62,7 +62,6 @@ describe('customerAnalyticsSceneLogic', () => {
             ['customerAnalyticsFeed', false, 'people', 'Customer analytics'],
             ['customerAnalyticsDashboard', true, 'people', 'Overview'],
             ['customerAnalyticsFeed', true, 'people', 'Feed'],
-            // The Products pane links to the scene alone, so the page shows its tabs under its own name.
             ['customerAnalyticsFeed', true, 'products', 'Customer analytics'],
         ] as const)(
             'names the %s breadcrumb when today-rail-nav is %s and the %s pane is open',

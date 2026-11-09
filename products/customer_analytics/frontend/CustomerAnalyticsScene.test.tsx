@@ -53,7 +53,6 @@ jest.mock('./components/Insights/SignupInsights', () => ({ SignupInsights: () =>
 
 describe('CustomerAnalyticsScene', () => {
     beforeEach(() => {
-        // The open rail pane persists, so clear it between cases.
         localStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()

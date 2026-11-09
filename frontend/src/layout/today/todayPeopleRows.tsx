@@ -231,10 +231,7 @@ export function todayPeopleRowIcon(key: TodayPeopleStaticRowKey): JSX.Element {
     )
 }
 
-/**
- * The name of a page's People pane row while that pane is open, else null. For selectors, like breadcrumbs. Pass
- * `peoplePaneLinksTabs` from `todayShellLogic`.
- */
+/** The name of a page's People pane row while that pane is open, else null. For selectors, like breadcrumbs. */
 export function todayPeopleRowLabel(peoplePaneLinksTabs: boolean, key: TodayPeopleStaticRowKey): string | null {
     return peoplePaneLinksTabs ? rowDefinition(key).label : null
 }
@@ -246,8 +243,7 @@ export interface TodayPeopleTitle {
 
 /**
  * The scene title of a page while the People pane is open: its row's name and icon, so the header matches the nav.
- * Null otherwise, so a page opened from another pane, or with today-rail-nav off, keeps its own title. A group type
- * page passes 'group' and keeps its own name.
+ * Null from any other pane, so the page keeps its own title. A group type page passes 'group' and keeps its own name.
  */
 export function useTodayPeopleTitle(key: TodayPeopleStaticRowKey | 'group'): TodayPeopleTitle | null {
     const { peoplePaneLinksTabs } = useValues(todayShellLogic)

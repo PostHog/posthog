@@ -19,7 +19,6 @@ import {
 
 describe('todayShellLogic', () => {
     beforeEach(() => {
-        // The picked pane persists, so a pane picked in one test would otherwise open the next.
         localStorage.clear()
         initKeaTests()
     })
