@@ -109,7 +109,8 @@ REPORT_FIELDS = tuple(DistinctIdUsageForm.base_fields)
 
 class RestrictDistinctIdForm(forms.Form):
     token = forms.CharField(label="Project token", max_length=100)
-    distinct_id = forms.CharField(label="Distinct ID", max_length=450)
+    # Capture keeps surrounding spaces and restrictions match exactly, so the ID is saved as typed.
+    distinct_id = forms.CharField(label="Distinct ID", max_length=450, strip=False)
     restriction_type = forms.ChoiceField(
         label="Restriction", choices=RESTRICTION_CHOICES, initial=RestrictionType.SKIP_PERSON_PROCESSING
     )

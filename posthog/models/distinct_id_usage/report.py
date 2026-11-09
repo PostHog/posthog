@@ -287,6 +287,13 @@ class DistinctIdUsage:
         existing = EventIngestionRestrictionConfig.objects.filter(
             token=token, restriction_type=restriction_type
         ).first()
+        if existing is not None and "analytics" not in (existing.pipelines or []):
+            # One row per token and type, so a row scoped to other pipelines cannot also cover analytics.
+            raise RestrictionRefused(
+                f"The {existing.get_restriction_type_display().capitalize()} restriction of this project applies to "
+                f"{', '.join(existing.pipelines or [])} only, not analytics, so nothing changed. "
+                "Add analytics to its pipelines first."
+            )
         if existing is not None and not existing.distinct_ids:
             # An empty list matches every distinct ID, so adding one would narrow the restriction to that one.
             raise RestrictionRefused(

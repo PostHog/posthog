@@ -577,5 +577,6 @@ class TestNotebookMarkdownMigrationTool(BaseTest):
         notebook.refresh_from_db()
 
         assert response.status_code == 302
+        assert response["Location"] == f"{self.TOOL_URL}?team_id={self.team.id}"
         assert notebook.version == 4
         assert notebook.content["content"][0]["type"] == "ph-markdown-notebook"

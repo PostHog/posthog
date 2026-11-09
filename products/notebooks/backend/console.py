@@ -2,7 +2,7 @@ from typing import cast
 
 from django import forms
 from django.contrib import messages
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 from posthog.admin.console.panels import Owner
 from posthog.admin.console.registry import console
@@ -107,7 +107,10 @@ def convert_notebooks(request: HttpRequest, form: forms.Form | None) -> HttpResp
             request,
             f"{pluralize(result.errored, 'notebook')} could not be converted: " + "; ".join(result.errors),
         )
-    return None
+    # Back to the scope that just ran, so the next batch's form keeps the team.
+    if result.team_id is None:
+        return HttpResponseRedirect(TOOL_URL)
+    return HttpResponseRedirect(f"{TOOL_URL}?team_id={result.team_id}")
 
 
 def _team_id(request: HttpRequest) -> int | None:

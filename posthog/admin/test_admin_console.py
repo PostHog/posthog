@@ -575,6 +575,14 @@ class TestAdminConsoleViews(BaseTest):
             ("adds_to_the_existing_restriction", ["other-user"], "Spam traffic", 302, ["other-user", "heavy-user"]),
             ("refuses_to_narrow_a_restriction_on_every_distinct_id", [], "Spam traffic", 400, []),
             ("needs_a_reason", None, "  ", 400, None),
+            (
+                "refuses_a_restriction_of_other_pipelines",
+                ["other-user"],
+                "Spam traffic",
+                400,
+                ["other-user"],
+                ("session_recordings",),
+            ),
         ]
     )
     def test_restrict_a_distinct_id(
@@ -584,12 +592,14 @@ class TestAdminConsoleViews(BaseTest):
         reason: str,
         expected_status: int,
         expected_distinct_ids: list[str] | None,
+        pipelines: tuple[str, ...] = ("analytics",),
     ) -> None:
         if existing_distinct_ids is not None:
             EventIngestionRestrictionConfig.objects.create(
                 token=self.team.api_token,
                 restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
                 distinct_ids=existing_distinct_ids,
+                pipelines=list(pipelines),
             )
 
         response = self.client.post(
