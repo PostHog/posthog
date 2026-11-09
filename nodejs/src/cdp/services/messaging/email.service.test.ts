@@ -595,7 +595,7 @@ describe('EmailService', () => {
                     if (html.includes('<a href')) {
                         expect(sentHtml).toContain('utm_source=posthog')
                     }
-                    expect(sentHtml?.endsWith(`>${footer}</div></body></html>`)).toBe(true)
+                    expect(sentHtml?.endsWith(`<div>${footer}</div></body>`)).toBe(true)
                     expect(input.ReplyToAddresses).toBeUndefined()
                     const headerNames = input.Content?.Simple?.Headers?.map((header) => header.Name)
                     expect(headerNames).toContain('X-PostHog-Tracking-Code')
@@ -638,16 +638,16 @@ describe('EmailService', () => {
                 expect(claimUpTo).not.toHaveBeenCalled()
             })
 
-            it('fails the send when the template cannot keep its identification footer', async () => {
+            it('fails the send when the template has no content', async () => {
                 service = createSandboxService(true)
-                invocation.queueParameters = createSandboxParams({ html: '<body><p>Hello</p><script><!--<script>' })
+                invocation.queueParameters = createSandboxParams({ html: '', text: '' })
 
                 const result = await service.executeSendEmail(invocation)
 
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result).toMatchObject({
                     finished: true,
-                    error: 'The sandbox email template could not retain its identification footer. Update the template and try again.',
+                    error: 'The sandbox email template must include HTML or text content. Update the template and try again.',
                 })
             })
 
