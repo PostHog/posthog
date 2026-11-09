@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import csv
+import sys
 import json
 import errno
+import signal
 import hashlib
 import subprocess
 from collections.abc import Callable
@@ -488,6 +490,48 @@ class TestCoderConfig:
 
         with pytest.raises(RuntimeError, match="stdout pipe was not opened"):
             coder._run_build(["coder", "start", "devbox-test-user"])
+
+    @pytest.mark.parametrize(
+        "signum, expected",
+        [
+            (signal.SIGINT, KeyboardInterrupt),
+            (signal.SIGTERM, SystemExit),
+            (signal.SIGHUP, SystemExit),
+        ],
+    )
+    def test_run_build_interrupts_coder_when_hogli_is_stopped(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        signum: int,
+        expected: type[BaseException],
+    ) -> None:
+        canceled_marker = tmp_path / "canceled"
+        fake_coder = (
+            "import signal, sys, time\n"
+            "def cancel(*_):\n"
+            f"    open({str(canceled_marker)!r}, 'w').close()\n"
+            "    sys.exit(1)\n"
+            "signal.signal(signal.SIGINT, cancel)\n"
+            "print('ready', flush=True)\n"
+            "time.sleep(30)\n"
+        )
+        monkeypatch.setattr(coder, "_resolve_coder", lambda args: [sys.executable, "-c", fake_coder])
+        real_echo = coder.click.echo
+
+        def echo_then_signal(message: object = None, **kwargs: Any) -> None:
+            real_echo(message, **kwargs)
+            if message == "ready\n":
+                os.kill(os.getpid(), signum)
+
+        monkeypatch.setattr(coder.click, "echo", echo_then_signal)
+
+        with pytest.raises(expected) as raised:
+            coder._run_build(["coder", "create", "devbox-test-user"], verbose=True)
+
+        assert canceled_marker.exists()
+        if expected is SystemExit:
+            assert raised.value.code == 128 + signum
 
 
 class TestCoderVersion:
