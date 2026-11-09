@@ -5,9 +5,9 @@ import { useActions, useValues } from 'kea'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { customNavCountRegistry } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 
-import { TodayPaneSearchList } from './TodayPaneSearchList'
-import { TodayPaneSection } from './TodayPaneSection'
 import { peopleRecentRowKey } from './todayPeople'
 import { TodayPeopleRow, TodayPeopleRowKey, todayPeopleLogic } from './todayPeopleLogic'
 import { TodayPeopleNavRow } from './TodayPeopleNavRow'
@@ -34,7 +34,7 @@ export function TodayPeopleSidebar(): JSX.Element {
 
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
-            <TodayPaneSearchList
+            <SidebarSearchList
                 query={searchQuery}
                 onQueryChange={setSearchQuery}
                 searchLabel="Search people"
@@ -47,7 +47,7 @@ export function TodayPeopleSidebar(): JSX.Element {
                     </div>
                 )}
                 {matchingRecentRows.length > 0 && (
-                    <TodayPaneSection
+                    <SidebarSection
                         label="Recents"
                         open={isSectionOpen('recents')}
                         count={matchingRecentRows.length}
@@ -63,10 +63,10 @@ export function TodayPeopleSidebar(): JSX.Element {
                                 active={activeRow === peopleRecentRowKey(recent.href)}
                             />
                         ))}
-                    </TodayPaneSection>
+                    </SidebarSection>
                 )}
                 {rowSections.map((section) => (
-                    <TodayPaneSection
+                    <SidebarSection
                         key={section.key}
                         label={section.label}
                         open={isSectionOpen(section.key)}
@@ -77,9 +77,9 @@ export function TodayPeopleSidebar(): JSX.Element {
                         dataAttr={`people-section-${section.key}`}
                     >
                         {section.rows.map(renderRow)}
-                    </TodayPaneSection>
+                    </SidebarSection>
                 ))}
-            </TodayPaneSearchList>
+            </SidebarSearchList>
         </div>
     )
 }
