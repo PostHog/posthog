@@ -602,32 +602,44 @@ class TestAdminConsoleViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("compacted", 0, CompactionResult(compacted=True, checkpoints_deleted=3, blobs_deleted=5), 302, 2),
-            ("nothing_to_compact", 0, CompactionResult(compacted=False), 302, 2),
-            ("one_unknown_conversation_stops_the_run", 1, None, 404, 0),
+            ("compacted", CompactionResult(compacted=True, checkpoints_deleted=3, blobs_deleted=5)),
+            ("nothing_to_compact", CompactionResult(compacted=False)),
         ]
     )
     @patch("posthog.admin.console.conversation_checkpoints_tool.compact_conversation")
-    def test_compacting_conversations_runs_only_when_every_id_exists(
-        self,
-        _name: str,
-        unknown_count: int,
-        result: CompactionResult | None,
-        expected_status: int,
-        expected_calls: int,
-        compact: MagicMock,
+    def test_compacting_conversations_previews_then_runs_on_confirm(
+        self, _name: str, result: CompactionResult, compact: MagicMock
     ) -> None:
         compact.return_value = result
         ids = [str(Conversation.objects.create(team=self.team, user=self.user).id) for _ in range(2)]
-        ids += ["01920000-0000-0000-0000-000000000000"] * unknown_count
+        url = "/admin/console/tools/ai-conversation-checkpoints/compact/"
+
+        preview = self.client.post(url, {"conversations": "\n".join(ids), "reason": "Threads too large to load"})
+
+        assert preview.status_code == 200
+        assert compact.call_count == 0
+        preview_content = preview.content.decode()
+        assert all(conversation_id in preview_content for conversation_id in ids)
+        assert "Deletes up to 0 checkpoints" in preview_content
+
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert compact.call_count == 2
+
+    @patch("posthog.admin.console.conversation_checkpoints_tool.compact_conversation")
+    def test_compaction_preview_refuses_an_unknown_conversation(self, compact: MagicMock) -> None:
+        known = str(Conversation.objects.create(team=self.team, user=self.user).id)
+        unknown = "01920000-0000-0000-0000-000000000000"
 
         response = self.client.post(
             "/admin/console/tools/ai-conversation-checkpoints/compact/",
-            {"conversations": "\n".join(ids), "reason": "Threads too large to load"},
+            {"conversations": f"{known}\n{unknown}", "reason": "Threads too large to load"},
         )
 
-        assert response.status_code == expected_status
-        assert compact.call_count == expected_calls
+        assert response.status_code == 400
+        assert unknown in response.content.decode()
+        compact.assert_not_called()
 
     def test_the_old_compact_url_opens_the_console_form_for_the_conversation(self) -> None:
         conversation = Conversation.objects.create(team=self.team, user=self.user)
