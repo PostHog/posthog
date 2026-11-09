@@ -4,7 +4,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 from products.annotations.backend.models.annotation import Annotation
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.testing import create_dashboard
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -75,10 +75,10 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
     def test_annotation_dashboard_scope_context(self):
         """Test annotation with dashboard scope includes correct context."""
         # Create a dashboard first
-        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Test Dashboard", created_by_id=self.user.id)
 
         annotation = self.create_annotation(
-            content="Dashboard annotation", scope=Annotation.Scope.DASHBOARD.value, dashboard_id=dashboard.id
+            content="Dashboard annotation", scope=Annotation.Scope.DASHBOARD.value, dashboard_id=dashboard_id
         )
 
         log = ActivityLog.objects.filter(
@@ -93,8 +93,8 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
 
         context = cast(dict[str, Any], detail["context"])
         self.assertEqual(context["scope"], Annotation.Scope.DASHBOARD.value)
-        self.assertEqual(context["dashboard_id"], dashboard.id)
-        self.assertEqual(context["dashboard_name"], dashboard.name)
+        self.assertEqual(context["dashboard_id"], dashboard_id)
+        self.assertEqual(context["dashboard_name"], "Test Dashboard")
         self.assertIsNone(context.get("dashboard_item_id"))
 
     def test_annotation_insight_scope_context(self):

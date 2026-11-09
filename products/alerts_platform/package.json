@@ -7,13 +7,17 @@
     "dependencies": {
         "@posthog/quill": "workspace:*",
         "kea": "catalog:",
-        "kea-loaders": "catalog:"
+        "kea-loaders": "catalog:",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
-        "@storybook/react": "catalog:"
+        "@storybook/react": "catalog:",
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "react": "*"
     }

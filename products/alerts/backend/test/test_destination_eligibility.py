@@ -353,11 +353,20 @@ class TestDestinationEligibility(APIBaseTest):
                 "properties": [{"key": "alert_id", "value": ALERT_ID, "operator": "is_not", "type": "event"}],
             }
         )
+        implicit_exact = self._function("template-slack", SLACK_INPUTS)
+        HogFunction.objects.filter(pk=implicit_exact.pk).update(
+            filters={**(implicit_exact.filters or {}), "properties": [{"key": "alert_id", "value": ALERT_ID}]}
+        )
+        non_string_id = self._function("template-slack", SLACK_INPUTS)
+        HogFunction.objects.filter(pk=non_string_id.pk).update(
+            filters={**(non_string_id.filters or {}), "properties": [{"key": "alert_id", "value": [ALERT_ID]}]}
+        )
 
         assert unbound_alert_destinations(team_id=self.team.id, allowed_event_ids=[EVENT]) == (
             team_wide.id,
             untyped_event.id,
             excluding_one_alert.id,
+            non_string_id.id,
         )
 
     def test_the_report_buckets_an_unbound_function_by_its_content_once_per_team(self) -> None:

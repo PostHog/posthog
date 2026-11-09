@@ -28,6 +28,7 @@ from products.tasks.backend.facade.api import (
     maintain_workflow_dispatch_outbox,
     resume_task_run_in_cloud,
 )
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus
 from products.tasks.backend.logic.services.workflow_dispatch import (
     RestartSnapshot,
@@ -56,6 +57,9 @@ from products.tasks.backend.metrics import WORKFLOW_DISPATCH_ATTEMPT_TOTAL
 from products.tasks.backend.models import Channel, ChannelMembership, Task, TaskRun, TaskWorkflowDispatch
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
+
+SIGNAL_REPORT_PROFILE = get_task_profile("signals.custom_agent")
+SLACK_PROFILE = get_task_profile("slack")
 
 
 class TestWorkflowDispatchPayload(SimpleTestCase):
@@ -525,7 +529,7 @@ class TestWorkflowDispatchPersistence(TestCase):
             team=self.team,
             title="Deferred start",
             description="Created without starting the workflow",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             user_id=creator_id,
             create_pr=False,
             mode="interactive",
@@ -549,7 +553,7 @@ class TestWorkflowDispatchPersistence(TestCase):
             team=self.team,
             title="Scheduled follow-up",
             description="Review the report after more data arrives",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SIGNAL_REPORT_PROFILE,
             user_id=creator_id,
             create_pr=False,
             scheduled_at=scheduled_at,

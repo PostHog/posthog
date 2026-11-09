@@ -28,6 +28,7 @@ import {
     SessionUserResult,
     ToolbarAccessResult,
     getExtensionPanelState,
+    openableAuthorizedUrls,
 } from './extensionPanelState'
 
 const DEFAULT_UI_HOST = 'https://us.posthog.com'
@@ -44,6 +45,7 @@ const RECHECK_ON_TAB_CHANGE: ExtensionPanelState['kind'][] = [
     'signed-out',
     'no-toolbar-access',
     'unauthorized-url',
+    'posthog-app',
     'error',
 ]
 
@@ -80,6 +82,7 @@ export interface extensionPanelLogicValues {
     dataAttributes: string[]
     entitlements: ToolbarEntitlementsApiEntitlements | null
     hostPermission: boolean | null
+    openableAuthorizedUrls: string[]
     panelState: ExtensionPanelState
     projectSwitchFailed: boolean
     projectUrl: (path: string) => string
@@ -151,6 +154,9 @@ export interface extensionPanelLogicActions {
         toolbarAccess: ToolbarAccessResult | null
         payload?: any
     }
+    openAuthorizedUrl: (url: string) => {
+        url: string
+    }
     openFeature: (
         feature: ExtensionFeatureKey,
         path: string
@@ -212,6 +218,7 @@ export interface extensionPanelLogicMeta {
             authorizedUrls: string[] | 'error' | null
         ) => ExtensionPanelState
         settingsNeeded: (panelState: ExtensionPanelState, projectSwitchFailed: boolean) => boolean
+        openableAuthorizedUrls: (authorizedUrls: string[] | 'error' | null) => string[]
     }
 }
 
@@ -233,6 +240,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         switchProject: (teamId: number) => ({ teamId }),
         openPostHogPath: (path: string) => ({ path }),
         openProjectPath: (path: string) => ({ path }),
+        openAuthorizedUrl: (url: string) => ({ url }),
         openFeature: (feature: ExtensionFeatureKey, path: string) => ({ feature, path }),
         retry: true,
         setProjectSwitchFailed: (failed: boolean) => ({ failed }),
@@ -377,6 +385,10 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             (panelState: ExtensionPanelState, projectSwitchFailed: boolean): boolean =>
                 projectSwitchFailed || OPEN_SETTINGS_IN.includes(panelState.kind),
         ],
+        openableAuthorizedUrls: [
+            (s) => [s.authorizedUrls],
+            (authorizedUrls: string[] | 'error' | null): string[] => openableAuthorizedUrls(authorizedUrls),
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         setUiHost: async ({ uiHost }) => {
@@ -442,6 +454,11 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         },
         openProjectPath: ({ path }) => {
             void openTab(values.projectUrl(path))
+        },
+        openAuthorizedUrl: ({ url }) => {
+            toolbarPosthogJS.capture('toolbar extension authorized url opened', { panel_state: values.panelState.kind })
+            // The side panel belongs to the window, so it stays open on the new tab and follows it.
+            void openTab(url)
         },
         openFeature: ({ feature, path }) => {
             toolbarPosthogJS.capture('toolbar extension feature opened', { feature })

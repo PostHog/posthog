@@ -13,13 +13,17 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
-import type { HoglakeConnectApi, HoglakeCredentialApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type {
+    HoglakeConnectApi,
+    HoglakeCredentialApi,
+    HoglakeCredentialIssuedApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { hoglakeCredentialsLogic } from './hoglakeCredentialsLogic'
 
 // Mirrors HoglakeCredentialCreateRequestSerializer.name in
 // products/data_warehouse/backend/presentation/views/data_warehouse.py.
-const CREDENTIAL_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$/
+export const CREDENTIAL_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$/
 
 function tokenCommand(connect: HoglakeConnectApi, clientId: string): string | null {
     if (!connect.token_url) {
@@ -32,29 +36,33 @@ function tokenCommand(connect: HoglakeConnectApi, clientId: string): string | nu
     ].join('\n')
 }
 
-function IssuedCredentialBanner(): JSX.Element | null {
-    const { issuedCredential, hoglakeCredentials } = useValues(hoglakeCredentialsLogic)
-    const { setIssuedCredential } = useActions(hoglakeCredentialsLogic)
-    if (!issuedCredential) {
+export function IssuedCredentialBanner({
+    issued,
+    connect,
+    onClose,
+}: {
+    issued: HoglakeCredentialIssuedApi | null
+    connect: HoglakeConnectApi | null | undefined
+    onClose: () => void
+}): JSX.Element | null {
+    if (!issued) {
         return null
     }
-    const command = hoglakeCredentials?.connect
-        ? tokenCommand(hoglakeCredentials.connect, issuedCredential.client_id)
-        : null
+    const command = connect ? tokenCommand(connect, issued.client_id) : null
     return (
-        <LemonBanner type="warning" onClose={() => setIssuedCredential(null)}>
+        <LemonBanner type="warning" onClose={onClose}>
             <div className="space-y-2">
                 <strong>Save this secret now — it won't be shown again.</strong>
                 <div>
                     <LemonLabel>Client ID</LemonLabel>
                     <CodeSnippet compact thing="client ID">
-                        {issuedCredential.client_id}
+                        {issued.client_id}
                     </CodeSnippet>
                 </div>
                 <div>
                     <LemonLabel>Client secret</LemonLabel>
                     <CodeSnippet compact thing="client secret">
-                        {issuedCredential.client_secret}
+                        {issued.client_secret}
                     </CodeSnippet>
                 </div>
                 {command && (
@@ -70,7 +78,7 @@ function IssuedCredentialBanner(): JSX.Element | null {
     )
 }
 
-function ConnectDetails({ connect }: { connect: HoglakeConnectApi }): JSX.Element {
+export function ConnectDetails({ connect }: { connect: HoglakeConnectApi }): JSX.Element {
     return (
         <div className="@container">
             <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
@@ -102,10 +110,22 @@ function ConnectDetails({ connect }: { connect: HoglakeConnectApi }): JSX.Elemen
 }
 
 export function HoglakeCredentials(): JSX.Element | null {
-    const { hoglakeCredentials, hoglakeCredentialsLoading, isSubmitting, newCredentialName, newCredentialScope } =
-        useValues(hoglakeCredentialsLogic)
-    const { createCredential, rotateCredential, revokeCredential, setNewCredentialName, setNewCredentialScope } =
-        useActions(hoglakeCredentialsLogic)
+    const {
+        hoglakeCredentials,
+        hoglakeCredentialsLoading,
+        issuedCredential,
+        isSubmitting,
+        newCredentialName,
+        newCredentialScope,
+    } = useValues(hoglakeCredentialsLogic)
+    const {
+        createCredential,
+        rotateCredential,
+        revokeCredential,
+        setIssuedCredential,
+        setNewCredentialName,
+        setNewCredentialScope,
+    } = useActions(hoglakeCredentialsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -133,7 +153,11 @@ export function HoglakeCredentials(): JSX.Element | null {
                 </p>
             </div>
 
-            <IssuedCredentialBanner />
+            <IssuedCredentialBanner
+                issued={issuedCredential}
+                connect={hoglakeCredentials?.connect}
+                onClose={() => setIssuedCredential(null)}
+            />
 
             {hoglakeCredentials?.connect && <ConnectDetails connect={hoglakeCredentials.connect} />}
 

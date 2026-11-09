@@ -577,7 +577,7 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
             ):
                 summary = run_due_report_checks(now=tick, limit=50)
             assert summary.dispatched == 0
-            assert summary.deferred == 25
+            assert summary.deferred == 49
             assert summary.observed == 1
         assert all(report.artefacts.filter(type="check_observation").count() == 1 for report in metric_reports)
         assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()

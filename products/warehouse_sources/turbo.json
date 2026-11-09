@@ -57,7 +57,8 @@
                 "!backend/temporal/data_imports/sources/salesforce/test/**",
                 "!backend/temporal/data_imports/sources/snowflake/tests/**",
                 "!backend/temporal/data_imports/sources/stripe/tests/**",
-                "!backend/temporal/data_imports/sources/trino/tests/**"
+                "!backend/temporal/data_imports/sources/trino/tests/**",
+                "backend/scopes.py"
             ],
             "outputs": [],
             "cache": true

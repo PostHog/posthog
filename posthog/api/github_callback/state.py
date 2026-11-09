@@ -63,13 +63,13 @@ def store_unified_authorize_state(state: GitHubAuthorizeState, *, ttl: int | Non
 
 
 def has_team_management_access(user: User, team: Team) -> bool:
-    """Whether ``user`` may create or modify a team-level integration for ``team``.
+    """Whether ``user`` may modify an existing team-level integration for ``team``.
 
     Mirrors ``TeamMemberStrictManagementPermission`` (which gates integration setup on the
-    DRF side) for these plain Django callback views: writing a team integration requires
+    DRF side) for these plain Django callback views: modifying an existing integration requires
     admin-level effective access, not mere membership. The callback's ``team_id`` can be
     derived from a user-controlled ``next``/``state`` param, so a bare membership check would
-    let any project member attach an integration that initiation reserves for admins.
+    let any project member modify an integration that initiation reserves for admins.
     """
     level = UserPermissions(user).team(team).effective_membership_level
     return level is not None and level >= OrganizationMembership.Level.ADMIN
