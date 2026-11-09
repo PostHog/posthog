@@ -53809,6 +53809,8 @@ export namespace Schemas {
       readonly id: string;
       /** Project folder for a newly created workflow. */
       _create_in_folder?: string;
+      /** Project folder to create the workflow in, such as 'Campaigns/Retention'. Read only when creating a workflow. */
+      folder?: string;
       /**
          * Workflow name.
          * @maxLength 400

@@ -3376,6 +3376,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     _create_in_folder = serializers.CharField(
         required=False, allow_blank=True, write_only=True, help_text="Project folder for a newly created workflow."
     )
+    folder = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text="Project folder to create the workflow in, such as 'Campaigns/Retention'. Read only when "
+        "creating a workflow.",
+    )
     origin_product = serializers.ChoiceField(
         choices=HogFlowOriginProduct.choices,
         required=False,
@@ -3697,12 +3704,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
-        return super().to_internal_value(data)
+        validated = super().to_internal_value(data)
+        # `_create_in_folder` is the file-system convention, but MCP tools drop underscore fields, so agents send `folder`.
+        folder = validated.pop("folder", None)
+        if folder and self.instance is None and not validated.get("_create_in_folder"):
+            validated["_create_in_folder"] = folder
+        return validated
 
     class Meta:
         fields = [
             "id",
             "_create_in_folder",
+            "folder",
             "name",
             "description",
             "tags",
@@ -3977,7 +3990,7 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
 
     class Meta(HogFlowSerializer.Meta):
         # Set on create only.
-        fields = [field for field in HogFlowSerializer.Meta.fields if field != "source_record"]
+        fields = [field for field in HogFlowSerializer.Meta.fields if field not in ("source_record", "folder")]
 
     def validate(self, data: dict) -> dict:
         instance = cast(Optional[WorkflowEditState], self.instance)

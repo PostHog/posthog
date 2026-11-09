@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.api.file_system.access_levels import filter_workflow_files_by_access_level
 from posthog.constants import AvailableFeature
 from posthog.models.file_system.file_system import FileSystem
@@ -256,13 +258,14 @@ class TestWorkflowFolders(APIBaseTest):
         reloaded = self.client.get(f"{files_url}{entry['id']}/")
         self.assertEqual(reloaded.json()["path"], "Campaigns/Retention/Welcome email")
 
+    @parameterized.expand([("_create_in_folder",), ("folder",)])
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_new_workflow_is_created_in_the_requested_project_folder(self, _reload: MagicMock) -> None:
+    def test_new_workflow_is_created_in_the_requested_project_folder(self, field: str, _reload: MagicMock) -> None:
         created = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/",
             {
                 "name": "Renewal",
-                "_create_in_folder": "Campaigns/Retention",
+                field: "Campaigns/Retention",
                 "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
                 "edges": [],
             },
