@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
+from django.core.cache import caches
 from django.core.management.base import CommandError
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
@@ -25,6 +26,11 @@ from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
+from posthog.admin.console.results import (
+    CACHE_ALIAS as RESULTS_CACHE_ALIAS,
+    KEY_COOKIE,
+    KEY_PREFIX as RESULTS_KEY_PREFIX,
+)
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Secret, Table, ToolOperation
 from posthog.csp_middleware import CSPMiddleware
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
@@ -322,12 +328,19 @@ class TestAdminConsoleViews(BaseTest):
         _SecretTool.runs = 0
         with patch.object(console, "get_tool", return_value=_SecretTool()), capture_logs() as audit_log:
             response = self.client.post("/admin/console/tools/issue-password/issue/", {"reason": "Customer onboarding"})
+            result_id = response["Location"].rstrip("/").rsplit("/", 1)[-1]
+            cached = repr(caches[RESULTS_CACHE_ALIAS].get(f"{RESULTS_KEY_PREFIX}:{result_id}"))
+            key_cookie = response.cookies[KEY_COOKIE]
             first = self.client.get(response["Location"])
             reload = self.client.get(response["Location"])
 
         assert response.status_code == 302
         assert response["Location"].startswith("/admin/console/results/")
         assert "example-secret-value" not in response["Location"]
+        assert "example-secret-value" not in cached and key_cookie.value not in cached
+        assert key_cookie["path"] == response["Location"] and key_cookie["httponly"] and key_cookie["secure"]
+        assert key_cookie["samesite"] == "Strict"
+        assert first.cookies[KEY_COOKIE]["max-age"] == 0
         assert first.status_code == 200
         assert "example-secret-value" in first.content.decode()
         assert reload.status_code == 410

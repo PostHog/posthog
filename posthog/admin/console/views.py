@@ -344,14 +344,14 @@ def _show_result(
         actor_id=cast(User, request.user).pk, operation_label=operation.label, target=target, page=page
     )
     try:
-        result_id = OperationResults.store(result)
+        return _no_store(OperationResults.redirect_to(result))
     except Exception:
-        # The operation already ran, and its result may hold a password that cannot be fetched again. Showing
-        # it in this response is better than losing it, even though a reload would then submit the form again.
+        # The operation already ran, and its result may hold a password that the control plane returns only
+        # once. When the result cannot be stored, this response is the only way left to show it, so the page
+        # renders here, at the cost that a reload would submit the form again.
         logger.exception("admin_console_result_handoff_failed", operation=operation.key)
         context = {**ConsoleEnvironment.context(), "result": result}
         return _no_store(render(request, "admin_console/result.html", context))
-    return _no_store(redirect("admin_console_result", result_id=result_id))
 
 
 @require_GET
@@ -359,7 +359,8 @@ def operation_result(request: HttpRequest, result_id: str) -> HttpResponse:
     """The result page of an operation that ran. It shows once, so a reload never runs the operation again."""
     result = OperationResults.take(request, result_id)
     context = {**ConsoleEnvironment.context(), "result": result}
-    return _no_store(render(request, "admin_console/result.html", context, status=200 if result else 410))
+    response = render(request, "admin_console/result.html", context, status=200 if result else 410)
+    return _no_store(OperationResults.forget_key(response, result_id))
 
 
 def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str, operation_key: str) -> HttpResponse:
