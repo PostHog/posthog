@@ -633,17 +633,34 @@ class TestHogFunctionDrafts(DraftTestCase):
             "Enter it again to confirm.",
         )
 
-    def test_draft_never_carries_secret_values(self):
-        function_id = self._create()
+    @parameterized.expand(
+        [
+            ("text_secret", [], "token", {"value": "new"}, {"secret": True}),
+            (
+                "paired_dictionary_secret_lists_its_keys",
+                [
+                    {"key": "headers", "type": "dictionary", "label": "Headers"},
+                    {"key": "secret_headers", "type": "dictionary", "label": "Secret headers", "secret": True},
+                ],
+                "secret_headers",
+                {"value": {"Authorization": "new"}},
+                {"secret": True, "value": {"Authorization": "********"}},
+            ),
+        ]
+    )
+    def test_draft_never_carries_secret_values(
+        self, _name: str, extra_schema: list[dict], key: str, staged: dict, expected: dict
+    ):
+        function_id = self._create(inputs_schema=[*BASE_FUNCTION["inputs_schema"], *extra_schema])
 
-        draft = self._stage(
-            function_id, {"inputs": {"url": {"value": "https://example.com/live"}, "token": {"value": "new"}}}
-        )["draft"]
+        draft = self._stage(function_id, {"inputs": {"url": {"value": "https://example.com/live"}, key: staged}})[
+            "draft"
+        ]
 
-        assert draft["inputs"]["token"] == {"secret": True}
+        assert draft["inputs"][key] == expected
         stored_draft = HogFunction.objects.get(id=function_id).draft
         assert stored_draft is not None
-        assert "token" not in stored_draft["inputs"]
+        assert key not in stored_draft["inputs"]
 
     @parameterized.expand([("inputs",), ("mappings",)])
     def test_input_values_are_masked_in_activity_logs(self, field: str) -> None:

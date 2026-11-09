@@ -1233,12 +1233,18 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if not isinstance(draft, dict):
             return draft
         inputs = dict(draft.get("inputs") or {})
-        for schema in draft.get("inputs_schema") or []:
+        schemas = draft.get("inputs_schema") or []
+        for schema in schemas:
             key = schema.get("key") if isinstance(schema, dict) else None
             if not key or not schema.get("secret"):
                 continue
-            if draft_encrypted_inputs.get(key) or encrypted_inputs.get(key) or inputs.get(key):
-                inputs[key] = {"secret": True}
+            stored = draft_encrypted_inputs.get(key) or encrypted_inputs.get(key) or inputs.get(key)
+            if stored:
+                inputs[key] = (
+                    masked_dictionary_secret(stored)
+                    if exposes_secret_dictionary_keys(schema, schemas)
+                    else {"secret": True}
+                )
         return mask_config_secrets({**draft, "inputs": inputs})
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
