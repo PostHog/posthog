@@ -9,6 +9,7 @@ import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
 
 import type { EmailStatus, EmailStatusReason } from '../email-status.service'
+import { removeWorkflowRunTag } from './link-tags'
 import { unquoteMailbox } from './suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 
@@ -270,13 +271,32 @@ export type SesEmailStatusUpdate = {
 
 const normalizeAddress = (address: string): string => unquoteMailbox(address).trim().toLowerCase()
 
-// The addresses in the To header. SES reports each entry as written, so a display name can wrap the address.
-const toHeaderAddresses = (rec: SesEventRecord): Set<string> =>
+// SES reports each entry as written at send time, so a display name can wrap the address.
+const mailboxAddresses = (entries: string[]): Set<string> =>
     new Set(
-        (rec.mail.commonHeaders?.to ?? []).flatMap((entry) =>
+        entries.flatMap((entry) =>
             addressparser(entry, { flatten: true }).map((parsed) => normalizeAddress(parsed.address))
         )
     )
+
+const toHeaderAddresses = (rec: SesEventRecord): Set<string> => mailboxAddresses(rec.mail.commonHeaders?.to ?? [])
+
+const sesRecipientsNotSentToCounter = new Counter({
+    name: 'email_tracking_recipients_not_sent_to_total',
+    help: 'Bounce and complaint recipients left out of suppression because the email was not sent to them',
+    labelNames: ['event_type'],
+})
+
+// SES reports a bounce or complaint recipient from the receiving server's report, which can name any address.
+// Only an address this send went to may change suppression state.
+const sentToRecipients = <T extends { emailAddress: string }>(rec: SesEventRecord, recipients: T[]): T[] => {
+    const sentTo = mailboxAddresses(rec.mail.destination)
+    const kept = recipients.filter((r) => sentTo.has(normalizeAddress(r.emailAddress)))
+    if (kept.length < recipients.length) {
+        sesRecipientsNotSentToCounter.inc({ event_type: rec.eventType }, recipients.length - kept.length)
+    }
+    return kept
+}
 
 /**
  * The status change a Delivery, Bounce, Complaint or Reject record makes to the email it reports on, or the
@@ -333,15 +353,7 @@ const sensitiveLinkOrigin = (link: string): string => {
 // Path of our own click-tracking redirect, which used to wrap every anchor before SES saw it.
 const TRACKING_REDIRECT_PATH = '/public/m/redirect'
 
-/**
- * The destination the recipient actually asked for.
- *
- * SES reports the link as it appeared in the HTML, before SES rewrote it. Messages sent while we
- * still wrapped anchors in our own redirect therefore report that wrapper, whose `ph_id` differs on
- * every send, so the raw value is both unaggregatable and a carrier for a signed tracking code that
- * should not be stored on an event. Unwrap it back to `target`. Anything else is passed through.
- */
-export const resolveClickDestination = (link: string): string => {
+const unwrapTrackingRedirect = (link: string): string => {
     try {
         const url = new URL(link)
         if (!url.pathname.endsWith(TRACKING_REDIRECT_PATH)) {
@@ -352,6 +364,16 @@ export const resolveClickDestination = (link: string): string => {
         return link
     }
 }
+
+/**
+ * The destination the recipient actually asked for.
+ *
+ * SES reports the link as it appeared in the HTML, before SES rewrote it. Messages sent while we
+ * still wrapped anchors in our own redirect therefore report that wrapper, whose `ph_id` differs on
+ * every send, so the raw value is both unaggregatable and a carrier for a signed tracking code that
+ * should not be stored on an event. Unwrap it back to `target`. Anything else is passed through.
+ */
+export const resolveClickDestination = (link: string): string => removeWorkflowRunTag(unwrapTrackingRedirect(link))
 
 // Bounds how much of a URL rides in the app_metrics2 sort key. Long enough to stay recognizable in
 // the UI, short enough that a pathological query-less URL can't bloat the index.
@@ -886,6 +908,7 @@ export class SesWebhookHandler {
                 const isSensitive = rec.mail.tags?.[SES_SENSITIVE_TAG]?.[0] === 'true'
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
+                    $email_message_id: rec.mail.messageId,
                     ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
                 }
 
@@ -1014,31 +1037,36 @@ export class SesWebhookHandler {
             // Record permanent bounces in the suppression list so future sends to the address are
             // blocked. The SMTP diagnostic is threaded through for operator visibility on the row.
             if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
-                const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
-                const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
-                // SES reports the DSN's final recipient, which the receiving server chooses. Only an address
-                // this send went to can go on the global list.
-                const sentTo = new Set(rec.mail.destination.map(normalizeAddress))
-                const nonexistentAddresses = fromTrustedTopic
-                    ? nonexistentRecipients(rec.bounce).filter((email) => sentTo.has(normalizeAddress(email)))
-                    : []
-                hardBounceRecipients.push({
-                    teamId,
-                    emailAddresses: emails,
-                    diagnostic,
-                    ...(nonexistentAddresses.length > 0
-                        ? { nonexistentAddresses, bounceTimestamp: rec.bounce.timestamp }
-                        : {}),
-                })
+                const bounced = sentToRecipients(rec, rec.bounce.bouncedRecipients)
+                if (bounced.length > 0) {
+                    const diagnostic = bounced.find((r) => r.diagnosticCode)?.diagnosticCode
+                    const nonexistentAddresses = fromTrustedTopic
+                        ? nonexistentRecipients({ ...rec.bounce, bouncedRecipients: bounced })
+                        : []
+                    hardBounceRecipients.push({
+                        teamId,
+                        emailAddresses: bounced.map((r) => r.emailAddress),
+                        diagnostic,
+                        ...(nonexistentAddresses.length > 0
+                            ? { nonexistentAddresses, bounceTimestamp: rec.bounce.timestamp }
+                            : {}),
+                    })
+                }
             }
 
             // Count soft (Transient) bounces toward suppression. These are recipient-side failures
             // (server unreachable, mailbox full, greylisting); one is harmless but a persistent run
             // of them means the address can't receive mail.
             if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Transient') {
-                const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
-                const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
-                transientBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
+                const bounced = sentToRecipients(rec, rec.bounce.bouncedRecipients)
+                if (bounced.length > 0) {
+                    const diagnostic = bounced.find((r) => r.diagnosticCode)?.diagnosticCode
+                    transientBounceRecipients.push({
+                        teamId,
+                        emailAddresses: bounced.map((r) => r.emailAddress),
+                        diagnostic,
+                    })
+                }
             }
 
             // Record complaints in the suppression list so future sends to the address are blocked.
@@ -1052,12 +1080,14 @@ export class SesWebhookHandler {
                 rec.eventType === 'Complaint' &&
                 rec.complaint.complaintFeedbackType?.toLowerCase() !== 'not-spam'
             ) {
-                const emails = rec.complaint.complainedRecipients.map((r) => r.emailAddress)
-                complainedRecipients.push({
-                    teamId,
-                    emailAddresses: emails,
-                    feedbackType: rec.complaint.complaintFeedbackType,
-                })
+                const complained = sentToRecipients(rec, rec.complaint.complainedRecipients)
+                if (complained.length > 0) {
+                    complainedRecipients.push({
+                        teamId,
+                        emailAddresses: complained.map((r) => r.emailAddress),
+                        feedbackType: rec.complaint.complaintFeedbackType,
+                    })
+                }
             }
 
             // Successful delivery resets an address's soft-bounce counter — but only if newer than the
