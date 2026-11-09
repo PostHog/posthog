@@ -628,7 +628,7 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             "api_key": ai_gateway.api_key,
             "http_client": httpx.Client(trust_env=False, verify=_ai_gateway_ssl_context()),
             "http_async_client": httpx.AsyncClient(trust_env=False, verify=_ai_gateway_ssl_context()),
-            "timeout": AI_GATEWAY_TIMEOUT,
+            "timeout": data.get("timeout") or data.get("request_timeout") or AI_GATEWAY_TIMEOUT,
             "max_retries": 0,
             "ai_gateway_fallback": cls(**data, ai_gateway_fallback=None),
         }
