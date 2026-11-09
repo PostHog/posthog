@@ -203,11 +203,9 @@ function isGeneratedOrVendored(filename, resolution) {
     )
 }
 
-// A team owns a test so that the test's failures and flakes reach it, not so that it reviews every
-// change to the test. A test file therefore adds to the footprint of an owner that a non-test file
-// already brought in, and brings in no owner by itself. The owners of a sensitive path and of an
-// `additions` declaration are still requested.
-// Keep in step with runner_for_path in packages/owners-yaml/owners_yaml/census.py.
+// A test file only joins an owner a non-test file already brought in. Keep in step with
+// `_collect_owned` in products/stamphog/backend/logic/routing/candidates.py, which says why, and
+// with runner_for_path in packages/owners-yaml/owners_yaml/census.py.
 const TEST_FILE = /(^|\/)test_[^/]*\.py$|_test\.py$|\.(test|spec)\.[jt]sx?$/
 
 function isTestFile(filename) {
@@ -221,10 +219,7 @@ function isTestFile(filename) {
 // trivially testable. `resolutionByPath` maps filename -> {owners, source, ...}.
 function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG) {
     const relevantFiles = changedFiles.filter((file) => !isExcludedFile(file.filename, config.excludedPatterns))
-    const sourceFilesFirst = [
-        ...relevantFiles.filter((file) => !isTestFile(file.filename)),
-        ...relevantFiles.filter((file) => isTestFile(file.filename)),
-    ]
+    const sourceFilesFirst = relevantFiles.toSorted((a, b) => isTestFile(a.filename) - isTestFile(b.filename))
     const footprints = new Map()
 
     for (const file of sourceFilesFirst) {

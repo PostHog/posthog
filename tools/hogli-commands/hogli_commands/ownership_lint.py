@@ -13,8 +13,7 @@ from pathlib import Path
 
 import click
 from hogli.manifest import REPO_ROOT
-from owners_yaml import GitRefSource, OwnersResolver, runner_for_path, unowned_test_directories
-from owners_yaml.census import UNOWNED_TEAM, owning_team
+from owners_yaml import GitRefSource, OwnersResolver, is_unowned_test, runner_for_path, unowned_test_directories
 from owners_yaml.schema import DEFAULT_ALIAS_FILES, OWNERS_FILENAME
 
 from hogli_commands.change_detection import matches_globs
@@ -23,6 +22,7 @@ from hogli_commands.size_lint import _merge_base
 
 BASELINE = Path("posthog/test/repo_invariants/unowned_test_directories_baseline.txt")
 PRUNE = "PYTHONPATH=.:tools/hogli-commands python posthog/test/repo_invariants/test_unowned_test_directories.py"
+HINT = "A failing test with no team owner reaches nobody. `hogli owners:who <path>` shows which owners.yaml applies."
 
 # fnmatch: `*` spans `/`.
 TEST_FILE_GLOBS = (
@@ -89,26 +89,26 @@ def drift_problems(drift: BaselineDrift) -> list[str]:
     ]
 
 
-def _added_paths(merge_base: str, committed_only: bool) -> set[str]:
+def _added_paths(merge_base: str, files: Iterable[str], committed_only: bool) -> set[str]:
     """Paths that `merge_base` lacks. Rename detection keeps a moved file out of the set."""
+    added = _git_paths(
+        "diff", "--name-only", "--diff-filter=A", "--find-renames", merge_base, *(["HEAD"] if committed_only else [])
+    )
     if committed_only:
-        return _git_paths("diff", "--name-only", "--diff-filter=A", "--find-renames", merge_base, "HEAD")
-    return _git_paths("diff", "--name-only", "--diff-filter=A", "--find-renames", merge_base) | _git_paths(
-        "ls-files", "--others", "--exclude-standard"
-    )
+        return added
+    # `files` already holds the untracked files, and listing them again would walk the tree twice.
+    return added | (set(files) - _git_paths("ls-files", "--cached"))
 
 
-def _unowned_new_tests(resolver: OwnersResolver, merge_base: str, committed_only: bool) -> list[str]:
+def new_test_problems(
+    resolver: OwnersResolver, files: Iterable[str], merge_base: str, committed_only: bool
+) -> list[str]:
     """The baseline lists directories, so this is what stops a new unowned test in a listed directory."""
-    return sorted(
-        path
-        for path in _added_paths(merge_base, committed_only)
-        if runner_for_path(path) and owning_team(resolver.resolve(path)) == UNOWNED_TEAM
-    )
-
-
-def new_test_problems(paths: Iterable[str]) -> list[str]:
-    return [f"{path} is a new test that no team owns: name the team in its nearest owners.yaml" for path in paths]
+    return [
+        f"{path} is a new test that no team owns: name the team in its nearest owners.yaml"
+        for path in sorted(_added_paths(merge_base, files, committed_only))
+        if is_unowned_test(resolver, path)
+    ]
 
 
 def check_test_owners(scope: Scope) -> Outcome:
@@ -117,7 +117,7 @@ def check_test_owners(scope: Scope) -> Outcome:
         return "pass", "no test or ownership file changed"
     resolver, files = _tree(scope.committed_only)
     problems = [
-        *new_test_problems(_unowned_new_tests(resolver, scope.merge_base, scope.committed_only)),
+        *new_test_problems(resolver, files, scope.merge_base, scope.committed_only),
         *drift_problems(_drift(resolver, files)),
     ]
     if not problems:
@@ -135,12 +135,9 @@ def cmd_lint_test_owners(against: str | None, committed: bool) -> None:
     merge_base = _merge_base(against)
     if merge_base is None:
         raise click.ClickException(f"no merge base with {against or 'origin/master or master'}")
-    resolver, _ = _tree(committed)
-    problems = new_test_problems(_unowned_new_tests(resolver, merge_base, committed))
+    problems = new_test_problems(*_tree(committed), merge_base, committed)
     for problem in problems:
         click.echo(problem)
     if problems:
-        click.echo(
-            "A failing test with no team owner reaches nobody. `hogli owners:who <path>` shows which owners.yaml applies."
-        )
+        click.echo(HINT)
         raise SystemExit(1)
