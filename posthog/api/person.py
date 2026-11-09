@@ -181,7 +181,7 @@ def get_person_name(team: Team, person: Person) -> str:
 
 
 def get_person_name_helper(
-    person_pk: int, person_properties: dict[str, str], distinct_ids: list[str], team: Team
+    person_pk: int | str | uuid.UUID, person_properties: dict[str, str], distinct_ids: list[str], team: Team
 ) -> str:
     display_name = None
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
