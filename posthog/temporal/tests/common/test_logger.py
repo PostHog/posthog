@@ -975,15 +975,14 @@ class _RecordingProducer:
 
 
 @pytest.mark.parametrize(
-    "workflow_type, workflow_id, sources, expected_source",
+    "workflow_type, workflow_id, expected_source",
     [
-        ("external-data-job", "schema-1-2024-01-01T00:00:00Z", "external_data_jobs", "external_data_jobs"),
-        ("external-data-job", "schema-1-2024-01-01T00:00:00Z", "batch_exports", None),
-        ("some-unmapped-workflow", "wf-1", "external_data_jobs", None),
+        ("external-data-job", "schema-1-2024-01-01T00:00:00Z", "external_data_jobs"),
+        ("some-unmapped-workflow", "wf-1", None),
     ],
 )
-def test_internal_logs_sink_sends_rendered_messages_of_enabled_sources(
-    workflow_type: str, workflow_id: str, sources: str, expected_source: str | None
+def test_internal_logs_sink_sends_rendered_messages_with_a_source(
+    workflow_type: str, workflow_id: str, expected_source: str | None
 ) -> None:
     from posthog.temporal.common.internal_logs import InternalLogsSink
     from posthog.temporal.common.logger import Logger, LogMessagesRenderer
@@ -1004,7 +1003,7 @@ def test_internal_logs_sink_sends_rendered_messages_of_enabled_sources(
         },
     )
     producer = _RecordingProducer()
-    sink = InternalLogsSink(cast(typing.Any, producer), frozenset(sources.split(",")))
+    sink = InternalLogsSink(cast(typing.Any, producer))
 
     if rendered["produce_message"] is not None:
         sink.offer(rendered["produce_message"])

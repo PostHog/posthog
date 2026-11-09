@@ -86,8 +86,6 @@ LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES = get_from_env(
 LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS = get_from_env(
     "LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS", type_cast=int, default=60_000
 )
-# Temporal `log_source` values also sent to the logs product, comma-separated. Empty sends none.
-TEMPORAL_INTERNAL_LOGS_SOURCES = os.getenv("TEMPORAL_INTERNAL_LOGS_SOURCES", "")
 
 # Thread-pool size for capture_internal batch chunk fan-out (default 8, was per-event fan-out pre-v1).
 CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=8)

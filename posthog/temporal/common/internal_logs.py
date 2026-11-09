@@ -3,8 +3,6 @@
 import json
 import datetime as dt
 
-from django.conf import settings
-
 import structlog
 from asgiref.sync import sync_to_async
 
@@ -29,23 +27,21 @@ async def _api_token(team_id: int) -> str | None:
 
 
 class InternalLogsSink:
-    def __init__(self, producer: InternalLogsProducer, sources: frozenset[str]) -> None:
+    def __init__(self, producer: InternalLogsProducer) -> None:
         self._producer = producer
-        self._sources = sources
 
     @classmethod
     def from_settings(cls) -> "InternalLogsSink | None":
-        sources = frozenset(s.strip() for s in settings.TEMPORAL_INTERNAL_LOGS_SOURCES.split(",") if s.strip())
-        if not sources:
-            return None
-        return cls(InternalLogsProducer(InternalLogsProducerConfig.from_settings(), _api_token), sources)
+        producer = InternalLogsProducer(InternalLogsProducerConfig.from_settings(), _api_token)
+        return cls(producer) if producer.enabled else None
 
     def offer(self, message: bytes) -> None:
         """Takes one rendered `log_entries` message. Call it from the event loop the worker runs on."""
         try:
             entry = json.loads(message)
             source = entry["log_source"]
-            if source not in self._sources:
+            # An unmapped workflow type has no source, and the producer drops a source it cannot sign.
+            if not source:
                 return
             self._producer.enqueue(
                 source,
