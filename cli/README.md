@@ -144,8 +144,10 @@ Only the id goes to stdout, so `RELEASE_ID=$(posthog-cli release resolve)` works
 Pass `--json` to get the whole release, including its hash id and the version that git or CI metadata filled in.
 
 Both `--release-name` and `--release-version` are read from git or CI metadata when you leave them out.
-When neither the flags nor that metadata identify a release, the command prints nothing (or `null` with `--json`) and exits `0`, so a build can carry on without one.
-A failed lookup exits non-zero instead.
+When the release name or version is missing and git or CI metadata cannot supply it, the command prints nothing (or `null` with `--json`) and exits `0`, so a build can carry on without a release.
+Sourcemap processing still uploads symbols in this case, but it cannot associate them with a release.
+Pass both `--release-name` and `--release-version` if the build has no git metadata and you need that association.
+A failed lookup of a complete release exits non-zero instead.
 
 Add `--build` to give a build number its own release: it is packed into the version, so `--release-version 1.4.0 --build 42` resolves to a different release than `--release-version 1.4.0` alone.
 

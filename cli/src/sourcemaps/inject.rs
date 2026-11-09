@@ -278,15 +278,16 @@ pub fn get_release_for_maps<'a>(
 
 fn add_git_info_to_release_builder(directory: &Path, builder: &mut ReleaseBuilder) -> Result<()> {
     let needs_git_for_release_fields = !builder.can_create();
-    let release_fields_were_provided = builder.has_name() || builder.has_version();
 
     match get_git_info(Some(directory.to_path_buf())) {
         Ok(Some(info)) => {
             builder.with_git(info);
         }
-        Ok(None) if needs_git_for_release_fields && release_fields_were_provided => {
-            anyhow::bail!(
-                "Release fields are incomplete and git info is unavailable. Provide both --release-name and --release-version, or run from a git repository or supported CI environment."
+        Ok(None)
+            if needs_git_for_release_fields && (builder.has_name() || builder.has_version()) =>
+        {
+            warn!(
+                "No release could be resolved without git metadata. Pass both --release-name and --release-version to associate the uploaded symbols with a release."
             );
         }
         Ok(None) => {}
@@ -518,32 +519,26 @@ mod tests {
     }
 
     #[test]
-    fn missing_git_is_fatal_when_release_args_are_incomplete() {
-        let _env_lock = lock_env();
-        let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
-        let temp_root = tempfile::tempdir().expect("failed to create temporary directory");
-        let mut builder: ReleaseBuilder = release_args(Some("my-app"), None).into();
-
-        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder)
-            .expect_err("missing git should be fatal when release args are incomplete");
-
-        assert!(format!("{error:#}").contains("Release fields are incomplete"));
-    }
-
-    #[test]
-    fn build_only_release_args_need_git() {
+    fn incomplete_release_args_without_git_skip_release_creation() {
         let _env_lock = lock_env();
         let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
         let temp_root = tempfile::tempdir().expect("failed to create temporary directory");
 
-        let error = get_release_for_maps(
-            temp_root.path(),
+        for args in [
+            release_args(Some("my-app"), None),
+            release_args(None, Some("abc123")),
             release_args_with_build(None, None, Some("42")),
-            std::iter::empty::<&SourceMapFile>(),
-        )
-        .expect_err("build-only release args should need git to fill the release name");
+        ] {
+            let mut builder: ReleaseBuilder = args.clone().into();
+            add_git_info_to_release_builder(temp_root.path(), &mut builder)
+                .expect("missing git should not fail an incomplete release");
+            assert!(!builder.can_create());
 
-        assert!(format!("{error:#}").contains("Release fields are incomplete"));
+            let release =
+                get_release_for_maps(temp_root.path(), args, std::iter::empty::<&SourceMapFile>())
+                    .expect("sourcemap processing should continue without a release");
+            assert!(release.is_none());
+        }
     }
 
     #[test]
