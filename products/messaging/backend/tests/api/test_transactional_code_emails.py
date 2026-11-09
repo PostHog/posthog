@@ -215,7 +215,7 @@ class TestTransactionalCodeEmails(APIBaseTest):
                     lines=(
                         # A send call nearby, but the line does not pass the key as the template key.
                         MatchedLine(number=4, text="const subject = 'welcome'", context=send),
-                        MatchedLine(number=20, text="  template_key: 'welcome',", context=send),
+                        MatchedLine(number=2, text="  template_key: 'welcome',", context=send),
                     ),
                 ),
                 ExactCodeMatch(
@@ -235,8 +235,8 @@ class TestTransactionalCodeEmails(APIBaseTest):
                 {
                     "repository": "acme/api",
                     "path": "app/mailer.ts",
-                    "line": 20,
-                    "url": "https://github.com/acme/api/blob/HEAD/app/mailer.ts#L20",
+                    "line": 2,
+                    "url": "https://github.com/acme/api/blob/HEAD/app/mailer.ts#L2",
                     "call_site": True,
                 },
                 {

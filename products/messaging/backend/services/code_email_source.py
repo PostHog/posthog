@@ -28,6 +28,7 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.integration.github import GitHubInstallationAccessFetchError
 from posthog.models.integration.github_code_search import (
+    CONTEXT_LINES,
     ExactCodeMatch,
     ExactCodeSearchResult,
     GitHubExactCodeSearch,
@@ -83,6 +84,7 @@ _SKIPPED_FILE_NAME_PREFIXES = ("test_",)
 _SKIPPED_FILE_NAME_SUFFIXES = ("_spec.rb",)
 # The send calls of PostHog's SDKs, and the raw API route. A matched line's context holds up to five lines on
 # either side, so a key passed a few lines below the call still counts.
+_QUOTES = frozenset("'\"`")
 _SEND_CALL = re.compile(
     r"emails\.send|emails\(\)(?:\.|->)send|Emails\(\)\.Send|Emails\.SendAsync|Emails\.send|send/email"
 )
@@ -164,29 +166,68 @@ def _key_argument(key: str) -> re.Pattern[str]:
 def _sends_key(line: MatchedLine, key_argument: re.Pattern[str]) -> bool:
     argument = key_argument.search(line.text)
     context = line.context.split("\n")
-    if argument is None or line.text not in context:
+    # By position, not text: an identical line above it, such as the key in a tags object, would shadow it.
+    position = min(line.number - 1, CONTEXT_LINES)
+    if argument is None or position >= len(context) or context[position] != line.text:
         return False
-    before_key = "\n".join([*context[: context.index(line.text)], line.text[: argument.start()]])
-    return any(_still_open(before_key[call.end() :]) for call in _SEND_CALL.finditer(before_key))
+    before_key = "\n".join([*context[:position], line.text[: argument.start()]])
+    code = _blank_strings_and_comments(before_key)
+    return any(_still_open(code[call.end() :]) for call in _SEND_CALL.finditer(before_key))
 
 
 def _still_open(after_call: str) -> bool:
-    """Whether the call a send-call match belongs to is still open at the end of ``after_call``.
+    """Whether the send call is still open at the end of ``after_call``.
 
-    ``emails.send(`` opens its own call, which must not close again. A raw ``send/email`` URL sits inside a call
-    that opened before it, which must not close either.
+    ``emails.send(`` opens its own call. A raw ``send/email`` URL sits inside a call that opened before it. Either
+    way, a ``)`` that closes more than ``after_call`` opened ends the send.
     """
+    rest = after_call.lstrip()
     depth = 0
-    opened = False
-    for char in after_call:
+    for char in rest[1:] if rest.startswith("(") else rest:
         if char == "(":
             depth += 1
-            opened = True
         elif char == ")":
             depth -= 1
-            if depth < 0 or (opened and depth == 0):
+            if depth < 0:
                 return False
     return True
+
+
+def _blank_strings_and_comments(code: str) -> str:
+    """``code`` at the same length, with string literals and whole-line comments as spaces.
+
+    A parenthesis in a subject such as ``'Hi :)'`` is text, not a call boundary.
+    """
+    blanked: list[str] = []
+    quote: str | None = None
+    escaped = comment = False
+    for index, char in enumerate(code):
+        if char == "\n":
+            # Only template literals span lines, so an apostrophe in prose can't blank the rest of the context.
+            quote = quote if quote == "`" else None
+            escaped = comment = False
+        elif comment or quote is not None:
+            escaped, quote = _after_quoted(char, quote, escaped)
+            char = " "
+        elif char in _QUOTES:
+            quote, char = char, " "
+        elif _starts_line_comment(code, index):
+            comment, char = True, " "
+        blanked.append(char)
+    return "".join(blanked)
+
+
+def _after_quoted(char: str, quote: str | None, escaped: bool) -> tuple[bool, str | None]:
+    if quote is None or escaped:
+        return False, quote
+    if char == "\\":
+        return True, quote
+    return False, None if char == quote else quote
+
+
+def _starts_line_comment(code: str, index: int) -> bool:
+    line_start = code.rfind("\n", 0, index) + 1
+    return code.startswith(("#", "//"), index) and not code[line_start:index].strip()
 
 
 def _is_skipped_path(path: str) -> bool:

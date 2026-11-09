@@ -12,6 +12,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import Integration
 from posthog.models.integration.github_code_search import (
+    CONTEXT_LINES,
     MAX_LITERAL_LENGTH,
     ExactCodeMatch,
     ExactCodeSearchResult,
@@ -23,11 +24,17 @@ from products.messaging.backend.services.code_email_source import CallSite, Sour
 from products.messaging.backend.tasks.tasks import detect_code_email_source_task
 
 
-def _match(path: str, sent: tuple[str, str], *, repository: str = "acme/web", line: int = 12) -> ExactCodeMatch:
+def _matched_line(number: int, sent: tuple[str, str]) -> MatchedLine:
     text, context = sent
-    return ExactCodeMatch(
-        repository=repository, path=path, lines=(MatchedLine(number=line, text=text, context=context),)
-    )
+    lines = context.split("\n")
+    position = min(number - 1, CONTEXT_LINES)
+    if lines[position : position + 1] != [text]:
+        lines = [""] * (position - lines.index(text)) + lines
+    return MatchedLine(number=number, text=text, context="\n".join(lines))
+
+
+def _match(path: str, sent: tuple[str, str], *, repository: str = "acme/web", line: int = 12) -> ExactCodeMatch:
+    return ExactCodeMatch(repository=repository, path=path, lines=(_matched_line(line, sent),))
 
 
 _SDK_SEND = (
@@ -57,6 +64,26 @@ _KEY_IN_AN_EVENT_AFTER_ANOTHER_SEND = (
     "await posthog.emails.send({ template_key: 'receipt' })\nposthog.capture('email sent', { template_key: 'welcome' })",
 )
 
+_SEND_WITH_A_PARENTHESIS_IN_A_STRING = (
+    "await posthog.emails.send({ subject: 'Hi :)', template_key: 'welcome' })",
+    "await posthog.emails.send({ subject: 'Hi :)', template_key: 'welcome' })",
+)
+_RAW_SEND_WITH_A_CALL_BEFORE_THE_KEY = (
+    "requests.post(f'{host}/send/email/', headers=headers(), json={'template_key': 'welcome'})",
+    "requests.post(f'{host}/send/email/', headers=headers(), json={'template_key': 'welcome'})",
+)
+_KEY_LINE_REPEATED_ABOVE_THE_SEND = (
+    "    template_key: 'welcome',",
+    "const tags = {\n    template_key: 'welcome',\n}\nawait posthog.emails.send({\n    to: user.email,\n"
+    "    template_key: 'welcome',\n})",
+)
+
+_KEY_IN_AN_EVENT_AFTER_A_SEND_WITH_A_PARENTHESIS_IN_A_STRING = (
+    "posthog.capture('email sent', { template_key: 'welcome' })",
+    "await posthog.emails.send({ template_key: 'receipt', subject: 'Step (1' })\n"
+    "posthog.capture('email sent', { template_key: 'welcome' })",
+)
+
 
 class TestRankCallSites(SimpleTestCase):
     @parameterized.expand(
@@ -80,8 +107,8 @@ class TestRankCallSites(SimpleTestCase):
                                 repository="acme/web",
                                 path="src/emails/welcome.ts",
                                 lines=(
-                                    MatchedLine(number=12, text=_SDK_SEND[0], context=_SDK_SEND[1]),
-                                    MatchedLine(number=14, text=_SDK_SEND[0], context=_SDK_SEND[1]),
+                                    _matched_line(12, _SDK_SEND),
+                                    _matched_line(14, _SDK_SEND),
                                 ),
                             )
                         ],
@@ -105,6 +132,48 @@ class TestRankCallSites(SimpleTestCase):
                 ],
                 False,
                 SourceDetection(outcome="several", call_site=None, candidate_files=2),
+            ),
+            (
+                "parenthesis_in_a_string_before_the_key",
+                [
+                    ExactCodeSearchResult(
+                        matches=[_match("src/emails/welcome.ts", _SEND_WITH_A_PARENTHESIS_IN_A_STRING)], complete=True
+                    )
+                ],
+                False,
+                SourceDetection(
+                    outcome="linked",
+                    call_site=CallSite(repository="acme/web", path="src/emails/welcome.ts", line=12),
+                    candidate_files=1,
+                ),
+            ),
+            (
+                "raw_send_with_a_call_before_the_key",
+                [
+                    ExactCodeSearchResult(
+                        matches=[_match("src/emails/welcome.ts", _RAW_SEND_WITH_A_CALL_BEFORE_THE_KEY)], complete=True
+                    )
+                ],
+                False,
+                SourceDetection(
+                    outcome="linked",
+                    call_site=CallSite(repository="acme/web", path="src/emails/welcome.ts", line=12),
+                    candidate_files=1,
+                ),
+            ),
+            (
+                "key_line_repeated_above_the_send",
+                [
+                    ExactCodeSearchResult(
+                        matches=[_match("src/emails/welcome.ts", _KEY_LINE_REPEATED_ABOVE_THE_SEND)], complete=True
+                    )
+                ],
+                False,
+                SourceDetection(
+                    outcome="linked",
+                    call_site=CallSite(repository="acme/web", path="src/emails/welcome.ts", line=12),
+                    candidate_files=1,
+                ),
             ),
             (
                 "only_a_constant",
@@ -147,6 +216,21 @@ class TestRankCallSites(SimpleTestCase):
                 [
                     ExactCodeSearchResult(
                         matches=[_match("src/emails/receipt.ts", _KEY_IN_AN_EVENT_AFTER_ANOTHER_SEND)], complete=True
+                    )
+                ],
+                False,
+                SourceDetection(outcome="none", call_site=None, candidate_files=1),
+            ),
+            (
+                "key_in_an_event_after_a_send_with_a_parenthesis_in_a_string",
+                [
+                    ExactCodeSearchResult(
+                        matches=[
+                            _match(
+                                "src/emails/receipt.ts", _KEY_IN_AN_EVENT_AFTER_A_SEND_WITH_A_PARENTHESIS_IN_A_STRING
+                            )
+                        ],
+                        complete=True,
                     )
                 ],
                 False,
