@@ -331,7 +331,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             elements_response.headers["Server-Timing"] = timer.to_header_string()
             elements_response.headers["Cache-Control"] = "private, max-age=30"
-            elements_response.headers["Vary"] = "Accept, Accept-Encoding, Query-String"
+            elements_response.headers["Vary"] = "Accept, Accept-Encoding, Query-String, Authorization, Cookie"
             return elements_response
 
     def _events_filter(self, request) -> tuple[Literal["$autocapture", "$rageclick", "$dead_click"], ...]:
