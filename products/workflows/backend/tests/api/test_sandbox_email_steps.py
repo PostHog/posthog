@@ -139,10 +139,19 @@ class TestSandboxEmailSteps(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert HogFlow.objects.get(id=flow.id).actions[1]["config"]["inputs"]["email"]["value"]["subject"] == "Edited"
 
-    @parameterized.expand([("create",), ("test_run_override",)])
-    def test_a_workflow_owned_by_another_product_cannot_hold_a_sandbox_step(self, path: str) -> None:
+    @parameterized.expand(
+        [
+            ("create", None),
+            ("test_run_override", {}),
+            # The saved owner decides, whatever the override claims.
+            ("test_run_override_claiming_no_owner", {"origin_product": None}),
+        ]
+    )
+    def test_a_workflow_owned_by_another_product_cannot_hold_a_sandbox_step(
+        self, _name: str, override_extra: dict[str, Any] | None
+    ) -> None:
         with _flag(True):
-            if path == "create":
+            if override_extra is None:
                 response = self.client.post(self._url(), _flow(_sandbox_step(), origin_product="loops"), format="json")
             else:
                 owned = HogFlow.objects.create(
@@ -150,7 +159,7 @@ class TestSandboxEmailSteps(APIBaseTest):
                 )
                 response = self.client.post(
                     f"{self._url(str(owned.id))}/invocations",
-                    {"configuration": _flow(_sandbox_step()), "globals": {}},
+                    {"configuration": _flow(_sandbox_step(), **override_extra), "globals": {}},
                     format="json",
                 )
 

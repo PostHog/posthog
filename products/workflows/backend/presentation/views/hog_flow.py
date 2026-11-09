@@ -3812,7 +3812,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # A test run's configuration override binds no instance and passes the flow through the context.
         stored = instance or self.context.get("instance")
         actions = data.get("actions", instance.actions if instance else [])
-        origin_product = data.get("origin_product", stored.origin_product if stored else None)
+        # The owner is set on create and never changes, so a saved flow's owner wins over a submitted one.
+        origin_product = stored.origin_product if stored else data.get("origin_product")
         if origin_product and any(
             isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
             for action in data.get("actions", stored.actions if stored else None) or []
