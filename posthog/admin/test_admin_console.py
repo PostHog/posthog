@@ -7,6 +7,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django import forms
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
@@ -21,6 +22,7 @@ from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
+from posthog.admin.console.api_key_search_tool import ApiKeySearchForm
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
@@ -261,6 +263,29 @@ class TestAdminConsoleTheme(SimpleTestCase):
         inline_scripts = re.findall(r"<script(?![^>]*\ssrc=)[^>]*>", response.content.decode())
         assert inline_scripts
         assert all(f'nonce="{allowed.group(1)}"' in tag for tag in inline_scripts), inline_scripts
+
+
+class TestAdminConsoleFormField(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("password_input_hides_the_key", "key", False),
+            ("text_input_keeps_what_staff_typed", "note", True),
+        ]
+    )
+    def test_a_form_shown_again_after_an_error_keeps_secrets_out(
+        self, _name: str, field_name: str, value_shown: bool
+    ) -> None:
+        class _KeyForm(ApiKeySearchForm):
+            note = forms.CharField()
+
+        form = _KeyForm(data={"key": "phx_pasted_secret_key", "note": "typed note"})
+        form.is_valid()
+        form.add_error(field_name, "Not found.")
+
+        html = render_to_string("admin_console/_form_field.html", {"field": form[field_name]})
+
+        assert "Not found." in html
+        assert ("phx_pasted_secret_key" in html or "typed note" in html) == value_shown
 
 
 class TestAdminConsoleViews(BaseTest):

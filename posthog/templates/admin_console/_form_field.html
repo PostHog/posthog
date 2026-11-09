@@ -33,7 +33,7 @@
             <input id="{{ field.id_for_label }}"
                    name="{{ field.html_name }}"
                    type="{{ field.field.widget.input_type|default:'text' }}"
-                   value="{{ field.value|default_if_none:'' }}"
+                   {% if field.field.widget.input_type != "password" or field.field.widget.render_value %}value="{{ field.value|default_if_none:'' }}"{% endif %}
                    class="quill-input"
                    autocomplete="off"
                    {% if field.field.required %}required{% endif %}
