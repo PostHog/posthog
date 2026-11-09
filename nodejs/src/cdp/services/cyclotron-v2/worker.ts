@@ -430,8 +430,6 @@ export class CyclotronV2Worker {
         const pool = this.pool
         const lockId = row.lock_id
         let released = false
-        // Separate from `released`: a job keeps its heartbeat until its release write has landed, so a slow write
-        // can't let the janitor take the job back and run it twice.
         let releaseWritten = false
 
         if (row.transition_count >= CYCLOTRON_TRANSITION_CHURN_THRESHOLD) {
@@ -445,14 +443,18 @@ export class CyclotronV2Worker {
             released = true
         }
 
-        const release = async (method: string, write: () => Promise<unknown>): Promise<void> => {
-            releaseGuard(method)
-            try {
-                await write()
-            } finally {
-                releaseWritten = true
+        // Heartbeats continue until the release write settles, so a slow write can't let the janitor take the job back
+        // and run it twice.
+        const releaseWrite =
+            <A extends unknown[]>(method: string, write: (...args: A) => Promise<unknown>) =>
+            async (...args: A): Promise<void> => {
+                releaseGuard(method)
+                try {
+                    await write(...args)
+                } finally {
+                    releaseWritten = true
+                }
             }
-        }
 
         return {
             id: row.id,
@@ -472,133 +474,123 @@ export class CyclotronV2Worker {
                 ? DateTime.fromISO(row.cancel_requested_at, { zone: 'utc' })
                 : null,
 
-            async ack(): Promise<void> {
-                await release('ack', () =>
-                    pool.query(
-                        `UPDATE cyclotron_jobs
+            ack: releaseWrite('ack', async () => {
+                await pool.query(
+                    `UPDATE cyclotron_jobs
                      SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
-                        [row.id, lockId]
-                    )
+                    [row.id, lockId]
                 )
-            },
+            }),
 
-            async fail(): Promise<void> {
-                await release('fail', () =>
-                    pool.query(
-                        `UPDATE cyclotron_jobs
+            fail: releaseWrite('fail', async () => {
+                await pool.query(
+                    `UPDATE cyclotron_jobs
                      SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
-                        [row.id, lockId]
-                    )
+                    [row.id, lockId]
                 )
-            },
+            }),
 
-            async reschedule(input?: CyclotronV2RescheduleOptions): Promise<void> {
-                await release('reschedule', async () => {
-                    const options = input ? CyclotronV2RescheduleOptionsSchema.parse(input) : undefined
-                    const scheduled = options?.scheduledAt ?? new Date()
+            reschedule: releaseWrite('reschedule', async (input?: CyclotronV2RescheduleOptions) => {
+                const options = input ? CyclotronV2RescheduleOptionsSchema.parse(input) : undefined
+                const scheduled = options?.scheduledAt ?? new Date()
 
-                    const setClauses = [
-                        `status = 'available'`,
-                        `lock_id = NULL`,
-                        `last_heartbeat = NULL`,
-                        `last_transition = NOW()`,
-                        `transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})`,
-                        // A deliberate release means the worker is healthy, so the
-                        // poison budget counts CONSECUTIVE stalls — long-lived jobs
-                        // (e.g. wait_until_condition polls) don't accrue touches for
-                        // their whole life and get mistaken for poison pills.
-                        `janitor_touch_count = 0`,
-                        // A cancel requested while this worker held the job must not
-                        // sleep the full next delay before it's observed, so it
-                        // wakes immediately instead.
-                        `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
-                    ]
-                    const params: any[] = [row.id, lockId, scheduled]
+                const setClauses = [
+                    `status = 'available'`,
+                    `lock_id = NULL`,
+                    `last_heartbeat = NULL`,
+                    `last_transition = NOW()`,
+                    `transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})`,
+                    // A deliberate release means the worker is healthy, so the
+                    // poison budget counts CONSECUTIVE stalls — long-lived jobs
+                    // (e.g. wait_until_condition polls) don't accrue touches for
+                    // their whole life and get mistaken for poison pills.
+                    `janitor_touch_count = 0`,
+                    // A cancel requested while this worker held the job must not
+                    // sleep the full next delay before it's observed, so it
+                    // wakes immediately instead.
+                    `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
+                ]
+                const params: any[] = [row.id, lockId, scheduled]
 
-                    if (options?.state !== undefined) {
-                        params.push(options.state ?? null)
-                        setClauses.push(`state = $${params.length}`)
-                    }
-                    if (options?.distinctId !== undefined) {
-                        params.push(options.distinctId ?? null)
-                        setClauses.push(`distinct_id = $${params.length}`)
-                    }
-                    if (options?.personId !== undefined) {
-                        params.push(options.personId ?? null)
-                        setClauses.push(`person_id = $${params.length}`)
-                    }
-                    if (options?.actionId !== undefined) {
-                        params.push(options.actionId ?? null)
-                        setClauses.push(`action_id = $${params.length}`)
-                    }
-                    if (options?.queueName !== undefined) {
-                        params.push(options.queueName)
-                        setClauses.push(`queue_name = $${params.length}`)
-                    }
-                    if (options?.priority !== undefined) {
-                        params.push(options.priority)
-                        setClauses.push(`priority = $${params.length}`)
-                    }
+                if (options?.state !== undefined) {
+                    params.push(options.state ?? null)
+                    setClauses.push(`state = $${params.length}`)
+                }
+                if (options?.distinctId !== undefined) {
+                    params.push(options.distinctId ?? null)
+                    setClauses.push(`distinct_id = $${params.length}`)
+                }
+                if (options?.personId !== undefined) {
+                    params.push(options.personId ?? null)
+                    setClauses.push(`person_id = $${params.length}`)
+                }
+                if (options?.actionId !== undefined) {
+                    params.push(options.actionId ?? null)
+                    setClauses.push(`action_id = $${params.length}`)
+                }
+                if (options?.queueName !== undefined) {
+                    params.push(options.queueName)
+                    setClauses.push(`queue_name = $${params.length}`)
+                }
+                if (options?.priority !== undefined) {
+                    params.push(options.priority)
+                    setClauses.push(`priority = $${params.length}`)
+                }
 
-                    // Cross-queue routing into the email queue: assign a fresh
-                    // dequeue_seq so the row participates in fair ordering. Without
-                    // this, hogflow → email re-routing (via job.reschedule({
-                    // queueName: 'email' })) lands the row with NULL dequeue_seq,
-                    // which `NULLS FIRST` drains ahead of every fair-ordered row —
-                    // defeating the per-team interleave for the most common email
-                    // path. Skipped when the row was already on the email queue,
-                    // so existing fair-ordered rows keep their place after retry/
-                    // reschedule without bumping the counter.
-                    if (options?.queueName === 'email' && row.queue_name !== 'email') {
-                        const dequeueSeq = await assignEmailDequeueSeq(pool, row.team_id)
-                        params.push(dequeueSeq)
-                        setClauses.push(`dequeue_seq = $${params.length}`)
-                    }
+                // Cross-queue routing into the email queue: assign a fresh
+                // dequeue_seq so the row participates in fair ordering. Without
+                // this, hogflow → email re-routing (via job.reschedule({
+                // queueName: 'email' })) lands the row with NULL dequeue_seq,
+                // which `NULLS FIRST` drains ahead of every fair-ordered row —
+                // defeating the per-team interleave for the most common email
+                // path. Skipped when the row was already on the email queue,
+                // so existing fair-ordered rows keep their place after retry/
+                // reschedule without bumping the counter.
+                if (options?.queueName === 'email' && row.queue_name !== 'email') {
+                    const dequeueSeq = await assignEmailDequeueSeq(pool, row.team_id)
+                    params.push(dequeueSeq)
+                    setClauses.push(`dequeue_seq = $${params.length}`)
+                }
 
-                    await pool.query(
-                        `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}
+                await pool.query(
+                    `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}
                      WHERE id = $1 AND lock_id = $2`,
-                        params
-                    )
-                })
-            },
+                    params
+                )
+            }),
 
-            async defer({ scheduledAt }: { scheduledAt: Date }): Promise<void> {
-                await release('defer', async () => {
-                    const params: any[] = [row.id, lockId, scheduledAt]
-                    if (row.queue_name === 'email') {
-                        params.push(await assignEmailDequeueSeq(pool, row.team_id))
-                    }
-                    await pool.query(
-                        `UPDATE cyclotron_jobs
-                         SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
-                             last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
-                             scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END
-                             ${params.length === 4 ? ', dequeue_seq = $4' : ''}
-                         WHERE id = $1 AND lock_id = $2`,
-                        params
-                    )
-                })
-            },
+            defer: releaseWrite('defer', async ({ scheduledAt }: { scheduledAt: Date }) => {
+                const params: any[] = [row.id, lockId, scheduledAt]
+                if (row.queue_name === 'email') {
+                    params.push(await assignEmailDequeueSeq(pool, row.team_id))
+                }
+                await pool.query(
+                    `UPDATE cyclotron_jobs
+                     SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
+                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
+                         scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END
+                         ${params.length === 4 ? ', dequeue_seq = $4' : ''}
+                     WHERE id = $1 AND lock_id = $2`,
+                    params
+                )
+            }),
 
-            async cancel(): Promise<void> {
-                await release('cancel', () =>
-                    pool.query(
-                        `UPDATE cyclotron_jobs
+            cancel: releaseWrite('cancel', async () => {
+                await pool.query(
+                    `UPDATE cyclotron_jobs
                      SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
-                        [row.id, lockId]
-                    )
+                    [row.id, lockId]
                 )
-            },
+            }),
 
             async heartbeat(): Promise<void> {
                 if (releaseWritten) {

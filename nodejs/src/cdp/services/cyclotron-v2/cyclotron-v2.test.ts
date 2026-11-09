@@ -1812,7 +1812,7 @@ describe('Cyclotron V2', () => {
             expect(row.person_id).toBe(original)
         })
 
-        it('heartbeat() keeps a job alive while its release write waits, and refuses once the write settles', async () => {
+        it('heartbeat() does not refuse while the release write is pending, and refuses once it settles', async () => {
             const { id, job } = await seedAndDequeue()
             const blocker = await assertPool.connect()
             try {
