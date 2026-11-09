@@ -41,7 +41,7 @@ export type UploadsAnswer = { status: number; body: Record<string, unknown> }
 export type SendRefusal = {
     status: number
     body: {
-        error: 'attachment_not_uploaded' | 'message_too_large' | 'email_render_too_slow' | 'delivery_unavailable'
+        error: 'attachment_not_uploaded' | 'message_too_large' | 'email_render_limit_exceeded' | 'delivery_unavailable'
         [key: string]: unknown
     }
 }

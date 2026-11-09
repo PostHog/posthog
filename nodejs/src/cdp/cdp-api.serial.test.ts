@@ -46,7 +46,6 @@ import {
     ATTACHMENT_CONTENT_ID_MAX_LENGTH,
     ATTACHMENT_CONTENT_TYPE_MAX_LENGTH,
     ATTACHMENT_FILENAME_MAX_LENGTH,
-    EMAIL_SIZING_BUDGET_MS,
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
@@ -67,7 +66,6 @@ import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watch
 import { template as emailTemplate } from './templates/_destinations/email/email.template'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
-import { LIQUID_RENDER_LIMIT_MS } from './utils/liquid'
 
 // Email MX validation runs on every email send, so without a mock the test-panel
 // email tests would do live DNS lookups for their fixture recipients (and
@@ -2910,96 +2908,17 @@ describe('CDP API', () => {
 
             it.each<[string, () => Promise<HogFlow>, string]>([
                 [
-                    'a delay',
+                    'a delay before its email step',
                     () => flowThrough({ delay }, [step('trigger', 'delay'), step('delay', 'email')]),
-                    'workflow_can_wait',
-                ],
-                [
-                    'a wait until a condition',
-                    () =>
-                        flowThrough(
-                            {
-                                wait: {
-                                    type: 'wait_until_condition',
-                                    config: { condition: { filters: {} }, max_wait_duration: '1h' },
-                                },
-                            },
-                            [step('trigger', 'wait'), step('wait', 'email')]
-                        ),
-                    'workflow_can_wait',
-                ],
-                [
-                    'a wait for a time window',
-                    () =>
-                        flowThrough(
-                            {
-                                window: {
-                                    type: 'wait_until_time_window',
-                                    config: { timezone: null, day: 'weekday', time: 'any' },
-                                },
-                            },
-                            [step('trigger', 'window'), step('window', 'email')]
-                        ),
-                    'workflow_can_wait',
-                ],
-                [
-                    'a branch to a delay',
-                    () =>
-                        flowThrough(
-                            {
-                                branch: { type: 'conditional_branch', config: { conditions: [{ filters: {} }] } },
-                                delay,
-                            },
-                            [
-                                step('trigger', 'branch'),
-                                { from: 'branch', to: 'delay', type: 'branch', index: 0 },
-                                step('branch', 'email'),
-                                step('delay', 'email'),
-                            ]
-                        ),
-                    'workflow_can_wait',
-                ],
-                [
-                    'a delay between a first email and a second one',
-                    () =>
-                        flowThrough(
-                            {
-                                first: {
-                                    type: 'function_email',
-                                    config: {
-                                        template_id: 'template-email',
-                                        inputs: {},
-                                        message_category_type: 'transactional',
-                                    },
-                                },
-                                delay,
-                            },
-                            [step('trigger', 'first'), step('first', 'delay'), step('delay', 'email')]
-                        ),
-                    'workflow_can_wait',
+                    'workflow_shape_not_supported',
                 ],
                 [
                     'an email step the frequency cap can hold',
                     () => flowThrough({}, [step('trigger', 'email')], 'marketing'),
                     'workflow_can_wait',
                 ],
-                [
-                    'a step that stores its output in a variable',
-                    () =>
-                        flowThrough(
-                            {
-                                fetch: {
-                                    type: 'function',
-                                    config: { template_id: 'template-webhook', inputs: {} },
-                                    output_variable: { key: 'user' },
-                                },
-                            },
-                            [step('trigger', 'fetch'), step('fetch', 'email')]
-                        ),
-                    'workflow_sets_variables_before_email',
-                ],
             ])(
-                'refuses a send with files to a workflow with %s before its email goes out, before it reserves the key',
+                'refuses a send with files to a workflow with %s, before it reserves the key',
                 async (_name, arrange, code) => {
                     const flow = await arrange()
                     const stagesBefore = await stageCounts()
@@ -3321,32 +3240,10 @@ describe('CDP API', () => {
                 )
                 return storedTemplateSend(flow, chunk)
             }
-            const branchToASmallEmailFirstAndALargeOne = async (): Promise<SendOptions> => {
-                await insertHogFunctionTemplate(hub.postgres, emailTemplate)
-                const small = {
-                    type: 'function_email',
-                    config: {
-                        template_id: 'template-email',
-                        inputs: storedEmail({ html: '<p>Your report</p>' }),
-                        message_category_type: 'transactional',
-                    },
-                } as const
-                const flow = await flowThrough(
-                    { branch: { type: 'conditional_branch', config: { conditions: [{ filters: {} }] } }, small, exit },
-                    [
-                        step('trigger', 'branch'),
-                        { from: 'branch', to: 'small', type: 'branch', index: 0 },
-                        step('branch', 'email'),
-                        step('small', 'exit'),
-                        step('email', 'exit'),
-                    ],
-                    'transactional',
-                    storedEmail({ html: '<p>{{ variables.chunk }}</p>' })
-                )
-                return storedTemplateSend(flow, bodyThatOverflows)
-            }
             const chunkRenderedTwice = { html: '<p>{{ variables.chunk }}</p><p>{{ variables.chunk }}</p>' }
             const chunkAsPreheader = { html: '<p>Your report</p>', preheader: '{{ variables.chunk }}' }
+            const renderThatOutlastsTheLiquidLimit =
+                '{% for a in (1..1000) %}{% for b in (1..1000) %}{% for c in (1..1000) %}x{% endfor %}{% endfor %}{% endfor %}'
             const chunkRenderedTwiceBehindAnUnclosedTag = { html: `{% if variables.chunk %}${chunkRenderedTwice.html}` }
 
             it.each<[string, () => Promise<SendOptions>]>([
@@ -3361,19 +3258,6 @@ describe('CDP API', () => {
                     async () => ({
                         ...contentOf('x'),
                         flowId: (await flowThrough({ exit }, [step('trigger', 'email'), step('email', 'exit')])).id,
-                    }),
-                ],
-                [
-                    'content on a workflow with a delay only after its email step, whose body',
-                    async () => ({
-                        ...contentOf('x'),
-                        flowId: (
-                            await flowThrough({ delay, exit }, [
-                                step('trigger', 'email'),
-                                step('email', 'delay'),
-                                step('delay', 'exit'),
-                            ])
-                        ).id,
                     }),
                 ],
             ])('accepts a send with files and %s fits beside them', async (_name, arrange) => {
@@ -3398,10 +3282,6 @@ describe('CDP API', () => {
                     'a stored template whose preheader goes into the html',
                     () => storedTemplateRendering(chunkAsPreheader, bodyThatOverflows),
                 ],
-                [
-                    'a branch to a small email and a large one, whose large email is',
-                    branchToASmallEmailFirstAndALargeOne,
-                ],
             ])(
                 'refuses a send with files and %s too large to fit beside them, and its key sends smaller files',
                 async (_name, arrange) => {
@@ -3423,50 +3303,21 @@ describe('CDP API', () => {
                 }
             )
 
-            it('refuses a send with files whose email steps outlast the sizing budget, and its key sends once they render in time', async () => {
-                const emailStep = {
-                    type: 'function_email',
-                    config: { template_id: 'template-email', inputs: {}, message_category_type: 'transactional' },
-                } as const
-                const emailStepsThatOutlastTheBudget = EMAIL_SIZING_BUDGET_MS / LIQUID_RENDER_LIMIT_MS + 1
-                const earlierEmails = Array.from(
-                    { length: emailStepsThatOutlastTheBudget - 1 },
-                    (_, index) => `email_${index}`
-                )
-                const flow = await flowThrough(
-                    Object.fromEntries(earlierEmails.map((id) => [id, emailStep])),
-                    [...earlierEmails, 'email'].map((id, index, ids) =>
-                        step(index === 0 ? 'trigger' : ids[index - 1], id)
-                    )
-                )
-                const options = { ...contentOf('x'), flowId: flow.id }
-                const realNow = performance.now.bind(performance)
-                let renderedMs = 0
-                const clock = jest.spyOn(performance, 'now').mockImplementation(() => realNow() + renderedMs)
-                const functions = api['hogFlowFunctionsService']
-                const render = functions.buildHogFunctionInvocation.bind(functions)
-                const rendersThatUseTheirWholeBudget = jest
-                    .spyOn(functions, 'buildHogFunctionInvocation')
-                    .mockImplementation(async (...args) => {
-                        const rendered = await render(...args)
-                        renderedMs += LIQUID_RENDER_LIMIT_MS
-                        return rendered
-                    })
+            it('refuses a send with files whose email step goes over a template limit, before it queues, and frees its key', async () => {
+                const options = await storedTemplateRendering({ html: renderThatOutlastsTheLiquidLimit }, 'x')
                 const key = newKey()
 
                 const refused = await sendWithFiles(key, [reference(invoice)], options)
-                rendersThatUseTheirWholeBudget.mockRestore()
-                clock.mockRestore()
                 const retried = await sendWithFiles(key, [reference(invoice)], options)
 
                 expect(refused.status).toBe(400)
                 expect(refused.body).toEqual({
-                    error: 'email_render_too_slow',
-                    reason: expect.any(String),
+                    error: 'email_render_limit_exceeded',
+                    reason: expect.stringContaining('"function_email"'),
                     fix: expect.any(String),
                 })
-                expect(retried.status).toBe(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(retried.body.error).toBe('email_render_limit_exceeded')
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
             })
         })
 

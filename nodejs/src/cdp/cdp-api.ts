@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { setImmediate as nextEventLoopTurn } from 'timers/promises'
 import express from 'ultimate-express'
 import { z } from 'zod'
 
@@ -47,6 +46,7 @@ import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,
     serializeResolverState,
 } from './services/hogflows/batch-resolver.types'
+import { EmailStep, filesWorkflowShape } from './services/hogflows/files-workflow-shape'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
@@ -56,16 +56,10 @@ import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
-    EmailStep,
-    emailStepsReachableFromTrigger,
-    workflowRefusalForFiles,
-} from './services/hogflows/steps-before-email'
-import {
     ATTACHMENT_UPLOAD_TOKEN_CLAIMS,
     AcceptedSend,
     AcceptedSendRequestSchema,
     CODE_SEND_TOKEN_CLAIMS,
-    EMAIL_SIZING_BUDGET_MS,
     TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailOutcome,
     TransactionalEmailRequest,
@@ -96,7 +90,6 @@ import { EmailValidationService } from './services/messaging/email-validation.se
 import { utmTagsFor } from './services/messaging/helpers/email-html'
 import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
-import { estimateMessageBytes } from './services/messaging/message-estimate'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
     HogWatcherService,
@@ -123,7 +116,7 @@ import {
 } from './utils'
 import { recordRequestOrigins } from './utils/cdp-fetch'
 import { dualRead, dualWrite } from './utils/dual-store'
-import { isHogVMError } from './utils/hog-error-classification'
+import { isHogLimitError, isHogVMError } from './utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
 import { PosthogJwtAudience } from './utils/jwt-utils'
@@ -204,14 +197,14 @@ function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort
 
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 
-const EMAIL_RENDER_TOO_SLOW: SendRefusal = {
+const emailRenderLimitExceeded = (emailStep: EmailStep): SendRefusal => ({
     status: 400,
     body: {
-        error: 'email_render_too_slow',
-        reason: `Rendering the email steps of this workflow took longer than ${EMAIL_SIZING_BUDGET_MS} ms, so the size of this email with its files could not be checked.`,
-        fix: 'Send this email without files, or simplify the email templates of this workflow.',
+        error: 'email_render_limit_exceeded',
+        reason: `Rendering the "${emailStep.name}" email step went over a template limit on time or length, so the size of this email with its files could not be checked.`,
+        fix: 'Simplify the template of this email step, or send this email without files.',
     },
-}
+})
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 
@@ -1387,9 +1380,9 @@ export class CdpApi {
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
-                const workflowRefusal = references.length > 0 ? workflowRefusalForFiles(hogFlow) : null
-                if (workflowRefusal) {
-                    return reply(workflowRefusal.error, 400, workflowRefusal)
+                const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
+                if (filesShape && 'refused' in filesShape) {
+                    return reply(filesShape.refused.error, 400, filesShape.refused)
                 }
 
                 stages.start('build')
@@ -1480,7 +1473,7 @@ export class CdpApi {
                         await releaseKey()
                         return reply(refusal.outcome, refusal.status, { error: refusal.outcome })
                     }
-                    if (send && references.length > 0) {
+                    if (send && filesShape) {
                         stages.start('attachments')
                         const files = await this.attachmentUploads.acceptSend(
                             team.id,
@@ -1490,7 +1483,7 @@ export class CdpApi {
                                 contentType: ref.content_type,
                                 contentId: ref.content_id,
                             })),
-                            () => this.messageBodyBytes(hogFlow, invocation),
+                            () => this.messageBodyBytes(hogFlow, invocation, filesShape.emailStep),
                             verificationDeadline
                         )
                         if ('refused' in files) {
@@ -1563,53 +1556,15 @@ export class CdpApi {
 
     private async messageBodyBytes(
         hogFlow: HogFlow,
-        invocation: CyclotronJobInvocationHogFlow
-    ): Promise<MessageBodySizing> {
-        const steps = emailStepsReachableFromTrigger(hogFlow)
-        if (steps.length === 0) {
-            return { bodyBytes: sendBodyBytes(invocation) }
-        }
-        const sizingEndsAt = performance.now() + EMAIL_SIZING_BUDGET_MS
-        const bodyBytesPerStep: number[][] = []
-        for (const step of steps) {
-            await nextEventLoopTurn()
-            if (performance.now() >= sizingEndsAt) {
-                return { refused: EMAIL_RENDER_TOO_SLOW }
-            }
-            bodyBytesPerStep.push(await this.emailStepBodyBytes(hogFlow, invocation, step))
-        }
-        return {
-            bodyBytes: bodyBytesPerStep.reduce((largest, bodyBytes) =>
-                estimateMessageBytes(bodyBytes) > estimateMessageBytes(largest) ? bodyBytes : largest
-            ),
-        }
-    }
-
-    private async emailStepBodyBytes(
-        hogFlow: HogFlow,
         invocation: CyclotronJobInvocationHogFlow,
-        step: EmailStep
-    ): Promise<number[]> {
+        emailStep: EmailStep
+    ): Promise<MessageBodySizing> {
         try {
-            const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, step.config, step.name)
-            const atEmailStep = {
-                ...invocation,
-                state: { ...invocation.state, currentAction: { id: step.id, startedAtTimestamp: Date.now() } },
-            }
-            const rendered = await this.hogFlowFunctionsService.buildHogFunctionInvocation(atEmailStep, hogFunction, {
-                event: invocation.state.event,
-                person: invocation.person,
-                groups: invocation.groups,
-                variables: invocation.state.variables,
-            })
-            const email = { ...rendered.state.globals.inputs?.email, ...acceptedSendEmailFields(invocation.state.send) }
-            return [
-                typeof email.html === 'string' && email.html
-                    ? this.sesHtmlMaxBytes(rendered, email.html, email.preheader)
-                    : 0,
-                typeof email.text === 'string' ? Buffer.byteLength(email.text) : 0,
-            ]
+            return { bodyBytes: await this.emailStepBodyBytes(hogFlow, invocation, emailStep) }
         } catch (error) {
+            if (isHogLimitError(error)) {
+                return { refused: emailRenderLimitExceeded(emailStep) }
+            }
             if (!isHogVMError(error)) {
                 throw error
             }
@@ -1618,8 +1573,33 @@ export class CdpApi {
                 hog_flow_id: hogFlow.id,
                 error: error instanceof Error ? error.message : String(error),
             })
-            return sendBodyBytes(invocation)
+            return { bodyBytes: sendBodyBytes(invocation) }
         }
+    }
+
+    private async emailStepBodyBytes(
+        hogFlow: HogFlow,
+        invocation: CyclotronJobInvocationHogFlow,
+        step: EmailStep
+    ): Promise<number[]> {
+        const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, step.config, step.name)
+        const atEmailStep = {
+            ...invocation,
+            state: { ...invocation.state, currentAction: { id: step.id, startedAtTimestamp: Date.now() } },
+        }
+        const rendered = await this.hogFlowFunctionsService.buildHogFunctionInvocation(atEmailStep, hogFunction, {
+            event: invocation.state.event,
+            person: invocation.person,
+            groups: invocation.groups,
+            variables: invocation.state.variables,
+        })
+        const email = { ...rendered.state.globals.inputs?.email, ...acceptedSendEmailFields(invocation.state.send) }
+        return [
+            typeof email.html === 'string' && email.html
+                ? this.sesHtmlMaxBytes(rendered, email.html, email.preheader)
+                : 0,
+            typeof email.text === 'string' ? Buffer.byteLength(email.text) : 0,
+        ]
     }
 
     private sesHtmlMaxBytes(rendered: CyclotronJobInvocationHogFunction, html: string, preheader: unknown): number {
