@@ -72,8 +72,6 @@ def _indexed_candidate_matches(
         )
 
     if pr_url:
-        # A resumed wizard run inherits its predecessor's head branch, so a terminal original and
-        # its live resume can both claim the same PR URL. The live run must keep priority.
         verified_url = canonical_github_pull_request_url(pr_url)
         verified_filter = Q(state__verified_pr_urls__contains=[pr_url])
         if verified_url is not None:
@@ -81,13 +79,10 @@ def _indexed_candidate_matches(
         add_candidates(indexed_candidates.filter(verified_filter), _TaskRunMatchRank.VERIFIED_PR_URL)
 
     if branch and repository:
-        # The self-driving branch stamp is PATCH-protected and cannot be forged by a caller.
         add_candidates(
             indexed_candidates.filter(state__self_driving_head_branch=branch),
             _TaskRunMatchRank.SELF_DRIVING_HEAD_BRANCH,
         )
-        # Signed commits report every pushed repository and branch pair separately because the
-        # checkout branch cannot represent nested repositories or multiple PR branches.
         add_candidates(
             indexed_candidates.filter(
                 output__head_branches__contains=[{"repository": repository.lower(), "branch": branch}]
@@ -95,13 +90,11 @@ def _indexed_candidate_matches(
             _TaskRunMatchRank.SIGNED_HEAD_BRANCH,
         )
         if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
-            # The prefix keeps this sparse indexed leg off the hot path for ordinary branches.
             add_candidates(
                 indexed_candidates.filter(state__wizard_head_branch=branch),
                 _TaskRunMatchRank.WIZARD_HEAD_BRANCH,
             )
         if pr_url:
-            # Desktop clients can attach a PR URL and branch without reporting head_branches.
             reported_candidates = indexed_candidates.filter(
                 branch=branch,
                 state__wizard_head_branch__isnull=True,
@@ -196,7 +189,6 @@ def find_task_run(
     # through to the legs below, which resolve the run that authored the PR.
     candidates = candidates.exclude(task__origin_product=Task.OriginProduct.REVIEW_HOG)
 
-    # A bare branch name does not prove PR ownership because branch names collide across repositories.
     if repository:
         candidates = candidates.filter(_run_repository_filter(repository))
     candidate_ids = {candidate_id for candidate_ids in matches.values() for candidate_id in candidate_ids}
