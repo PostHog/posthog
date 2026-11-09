@@ -80,65 +80,55 @@ describe('MemoryRateLimiter', () => {
         const start = new Date('2025-01-01T01:00:00').valueOf()
         let limiter: MemoryRateLimiter
 
-        const setClock = (secondsAfterStart: number) => {
-            jest.setSystemTime(start + secondsAfterStart * 1000)
-        }
-        const eventTime = (secondsAfterStart: number) => start + secondsAfterStart * 1000
+        const at = (secondsAfterStart: number) => start + secondsAfterStart * 1000
 
         beforeEach(() => {
-            jest.useFakeTimers().setSystemTime(start)
             limiter = new MemoryRateLimiter(capacity, replenishRate)
         })
 
-        afterEach(() => {
-            jest.useRealTimers()
-        })
-
         it('removes a bucket once the event time and the clock both pass its refill window', () => {
-            limiter.consume('quiet', 10, eventTime(0))
+            limiter.consume('quiet', 10, at(0))
+            limiter.sweepRefilled(at(0))
 
-            setClock(refillWindowSeconds)
-            limiter.consume('active', 1, eventTime(refillWindowSeconds))
+            limiter.consume('active', 1, at(refillWindowSeconds))
+            limiter.sweepRefilled(at(refillWindowSeconds))
 
             expect([...limiter.buckets.keys()]).toEqual(['active'])
         })
 
         it('keeps an empty bucket and its decision while the event time stays inside its refill window', () => {
-            limiter.consume('drained', 10, eventTime(0))
+            limiter.consume('drained', 10, at(0))
+            limiter.sweepRefilled(at(0))
 
-            setClock(refillWindowSeconds * 10)
-            limiter.consume('other', 1, eventTime(refillWindowSeconds - 1))
+            limiter.consume('other', 1, at(refillWindowSeconds - 1))
+            limiter.sweepRefilled(at(refillWindowSeconds * 10))
 
             expect(limiter.buckets.has('drained')).toEqual(true)
-            expect(limiter.consume('drained', 1, eventTime(0))).toEqual(false)
+            expect(limiter.consume('drained', 1, at(0))).toEqual(false)
         })
 
         it('keeps the bucket and its decision for a key that consumes on a lagging partition', () => {
-            limiter.consume('lagging', 10, eventTime(0))
-            limiter.consume('current', 1, eventTime(1000))
+            limiter.consume('lagging', 10, at(0))
+            limiter.consume('current', 1, at(1000))
+            limiter.sweepRefilled(at(0))
 
-            setClock(refillWindowSeconds - 1)
-            expect(limiter.consume('lagging', 1, eventTime(2))).toEqual(true)
-            setClock(refillWindowSeconds)
-            limiter.consume('current', 1, eventTime(1000 + refillWindowSeconds))
+            expect(limiter.consume('lagging', 1, at(2))).toEqual(true)
+            limiter.consume('current', 1, at(1000 + refillWindowSeconds))
+            limiter.sweepRefilled(at(refillWindowSeconds))
 
             expect(limiter.buckets.has('lagging')).toEqual(true)
-            expect(limiter.consume('lagging', 4, eventTime(2))).toEqual(false)
+            expect(limiter.consume('lagging', 4, at(2))).toEqual(false)
         })
 
         it('sweeps at most once per refill window', () => {
-            setClock(1)
-            limiter.consume('a', 10, eventTime(1))
-            setClock(refillWindowSeconds)
-            limiter.consume('b', 1, eventTime(refillWindowSeconds))
+            limiter.consume('a', 10, at(1))
+            limiter.sweepRefilled(at(1))
+            limiter.consume('b', 1, at(1 + refillWindowSeconds))
+
+            limiter.sweepRefilled(at(1 + refillWindowSeconds) - 1)
             expect(limiter.buckets.has('a')).toEqual(true)
 
-            setClock(refillWindowSeconds * 2 - 1)
-            limiter.consume('b', 1, eventTime(refillWindowSeconds * 2 - 1))
-            expect(limiter.buckets.has('a')).toEqual(true)
-
-            setClock(refillWindowSeconds * 2)
-            limiter.consume('b', 1, eventTime(refillWindowSeconds * 2))
+            limiter.sweepRefilled(at(1 + refillWindowSeconds))
             expect(limiter.buckets.has('a')).toEqual(false)
         })
     })

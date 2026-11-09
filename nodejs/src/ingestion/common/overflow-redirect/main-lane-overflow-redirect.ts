@@ -81,8 +81,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
 
     // lru-cache removes an expired entry only on read or at `max`. One scan per TTL costs less
     // than `ttlAutopurge`, which replaces a timer per entry on every write.
-    private purgeExpired(): void {
-        const now = Date.now()
+    private purgeExpired(now: number): void {
         if (now < this.nextPurgeAt) {
             return
         }
@@ -105,7 +104,8 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         const redirectSource = new Map<string, 'redis' | 'rate_limiter'>()
         const needsRateLimitCheck: OverflowEventGroup[] = []
 
-        this.purgeExpired()
+        const now = Date.now()
+        this.purgeExpired(now)
 
         // Step 1: Check local cache
         const needsRedisCheck: OverflowEventGroup[] = []
@@ -189,6 +189,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         }
 
         for (const { label, limiter } of this.strategies) {
+            limiter.sweepRefilled(now)
             overflowRedirectRateLimiterBuckets.labels(type, label).set(limiter.buckets.size)
         }
 
