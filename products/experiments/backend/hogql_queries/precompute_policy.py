@@ -13,7 +13,10 @@ from django.db.models import Q
 import posthoganalytics
 from pydantic import BaseModel
 
+from posthog.clickhouse.preaggregation.experiment_exposures_sql import SHARDED_EXPERIMENT_EXPOSURES_TABLE
+from posthog.clickhouse.preaggregation.experiment_metric_events_sql import SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE
 from posthog.constants import EXPERIMENTS_PRECOMPUTE_PERSON_RESOLUTION_FEATURE_FLAG_KEY
+from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS
 from posthog.models.team.team import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -70,15 +73,28 @@ PRECOMPUTE_TTL_JITTER_SECONDS = 14 * 24 * 60 * 60
 METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS = 90 * 24 * 60 * 60  # 90 days
 
 
+def _person_deletion_sweeps_precomputed_tables() -> bool:
+    swept_tables = {target.data_table for target in DEFAULT_DELETION_TARGETS}
+    return {SHARDED_EXPERIMENT_EXPOSURES_TABLE(), SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE()} <= swept_tables
+
+
 def precompute_person_resolution_enabled(team: Team) -> bool:
     """
-    Whether a person-aggregated read of the precomputed tables resolves each row to its current
-    person through `person_distinct_id_overrides`.
+    Whether the precomputed tables follow person merges for the team. A build stores the
+    distinct_id of each row, and a person-aggregated read resolves each row to its current person
+    through `person_distinct_id_overrides`.
 
-    The join aggregates all of the team's override rows on every read, and it can change only a
-    row that stores its distinct_id. Off, a read takes the person stored at build time and pays
-    no join. Default-off and fail-safe: an absent or unevaluable flag keeps the read without the join.
+    A build that stores distinct_id has a different job hash, so the team's cached jobs are built
+    again when the flag turns on. The read join aggregates all of the team's override rows on
+    every read. Off, a build stores no distinct_id, and a read takes the person stored at build
+    time and pays no join. Default-off and fail-safe: an absent or unevaluable flag keeps both off.
+
+    The flag has no effect while person deletion does not sweep both precomputed tables. A
+    distinct_id identifies a person directly, and a row that no sweep reaches keeps it after the
+    person is deleted, until the row expires.
     """
+    if not _person_deletion_sweeps_precomputed_tables():
+        return False
     return bool(
         posthoganalytics.feature_enabled(
             EXPERIMENTS_PRECOMPUTE_PERSON_RESOLUTION_FEATURE_FLAG_KEY,

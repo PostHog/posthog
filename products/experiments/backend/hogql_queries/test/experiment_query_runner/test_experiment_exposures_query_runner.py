@@ -21,6 +21,7 @@ from posthog.schema import (
     ExperimentExposureCriteria,
     ExperimentExposureHealthCheckKey,
     ExperimentExposureHealthFindingCode,
+    ExperimentExposureHealthFindingSeverity,
     ExperimentExposureQuery,
     ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
@@ -33,7 +34,6 @@ from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
-from posthog.models import PropertyDefinition
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
 from posthog.test.persons import create_group_type_mapping
@@ -43,6 +43,7 @@ from products.access_control.backend.facade.api import upsert_property_access_co
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -2077,7 +2078,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         lookup = patch(
-            "products.experiments.backend.health.launch_time.ActivityLog.objects.filter",
+            "products.experiments.backend.models.experiment.ActivityLog.objects.filter",
             side_effect=OperationalError("the activity log is unavailable"),
         )
         with time_machine.travel(now, tick=False), lookup if launch_lookup_fails else nullcontext():
@@ -2180,6 +2181,64 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(
             "ExperimentExposuresWithoutTestAccountFilterQuery" in query_types,
             any(count is not None for *_, count in expected),
+        )
+
+    @parameterized.expand(
+        [
+            ("a_variant_without_a_share", {"active": True, "control": 0}, "variant_not_served"),
+            ("the_flag_is_off", {"active": False, "control": 50}, "flag_off"),
+        ]
+    )
+    def test_reports_users_first_exposed_in_a_variant_that_the_flag_no_longer_serves(
+        self, _name: str, flag_setup: dict[str, Any], subcode: str
+    ) -> None:
+        self.feature_flag.filters = {
+            **self.feature_flag.filters,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": flag_setup["control"]},
+                    {"key": "test", "rollout_percentage": 100 - flag_setup["control"]},
+                ]
+            },
+        }
+        self.feature_flag.active = flag_setup["active"]
+        with time_machine.travel("2024-01-03T10:00:00Z", tick=False):
+            self.feature_flag.save()
+        # After the day of the save, only "control" arrives, a value that the flag can't have returned.
+        for day, variant, users in [
+            ("2024-01-02", "test", 10),
+            ("2024-01-02", "control", 10),
+            ("2024-01-04", "control", 12),
+        ]:
+            for i in range(users):
+                _create_event(
+                    distinct_id=f"{day}_{variant}_{i}",
+                    event="$feature_flag_called",
+                    timestamp=f"{day}T10:00:00Z",
+                    properties={"$feature_flag_response": variant, "$feature_flag": self.feature_flag.key},
+                    team=self.team,
+                )
+        flush_persons_and_events()
+
+        with time_machine.travel(LATER, tick=False):
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._running_exposure_query(), user=self.user
+            ).calculate()
+
+        self.assertEqual(
+            [
+                (finding.code, finding.subcode, finding.severity, finding.evidence.get("unserved_exposed_count"))
+                for finding in response.health_findings or []
+                if finding.code == ExperimentExposureHealthFindingCode.UNSERVED_VARIANT_EXPOSURES
+            ],
+            [
+                (
+                    ExperimentExposureHealthFindingCode.UNSERVED_VARIANT_EXPOSURES,
+                    subcode,
+                    ExperimentExposureHealthFindingSeverity.WARNING,
+                    12,
+                )
+            ],
         )
 
     @parameterized.expand([("direct", False, True), ("precomputed", True, False)])
