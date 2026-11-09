@@ -1,5 +1,7 @@
+import re
 import copy
 import json
+import string
 import hashlib
 import inspect
 import graphlib
@@ -276,6 +278,74 @@ def validate_manifest_structure(manifest: Any) -> None:
         raise ManifestValidationError(_format_validation_errors(exc)) from exc
 
 
+_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+
+def _declared_params(manifest: dict[str, Any], endpoint: dict[str, Any]) -> set[str]:
+    defaults = manifest.get("resource_defaults")
+    default_endpoint = defaults.get("endpoint") if isinstance(defaults, dict) else None
+    default_params = default_endpoint.get("params") if isinstance(default_endpoint, dict) else None
+    params = endpoint.get("params")
+    return {
+        *(default_params if isinstance(default_params, dict) else {}),
+        *(params if isinstance(params, dict) else {}),
+    }
+
+
+def _unbound_placeholders(path: str, declared: set[str]) -> list[str] | None:
+    """Placeholders in ``path`` that no param fills, or ``None`` when the engine can't parse the path."""
+    try:
+        return [name for _, name, _, _ in string.Formatter().parse(path) if name and name not in declared]
+    except ValueError:
+        return None
+
+
+def _double_braces(text: str) -> str:
+    return text.replace("{", "{{").replace("}", "}}")
+
+
+def _escape_literal_query_braces(manifest: dict[str, Any]) -> None:
+    """Keep braces in a path's query string literal unless a declared param fills them.
+
+    The REST engine formats every path with ``str.format``, so query syntax that uses braces, such
+    as Graph API field expansion (``?fields=attachments{media_type}``), would otherwise be read as
+    a placeholder and rejected. A path the engine already accepts is left untouched.
+    """
+    for resource in manifest["resources"]:
+        endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+        if not isinstance(endpoint, dict):
+            continue
+        path = endpoint.get("path")
+        if not isinstance(path, str) or "?" not in path:
+            continue
+        declared = _declared_params(manifest, endpoint)
+        if _unbound_placeholders(path, declared) == []:
+            continue
+        base, query = path.split("?", 1)
+        escaped: list[str] = []
+        position = 0
+        for match in _PLACEHOLDER_RE.finditer(query):
+            escaped.append(_double_braces(query[position : match.start()]))
+            escaped.append(match.group(0) if match.group(1) in declared else _double_braces(match.group(0)))
+            position = match.end()
+        escaped.append(_double_braces(query[position:]))
+        endpoint["path"] = f"{base}?{''.join(escaped)}"
+
+
+def _check_path_placeholders(manifest: dict[str, Any]) -> None:
+    # The engine's own error for this echoes the whole path, which can carry account ids.
+    for resource in manifest["resources"]:
+        endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+        if not isinstance(endpoint, dict) or not isinstance(endpoint.get("path"), str):
+            continue
+        unbound = _unbound_placeholders(endpoint["path"], _declared_params(manifest, endpoint))
+        if unbound:
+            raise ManifestValidationError(
+                f"Table {resource.get('name')!r} has {{{unbound[0]}}} in its path, but no parent field fills it. "
+                "Link the table to a parent table with that field, or remove the braces."
+            )
+
+
 def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[list[ResolvedParam]]]:
     """Surface parent/child fan-out errors at create-time instead of first sync.
 
@@ -300,6 +370,7 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[lis
     ``None`` for top-level resources) so callers that need it — the probe's
     child filter — don't rebuild the graph.
     """
+    _check_path_placeholders(manifest)
     try:
         graph, resource_map, resolved = _build_resource_graph(manifest)
         list(graph.static_order())
@@ -1141,6 +1212,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # schemas (graph rules are enforced on the API validation paths in
         # `validate_credentials`, and per-schema at sync time in `_fanout_chain`).
         validate_manifest_structure(manifest)
+        _escape_literal_query_braces(manifest)
         _inject_auth_secrets(manifest, config)
         return manifest
 

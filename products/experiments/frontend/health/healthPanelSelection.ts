@@ -1,13 +1,13 @@
 import type { ListedHealthCheck } from './healthPanelChecks'
-import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
+import type { HealthPanelFinding } from './healthPanelFindings'
 
 export type HealthPanelSelection =
-    | { kind: 'summary' }
+    | { kind: 'overview' }
     | { kind: 'finding'; key: string }
     | { kind: 'check'; key: ListedHealthCheck['key'] }
 
 export type ResolvedHealthPanelSelection =
-    | { kind: 'summary' }
+    | { kind: 'overview' }
     | { kind: 'finding'; key: string; finding: HealthPanelFinding }
     | { kind: 'check'; key: ListedHealthCheck['key']; check: ListedHealthCheck }
 
@@ -15,13 +15,16 @@ export function healthFindingKey(finding: HealthPanelFinding): string {
     return `${finding.code}:${finding.subcode ?? ''}`
 }
 
-// A refresh can remove the picked finding or check, so the pick holds only while it is still on the list.
+// A refresh can remove the picked finding or check, so the pick holds only while it is still on the list. The overview
+// is always there.
 export function resolveHealthPanelSelection(
     picked: HealthPanelSelection | null,
     findings: HealthPanelFinding[],
     checks: ListedHealthCheck[]
 ): ResolvedHealthPanelSelection {
     switch (picked?.kind) {
+        case 'overview':
+            return picked
         case 'finding': {
             const finding = findings.find((candidate) => healthFindingKey(candidate) === picked.key)
             if (finding) {
@@ -37,9 +40,5 @@ export function resolveHealthPanelSelection(
             break
         }
     }
-    // A note states a fact and needs no action, so only an issue opens without a click.
-    const [firstIssue] = healthIssues(findings)
-    return firstIssue
-        ? { kind: 'finding', key: healthFindingKey(firstIssue), finding: firstIssue }
-        : { kind: 'summary' }
+    return { kind: 'overview' }
 }

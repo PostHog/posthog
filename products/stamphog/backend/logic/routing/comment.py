@@ -11,7 +11,7 @@ from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown
 
 ROUTING_COMMENT_MARKER = "<!-- stamphog-reviewer-routing -->"
 
-_REASON_MAX_CHARS = 200
+REASON_MAX_CHARS = 200
 _CODE_SPAN_BREAKERS_RE = re.compile(r"[`\x00-\x1f\x7f]")
 # Backslash-escaped ASCII punctuation is literal in CommonMark, so a reason cannot open a link,
 # an image, an HTML tag, a table cell or emphasis. Block markers such as `#` or `-` need no escape,
@@ -25,14 +25,22 @@ def sanitize_for_code_span(text: str) -> str:
     return _CODE_SPAN_BREAKERS_RE.sub("?", text)
 
 
-def _plain_reason(reason: str) -> str:
-    # The model reads untrusted pull request content, so its reason is untrusted too. Joining on
-    # whitespace removes every line break, which keeps the reason inside its list item.
+def clean_reason(reason: str) -> str:
+    """The model's reason as one line of plain text, cut to `REASON_MAX_CHARS`, with active markdown neutralized.
+
+    The model reads untrusted pull request content, so its reason is untrusted too. The routing comment
+    and the routing run log both start from this.
+    """
+    # Joining on whitespace removes every line break, which keeps the reason inside its list item.
     text = " ".join(reason.split())
     text = _CODE_SPAN_BREAKERS_RE.sub("", text)
-    if len(text) > _REASON_MAX_CHARS:
-        text = text[: _REASON_MAX_CHARS - 3].rstrip() + "..."
-    text = neutralize_active_markdown(text)
+    if len(text) > REASON_MAX_CHARS:
+        text = text[: REASON_MAX_CHARS - 3].rstrip() + "..."
+    return neutralize_active_markdown(text)
+
+
+def _plain_reason(reason: str) -> str:
+    text = clean_reason(reason)
     text = _MARKDOWN_PUNCTUATION_RE.sub(r"\\\1", text)
     # A zero-width space after `@` stops GitHub from turning the text into a mention.
     return text.replace("@", "@​")

@@ -1,16 +1,18 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from '@posthog/lemon-ui'
+
 import { initKeaTests } from '~/test/init'
 
 import * as messagingApi from 'products/messaging/frontend/generated/api'
 import type { PaginatedMessageSuppressionApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { suppressionListLogic } from './suppressionListLogic'
+import { removalWarning, suppressionListLogic } from './suppressionListLogic'
 
-const suppressionRow = (identifier: string): any => ({
+const suppressionRow = (identifier: string, source = 'MANUAL'): any => ({
     id: identifier,
     identifier,
-    source: 'MANUAL',
+    source,
     reason: '',
     transient_bounce_count: 0,
     last_bounce_at: null,
@@ -107,6 +109,52 @@ describe('suppressionListLogic', () => {
 
             expect(logic.values.suppressions).toEqual(freshResult)
             expect(logic.values.currentPage).toBe(1)
+        })
+    })
+    describe('removal warning', () => {
+        it.each([
+            ['a bounced address', [suppressionRow('a@example.com', 'BOUNCE')], 'Remove', false],
+            ['a spam complaint', [suppressionRow('a@example.com', 'COMPLAINT')], 'Remove anyway', true],
+            [
+                'a selection with one spam complaint',
+                [suppressionRow('a@example.com', 'MANUAL'), suppressionRow('b@example.com', 'COMPLAINT')],
+                'Remove anyway',
+                true,
+            ],
+        ])('warns about %s', (_label, entries, confirmLabel, mentionsSpam) => {
+            const warning = removalWarning(entries)
+
+            expect(warning.confirmLabel).toBe(confirmLabel)
+            expect(warning.description.includes('as spam')).toBe(mentionsSpam)
+            expect(warning.description).toContain('back on the list')
+        })
+    })
+    describe('confirmed removal', () => {
+        it.each([
+            ['a bounced address', 'BOUNCE', false],
+            ['a spam complaint', 'COMPLAINT', true],
+        ])('sends the complaint confirmation only for %s', async (_label, source, confirmComplaints) => {
+            jest.spyOn(messagingApi, 'messagingSuppressionsSuppressionsRetrieve').mockResolvedValue({
+                count: 0,
+                next: null,
+                previous: null,
+                results: [],
+            })
+            const remove = jest
+                .spyOn(messagingApi, 'messagingSuppressionsBulkRemoveSuppressionsCreate')
+                .mockResolvedValue({ removed: ['a@example.com'], not_found: [] })
+            const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const logic = suppressionListLogic()
+            logic.mount()
+
+            logic.actions.confirmRemove([suppressionRow('a@example.com', source)])
+            openDialog.mock.calls[0][0].primaryButton?.onClick?.({} as any)
+            await expectLogic(logic).toDispatchActions(['removeSuppressionsSuccess'])
+
+            expect(remove).toHaveBeenCalledWith(expect.any(String), {
+                identifiers: ['a@example.com'],
+                confirm_complaints: confirmComplaints,
+            })
         })
     })
 })

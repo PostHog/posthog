@@ -90,6 +90,15 @@ def create_example_inputs():
     }
 
 
+_UNLAYER_COLUMN_OPEN = (
+    '<!--[if (mso)|(IE)]><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center"><![endif]-->'
+    '<!--[if (!mso)&(!IE)]><!--><div style="height: 100%;"><!--<![endif]-->'
+)
+_UNLAYER_COLUMN_CLOSE = (
+    "<!--[if (!mso)&(!IE)]><!--></div><!--<![endif]--><!--[if (mso)|(IE)]></td></tr></table><![endif]-->"
+)
+
+
 def _render_around(block_html: str) -> str:
     return (
         "<!DOCTYPE html><html><head><style>#u_body a { color: #00e; }</style></head>"
@@ -546,6 +555,16 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ),
             ("unterminated_tags_around_the_block", "<p>Old copy</p>", "<p>Old copy</p>" + "<div u_body" * 1000),
             (
+                "outlook_only_footer_added_beside_the_block",
+                "<p>Old copy</p>",
+                _render_around("<p>Old copy</p><!--[if mso]><p>New footer</p><![endif]-->"),
+            ),
+            (
+                "non_outlook_footer_added_beside_the_block",
+                "<p>Old copy</p>",
+                _render_around("<p>Old copy</p><!--[if !mso]><!--><p>New footer</p><!--<![endif]-->"),
+            ),
+            (
                 "full_render_replaced_by_another",
                 '<html><body class="clean-body u_body"><p>Old copy</p></body></html>',
                 '<html><body class="clean-body u_body"><p>New copy</p></body></html>',
@@ -582,8 +601,16 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
         assert validated["email"]["value"]["design"] == edited_design
 
-    def test_wrap_design_kept_when_the_html_is_its_unlayer_render(self):
-        html = _render_around("<p>Inner block</p>")
+    @parameterized.expand(
+        [
+            ("plain_render", _render_around("<p>Inner block</p>")),
+            (
+                "render_with_outlook_column_wrappers",
+                _render_around(f"{_UNLAYER_COLUMN_OPEN}<p>Inner block</p>{_UNLAYER_COLUMN_CLOSE}"),
+            ),
+        ]
+    )
+    def test_wrap_design_kept_when_the_html_is_its_unlayer_render(self, _name, html):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         design = build_html_wrap_design("<p>Inner block</p>")
         value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": html, "design": design}

@@ -1,4 +1,4 @@
-//! The crate has no HTTP client, so the POST is behind `OtlpTransport`. `LogsMetricsEmitter` keeps Node's two attempts and 2xx check.
+//! `LogsMetricsEmitter` keeps Node's two attempts and 2xx check around the `OtlpTransport` POST.
 
 use std::sync::Arc;
 

@@ -234,7 +234,8 @@ function PanelStory({ mode, selectedNodeId }: PanelStoryProps): JSX.Element {
         <ReactFlowProvider>
             <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
                 <BindLogic logic={hogFlowEditorLogic} props={LOGIC_PROPS}>
-                    <div className="relative h-screen w-[37rem] overflow-hidden bg-surface-primary">
+                    <div className="@container/workflow-editor relative flex h-screen overflow-hidden">
+                        <div className="min-w-0 flex-1 bg-background" />
                         <HogFlowEditorPanel />
                     </div>
                 </BindLogic>

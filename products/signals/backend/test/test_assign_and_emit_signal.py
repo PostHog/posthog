@@ -16,7 +16,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Dismissal, PullRequestLink, RelatedTo, ReportLink
+from products.signals.backend.artefact_schemas import Dismissal, PullRequestLink, RelatedTo, ReportLink, SourceIssue
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
@@ -1061,6 +1061,61 @@ async def test_source_sync_matches_without_semantic_rejudgment(ateam):
     assert match.match_metadata.parent_signal_id == source_match.signal_id
     assert match.source_synced is True
     semantic_match.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status,attaches",
+    [
+        (SignalReport.Status.READY, True),
+        (SignalReport.Status.PENDING_INPUT, True),
+        (SignalReport.Status.RESOLVED, False),
+        (SignalReport.Status.SUPPRESSED, False),
+        (SignalReport.Status.FAILED, False),
+    ],
+)
+async def test_github_issue_signal_attaches_to_the_open_report_naming_it_as_source_issue(ateam, status, attaches):
+    triggering_signal_id = uuid.uuid4()
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=status, title="Scout report", triggering_signal_id=triggering_signal_id
+    )
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=SourceIssue.github("acme/widgets", 42),
+        attribution=ArtefactAttribution.system(),
+    )
+    semantic = NewReportMatch(
+        title="Exports time out", summary="", match_metadata=NoMatchMetadata(reason="nothing similar")
+    )
+    with (
+        patch(f"{GROUPING_MODULE_PATH}.fetch_source_signal_matches", return_value={}),
+        patch(f"{GROUPING_MODULE_PATH}.match_signal_to_report", new=AsyncMock(return_value=semantic)) as semantic_match,
+    ):
+        match = await match_signal_to_report_activity(
+            MatchSignalToReportInput(
+                team_id=ateam.id,
+                description="Exports time out on large date ranges",
+                source_product="github",
+                source_type="issue",
+                source_id="2001",
+                sync_with_source=True,
+                queries=[],
+                query_results=[],
+                report_contexts={},
+                source_issue_url="https://github.com/Acme/Widgets/issues/42",
+            )
+        )
+
+    if attaches:
+        assert isinstance(match, ExistingReportMatch)
+        assert match.report_id == str(report.id)
+        assert match.match_metadata.parent_signal_id == str(triggering_signal_id)
+        assert match.source_issue_matched is True
+        semantic_match.assert_not_awaited()
+    else:
+        assert match is semantic
 
 
 @pytest.mark.asyncio

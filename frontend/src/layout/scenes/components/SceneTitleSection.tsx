@@ -75,6 +75,8 @@ export type SceneMainTitleProps = {
      * If true, the description is always rendered and the show/hide toggle is omitted
      */
     descriptionAlwaysVisible?: boolean
+    /** Only the rail navigation honours it. */
+    descriptionIgnoresForceEdit?: boolean
     /**
      * The number of milliseconds to debounce the name and description changes
      * useful for renaming resources that update too fast

@@ -81,6 +81,14 @@ async def ateam(aorganization):
 # ---------------------------------------------------------------------------
 
 
+def test_legacy_quota_gate_payload_requires_admission() -> None:
+    payloads = pydantic_data_converter.payload_converter.to_payloads(
+        [{"team_id": 1, "report_id": str(uuid.uuid4()), "stage": "summary_entry"}]
+    )
+    (decoded,) = pydantic_data_converter.payload_converter.from_payloads(payloads, [CheckReportQuotaGateInput])
+    assert decoded.admitted is False
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("enforced", [True, False])
@@ -111,14 +119,44 @@ async def test_check_activity_pauses_on_daily_limit_with_billing_clear(ateam):
         patch("products.signals.backend.daily_limit.posthoganalytics.capture") as capture,
     ):
         result = await check_report_quota_gate_activity(
-            CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="pre_research")
+            CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="summary_entry")
         )
     assert result is True
     assert capture.call_args.kwargs["event"] == "signal_report_daily_limit_paused"
     properties = capture.call_args.kwargs["properties"]
-    assert properties["stage"] == "pre_research"
+    assert properties["stage"] == "summary_entry"
     assert properties["limit"] == 3
     assert properties["reports_today"] == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "stage,admitted,paused",
+    [
+        ("summary_entry", False, True),
+        ("pre_repo_selection", False, False),
+        ("pre_research", False, False),
+        ("summary_entry", True, False),
+    ],
+)
+async def test_limits_only_block_admission_not_later_stages(ateam, stage, admitted, paused):
+    with (
+        patch(
+            f"{SUMMARY_MODULE_PATH}.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
+        ),
+        patch(
+            f"{SUMMARY_MODULE_PATH}.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=True, limit=3, reports_today=3),
+        ),
+    ):
+        assert (
+            await check_report_quota_gate_activity(
+                CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage=stage, admitted=admitted)
+            )
+            is paused
+        )
 
 
 @pytest.mark.asyncio
@@ -437,7 +475,8 @@ async def test_entry_gate_stops_run_before_any_work():
 
 
 @pytest.mark.asyncio
-async def test_pre_research_gate_reverts_report_and_skips_research():
+async def test_historical_pre_research_pause_still_reverts_report():
+    # Old activity results can still return True during replay; retain their command sequence.
     recorder = _Recorder(gate_answers={"pre_research": True})
     await _run_summary_workflow(recorder)
     assert recorder.gate_checks == ["summary_entry", "pre_repo_selection", "pre_research"]

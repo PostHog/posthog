@@ -452,16 +452,6 @@ class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
     )
     who_is_affected = serializers.CharField(help_text="Which users, sessions or platforms the error reaches.")
     suggested_next_step = serializers.CharField(help_text="One concrete step to investigate or fix the error.")
-    category = serializers.ChoiceField(
-        choices=contracts.IssueSummaryCategory.choices,
-        required=False,
-        help_text=(
-            "Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a "
-            "third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' "
-            "automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace "
-            "does not tell. Absent when no category was inferred."
-        ),
-    )
     generated_at = serializers.DateTimeField(help_text="When the summary was written.")
 
 
