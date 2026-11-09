@@ -8,8 +8,8 @@ export function CodeEmailApiExample({ templateKey }: { templateKey: string }): J
     return (
         <div className="flex flex-col gap-2 max-w-200" data-attr="code-email-api-example">
             <p className="m-0">
-                Every send with the key <code>{templateKey}</code> lands on this email. Your code sends the subject and
-                the content each time.
+                Every send with the key <code className="break-all">{templateKey}</code> lands on this email. Your code
+                sends the subject and the content each time.
             </p>
             <p className="m-0">
                 The idempotency key makes a retry safe. Use a new key for each email, and the same key when you retry
