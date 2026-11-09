@@ -316,7 +316,15 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
     if isinstance(e, ServerException):
-        return look_up_clickhouse_error_code_meta(e).get_category()
+        meta = look_up_clickhouse_error_code_meta(e)
+        # NOT_IMPLEMENTED is a user error only for the allowlisted message shapes. A wrapped error has
+        # lost its raw text to the fixed message, so its class carries the decision. A raw error still
+        # holds the ClickHouse text.
+        if meta.name == "NOT_IMPLEMENTED" and (
+            isinstance(e, CHQueryErrorNotImplemented) or _user_caused_not_implemented_message(e.message or "")
+        ):
+            return QueryErrorCategory.USER_ERROR
+        return meta.get_category()
 
     # Cluster-wide / per-user memory pressure is transient capacity, not a problem with this query,
     # so it classifies with the other rate-limited capacity errors. Checked before its parent below.

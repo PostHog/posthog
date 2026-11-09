@@ -13,6 +13,7 @@ from posthog.errors import (
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
+    classify_query_error,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
@@ -393,3 +394,27 @@ class TestWrapClickhouseQueryError:
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
         assert look_up_clickhouse_error_code_meta(err).get_category() == QueryErrorCategory.ERROR
+
+    @parameterized.expand(
+        [
+            (
+                "correlated_subquery",
+                "Correlated subqueries are not supported with remote tables.",
+                QueryErrorCategory.USER_ERROR,
+            ),
+            (
+                "range_offset_frame",
+                "The RANGE OFFSET frame for 'private_type' ORDER BY column is not implemented.",
+                QueryErrorCategory.USER_ERROR,
+            ),
+            ("decimal_scales", "Conditional functions with different Decimal scales.", QueryErrorCategory.ERROR),
+            ("insert_into_nothing", "Cannot insert element into Nothing.", QueryErrorCategory.ERROR),
+        ]
+    )
+    def test_not_implemented_category_follows_the_message_shape(
+        self, _name: str, shape: str, category: QueryErrorCategory
+    ) -> None:
+        raw = ServerException(f"DB::Exception: {shape} Stack trace: private-stack-frame", code=48)
+
+        assert classify_query_error(raw) == category
+        assert classify_query_error(wrap_clickhouse_query_error(raw)) == category
