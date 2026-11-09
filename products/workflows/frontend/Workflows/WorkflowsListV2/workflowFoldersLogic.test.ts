@@ -411,6 +411,73 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.itemsByRef[`hog_flow::${FIXTURE_WORKFLOWS[1].id}`]?.path).toEqual('Billing/Cards/Renewal')
     })
 
+    it.each([
+        [
+            'deleted',
+            (): void =>
+                projectTreeDataLogic.actions.deleteSavedItem({ id: 'cards', path: 'Billing/Cards', type: 'folder' }),
+        ],
+        [
+            'gone after a full reload',
+            (): void => {
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/file_system/': ({ request }) =>
+                            new URL(request.url).searchParams.get('search') === 'type:folder'
+                                ? [200, paginated([{ id: 'billing', path: 'Billing', type: 'folder' }])]
+                                : [200, paginated([])],
+                    },
+                })
+                logic.actions.loadBrowser()
+            },
+        ],
+    ])('keeps a folder branch away after it is %s and the shared tree prunes', async (_, loseBranch) => {
+        await expectLogic(logic).toFinishAllListeners()
+        loseBranch()
+        await expectLogic(logic).toFinishAllListeners()
+        projectTreeDataLogic.actions.pruneClosedFolders(['project://'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(
+            projectTreeDataLogic.values.savedItems.filter((entry) => entry.path.startsWith('Billing/Cards'))
+        ).toEqual([])
+        expect(logic.values.folderPaths).not.toContain('Billing/Cards')
+    })
+
+    it('keeps a folder created while the folder index loads', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        let releaseWorkflows!: () => void
+        const workflowsHeld = new Promise<void>((resolve) => (releaseWorkflows = resolve))
+        let workflowsRequested = false
+        const created: FileSystemEntry[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
+                    if (search === 'type:hog_flow') {
+                        workflowsRequested = true
+                        await workflowsHeld
+                    }
+                    return [200, paginated(search === 'type:folder' ? created : [])]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    const { path } = (await request.json()) as { path: string }
+                    created.push({ id: 'drafts', path, type: 'folder' })
+                    return [200, created[0]]
+                },
+            },
+        })
+        logic.actions.loadBrowser()
+        await waitFor(() => expect(workflowsRequested).toBe(true))
+        logic.actions.createFolder('Drafts', '')
+        await waitFor(() => expect(created).toHaveLength(1))
+        releaseWorkflows()
+        await expectLogic(logic).toFinishAllListeners()
+        await waitFor(() => expect(logic.values.browserReadyLoading).toBe(false))
+        expect(logic.values.folderPaths).toContain('Drafts')
+    })
+
     it('moves workflow files and drops folders to match a full reload', async () => {
         await expectLogic(logic).toFinishAllListeners()
         useMocks({

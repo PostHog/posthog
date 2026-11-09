@@ -15,6 +15,8 @@ import {
     parentPath,
     splitPath,
     joinPath,
+    isPathUnder,
+    reparentPath,
     resolveProjectTreeDrop,
     calculateMovePath,
 } from '~/layout/panel-layout/ProjectTree/utils'
@@ -280,7 +282,13 @@ export type workflowFoldersLogicType = MakeLogicType<
 
 const WORKFLOW_FILE_TYPES = ['hog_flow', 'message_template']
 
-/** The last copy of each folder and workflow file the shared tree held. A file leaves only when its folder, still held and fully loaded, no longer lists it. */
+const MAX_INDEX_LOADS = 3
+
+function isIndexed(entry: FileSystemEntry): boolean {
+    return entry.type === 'folder' || WORKFLOW_FILE_TYPES.includes(entry.type ?? '')
+}
+
+/** The last copy of each folder and workflow file the shared tree held. Moves and deletes update it, a full load replaces it, and a file also leaves when its folder, still held and fully loaded, no longer lists it. */
 function fileIndex(cache: Record<string, any>): Map<string, FileSystemEntry> {
     cache.fileIndex ??= new Map<string, FileSystemEntry>()
     return cache.fileIndex
@@ -442,7 +450,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         ],
         movingWorkflowId: [null as string | null, { setMovingWorkflowId: (_, { id }) => id }],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         browserReady: [
             false,
             {
@@ -453,51 +461,57 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     const teamId = String(values.currentTeamId)
                     await fileSystemUnfiledRetrieve(teamId)
                     breakpoint()
-                    const entries: FileSystemEntry[] = []
-                    for (const search of [
-                        'type:folder',
-                        'type:hog_flow',
-                        'type:message_template',
-                        '-type:folder -type:hog_flow -type:message_template',
-                    ]) {
-                        for (let offset = 0; ; offset += 500) {
-                            const page = await fileSystemList(teamId, { search, limit: 500, offset })
-                            breakpoint()
-                            entries.push(
-                                ...page.results.map((entry) => ({
-                                    id: entry.id,
-                                    path: entry.path,
-                                    type: entry.type,
-                                    ref: entry.ref ?? undefined,
-                                    href: entry.href ?? undefined,
-                                    shortcut: entry.shortcut ?? false,
-                                    created_at: entry.created_at,
-                                    user_access_level: entry.user_access_level,
-                                    team_id: entry.team_id,
-                                }))
-                            )
-                            if (!page.next || page.results.length === 0) {
-                                break
+                    for (let attempt = 0; attempt < MAX_INDEX_LOADS; attempt++) {
+                        cache.changedWhileLoading = false
+                        const entries: FileSystemEntry[] = []
+                        for (const search of [
+                            'type:folder',
+                            'type:hog_flow',
+                            'type:message_template',
+                            '-type:folder -type:hog_flow -type:message_template',
+                        ]) {
+                            for (let offset = 0; ; offset += 500) {
+                                const page = await fileSystemList(teamId, { search, limit: 500, offset })
+                                breakpoint()
+                                entries.push(
+                                    ...page.results.map((entry) => ({
+                                        id: entry.id,
+                                        path: entry.path,
+                                        type: entry.type,
+                                        ref: entry.ref ?? undefined,
+                                        href: entry.href ?? undefined,
+                                        shortcut: entry.shortcut ?? false,
+                                        created_at: entry.created_at,
+                                        user_access_level: entry.user_access_level,
+                                        team_id: entry.team_id,
+                                    }))
+                                )
+                                if (!page.next || page.results.length === 0) {
+                                    break
+                                }
                             }
                         }
-                    }
-                    // A full load is the truth for folders and workflow files, so drop cached copies that moved or went away elsewhere.
-                    const freshPaths = new Map(entries.map((entry) => [entry.id, entry.path]))
-                    for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
-                        if (
-                            (cached.type === 'folder' || WORKFLOW_FILE_TYPES.includes(cached.type ?? '')) &&
-                            !cached.shortcut &&
-                            freshPaths.get(cached.id) !== cached.path
-                        ) {
-                            projectTreeDataLogic.actions.deleteSavedItem(cached)
+                        // A file created, moved or deleted between the pages would be undone by this older snapshot.
+                        if (cache.changedWhileLoading) {
+                            continue
                         }
+                        // A full load is the truth for folders and workflow files, so drop cached copies that moved or went away elsewhere.
+                        const freshPaths = new Map(entries.map((entry) => [entry.id, entry.path]))
+                        for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
+                            if (isIndexed(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path) {
+                                projectTreeDataLogic.actions.deleteSavedItem(cached)
+                            }
+                        }
+                        projectTreeDataLogic.actions.addLoadedResults({
+                            searchTerm: '',
+                            results: entries,
+                            hasMore: false,
+                            lastCount: entries.length,
+                        })
+                        cache.fileIndex = new Map(entries.filter(isIndexed).map((entry) => [entry.id, entry]))
+                        return true
                     }
-                    projectTreeDataLogic.actions.addLoadedResults({
-                        searchTerm: '',
-                        results: entries,
-                        hasMore: false,
-                        lastCount: entries.length,
-                    })
+                    // Files changed during every load, so the shared tree already holds the newest state.
                     return true
                 },
             },
@@ -867,6 +881,37 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         // so the view puts back what it indexed, and pages on through a cut folder, instead of reloading the project.
         [projectTreeDataLogic.actionTypes.pruneClosedFolders]: () => actions.restoreFileIndex(),
         [projectTreeDataLogic.actionTypes.loadFolderSuccess]: () => actions.restoreFileIndex(),
+        [projectTreeDataLogic.actionTypes.createSavedItem]: () => {
+            cache.changedWhileLoading = true
+        },
+        [projectTreeDataLogic.actionTypes.deleteSavedItem]: ({ savedItem }) => {
+            cache.changedWhileLoading = true
+            const index = fileIndex(cache)
+            for (const [id, entry] of index) {
+                if (id === savedItem.id || (savedItem.type === 'folder' && isPathUnder(entry.path, savedItem.path))) {
+                    index.delete(id)
+                }
+            }
+        },
+        [projectTreeDataLogic.actionTypes.movedItem]: ({ item, oldPath, newPath }) => {
+            cache.changedWhileLoading = true
+            const index = fileIndex(cache)
+            for (const [id, entry] of index) {
+                const path = item.type === 'folder' ? reparentPath(entry.path, oldPath, newPath) : null
+                if (path !== null) {
+                    index.set(id, { ...entry, path })
+                }
+            }
+        },
+        [projectTreeDataLogic.actionTypes.deleteTypeAndRef]: ({ type, ref }) => {
+            cache.changedWhileLoading = true
+            const index = fileIndex(cache)
+            for (const [id, entry] of index) {
+                if (entry.type === type && entry.ref === ref) {
+                    index.delete(id)
+                }
+            }
+        },
         restoreFileIndex: () => {
             if (!values.projectFilesEnabled) {
                 return
@@ -926,6 +971,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             try {
                 const path = joinPath([...splitPath(parent ?? values.currentFolder ?? ''), name])
                 const entry = await fileSystemCreate(String(values.currentTeamId), { path, type: 'folder' })
+                cache.changedWhileLoading = true
                 projectTreeDataLogic.actions.addLoadedResults({
                     searchTerm: '',
                     results: [{ id: entry.id, path: entry.path, type: 'folder' }],
@@ -984,7 +1030,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 }
             }
             for (const entry of present.values()) {
-                if (entry.type === 'folder' || WORKFLOW_FILE_TYPES.includes(entry.type ?? '')) {
+                if (isIndexed(entry)) {
                     index.set(entry.id, entry)
                 }
             }
