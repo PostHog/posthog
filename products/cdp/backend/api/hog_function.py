@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from copy import deepcopy
 from datetime import timedelta
 from enum import StrEnum
@@ -73,10 +73,13 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunResponseSerializer,
 )
 from products.cdp.backend.secret_origins import (
+    SecretDestinations,
     SecretOrigins,
+    Unbound,
     analyze_secret_origins,
     mapping_inputs,
     parse_stored_origins,
+    public_secret_destinations,
     secret_origins,
     secret_reentry_message,
     stored_origins,
@@ -338,35 +341,32 @@ def _secret_reentry_error(details: dict[str, str]) -> serializers.ValidationErro
     return serializers.ValidationError({"inputs": details}, code="secret_reentry_required")
 
 
-def _texts(value: Any) -> Iterator[str]:
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            yield from _texts(key)
-            yield from _texts(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from _texts(item)
-
-
-def _secret_values_by_label(attrs: dict, instance: Optional[HogFunction], stored: list[dict]) -> dict[str, list[str]]:
-    """The plaintext of every secret input, entered or stored, by the label the editor sees."""
-    configs: list[Any] = [attrs, *(attrs.get("mappings") or [])]
-    if instance:
-        configs += [{"inputs_schema": instance.inputs_schema, "inputs": instance.inputs}, *(instance.mappings or [])]
-    values: dict[str, list[str]] = {}
-    for config in configs:
-        if not isinstance(config, dict):
-            continue
-        for schema in config.get("inputs_schema") or []:
-            if not isinstance(schema, dict) or not schema.get("secret") or "key" not in schema:
-                continue
-            for inputs in [config.get("inputs") or {}, *stored]:
-                item = inputs.get(schema["key"])
-                if isinstance(item, dict):
-                    values.setdefault(schema.get("label") or schema["key"], []).extend(_texts(item.get("value")))
-    return values
+def _secret_reentry_details(
+    attrs: dict,
+    instance: Optional[HogFunction],
+    refused: list[str],
+    now: dict[str, SecretDestinations | Unbound],
+    stored_inputs: dict,
+) -> dict[str, str]:
+    """The message for each refused secret. The editor who reads it may not read the secrets, so both what
+    the change sends and what was sent before come from an analysis that holds no secret values."""
+    stored_schemas = (instance.inputs_schema or []) if instance else []
+    labels = {
+        schema["key"]: schema.get("label") or schema["key"]
+        for schema in [*stored_schemas, *(attrs.get("inputs_schema") or [])]
+    }
+    nowhere = SecretDestinations(hosts=frozenset(), built_from=frozenset())
+    before = (
+        public_secret_destinations(
+            instance.hog or "",
+            stored_inputs,
+            mapping_inputs(instance.mappings),
+            set(now) | {schema["key"] for schema in stored_schemas if schema.get("secret")},
+        )
+        if instance
+        else {}
+    )
+    return {key: secret_reentry_message(key, now[key], before.get(key, nowhere), labels) for key in refused}
 
 
 def _raise_secret_reentry(errors: Any) -> None:
@@ -1181,16 +1181,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 outcome=_binding_metric(outcome, let_through, stages_draft), surface=surface
             ).inc()
         if enforce:
-            labels = {
-                schema["key"]: schema.get("label") or schema["key"] for schema in attrs.get("inputs_schema") or []
-            }
-            secret_values = _secret_values_by_label(attrs, instance, [stored_secrets, live_secrets])
-            raise _secret_reentry_error(
-                {
-                    key: secret_reentry_message(labels.get(key, key), derived[key], bindings[key][0], secret_values)
-                    for key in refused
-                }
-            )
+            now = public_secret_destinations(hog, inputs, mapping_inputs(mappings), secret_keys)
+            raise _secret_reentry_error(_secret_reentry_details(attrs, instance, refused, now, stored_inputs))
 
     def _enforces_secret_binding(self, team: Team) -> bool:
         if self.context.get("view") is None:

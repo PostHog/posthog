@@ -8,6 +8,7 @@ import re
 import dataclasses
 from collections.abc import Iterable, Iterator, Mapping
 from enum import Enum
+from secrets import token_hex
 from typing import Any, Literal
 
 from prometheus_client import Counter
@@ -168,60 +169,82 @@ def parse_stored_origins(stored: Any) -> SecretOrigins | None:
     return None
 
 
-_MAX_LISTED_HOSTS = 3
+@frozen
+class SecretDestinations:
+    """Where a secret goes, told without the value of any secret."""
+
+    hosts: frozenset[str]
+    # Secret inputs whose values give the host of an address the secret goes to.
+    built_from: frozenset[str]
 
 
-def _shown_host(origin: str) -> str:
-    return origin.removeprefix("https://")
+def public_secret_destinations(
+    hog: str, inputs: dict[str, Any], mapping_input_sets: list[dict[str, Any]], secret_keys: set[str]
+) -> dict[str, SecretDestinations | Unbound]:
+    """Where each secret goes, for someone who may not read the secrets. Each secret input holds a
+    placeholder instead of its value, so no part of the answer depends on a secret's value."""
+    # A random placeholder cannot be written into the code, so a host the code names is never taken for
+    # one built from a secret.
+    placeholders = {key: f"secret{token_hex(8)}" for key in secret_keys}
+    input_sets = [
+        {
+            key: {**item, "value": placeholders[key]} if key in placeholders and isinstance(item, dict) else item
+            for key, item in (input_set or {}).items()
+        }
+        for input_set in [inputs, *mapping_input_sets]
+    ]
+    try:
+        return _Analysis(hog, input_sets, secret_keys).destinations(placeholders)
+    except (_CannotAnalyze, BaseHogQLError, RecursionError):
+        return dict.fromkeys(secret_keys, UNBOUND)
 
 
-def _host_name(origin: str) -> str:
-    authority = origin.partition("://")[2]
-    return authority.rpartition(":")[0] if ":" in authority else authority
+_MAX_LISTED_ADDRESSES = 3
 
 
-def _list_hosts(origins: Iterable[str], secret_values: Mapping[str, list[str]]) -> str:
-    # A host that comes from a secret input's value, such as a secret webhook URL, is part of that secret.
-    hosts: set[str] = set()
-    secret_labels: set[str] = set()
-    for origin in origins:
-        host_name = _host_name(origin)
-        holder = next(
-            (label for label, values in secret_values.items() if any(host_name in v.lower() for v in values)), None
-        )
-        if holder is None:
-            hosts.add(_shown_host(origin))
-        else:
-            secret_labels.add(holder)
-    names = sorted(hosts) + [f"the address in {label}" for label in sorted(secret_labels)]
-    if len(names) > _MAX_LISTED_HOSTS:
-        names = [*names[:_MAX_LISTED_HOSTS], f"{len(names) - _MAX_LISTED_HOSTS} more"]
-    return f"{', '.join(names[:-1])} and {names[-1]}" if len(names) > 1 else names[0]
+def _addresses(destinations: SecretDestinations, labels: Mapping[str, str]) -> list[str]:
+    hosts = sorted(origin.removeprefix("https://") for origin in destinations.hosts)
+    built = sorted(f"an address built from {labels.get(key, key)}" for key in destinations.built_from)
+    return hosts + built
+
+
+def _listed(addresses: list[str]) -> str:
+    if len(addresses) > _MAX_LISTED_ADDRESSES:
+        addresses = [*addresses[:_MAX_LISTED_ADDRESSES], f"{len(addresses) - _MAX_LISTED_ADDRESSES} more"]
+    return f"{', '.join(addresses[:-1])} and {addresses[-1]}" if len(addresses) > 1 else addresses[0]
 
 
 def secret_reentry_message(
-    label: str, sends_to: SecretOrigins, sent_to: SecretOrigins, secret_values: Mapping[str, list[str]]
+    key: str,
+    now: SecretDestinations | Unbound,
+    before: SecretDestinations | Unbound,
+    labels: Mapping[str, str],
 ) -> str:
-    """Why a save that moves a stored secret needs it entered again, naming the hosts on both sides.
-    `secret_values` holds the plaintext of every secret input by label, so a host taken from one is
-    named by that input's label instead."""
-    if sends_to is UNBOUND:
-        now = f"PostHog can't tell where this change sends {label}."
+    """Why a save that moves the stored secret `key` needs it entered again. `labels` names each input
+    the way the editor shows it."""
+    label = labels.get(key, key)
+    if isinstance(now, Unbound):
+        now_text = f"PostHog can't tell where this change sends {label}."
     else:
-        # Only the hosts it was not sent to before are named, so the cap on the list never hides a new one.
-        new_hosts = (sends_to - sent_to if isinstance(sent_to, frozenset) else sends_to) or sends_to
-        now = (
-            f"This change sends {label} to {_list_hosts(new_hosts, secret_values)}."
-            if new_hosts
+        # Only what it was not sent to before is named, so the cap on the list never hides a new address.
+        new = (
+            SecretDestinations(hosts=now.hosts - before.hosts, built_from=now.built_from - before.built_from)
+            if isinstance(before, SecretDestinations)
+            else now
+        )
+        addresses = _addresses(new, labels) or _addresses(now, labels)
+        now_text = (
+            f"This change sends {label} to {_listed(addresses)}."
+            if addresses
             else f"This change stops sending {label} anywhere."
         )
-    if sent_to is UNBOUND:
-        before = "Until now PostHog couldn't tell where it was sent."
-    elif sent_to:
-        before = f"Until now it was only sent to {_list_hosts(sent_to, secret_values)}."
+    if isinstance(before, Unbound):
+        before_text = "Until now PostHog couldn't tell where it was sent."
+    elif before_addresses := _addresses(before, labels):
+        before_text = f"Until now it was only sent to {_listed(before_addresses)}."
     else:
-        before = "Until now it wasn't sent anywhere."
-    return f"{now} {before} Enter it again to confirm."
+        before_text = "Until now it wasn't sent anywhere."
+    return f"{now_text} {before_text} Enter it again to confirm."
 
 
 def url_origin(prefix: str, complete: bool) -> str | None:
@@ -340,6 +363,7 @@ class _Analysis:
         self.lambdas_only: set[str] = set()
         # Expressions whose value can leave the function other than through `fetch`.
         self.exits: list[ast.Expr] = []
+        self.shared_taint: _Taint = frozenset()
 
         self.definitions: dict[str, list[dict]] = {}
         for input_set in input_sets:
@@ -566,6 +590,48 @@ class _Analysis:
             self._collect(child, function)
 
     def run(self) -> dict[str, SecretOrigins]:
+        self._settle()
+        origins: dict[str, frozenset[str]] = dict.fromkeys(self.secret_keys, frozenset())
+        unbound = self._leaving_secrets()
+        for carried, urls in self._fetches():
+            found = {url_origin(text, complete) for text, complete in urls}
+            for key in carried:
+                if None in found:
+                    unbound.add(key)
+                else:
+                    origins[key] |= {origin for origin in found if origin}
+        return {key: UNBOUND if key in unbound else value for key, value in origins.items()}
+
+    def destinations(self, placeholders: Mapping[str, str]) -> dict[str, SecretDestinations | Unbound]:
+        """Where each secret goes while every secret input holds its placeholder. An address whose host holds
+        a placeholder, or that starts with one, is built from that secret."""
+        self._settle()
+        hosts: dict[str, set[str]] = {key: set() for key in self.secret_keys}
+        built_from: dict[str, set[str]] = {key: set() for key in self.secret_keys}
+        unbound = self._leaving_secrets()
+        for carried, urls in self._fetches():
+            for text, complete in urls:
+                origin = url_origin(text, complete)
+                builders = {
+                    key
+                    for key, placeholder in placeholders.items()
+                    if (placeholder in origin if origin else text.startswith(placeholder))
+                }
+                for key in carried:
+                    if builders:
+                        built_from[key] |= builders
+                    elif origin is None:
+                        unbound.add(key)
+                    else:
+                        hosts[key].add(origin)
+        return {
+            key: UNBOUND
+            if key in unbound
+            else SecretDestinations(hosts=frozenset(hosts[key]), built_from=frozenset(built_from[key]))
+            for key in self.secret_keys
+        }
+
+    def _settle(self) -> None:
         for name, _ in self.assignments:
             self.values[name] = frozenset()
         for params in self.functions.values():
@@ -577,26 +643,21 @@ class _Analysis:
                 break
         else:
             raise _CannotAnalyze("iterations")
+        self.shared_taint = self._union_taint(self.shared_assignments)
 
-        origins: dict[str, frozenset[str]] = dict.fromkeys(self.secret_keys, frozenset())
-        shared = self._union_taint(self.shared_assignments)
+    def _leaving_secrets(self) -> set[str]:
         # Only a secret itself leaves this way. A digest of it or a response to it is logged, thrown and
         # stored by templates as a matter of course, and does not reveal it.
-        unbound = set(_held(self._union_taint(self.exits) | (shared if self.exits else frozenset())))
+        return set(_held(self._union_taint(self.exits) | (self.shared_taint if self.exits else frozenset())))
+
+    def _fetches(self) -> Iterator[tuple[frozenset[str], _Values]]:
+        """The secrets each fetch sends, with the addresses it can send them to."""
         for call in self.calls:
             if call.name != "fetch":
                 continue
-            carried = self._fetch_carries(call, self._union_taint(call.args) | shared)
-            if not carried:
-                continue
-            urls = self._value(call.args[0]) if call.args else _UNKNOWN
-            found = {url_origin(text, complete) for text, complete in urls}
-            for key in carried:
-                if None in found:
-                    unbound.add(key)
-                else:
-                    origins[key] |= {origin for origin in found if origin}
-        return {key: UNBOUND if key in unbound else value for key, value in origins.items()}
+            carried = self._fetch_carries(call, self._union_taint(call.args) | self.shared_taint)
+            if carried:
+                yield carried, self._value(call.args[0]) if call.args else _UNKNOWN
 
     def _fetch_carries(self, call: ast.Call, taint: _Taint) -> frozenset[str]:
         """The secrets a fetch sends: those its arguments hold or were derived from, and every secret
