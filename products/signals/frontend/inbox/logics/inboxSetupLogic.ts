@@ -17,6 +17,7 @@ import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { describeGithubSetupError, getGithubSetupErrorCode } from 'lib/integrations/githubSetupErrors'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -751,11 +752,18 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
         let persistedDraft: InboxOnboardingDraftApi | null = null
         let requestedStep: InboxOnboardingDraftApi['step'] | undefined
 
+        const onboardingOrigin = (): NonNullable<InboxOnboardingDraftApi['onboarding_origin']> => {
+            return ['return', 'without_github', 'complete'].includes(values.searchParams.agent_setup)
+                ? 'agent'
+                : (values.draft.onboarding_origin ?? values.savedState?.draft?.onboarding_origin ?? 'app')
+        }
+
         const capture = (event: string, properties: Record<string, unknown> = {}): void => {
             posthog.capture(event, {
                 project_id: values.currentTeamId,
                 flow_version: 'ui-first-v1',
                 inbox_client: 'cloud',
+                onboarding_origin: onboardingOrigin(),
                 setup_mode: values.isQuickSetup ? 'quick' : 'guided',
                 self_driving_ubp: values.featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] ?? null,
                 automatic_implementation: values.isQuickSetup
@@ -775,7 +783,11 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             const save = async (): Promise<void> => {
                 while (!values.completed) {
                     const step = requestedStep
-                    const draft = step ? { ...values.draft, step } : values.draft
+                    const draft = {
+                        ...values.draft,
+                        onboarding_origin: onboardingOrigin(),
+                        ...(step ? { step } : {}),
+                    }
                     if (!values.savedState?.draft && draft.step === 'signals') {
                         return
                     }
@@ -830,7 +842,9 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 }
                 cache.exposedTeamId = values.currentTeamId
                 try {
-                    await signalsOnboardingExposeCreate(String(values.currentTeamId))
+                    await signalsOnboardingExposeCreate(String(values.currentTeamId), {
+                        onboarding_origin: onboardingOrigin(),
+                    })
                 } catch (error) {
                     cache.exposedTeamId = undefined
                     posthog.captureException(error)
@@ -838,7 +852,10 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             },
             openSetup: () => {
                 actions.reportInteraction()
-                router.actions.push(urls.inbox(), { onboarding_step: values.draft.step })
+                router.actions.push(urls.inbox(), {
+                    onboarding_step: values.draft.step,
+                    ...(onboardingOrigin() === 'agent' ? { agent_setup: 'return' } : {}),
+                })
             },
             startSetup: () => {
                 actions.setError(null)
@@ -1082,6 +1099,12 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 }
             },
             resumeQuickSetup: () => {
+                const githubError = getGithubSetupErrorCode(values.searchParams)
+                if (values.searchParams.agent_setup === 'return' && githubError) {
+                    takeGithubConnectMarker(values.currentTeamId)
+                    actions.setError(describeGithubSetupError(githubError), 'other', 'github_redirect_failed')
+                    return
+                }
                 if (values.shouldResumeQuickSetup && takeGithubConnectMarker(values.currentTeamId)) {
                     actions.activateQuickSetup('github_return')
                 }
@@ -1096,7 +1119,13 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     actions.startSetup()
                     return
                 }
-                router.actions.replace(urls.inbox(), { onboarding_step: 'quick' })
+                router.actions.replace(urls.inbox(), {
+                    onboarding_step: 'quick',
+                    ...(values.searchParams.agent_setup === 'return' ||
+                    values.searchParams.agent_setup === 'without_github'
+                        ? { agent_setup: values.searchParams.agent_setup }
+                        : {}),
+                })
                 actions.setEditedDraft(values.quickSetupDraft!)
                 actions.activate(activationSource)
             },
@@ -1112,13 +1141,17 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 cache.activating = true
                 actions.setSaving(true)
                 actions.setError(null)
-                let draft = values.draft
+                let draft = { ...values.draft, onboarding_origin: onboardingOrigin() }
                 const projectId = String(values.currentTeamId)
+                const completionParams =
+                    values.searchParams.agent_setup === 'return' || values.searchParams.agent_setup === 'without_github'
+                        ? { agent_setup: 'complete' }
+                        : undefined
                 try {
                     await saveDraft()
                     actions.setSavedState(await signalsOnboardingList(projectId))
                     if (values.completed) {
-                        router.actions.replace(urls.inbox())
+                        router.actions.replace(urls.inbox(), completionParams)
                         return
                     }
                     let scanners: ReplayScannerApi[] = []
@@ -1137,7 +1170,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                             throw error
                         }
                     }
-                    draft = values.draft
+                    draft = { ...values.draft, onboarding_origin: onboardingOrigin() }
                     await saveDraft()
                     const currentScouts =
                         draft.suggestions.length || draft.activation_scouts?.length
@@ -1253,7 +1286,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     actions.loadSourceConfigs()
                     actions.loadVisionScanners()
                     actions.loadScoutConfigs()
-                    router.actions.replace(urls.inbox())
+                    router.actions.replace(urls.inbox(), completionParams)
                 } catch (error) {
                     const message =
                         (error instanceof ApiError && error.detail?.trim()) ||

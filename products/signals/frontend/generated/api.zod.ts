@@ -163,6 +163,11 @@ export const signalsOnboardingCreateBodyActivationScoutsItemMax = 200
 export const signalsOnboardingCreateBodyActivationScoutsMax = 50
 
 export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
+    onboarding_origin: zod
+        .enum(['app', 'agent'])
+        .describe('\* `app` - App\n\* `agent` - Agent')
+        .optional()
+        .describe('Where setup started: the app or a link from an agent.\n\n\* `app` - App\n\* `agent` - Agent'),
     activation_mode: zod
         .enum(['github_optional'])
         .describe('\* `github_optional` - GitHub optional')
@@ -422,6 +427,11 @@ export const signalsOnboardingCompleteCreateBodyActivationScoutsItemMax = 200
 export const signalsOnboardingCompleteCreateBodyActivationScoutsMax = 50
 
 export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
+    onboarding_origin: zod
+        .enum(['app', 'agent'])
+        .describe('\* `app` - App\n\* `agent` - Agent')
+        .optional()
+        .describe('Where setup started: the app or a link from an agent.\n\n\* `app` - App\n\* `agent` - Agent'),
     activation_mode: zod
         .enum(['github_optional'])
         .describe('\* `github_optional` - GitHub optional')
@@ -672,6 +682,14 @@ export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Lowest priority to implement automatically; P1 includes P0 and P1.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
         ),
+})
+
+export const SignalsOnboardingExposeCreateBody = /* @__PURE__ */ zod.object({
+    onboarding_origin: zod
+        .enum(['app', 'agent'])
+        .describe('\* `app` - App\n\* `agent` - Agent')
+        .optional()
+        .describe('Where setup started: the app or a link from an agent.\n\n\* `app` - App\n\* `agent` - Agent'),
 })
 
 /**

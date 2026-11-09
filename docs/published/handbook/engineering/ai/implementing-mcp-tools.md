@@ -171,6 +171,8 @@ The read-only `self-driving-status-get` tool uses the existing onboarding API an
 
 Deploy the frontend activation routes and MCP changes before enabling the guidance flag. The GitHub link opens `/inbox/activate`; eligible projects can also use `/inbox/activate/without-github`. Guidance uses the existing exposure analytics, and onboarding keeps its existing activation events.
 
+Onboarding events carry `onboarding_origin`: `agent` for setup entered through an agent activation link, or `app` for regular setup. This includes the server's `self-driving onboarding exposed` and `self-driving onboarding completed` events and the browser's step, activation-request, and failure events. The saved draft retains the origin through redirects, guided steps, and retries. Exposure stays a once-per-project event; opening an agent link later does not rewrite an earlier app exposure. Events recorded before this property existed have no origin and should remain a separate group in historical comparisons.
+
 ## Interview recruitment with URL elicitation
 
 > [!CAUTION]

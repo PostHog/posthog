@@ -987,6 +987,18 @@ export interface InboxOnboardingJobsApi {
 }
 
 /**
+ * * `app` - App
+ * * `agent` - Agent
+ */
+export type InboxOnboardingOriginEnumApi =
+    (typeof InboxOnboardingOriginEnumApi)[keyof typeof InboxOnboardingOriginEnumApi]
+
+export const InboxOnboardingOriginEnumApi = {
+    App: 'app',
+    Agent: 'agent',
+} as const
+
+/**
  * * `github_optional` - GitHub optional
  */
 export type InboxActivationModeEnumApi = (typeof InboxActivationModeEnumApi)[keyof typeof InboxActivationModeEnumApi]
@@ -1533,6 +1545,11 @@ export interface ScoutSuggestionItemApi {
 }
 
 export interface InboxOnboardingDraftApi {
+    /** Where setup started: the app or a link from an agent.
+     *
+     * * `app` - App
+     * * `agent` - Agent */
+    onboarding_origin?: InboxOnboardingOriginEnumApi
     /** Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.
      *
      * * `github_optional` - GitHub optional */
@@ -1598,6 +1615,14 @@ export interface InboxOnboardingStateApi {
      * @nullable
      */
     completed_at: string | null
+}
+
+export interface InboxOnboardingExposureApi {
+    /** Where setup started: the app or a link from an agent.
+     *
+     * * `app` - App
+     * * `agent` - Agent */
+    onboarding_origin?: InboxOnboardingOriginEnumApi
 }
 
 export interface PauseStateResponseApi {
