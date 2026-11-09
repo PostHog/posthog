@@ -48,8 +48,14 @@ function useToolbarStyles(): void {
                 }
             }
         }
+        // `.storybook-test-runner` sits on <body>, outside the shadow tree, so the runner's 0 ms animation and
+        // transition overrides only reach the toolbar through :host-context(). The lookahead keeps modifier
+        // classes such as `.storybook-test-runner--fullscreen` intact, because a broken selector drops its rule.
+        const css = cssChunks
+            .join('\n')
+            .replace(/\.storybook-test-runner(?![\w-])/g, ':host-context(.storybook-test-runner)')
         const style = document.createElement('style')
-        style.appendChild(document.createTextNode(cssChunks.join('\n')))
+        style.appendChild(document.createTextNode(css))
         shadowRoot.appendChild(style)
     })
 }
