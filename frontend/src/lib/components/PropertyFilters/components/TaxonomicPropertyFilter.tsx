@@ -334,6 +334,7 @@ export function TaxonomicPropertyFilter({
             buttonProps={{
                 type: 'secondary',
                 icon: !valuePresent ? <IconPlus /> : undefined,
+                className: 'justify-start',
                 'data-attr': 'property-select-toggle-' + index,
             }}
             open={dropdownOpen}
