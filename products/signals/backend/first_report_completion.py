@@ -62,11 +62,11 @@ def complete_first_report_investigation(team_id: int, run_id: str) -> dict[str, 
         messages = {
             "report_created": (
                 "Your first report is ready",
-                "Open Self-Driving to see the finding and its next steps.",
+                "Open Self-driving to see the finding and its next steps.",
             ),
             "insufficient_data": (
                 "Your first investigation needs more data",
-                "Open Self-Driving to see what data is missing.",
+                "Open Self-driving to see what data is missing.",
             ),
             "no_actionable_finding": (
                 "Your first investigation is complete",
@@ -74,7 +74,7 @@ def complete_first_report_investigation(team_id: int, run_id: str) -> dict[str, 
             ),
             "incomplete": (
                 "Your first investigation couldn’t finish",
-                "Open Self-Driving to review the investigation.",
+                "Open Self-driving to review the investigation.",
             ),
         }
         title, body = messages.get(str(outcome), messages["incomplete"])

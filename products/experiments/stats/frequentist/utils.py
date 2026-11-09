@@ -1,17 +1,29 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
 from scipy import stats
 
 from products.experiments.stats.shared.enums import DifferenceType
-from products.experiments.stats.shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
+from products.experiments.stats.shared.utils import (
+    get_mean,
+    get_sample_size,
+    get_variance,
+    relative_effect,
+    relative_effect_variance,
+    validate_test_inputs,
+)
 
 from ..shared.statistics import AnyStatistic, QuantileStatistic, StatisticError
+
+if TYPE_CHECKING:
+    from ..shared.statistics import RelativeEffectBaseline
 
 
 def calculate_point_estimate(
     treatment_stat: AnyStatistic,
     control_stat: AnyStatistic,
     difference_type: DifferenceType,
-    unadjusted_mean: float | None = None,
+    relative_effect_baseline: RelativeEffectBaseline | None = None,
 ) -> float:
     """
     Calculate point estimate for treatment vs control comparison.
@@ -20,15 +32,14 @@ def calculate_point_estimate(
         treatment_stat: Treatment group statistic
         control_stat: Control group statistic
         difference_type: Type of difference to calculate
-        unadjusted_mean: Optional override for the denominator in relative calculations.
-            When provided, used instead of the control mean. This is useful for CUPED
-            where the adjusted control mean differs from the original control mean.
+        relative_effect_baseline: Raw baseline moments for CUPED relative effects.
+            Includes its covariance with the adjusted treatment-control difference.
 
     Returns:
         Point estimate value
 
     Raises:
-        StatisticError: If control mean is zero for relative calculations
+        StatisticError: If the baseline mean is zero for relative calculations
     """
     treatment_mean = get_mean(treatment_stat)
     control_mean = get_mean(control_stat)
@@ -37,10 +48,7 @@ def calculate_point_estimate(
         return treatment_mean - control_mean
 
     elif difference_type == DifferenceType.RELATIVE:
-        denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
-        if abs(denominator) < 1e-10:
-            raise StatisticError("Control mean cannot be zero for relative difference calculation")
-        return (treatment_mean - control_mean) / denominator
+        return relative_effect(treatment_stat, control_stat, relative_effect_baseline)
 
     else:
         raise StatisticError(f"Unknown difference type: {difference_type}")
@@ -50,7 +58,7 @@ def calculate_variance_pooled(
     treatment_stat: AnyStatistic,
     control_stat: AnyStatistic,
     difference_type: DifferenceType,
-    unadjusted_mean: float | None = None,
+    relative_effect_baseline: RelativeEffectBaseline | None = None,
 ) -> float:
     """
     Calculate pooled variance for treatment vs control comparison.
@@ -62,9 +70,8 @@ def calculate_variance_pooled(
         treatment_stat: Treatment group statistic
         control_stat: Control group statistic
         difference_type: Type of difference calculation
-        unadjusted_mean: Optional override for the denominator in relative calculations.
-            When provided, used instead of the control mean. This is useful for CUPED
-            where the adjusted control mean differs from the original control mean.
+        relative_effect_baseline: Raw baseline moments for CUPED relative effects.
+            Includes its covariance with the adjusted treatment-control difference.
 
     Returns:
         Pooled variance estimate
@@ -78,20 +85,7 @@ def calculate_variance_pooled(
         return treatment_var / treatment_n + control_var / control_n
 
     elif difference_type == DifferenceType.RELATIVE:
-        # Delta method for relative differences
-        treatment_mean = get_mean(treatment_stat)
-        control_mean = get_mean(control_stat)
-        denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
-
-        if abs(denominator) < 1e-10:
-            raise StatisticError("Control mean cannot be zero for relative variance calculation")
-
-        # Var(Y/X) ≈ Var(Y)/X² + Y²Var(X)/X⁴ - 2Y*Cov(X,Y)/X³
-        # Since treatment and control are independent, Cov(X,Y) = 0
-        var_y_over_x_squared = treatment_var / (treatment_n * denominator**2)
-        y_squared_var_x_over_x_fourth = (treatment_mean**2 * control_var) / (control_n * denominator**4)
-
-        return var_y_over_x_squared + y_squared_var_x_over_x_fourth
+        return relative_effect_variance(treatment_stat, control_stat, relative_effect_baseline)
 
     else:
         raise StatisticError(f"Unknown difference type: {difference_type}")

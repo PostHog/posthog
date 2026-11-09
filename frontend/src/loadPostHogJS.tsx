@@ -1,7 +1,7 @@
 import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import {
     dropHandledAuthGateExceptions,
@@ -141,7 +141,7 @@ export function loadPostHogJS(): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            metrics: { network: true, serviceName: 'posthog-app' },
+            metrics: { network: true, flags: true, serviceName: 'posthog-app' },
             before_send: [
                 dropScopeNotFoundExceptions,
                 dropHandledAuthGateExceptions,
@@ -274,7 +274,7 @@ export function loadPostHogJS(): void {
                 writeLastSeenFeatureFlags({ distinctId: posthog.get_distinct_id(), featureFlags: variants })
             }
 
-            if (inStorybook() || inStorybookTestRunner() || !context?.errorsLoading) {
+            if (inStorybook() || !context?.errorsLoading) {
                 return
             }
 

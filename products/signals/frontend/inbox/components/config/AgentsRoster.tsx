@@ -15,18 +15,30 @@ import {
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
+import { issueFilterCount } from '../../errorTrackingIssueFilters'
 import { isExternalSignalSource } from '../../externalSignalSources'
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
-import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType, linearTeamIdsFromConfig } from '../../types'
+import {
+    SOURCE_ISSUE_FILTERS_KEY,
+    SignalAlertScope,
+    SignalSourceConfig,
+    SignalSourceConfigStatus,
+    SignalSourceType,
+    linearTeamIdsFromConfig,
+} from '../../types'
 import { SourceSpendLabel } from '../spend/SourceSpendLabel'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
+import { AlertNamePatterns } from './AlertNamePatterns'
 import { DataSourceSetupModal } from './DataSourceSetupModal'
+import { ErrorTrackingIssueFiltersModal } from './ErrorTrackingIssueFiltersModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceAgentIcon } from './SourceAgentIcon'
 import { SourceSteeringModal } from './SourceSteeringModal'
@@ -72,6 +84,37 @@ function linearTeamsSummary(config: SignalSourceConfig): string {
     return `Reads issues from ${count} Linear ${count === 1 ? 'team' : 'teams'}.`
 }
 
+// The rows normally hold the same filter. After a partial save, the largest one is what may filter.
+function errorTrackingFilterCount(configs: SignalSourceConfig[]): number {
+    return Math.max(0, ...configs.map((config) => issueFilterCount(config.config[SOURCE_ISSUE_FILTERS_KEY])))
+}
+
+function errorTrackingFiltersSummary(count: number): string {
+    if (count === 0) {
+        return 'Every new issue can reach your inbox.'
+    }
+    return `Only issues that match ${count} ${count === 1 ? 'filter' : 'filters'} reach your inbox.`
+}
+
+function errorTrackingSourceFilters(
+    configs: SignalSourceConfig[],
+    onChange: () => void,
+    disabledReason: string | undefined
+): SourceFilters {
+    const count = errorTrackingFilterCount(configs)
+    return {
+        summary: errorTrackingFiltersSummary(count),
+        changeLabel: count > 0 ? 'Change filters' : 'Add filters',
+        onChange,
+        disabledReason,
+    }
+}
+
+// Optimistic `new_` placeholder rows have nothing to write to until the reload lands.
+function persistedConfigs(configs: SignalSourceConfig[]): SignalSourceConfig[] | null {
+    return configs.length > 0 && configs.every((config) => !config.id.startsWith('new_')) ? configs : null
+}
+
 /** The entity rows are part of the source list, so an unbounded one would push every source below it off screen. */
 const ENTITY_VISIBLE_LIMIT = 8
 
@@ -106,6 +149,50 @@ interface SourceFilters {
     onChange: () => void
     disabledReason?: string
 }
+
+/** Product analytics only: which firing alerts become signals. */
+interface SourceAlertScope {
+    options: typeof ALERT_SCOPE_OPTIONS
+    value: SignalAlertScope
+    onChange: (value: SignalAlertScope) => void
+    /** False before the source was ever turned on, as the choice is stored on its config row. */
+    canChange: boolean
+    disabledReason?: string
+    /** The persisted config row, which the name patterns are saved on. Set only when `canChange` is true and the all-alerts flag is on. */
+    sourceConfig?: SignalSourceConfig
+}
+
+/** Product analytics only: whether anomaly scoring runs while the source is on. */
+interface SourceAnomalyScoring {
+    enabled: boolean
+    onChange: (enabled: boolean) => void
+    saving: boolean
+}
+
+// Replaces the source detail while the alert scope control shows, since the default copy only covers investigated alerts.
+const ALERT_SCOPE_SOURCE_DETAIL = 'Fires when an insight alert goes off. Choose which alerts count below.'
+
+const ALERT_SCOPE_OPTIONS: { value: SignalAlertScope; label: string; description: string; dataAttr: string }[] = [
+    {
+        value: SignalAlertScope.InvestigatedOnly,
+        label: 'Investigated alerts only',
+        description: 'Only alerts where you turned on the investigation agent, once the agent confirms the change.',
+        dataAttr: 'signal-source-alert-scope-investigated-only',
+    },
+    {
+        value: SignalAlertScope.AllFiringAlerts,
+        label: 'All firing alerts',
+        description:
+            'Each time an insight alert starts firing, including alerts without the investigation agent. An alert that is already firing is included the next time it starts firing.',
+        dataAttr: 'signal-source-alert-scope-all-firing-alerts',
+    },
+    {
+        value: SignalAlertScope.Off,
+        label: 'Off',
+        description: 'No alerts become signals. Alert checks, notifications, and investigations keep running.',
+        dataAttr: 'signal-source-alert-scope-off',
+    },
+]
 
 /** Per-source derived state assembled by `AgentsRoster` from `signalSourcesLogic`. */
 interface AgentSourceState {
@@ -209,6 +296,9 @@ interface ExpansionProps {
     onEnableProduct: (product: SourceProductStatus) => void
     onToggleEntity: (entityId: string) => void
     filters?: SourceFilters
+    alertScope?: SourceAlertScope
+    /** Only set while the source is on for a project the anomaly scoring rollout covers. */
+    anomalyScoring?: SourceAnomalyScoring
     /** Opens the steering form. Only set for steerable sources that are on with a persisted config row. */
     onSteer?: () => void
     onRetryData: () => void
@@ -278,6 +368,8 @@ function Expansion({
     onEnableProduct,
     onToggleEntity,
     filters,
+    alertScope,
+    anomalyScoring,
     onSteer,
     onRetryData,
 }: ExpansionProps): JSX.Element {
@@ -316,7 +408,7 @@ function Expansion({
                 {/* Each part is its own element: a page-translation extension detaches a bare text
                     node, and React then throws when the link next to it appears or disappears. */}
                 <p className="mb-0 text-xs text-secondary">
-                    <span>{agent.detail}</span>
+                    <span>{alertScope ? ALERT_SCOPE_SOURCE_DETAIL : agent.detail}</span>
                     {!hasMetaLine && docsLink ? <span> {docsLink}</span> : null}
                 </p>
 
@@ -332,6 +424,7 @@ function Expansion({
                                         type="secondary"
                                         size="xsmall"
                                         loading={enablingProduct}
+                                        disabledReason={product.enableDisabledReason}
                                         onClick={() => onEnableProduct(product)}
                                     >
                                         Turn it on
@@ -343,7 +436,7 @@ function Expansion({
                         ) : (
                             <span />
                         )}
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             {docsLink}
                             {onSteer && (
                                 <LemonButton
@@ -371,6 +464,57 @@ function Expansion({
                         >
                             {filters.changeLabel}
                         </LemonButton>
+                    </div>
+                )}
+                {alertScope && (
+                    <div className="flex flex-col gap-1.5 pt-1">
+                        <span className="text-xs font-semibold text-default">Alerts that become signals</span>
+                        {alertScope.canChange ? (
+                            <>
+                                <LemonRadio
+                                    value={alertScope.value}
+                                    onChange={alertScope.onChange}
+                                    aria-label="Alerts that become signals"
+                                    data-attr="signal-source-alert-scope"
+                                    radioPosition="top"
+                                    options={alertScope.options.map(({ value, label, description, dataAttr }) => ({
+                                        value,
+                                        label,
+                                        description,
+                                        disabledReason: alertScope.disabledReason,
+                                        'data-attr': dataAttr,
+                                    }))}
+                                />
+                                {alertScope.sourceConfig && (
+                                    <AlertNamePatterns
+                                        sourceConfig={alertScope.sourceConfig}
+                                        disabledReason={alertScope.disabledReason}
+                                    />
+                                )}
+                            </>
+                        ) : (
+                            <span className="text-xs text-secondary">
+                                Turn on this source to choose which alerts become signals.
+                            </span>
+                        )}
+                    </div>
+                )}
+                {anomalyScoring && (
+                    <div className="flex items-start justify-between gap-3 pt-1">
+                        <div className="flex min-w-0 flex-col gap-0.5">
+                            <span className="text-xs font-semibold text-default">Anomaly scoring</span>
+                            <span className="text-xs text-secondary">
+                                Checks your active trends insights for anomalies and saves the results as $anomaly_score
+                                events, which are not billed. Turn it off to keep alert signals without scoring.
+                            </span>
+                        </div>
+                        <LemonSwitch
+                            checked={anomalyScoring.enabled}
+                            onChange={anomalyScoring.onChange}
+                            loading={anomalyScoring.saving}
+                            aria-label="Score active trends insights for anomalies"
+                            data-attr="signals-anomaly-scoring-enabled"
+                        />
                     </div>
                 )}
             </div>
@@ -462,6 +606,8 @@ interface AgentRowProps {
     onToggleEntity: (source: AgentRosterSource, entityId: string) => void
     onEnableProduct: (product: SourceProductStatus) => void
     filters?: SourceFilters
+    alertScope?: SourceAlertScope
+    anomalyScoring?: SourceAnomalyScoring
     onSteer?: () => void
     onRetryData: () => void
 }
@@ -477,6 +623,8 @@ const AgentRow = memo(function AgentRow({
     onToggleEntity,
     onEnableProduct,
     filters,
+    alertScope,
+    anomalyScoring,
     onSteer,
     onRetryData,
 }: AgentRowProps): JSX.Element {
@@ -600,6 +748,8 @@ const AgentRow = memo(function AgentRow({
                     onEnableProduct={onEnableProduct}
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
                     filters={filters}
+                    alertScope={alertScope}
+                    anomalyScoring={anomalyScoring}
                     onSteer={onSteer}
                     onRetryData={onRetryData}
                 />
@@ -617,6 +767,8 @@ function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Ele
 }
 
 export function AgentsRoster(): JSX.Element {
+    const { anomalyScoringAvailable, anomalyScoringEnabled, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
     const {
         externalSourceStates,
         rosterGroups,
@@ -648,6 +800,9 @@ export function AgentsRoster(): JSX.Element {
         sourceConfigsLoadFailed,
         sourceConfigsLoading,
         linearTeamsPicker,
+        analyticsAlertScope,
+        savingAnalyticsAlertScope,
+        featureFlags,
     } = useValues(signalSourcesLogic)
     const {
         loadSources,
@@ -665,10 +820,12 @@ export function AgentsRoster(): JSX.Element {
         enableSourceProduct,
         loadProductDataEvents,
         loadSourceConfigs,
+        setAnalyticsAlertScope,
     } = useActions(signalSourcesLogic)
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
     // Which modal is open is a view concern; the form and save live in sourceSteeringModalLogic.
     const [steeringTarget, setSteeringTarget] = useState<{ configs: SignalSourceConfig[]; label: string } | null>(null)
+    const [issueFiltersConfigs, setIssueFiltersConfigs] = useState<SignalSourceConfig[] | null>(null)
 
     const scannerEntities = useMemo(
         (): RosterEntity[] =>
@@ -760,6 +917,7 @@ export function AgentsRoster(): JSX.Element {
                         loading: isAnomalyInvestigationToggling,
                         requiresSetup: false,
                         syncStatus: anomalyInvestigationConfig?.status,
+                        steeringConfigs: anomalyInvestigationConfig ? [anomalyInvestigationConfig] : [],
                     }
                 case 'health_checks':
                     return {
@@ -878,33 +1036,77 @@ export function AgentsRoster(): JSX.Element {
         [toggleScannerSignals, toggleErrorTrackingType]
     )
 
+    const allFiringAlertsEnabled = !!featureFlags[FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]
+    const alertScope = useMemo((): SourceAlertScope => {
+        const blockedReason = stateFor('analytics').blockedReason
+        const canChange = !!anomalyInvestigationConfig && !anomalyInvestigationConfig.id.startsWith('new_')
+        return {
+            options: allFiringAlertsEnabled
+                ? ALERT_SCOPE_OPTIONS
+                : ALERT_SCOPE_OPTIONS.filter(({ value }) => value !== SignalAlertScope.AllFiringAlerts),
+            // Without the flag the backend treats a stored all firing scope as investigated only.
+            value:
+                !allFiringAlertsEnabled && analyticsAlertScope === SignalAlertScope.AllFiringAlerts
+                    ? SignalAlertScope.InvestigatedOnly
+                    : analyticsAlertScope,
+            onChange: setAnalyticsAlertScope,
+            canChange,
+            sourceConfig: canChange && allFiringAlertsEnabled ? (anomalyInvestigationConfig ?? undefined) : undefined,
+            disabledReason:
+                blockedReason ??
+                (savingAnalyticsAlertScope !== null || isAnomalyInvestigationToggling ? 'Saving' : undefined),
+        }
+    }, [
+        allFiringAlertsEnabled,
+        stateFor,
+        analyticsAlertScope,
+        setAnalyticsAlertScope,
+        anomalyInvestigationConfig,
+        savingAnalyticsAlertScope,
+        isAnomalyInvestigationToggling,
+    ])
+
+    // `anomaly_scoring_available` only reports the rollout, so the source state gates the switch here.
+    const analyticsArmed = stateFor('analytics').armed
+    const anomalyScoring = useMemo(
+        (): SourceAnomalyScoring | undefined =>
+            analyticsArmed && anomalyScoringAvailable
+                ? {
+                      enabled: anomalyScoringEnabled,
+                      onChange: (enabled) => patchTeamConfig({ anomaly_scoring_enabled: enabled }),
+                      saving: teamConfigUpdating,
+                  }
+                : undefined,
+        [analyticsArmed, anomalyScoringAvailable, anomalyScoringEnabled, patchTeamConfig, teamConfigUpdating]
+    )
+
     const renderAgent = useCallback(
         (agent: AgentRosterDefinition): JSX.Element => {
             const state = stateFor(agent.source)
-            // Steering needs a persisted row to write to, so optimistic `new_`
-            // placeholder rows wait until the reload lands. Disabled sources keep
-            // the control: enabling starts a sync immediately, so rules must be
-            // settable before the first sync runs.
-            const steeringConfigs =
-                agent.steerable &&
-                state.steeringConfigs.length > 0 &&
-                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
-                    ? state.steeringConfigs
-                    : null
-            const filters =
-                agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
-                    ? {
-                          summary: linearTeamsSummary(linearIssuesConfig),
-                          changeLabel: 'Change teams',
-                          onChange: () => openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
-                          // A save or reload can replace the row, and the picker reads it on open.
-                          disabledReason: isLinearIssuesToggling
-                              ? 'Saving'
-                              : sourceConfigsLoading
-                                ? 'Refreshing'
-                                : undefined,
-                      }
-                    : undefined
+            // Disabled sources keep the steering control: enabling starts a sync
+            // immediately, so rules must be settable before the first sync runs.
+            const steeringConfigs = agent.steerable ? persistedConfigs(state.steeringConfigs) : null
+            const errorTrackingConfigs =
+                agent.source === 'error_tracking' ? persistedConfigs(state.steeringConfigs) : null
+            const filters: SourceFilters | undefined = errorTrackingConfigs
+                ? errorTrackingSourceFilters(
+                      errorTrackingConfigs,
+                      () => setIssueFiltersConfigs(errorTrackingConfigs),
+                      state.loading ? 'Saving' : sourceConfigsLoading ? 'Refreshing' : undefined
+                  )
+                : agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
+                  ? {
+                        summary: linearTeamsSummary(linearIssuesConfig),
+                        changeLabel: 'Change teams',
+                        onChange: () => openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
+                        // A save or reload can replace the row, and the picker reads it on open.
+                        disabledReason: isLinearIssuesToggling
+                            ? 'Saving'
+                            : sourceConfigsLoading
+                              ? 'Refreshing'
+                              : undefined,
+                    }
+                  : undefined
             return (
                 <AgentRow
                     key={agent.source}
@@ -920,6 +1122,8 @@ export function AgentsRoster(): JSX.Element {
                     onToggleEntity={handleToggleEntity}
                     onEnableProduct={(product) => product.enablement && enableSourceProduct(product.enablement)}
                     filters={filters}
+                    alertScope={agent.source === 'analytics' ? alertScope : undefined}
+                    anomalyScoring={agent.source === 'analytics' ? anomalyScoring : undefined}
                     onSteer={
                         steeringConfigs
                             ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
@@ -942,6 +1146,8 @@ export function AgentsRoster(): JSX.Element {
             handleToggleEntity,
             enableSourceProduct,
             loadProductDataEvents,
+            alertScope,
+            anomalyScoring,
         ]
     )
 
@@ -1002,6 +1208,13 @@ export function AgentsRoster(): JSX.Element {
             )}
 
             {/* Remounts per target (the key), so the form defaults re-derive from that source's config. */}
+            {issueFiltersConfigs && (
+                <ErrorTrackingIssueFiltersModal
+                    key={issueFiltersConfigs.map((config) => config.id).join(',')}
+                    sourceConfigs={issueFiltersConfigs}
+                    onClose={() => setIssueFiltersConfigs(null)}
+                />
+            )}
             {steeringTarget && (
                 <SourceSteeringModal
                     key={steeringTarget.configs.map((config) => config.id).join(',')}

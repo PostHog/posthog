@@ -42,6 +42,7 @@ import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { RetainedValues } from 'lib/utils/retainedValues'
+import { retryImport } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -96,7 +97,7 @@ import {
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
 } from './markdownNotebookV2'
-import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { NOTEBOOKS_VERSION } from './migrations/notebooksVersion'
 import { buildNotebookOpenedEvent } from './notebookAnalytics'
 import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
@@ -352,6 +353,7 @@ export interface notebookLogicValues {
     markdownRemoteParticipants: NotebookRemoteParticipant[]
     markdownRemotePresence: Record<string, NotebookRemotePresenceState>
     mode: NotebookLogicMode
+    mountedEditorCount: number
     newNotebook: NotebookType | null
     newNotebookLoading: boolean
     nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>
@@ -507,6 +509,12 @@ export interface notebookLogicActions {
         payload?: {
             value: true
         }
+    }
+    notebookEditorMounted: () => {
+        value: true
+    }
+    notebookEditorUnmounted: () => {
+        value: true
     }
     notebookVariablesSaved: (variables: NotebookVariableApi[]) => {
         variables: NotebookVariableApi[]
@@ -790,6 +798,8 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     actions({
+        notebookEditorMounted: true,
+        notebookEditorUnmounted: true,
         setAutosavePaused: (paused: boolean) => ({ paused }),
         setMarkdownEditorInteractionActive: (active: boolean) => ({ active }),
         setMarkdownAIPresenceActive: (active: boolean) => ({ active }),
@@ -855,6 +865,13 @@ export const notebookLogic = kea<notebookLogicType>([
         setAccessDeniedToNotebook: true,
     }),
     reducers(({ props }) => ({
+        mountedEditorCount: [
+            0,
+            {
+                notebookEditorMounted: (count) => count + 1,
+                notebookEditorUnmounted: (count) => Math.max(0, count - 1),
+            },
+        ],
         isShareModalOpen: [
             false,
             {
@@ -1059,6 +1076,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
 
+                    const { migrate } = await retryImport(() => import('./migrations/migrate'))
                     return await migrate(response, { skipApiUpgrade: !!values.isShared })
                 },
 
@@ -2258,6 +2276,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 isLocalOnly: logic.values.isLocalOnly,
                 isEditable: logic.values.isEditable,
                 syncStatus: logic.values.syncStatus,
+                hasMountedEditor: logic.values.mountedEditorCount > 0,
                 currentPathname: router.values.location.pathname,
                 newPathname: newLocation?.pathname,
             }),
@@ -2265,7 +2284,7 @@ export const notebookLogic = kea<notebookLogicType>([
     })),
 
     afterMount(({ props, values, actions }) => {
-        drainPendingNotebookOperations(props.shortId)
+        drainPendingNotebookOperations(props.shortId, notebookLogic(props))
         // A retained copy renders at once, so check it against the server straight away.
         if (values.notebook && canRetainNotebook(props)) {
             actions.loadNotebook()

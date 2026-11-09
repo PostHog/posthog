@@ -9,7 +9,7 @@ This page covers the behavior that spans several fields.
 A host with its own token reader can layer just that part via `themeDefaultsFromCssVars()`.
 
 The matching config switches are the library default through `DEFAULT_CHART_CONFIG`: grid, axis lines, tick marks, crosshair, monotone curve, rounded bars, and cursor-anchored tooltip.
-`LineChart`, `BarChart`, `ComboChart`, and their time-series variants layer it under `config` via `applyChartDefaults`, so a consumer opts out field by field (`showGrid: false`).
+`LineChart`, `BarChart`, `ComboChart`, their time-series variants, and `BoxPlot` layer it under `config` via `applyChartDefaults`, so a consumer opts out field by field (`showGrid: false`).
 The nested `tooltip` merges key by key, so setting one field keeps `placement: 'cursor'`.
 `ScatterChart` renders the same chrome from its own inline defaults.
 `Sparkline` and `MetricCard` build their own chromeless config.
@@ -68,6 +68,7 @@ A single object stays single-axis.
 
 - Charts fill their container and need a parent with real dimensions. A zero-height flex child renders nothing. Give the wrapper an explicit height (`h-64`, or `flex-1` in a sized column). `Sparkline` alone takes `height` and `width` props.
 - A wrapper that measures under one pixel wide or high does not resize the chart. `useChartCanvas` keeps the last painted frame and waits for the next real size, so a chart whose container collapses for a moment (an ancestor set to `display: none`, Chromium capturing a screenshot taller than the viewport) does not go blank or lay out again.
+- The value-axis margin is estimated before the scales exist. Once they do, `Chart` measures the tick labels the axis draws and widens the plot when they need more room, so a floated or pinned axis, or a tall plot with denser ticks, does not clip its labels. A side set in `margins` is never widened.
 - `ChartConfig.margins` (also available on all `TimeSeries*` configs) overrides only the sides it sets. A side left `undefined` keeps the computed margin, so an object built conditionally (`{ top: reserveOrUndefined }`) is safe. `SlopeChart` merges consumer margins over its computed label gutters with the same rule (`applyMarginOverride`). An inline object is fine: charts compare the four sides, not the object.
 
 ## When the plot is blank

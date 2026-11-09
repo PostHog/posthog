@@ -12,6 +12,10 @@ from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
 
+from django.db import transaction
+
+from posthog.models.team.team import Team
+
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
@@ -24,12 +28,13 @@ from products.alerts.backend.platform_cutover import (
     has_begun_cutover,
     in_an_environment,
 )
-from products.alerts.backend.platform_source_cycle import platform_upsert_of
-from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_owned_copy, update_owned_copy
+from products.alerts.backend.platform_source_cycle import interval_of, platform_upsert_of
+from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
+    PlatformAlertCreateRefused,
     PlatformAlertUpsert,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
@@ -108,7 +113,22 @@ def delete_moved_alert_copy(*, team_id: int, alert_id: UUID) -> None:
     """
     alert = _locked(team_id, alert_id)
     if alert is not None and alert.platform_owned:
-        delete_owned_copy(team_id=team_id, legacy_configuration_id=alert_id)
+        delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
+
+
+def delete_shadow_alert_copy(*, team_id: int, alert_id: UUID) -> None:
+    """Deletes the copy of an alert insight owns once the alert's delete commits, by any route: the
+    API, an insight sweep, or a cascade.
+
+    After the commit, so each copy is locked in a transaction of its own. A sweep or a cascade
+    deletes several alerts in one transaction, and locking their copies there in deletion order can
+    deadlock with `record_outcomes`, which locks them in id order. A copy whose delete fails is left
+    for `delete_orphaned_platform_insight_alert_copies`.
+    """
+    transaction.on_commit(
+        lambda: delete_copy(team_id=team_id, legacy_configuration_id=alert_id, owner=PlatformAlertOwner.SOURCE),
+        robust=True,
+    )
 
 
 def _locked(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
@@ -136,7 +156,7 @@ def mirror_platform_edit(
     """Locks the insight row of an alert edited through the platform API, and returns its writer."""
     alert = (
         AlertConfiguration.objects.select_for_update(no_key=True, of=("self",))
-        .select_related("threshold", "insight", "team__organization")
+        .select_related("threshold", "insight")
         # A copy lives on the project's team. An insight alert in one of its environments is never
         # handed over, so the copy of one is the insight stack's and refuses the edit.
         .filter(team_id=team_id, id=legacy_configuration_id)
@@ -158,20 +178,6 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
             "enabled",
             "An AI detector alert can't be turned back on through this API. Turn it on in the insight's alert settings.",
         )
-    if edit.enabled and not alert.enabled:
-        # The insight API and the Max tool check the plan and the active real-time limit before they
-        # turn an alert on. Without the plan check, the next evaluation would switch it off again.
-        organization = alert.team.organization
-        if admission_error := AlertConfiguration.interval_entitlement_error(
-            calculation_interval=alert.calculation_interval, organization=organization
-        ) or AlertConfiguration.real_time_alert_validation_error(
-            team_id=alert.team_id,
-            organization=organization,
-            calculation_interval=alert.calculation_interval,
-            enabled=True,
-            existing=alert,
-        ):
-            raise InvalidPlatformAlertEdit("enabled", admission_error)
     condition = edit.source_config[SOURCE_CONDITION_KEY]
     if condition.get("detector") != alert.detector_config:
         # A detector config is checked against its insight and its access rules in the insight API only.
@@ -202,6 +208,33 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
     alert.condition = condition["comparison"]
     alert.schedule_restriction = edit.schedule_restriction
     alert.save(update_fields=list(dict.fromkeys(update_fields)))
+
+
+def admit_platform_write(
+    *,
+    team_id: int,
+    current: PlatformAlertConfigurationEdit | None,
+    edit: PlatformAlertConfigurationEdit,
+    check_interval_minutes: int | None,
+) -> None:
+    """The plan limits on an insight alert created or turned on through the platform, the same ones the
+    insight API and the Max tool check. A create counts against the plan's alerts. An enabled alert
+    needs the plan to include its cadence, and a real-time one counts against the active real-time
+    limit. Without these, the next evaluation would switch the alert off again."""
+    organization = Team.objects.select_related("organization").get(id=team_id).organization
+    interval = interval_of(check_interval_minutes) if edit.enabled and check_interval_minutes else None
+    error = (
+        (AlertConfiguration.check_alert_limit(team_id, organization) if current is None else None)
+        or AlertConfiguration.interval_entitlement_error(calculation_interval=interval, organization=organization)
+        or AlertConfiguration.real_time_alert_validation_error(
+            team_id=team_id, organization=organization, calculation_interval=interval, enabled=True
+        )
+    )
+    if error is None:
+        return
+    if current is None:
+        raise PlatformAlertCreateRefused(error)
+    raise InvalidPlatformAlertEdit("enabled", error)
 
 
 def _threshold_of(alert: AlertConfiguration) -> dict | None:

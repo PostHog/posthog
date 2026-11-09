@@ -91,11 +91,11 @@ Known gaps and behavior that stays on the device.
 - **No proactive refresh timer.** The app refreshes at launch when the token is nearly expired and on any 401, not on a schedule.
 - **Project switcher lists environments as projects** when a project has more than one environment (team), because it lists teams.
 - **Production OAuth apps may not allow the Errors and Sessions scopes yet.** `error_tracking:read`, `error_tracking:write`, `session_recording:read`, `replay_scanner:read` and `replay_scanner:write` need a human to add them to the US and EU mobile applications' ceiling in Django admin. Until then the server drops them and both screens show "isn't available yet".
-- **Web links do not open the app.** `app.config.ts` declares no iOS associated domains and no Android intent filters, so an `https://` issue or recording link opens the browser. `webLinkTarget()` maps such links once a universal link reaches the app (from a custom-scheme link or a future associated domain). `webLinkTarget()` ignores the link's project id, so a link to another project opens in the current one and its request can fail.
+- **Web links do not open the app.** `app.config.ts` declares no iOS associated domains and no Android intent filters, so an `https://` report, issue or recording link opens the browser. The server serves `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json` for report links (`posthog/mobile_app_links.py`) when the cloud settings are present. `webLinkTarget()` maps report, issue and recording links once a universal link reaches the app (from a custom-scheme link or a future associated domain). For an issue or recording link `webLinkTarget()` ignores the project id, so a link to another project opens in the current one and its request can fail. A report link keeps its project and host: the report screen reads the report in that project without switching the session, or offers the browser for another region or a refused project. The paired inbox pane stays on the session's project. Replay and chat still read the session's project, so from such a report a replay opens on the web, and chat moves the session to the report's project first, or offers the browser when the cached account does not list that project.
 - **Shared screen chrome lives in Views.** Errors and Sessions import `features/views/screen/*`, `ViewsToast` and `ViewsReauthState`. Move them to `src/ui/` (or one shared module) in a follow-up, so features import only other features' hooks again.
 - **Only one list can be pinned.** Errors and Sessions share the one user slot in the nav pill (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
 - **Views' sign-in state hides Browse.** While Views lacks its own scopes, the Browse group is hidden, so Errors and Sessions are reachable only through a pin.
-- **Production OAuth apps may not allow `today:read` yet.** The server drops scopes outside the app's ceiling without an error, so the report screen would always use signal evidence. Check the US and EU mobile apps in Django admin (see [AUTH.md](AUTH.md#server-side-ceiling)).
+- **Production OAuth apps may not allow `today:read` yet.** The server drops scopes outside the app's ceiling without an error, so the report screen would always use signal evidence. Check the US and EU mobile apps in Django admin.
 
 ## Notification follow-ups
 
@@ -223,3 +223,25 @@ by the mobile footer change:
 - **The full report's "Watch session" opens at the start.** A signal carries the session id but no offset into it.
 - **Not checked against a live project.** The shapes come from the serializers in this repository and the tests; the
   first real run needs a sign-in with `session_recording:read`, `replay_scanner:read` and `replay_scanner:write`.
+
+## Web analytics
+
+- **No "About this chart" on the trend.** The trend is a query, not a saved insight, so its Point sheet hides that row.
+- **Active hours sends no chart selection events.** The chart selection hook has no heat grid kind.
+- **One value per property.** A tap on another value of a filtered property replaces it. The web adds it to the
+  filter as a second value.
+- **Filters stay on the phone.** They last for the session, per project, in memory. They do not follow the web's
+  filters or its URL, and the web's domain, device type and conversion goal filters have no phone control.
+- **Region and city filters match the name or code only,** as on the web, so a filter on "CA" or "Portland" can also
+  match a region or city of that name in another country.
+- **Country and language names need `Intl.DisplayNames`.** Hermes does not have it, so the phone names the 54 most
+  common countries and 27 languages from its own list and shows other codes as written.
+  Live uses the same list.
+- **No sorting, path cleaning or host in the path.** Tables use the server's order, most visitors first.
+- **Every card counts as visible.** One screen open, and one filter or range change, sends up to 8 queries, also for
+  the cards below the fold. The cards report no row visibility to the refresh rules yet.
+- **Active hours shows unique visitors only.** The web's "Total pageviews" tab is not on the phone.
+- **Retention shows five weekly cohorts,** the web's small-screen layout.
+- **A filtered overview is cached on the device,** like the unfiltered one, so its cache key holds the filter values.
+- **A pinned tab keeps its trend canvas while another tab is focused.** The Views tab gives its canvases back through
+  `ChartCanvasBudget`; the Web analytics and Live charts take no canvas slot, so each keeps one Skia canvas mounted.

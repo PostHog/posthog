@@ -17,7 +17,9 @@ They require `OPENAI_API_KEY` and honor `OPENAI_BASE_URL` when set; they do not 
 Scorer models and other provider credentials are unchanged.
 
 Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
-The shared trace client retains its existing `TEST` and `OPT_OUT_CAPTURE` guards for `$ai_generation`, `$ai_span`, and `$ai_trace` events.
+The harness's dedicated trace client captures `$ai_generation`, `$ai_span`, and `$ai_trace` events despite the harness's `TEST` database setting, and honors `OPT_OUT_CAPTURE`.
+During teardown, the harness waits up to five seconds for trace shutdown before continuing infrastructure cleanup.
+Pending traces may be lost if delivery does not finish before the process exits.
 
 ## Result contents and scope
 
@@ -215,7 +217,8 @@ A failed scorer does not replace successful results from other scorers on the sa
 Scorer metadata and `reason` or `rationale` explanations are retained for each trial, including skip reasons and judge errors.
 The scorer recorder observes return values and exceptions only when a suite has valid offline publishing configuration and allows uploads. Other runs pass scorers directly to Braintrust.
 Braintrust still owns scorer execution, return-value validation, and numeric aggregation.
-Application and evaluator trace links are included when capture is enabled and the trace and offline destinations match.
+The harness publishes case `trace_id` values as `application_trace_id` and recorded scorer trace IDs as `evaluator_trace_id` when the trace and offline destinations match.
+Existing IDs are retained even when capture is disabled; the inspector checks that the trace exists before showing a button.
 Application and dataset revisions use the commit captured at run start.
 
 Items include available input, output, expected output, and case metadata.
@@ -492,6 +495,38 @@ The reporting integration uses the existing ledger schema without an additional 
 Temporal computes the offline ledger's exclusive day end inside the aggregation activity.
 The shared workflow window and already serialized reports are unchanged.
 
+## Dataset retention
+
+Datasets expire after inactivity: 90 days for active datasets and their current revision, and 30 days for archived datasets and historical revisions. Creating a dataset starts its first retention period. Archiving or restoring a dataset restarts its period, and replacing the current revision starts a new 30-day period for that historical revision. Existing data gets a full period from the retention migration, rather than being judged by its creation date.
+
+Opening a dataset, reading its items through the UI or API, editing it, exporting it, and using it in an offline evaluation count as use. Reading a particular snapshot refreshes that revision and its dataset; it does not refresh unrelated historical revisions. Reading item version history preserves the returned item versions. Dataset lists, revision lists, and export status polling do not refresh usage.
+
+Usage is recorded in Postgres at most once per 12 hours per resource on read paths. Requests with a recent timestamp do not issue a usage write. Expiry includes an extra 12 hours so coalescing cannot shorten the promised inactivity period. Usage writes and cleanup lock the same dataset row; cleanup rechecks eligibility under that lock. Uploading experiments protect their referenced snapshots while snapshot use is within the 30-day history window, including the 12-hour margin. Uploads of new items or results refresh usage, as does closing an experiment. An abandoned upload cannot protect an unused snapshot indefinitely.
+
+The hourly cleanup marks expired datasets and snapshots unavailable before deleting item versions in bounded batches. A version is removable only when no retained snapshot needs it, it is not the item's current version, and it has not been read recently. Archive markers follow the same rule so pruning cannot make an archived item reappear. Expiring a whole dataset immediately releases its name for reuse and eventually removes all its item versions, items, and revisions. Names remain unique across active and archived datasets that have not expired. Completed experiments, evaluation items, scores, scorer versions, and usage ledger rows remain; optional dataset foreign keys become null in bounded batches while their provenance identifiers remain intact. Versions and revisions are deleted only after their references have been detached. Completed evaluation reads do not keep source datasets alive.
+
+A failed dataset cleanup rolls back its content changes but preserves its attempt timestamp, so later candidates can still be processed. The next sweep rotates past the failed dataset before retrying it. Task time limits still stop the sweep. Cleanup reports failed dataset counts and uses `completed_with_errors` when it finishes with individual failures.
+
+Dataset and revision responses expose `expires_at` and `expiring_soon`.
+The datasets UI shows a compact warning in the final seven days, with a link to [dataset data retention](https://posthog.com/docs/ai-evals/datasets#data-retention).
+Expanding it shows a paginated list of accessible datasets or older revisions across the project, including archived datasets, independent of the main list's filters and page.
+The latest revision is covered by its dataset and is not counted again as an older revision.
+Listing this retention information does not refresh usage.
+**Extend** resets the dataset's retention clock, or the selected revision's clock and its dataset's clock, without changing contents or archived status.
+Explicit extensions bypass read coalescing, and have the same read access requirements as opening the resource.
+Unrelated older revisions keep their own deadlines.
+Dataset and revision links open in a new tab; reading their contents refreshes retention as usual, and returning to the list refreshes the warning.
+Changing the main list's filters or page does not refresh the retention warning.
+If a background check fails, the last known warning remains; an expanded warning offers a retry and labels its deadlines as the last known values.
+Successful extensions show the expiry date returned by the server.
+The deadline is the earliest cleanup eligibility time, not a promise of immediate deletion.
+Entries past that deadline but not yet expired are labeled **Eligible for deletion** and can still be extended; already expired data cannot be restored this way.
+Cleanup emits a `dataset retention run` event with expiry and deletion counts, duration, completion status, and whether the time budget was exhausted.
+
+Staff can pause or resume cleanup in the **AI observability** tool of PostHog Admin (`/admin/console/tools/ai-observability/`). The `AI_OBSERVABILITY_DATASET_RETENTION_ENABLED` instance setting defaults to enabled and applies separately to each region. Disabling stops both new expiry and unfinished deletion; a running sweep checks the setting before each dataset and finishes its current dataset before stopping. Re-enabling resumes the hourly schedule. Disabling does not restore deleted content or make already expired datasets available. Successful expiry/deletion logs include the team and dataset IDs after the transaction commits, and setting changes log the staff user and old/new state.
+
+Candidate selection skips expired revisions that are retained only for shared versions or evaluation provenance, while continuing unfinished version and reference deletion. HogQL's `system.datasets` and `system.dataset_revisions` expose `expired_at`; queries must check the dataset and requested snapshot are available. Do not filter out a version solely because its introducing revision expired: retained snapshots can still need that version. HogQL queries and listing metadata do not refresh usage.
+
 ## Resource tags
 
 Datasets, stable scorer definitions, and offline experiments use the shared project tag vocabulary.
@@ -717,6 +752,7 @@ Scroll horizontally to reach additional scorer columns.
 Open an item or score cell for input, output, expected output, reasoning, and payload availability.
 Boolean score cells and numeric or categorical cells with a passing rule retain their raw values or custom labels, with a success/check or danger/cross treatment based on the pinned version's rule. Execution errors use a separate warning treatment; skipped, not-applicable, missing, and numeric or categorical results without a passing rule remain neutral.
 The inspector separates payload fields into collapsible labeled panels. Metadata and long text or large JSON start collapsed; each field can be expanded independently. Result details show the selected scorer and score above its reasoning.
+Small application and evaluator trace buttons appear only after a background lookup confirms their IDs in the current project. The lookup batches both IDs in one AI events query, then checks only missing IDs in one shared events query using the trace reader's fallback window, without reading trace payloads. Each query has a two-second execution limit; a timeout preserves any trace IDs already found. Buttons stay hidden while checking, on failure, or when no match was found within the budget. Changing the selection or closing the inspector cancels obsolete requests; reopening or refreshing the inspector checks again. The evaluator button appears beside the selected score. Buttons open a single trace in the drawer without previous/next controls when the new trace view is enabled; closing it returns to the same item and selected result. Modified clicks open the full trace page, as do buttons when using the legacy trace view.
 These larger payloads load only when the inspector requests them.
 Upload completion is separate from score quality. **Mark as completed** checks declared expected counts on the server; it cannot force a mismatched upload to complete.
 

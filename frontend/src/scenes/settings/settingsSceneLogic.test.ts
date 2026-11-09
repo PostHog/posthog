@@ -35,6 +35,28 @@ describe('settingsSceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(pathname)
     })
 
+    it.each([
+        [
+            'keeps the setting anchor when the URL opens a section',
+            (): void => router.actions.push('/settings/project-details', {}, { 'date-and-time': true }),
+            { 'date-and-time': true },
+        ],
+        [
+            'drops the setting anchor when the sidebar opens another section',
+            (): void => logic.actions.selectSection('project-details', 'project'),
+            {},
+        ],
+    ])('%s', async (_, openSection, expectedHash) => {
+        router.actions.push('/settings/project-customization', {}, { 'date-and-time': true })
+        await expectLogic(logic).toMatchValues({ selectedSectionId: 'project-customization' })
+
+        openSection()
+
+        await expectLogic(logic).toMatchValues({ selectedSectionId: 'project-details' })
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/settings/project-details')
+        expect(router.values.hashParams).toEqual(expectedHash)
+    })
+
     it('reads filters from the URL', async () => {
         router.actions.push('/settings/project-product-analytics', {}, { 'person-display-name': true })
 
@@ -225,6 +247,17 @@ describe('settingsSceneLogic', () => {
         expect(router.values.location.pathname).toContain('/settings/organization-teapot')
     })
 
+    it.each([
+        ['/settings/organization-billing', '/organization/billing'],
+        ['/settings/environment-exports', '/exports'],
+        ['/settings/project-exports', '/exports'],
+    ])('redirects %s to its own page', async (settingsUrl, page) => {
+        router.actions.push(settingsUrl)
+        await expectLogic(logic).delay(10)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(page)
+    })
+
     it('does not bounce a level-only URL when already on a section at that level', async () => {
         router.actions.push('/settings/project-autocapture')
         await expectLogic(logic).toMatchValues({
@@ -258,5 +291,16 @@ describe('settingsSceneLogic on a cold page load', () => {
             selectedSectionId: 'organization-members',
         })
         expect(router.values.location.pathname).toContain('/settings/organization-members')
+    })
+
+    it('redirects a section with its own page', async () => {
+        initKeaTests()
+        router.actions.push('/settings/organization-billing')
+
+        const logic = settingsSceneLogic()
+        logic.mount()
+        await expectLogic(logic).delay(10)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/organization/billing')
     })
 })

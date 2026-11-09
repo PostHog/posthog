@@ -243,6 +243,7 @@ class ListWizardRunsInput:
     team_id: int
     statuses: tuple[WizardRunStatus, ...] = ()
     created_after: datetime | None = None
+    created_by_id: int | None = None
 
 
 @frozen

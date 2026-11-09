@@ -125,11 +125,23 @@ export const ExternalDataSchemasPartialUpdateBody = () => zod
             .describe(
                 'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
             ),
+        copy_access_rules_to_history: zod
+            .boolean()
+            .optional()
+            .describe(
+                "When the table keeps history after this update, replace the history table's access rules with the table's own rules. If the history table doesn't exist yet, the rules are copied when its first snapshot loads. Requires the right to manage access to both tables."
+            ),
         enabled_columns: zod
             .array(zod.string())
             .nullish()
             .describe(
                 'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+            ),
+        masked_columns: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again."
             ),
         row_filters: zod
             .array(
@@ -461,6 +473,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = () => zod.o
                     .array(zod.string())
                     .nullish()
                     .describe('Columns to sync. Null means sync all columns.'),
+                masked_columns: zod
+                    .array(zod.string())
+                    .nullish()
+                    .describe(
+                        'Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table.'
+                    ),
                 row_filters: zod
                     .array(
                         zod.object({
