@@ -1107,7 +1107,14 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         [
             (f"{caller}_{action}", caller == "sandbox", action)
             for caller in ("member", "sandbox")
-            for action in ("publish", "edit", "promote", "revert", "revert_without_snapshot")
+            for action in (
+                "publish",
+                "edit",
+                "promote",
+                "revert",
+                "revert_without_snapshot",
+                "revert_without_snapshot_or_source",
+            )
         ]
     )
     def test_only_the_creator_can_add_capabilities(self, _name: str, sandbox: bool, action: str) -> None:
@@ -1128,8 +1135,10 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
                 expected_current_version_id=head_id,
             )
             old_wide_id, head_id = head_id, second.json()["current_version_id"]
-        if action == "revert_without_snapshot":
+        if action.startswith("revert_without_snapshot"):
             CanvasSourceVersion.objects.unscoped().filter(id=old_wide_id).update(capabilities=None)
+        if action == "revert_without_snapshot_or_source":
+            self.storage.objects.pop(CanvasSourceVersion.objects.unscoped().get(id=old_wide_id).source_object_key)
         self._act_as_other_member(sandbox)
 
         if action == "publish":
@@ -1171,7 +1180,8 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         body = response.json()
         assert body["code"] == "capability_widening_requires_creator"
         assert body["capability_widening"]["widens"] is True
-        assert body["capability_widening"]["insights_added"] == ["abc123"]
+        expected_insights = [] if action == "revert_without_snapshot_or_source" else ["abc123"]
+        assert body["capability_widening"]["insights_added"] == expected_insights
         assert str(Canvas.objects.unscoped().get(id=canvas_id).current_source_version_id) == head_id
 
     def test_non_creator_can_narrow_or_keep_capabilities_and_creator_can_widen(self) -> None:

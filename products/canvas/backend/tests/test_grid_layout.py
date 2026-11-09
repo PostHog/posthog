@@ -417,6 +417,7 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         [
             ("component_creator_pins", "publish", True, status.HTTP_200_OK),
             ("other_member_pins", "publish", False, status.HTTP_403_FORBIDDEN),
+            ("component_creator_reverts_to_a_layout_with_the_pin", "revert", True, status.HTTP_200_OK),
             ("other_member_reverts_to_a_layout_with_the_pin", "revert", False, status.HTTP_403_FORBIDDEN),
             ("other_member_moves_another_tile_beside_the_pin", "patch", False, status.HTTP_200_OK),
             ("other_member_names_the_version_without_its_component", "unattached", False, status.HTTP_200_OK),
