@@ -285,6 +285,8 @@ Activation in a child environment requires task editor access on the parent proj
 
 Flagged research continues without code when no repository is selected or GitHub is unavailable. Its `repo_selection` artefact records `research_context.mode` (`code` or `data_only`) and `repository_status`. Recognized repository authentication and clone failures can retry once without a checkout or GitHub credentials. Other failures keep their normal handling. Findings remain code-focused; missing code access alone is not a product decision requiring human input.
 
+For research that requires a repository, a resolved installation marked unavailable produces a non-retryable `RepositoryAccessError`. Unknown sandbox failures remain retryable.
+
 Research without a repository preserves structured agent startup failures and clears their health issues after a successful startup, using the same provider and runtime scope as research with code.
 
 A saved repository is reused before checking GitHub availability. A data-only fallback leaves that selection and its recorded context unchanged, so a transient failure cannot replace a reviewer's pinned target.

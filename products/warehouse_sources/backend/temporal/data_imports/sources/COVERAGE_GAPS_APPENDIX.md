@@ -11465,12 +11465,12 @@ Diffed against: <https://sonarcloud.io/api/webservices/list>
 - [x] `measures/search_history` — historical metric values over time; required for any coverage/debt trend chart (high) → `measures_history` (full refresh, fan-out over `projects`)
 - [x] `rules/search` — lookup table resolving the rule keys carried on every issue we already sync (severity, type, language, remediation effort) (high) → `rules` (full refresh)
 - [x] `issues/changelog` — issue state/assignee/severity transition history - lets you measure time-to-fix and false-positive rates (high) → `issue_changelog` (full refresh, fan-out over `issues`, off by default)
-- [ ] `hotspots/search` — security hotspots are a separate finding class from issues and are entirely absent (high)
+- [ ] `hotspots/search` — security hotspots are a separate finding class from issues and are entirely absent (high) — skipped: deprecated on SonarQube Cloud since 16 June 2026 and replaced by security issues, which `issues` already syncs
 - [ ] `project_analyses/search` — per-analysis records with version and event markers; the join key for measures history and release-over-release comparison (medium)
 - [ ] `project_branches/list` — branch-level quality gate status and analysis dates (medium)
-- [ ] `project_pull_requests/list` — PR-level findings and gate status, the main dev-workflow surface (medium)
-- [ ] `qualityprofiles/search + qualityprofiles/projects` — lookup mapping projects to the quality profile that produced their issues (medium)
-- [ ] `components/search (and components/tree)` — component/file inventory that measures and issues are keyed on (medium)
+- [x] `project_pull_requests/list` — PR-level findings and gate status, the main dev-workflow surface (medium) → `pull_requests` (full refresh, fan-out over `projects`)
+- [x] `qualityprofiles/search + qualityprofiles/projects` — lookup mapping projects to the quality profile that produced their issues (medium) → `quality_profiles` (full refresh) and `project_quality_profiles` (full refresh, fan-out over `projects` via `qualityprofiles/search?project=`; `qualityprofiles/projects` omits projects on a default profile)
+- [x] `components/search (and components/tree)` — component/file inventory that measures and issues are keyed on (medium) → `components` (full refresh, fan-out over `projects` via `components/tree`; `components/search` lists only projects, which `projects` already syncs)
 - [ ] `user_groups/search + user_groups/users` — group membership table for attributing findings to teams (low)
 - [ ] `languages/list` — small lookup resolving language keys on rules and measures (low)
 
@@ -11770,16 +11770,16 @@ Note: There is NO GET on pages/{page_id}/metrics/{metric_id}/data - only POST (s
 
 ## Steam — gaps
 
-Today (3): `owned_games`, `players`, `playtime_snapshots`
+Today (7): `current_players`, `friends`, `global_achievement_percentages`, `owned_games`, `player_achievements`, `players`, `playtime_snapshots`
 
 Diffed against: <https://partner.steamgames.com/doc/webapi/ISteamUserStats>
 
-- [ ] `GetPlayerAchievements (GET /ISteamUserStats/GetPlayerAchievements/v1/)` — measure achievement completion and unlock times for each player and game (high)
-- [ ] `GetNumberOfCurrentPlayers (GET /ISteamUserStats/GetNumberOfCurrentPlayers/v1/)` — track concurrent players for owned games, a key measure of game popularity (high)
+- [x] `GetPlayerAchievements (GET /ISteamUserStats/GetPlayerAchievements/v1/)` — measure achievement completion and unlock times for each player and game (high) → `player_achievements` (full refresh, fan-out over each player's played games with stats)
+- [x] `GetNumberOfCurrentPlayers (GET /ISteamUserStats/GetNumberOfCurrentPlayers/v1/)` — track concurrent players for owned games, a key measure of game popularity (high) → `current_players` (incremental snapshot on `captured_at`, one row per owned game per sync)
 - [ ] `GetUserStatsForGame (GET /ISteamUserStats/GetUserStatsForGame/v2/)` — analyze game-specific player statistics alongside playtime (medium)
 - [ ] `GetSchemaForGame (GET /ISteamUserStats/GetSchemaForGame/v2/)` — describe available game statistics and achievements for progression analysis (medium)
-- [ ] `GetGlobalAchievementPercentagesForApp (GET /ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/)` — compare player achievement completion with global completion rates (medium)
-- [ ] `GetFriendList (GET /ISteamUser/GetFriendList/v1/)` — analyze friendship connections and their relationship with game ownership and playtime (medium)
+- [x] `GetGlobalAchievementPercentagesForApp (GET /ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/)` — compare player achievement completion with global completion rates (medium) → `global_achievement_percentages` (full refresh, fan-out over owned games with stats)
+- [x] `GetFriendList (GET /ISteamUser/GetFriendList/v1/)` — analyze friendship connections and their relationship with game ownership and playtime (medium) → `friends` (full refresh, friends keyed by the same opaque player key)
 
 Note: The official ISteamUserStats, ISteamUser, and IPlayerService references supplied the method lists and authentication requirements. The public supported-method catalog also confirmed concurrent player counts. Playtime snapshots already call GetRecentlyPlayedGames; publisher-only methods and account plumbing are excluded. Player and game queries need repeated requests and must preserve the existing opaque player keys.
 
@@ -11827,10 +11827,10 @@ Today (14): `BlockStorages`, `FirewallPolicies`, `Images`, `LoadBalancers`, `Mon
 
 Diffed against: <https://scp-api.strato.de/documentation/v1/en/api/documentation.html>
 
-- [ ] `Fixed instance sizes (GET /v1/servers/fixed_instance_sizes)` — resolve fixed_instance_size_id values in server hardware to named size specifications (high)
-- [ ] `Baremetal models (GET /v1/servers/baremetal_models)` — resolve baremetal_model_id values in server hardware to model specifications (high)
-- [ ] `Usages (GET /v1/usages)` — analyze resource consumption over time for servers, storage, images, and public IPs (high)
-- [ ] `Server monitoring (GET /v1/monitoring_center/{server_id})` — analyze historical resource utilization and network traffic for each server (high)
+- [x] `Fixed instance sizes (GET /v1/servers/fixed_instance_sizes)` — resolve fixed_instance_size_id values in server hardware to named size specifications (high)
+- [x] `Baremetal models (GET /v1/servers/baremetal_models)` — resolve baremetal_model_id values in server hardware to model specifications (high)
+- [x] `Usages (GET /v1/usages)` — analyze resource consumption over time for servers, storage, images, and public IPs (high)
+- [x] `Server monitoring (GET /v1/monitoring_center/{server_id})` — analyze historical resource utilization and network traffic for each server (high)
 - [ ] `Logs (GET /v1/logs)` — track resource changes, action durations, failures, and the users responsible (medium)
 - [ ] `Monitoring center (GET /v1/monitoring_center)` — track resource alerts and current utilization across monitored servers (medium)
 
@@ -11838,16 +11838,16 @@ Note: The reference embeds a complete OpenAPI specification in its Redoc state, 
 
 ## StreamElements — gaps
 
-Today (9): `activities`, `bot_commands`, `bot_timers`, `channel`, `points_alltime_leaderboard`, `points_leaderboard`, `store_items`, `store_redemptions`, `tips`
+Today (12): `activities`, `bot_commands`, `bot_timers`, `channel`, `points_alltime_leaderboard`, `points_leaderboard`, `session`, `song_request_history`, `store_items`, `store_redemptions`, `tips`, `watchtime_leaderboard`
 
 Diffed against: <https://dev.streamelements.com/api/v1/projects/cHJqOjM1MTI2/table-of-contents>
 
-- [ ] `GET /sessions/{channel}` — live session totals (followers, subs, tips, cheers, hosts, raids for the current stream) - the headline StreamElements dashboard metric (high)
-- [ ] `GET /points/{channel}/watchtime` — watchtime leaderboard; the two synced points tables cover loyalty points only, not the watchtime that earns them (high)
-- [ ] `GET /stats/{channel}` — channel-level aggregate statistics, no equivalent in any synced table (high)
+- [x] `GET /sessions/{channel}` — live session totals (followers, subs, tips, cheers, hosts, raids for the current stream) - the headline StreamElements dashboard metric (high)
+- [x] `GET /points/{channel}/watchtime` — watchtime leaderboard; the two synced points tables cover loyalty points only, not the watchtime that earns them (high)
+- [ ] `GET /stats/{channel}` — channel-level aggregate statistics, no equivalent in any synced table (high). Skipped: it needs `interval`, `date` and `tz` for each request, and the reference documents no response schema or row key.
 - [ ] `GET /contests/{channel}/history` — completed contests with entries and payouts - a transactional record of channel engagement (medium)
 - [ ] `GET /giveaways/{channel}/history` — completed giveaways with winners, the same for the giveaway feature (medium)
-- [ ] `GET /songrequests/{channel}/history` — song request history, an event stream of viewer-driven media requests (medium)
+- [x] `GET /songrequests/{channel}/history` — song request history, an event stream of viewer-driven media requests (medium). The live path is `/songrequest/{channel}/history` (singular); the plural path returns 404.
 - [ ] `GET /chatstats/{username}/stats` — chat message and emote statistics per user, the chat-side counterpart to the activity feed (medium)
 - [ ] `GET /tips/{channel}/leaderboard` — vendor-computed tip leaderboard alongside the raw tips already synced (medium)
 - [ ] `GET /sessions/{channel}/top` — top contributors for the current session (top tipper, top cheerer) (medium)
@@ -11932,14 +11932,14 @@ Note: Enumerated from the vendor's full single-page reference; GET availability 
 
 ## SurveySparrow — **thin**
 
-Today (5): `contact_lists`, `contacts`, `questions`, `responses`, `surveys`
+Today (8): `channels`, `contact_lists`, `contacts`, `questions`, `responses`, `surveys`, `tickets`, `users`
 
 Diffed against: <https://developers.surveysparrow.com/rest-apis>
 
-- [ ] `GET /v3/tickets` — Support tickets raised from survey responses - a core analytical object with status, assignee and SLA fields (high)
-- [ ] `GET /v3/metrics and /v3/metrics/responses` — NPS/CSAT/CES score metrics - the vendor's headline number, currently only derivable by re-aggregating raw responses (high)
-- [ ] `GET /v3/users` — Lookup table resolving the user IDs already carried on surveys, tickets and responses (high)
-- [ ] `GET /v3/channels` — Lookup table for the distribution channel ID on every response (email/link/SMS/embed), needed for per-channel response-rate analysis (high)
+- [x] `GET /v3/tickets` — Support tickets raised from survey responses - a core analytical object with status, assignee and SLA fields (high). Added as `tickets`, incremental on `updated_at` via `updated_date.gte`.
+- ~~`GET /v3/metrics and /v3/metrics/responses` — NPS/CSAT/CES score metrics - the vendor's headline number, currently only derivable by re-aggregating raw responses (high)~~ — skipped: `/v3/metrics` returns one computed score per type and date range with an undocumented response schema, not a list of records, and `/v3/metrics/responses` returns the rows of the `responses` table filtered by one NPS/CES/CSAT category per survey
+- [x] `GET /v3/users` — Lookup table resolving the user IDs already carried on surveys, tickets and responses (high). Added as `users`.
+- [x] `GET /v3/channels` — Lookup table for the distribution channel ID on every response (email/link/SMS/embed), needed for per-channel response-rate analysis (high). Added as `channels` (fan-out over `surveys`, because the call requires `survey_id`).
 - [ ] `GET /v3/reputation_reviews` — Online review records from the Reputation Management product - a whole analytical dataset with no coverage (high)
 - [ ] `GET /v3/tickets/{id}/comments` — Ticket conversation history for resolution-time and agent-activity analysis (medium)
 - [ ] `GET /v3/contact_properties` — Lookup table defining the custom contact fields whose values appear on synced contacts (medium)
