@@ -133,6 +133,12 @@ def _is_templated(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _is_templated_from_text(from_value: object) -> bool:
+    # Hog and Liquid templates both open with a brace. A From without one is a literal address, which a
+    # destination such as Mailgun sends from through its own API, so it can never select an integration.
+    return isinstance(from_value, str) and "{" in from_value
+
+
 def _has_templated_sender_id(from_value: dict) -> bool:
     # Templating resolves the whole email value at send time, so a string such as "{123}" can resolve to any
     # sender, and a string rotation can resolve to a list that replaces integrationId.
@@ -196,7 +202,7 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
     if isinstance(from_value, dict):
         integration_ids = _delivery_sender_ids(from_value)
         templated_sender = _has_templated_sender_id(from_value)
-    elif _is_templated(from_value):
+    elif _is_templated_from_text(from_value):
         integration_ids, templated_sender = set(), True
     else:
         return

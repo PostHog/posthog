@@ -2239,14 +2239,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                 ],
                 "sandbox_email_integration_cache": self.context.setdefault("_sandbox_email_integration_cache", {}),
             }
-            if template:
-                email_keys = [
-                    s["key"] for s in template.inputs_schema or [] if s.get("type") in {"email", "native_email"}
-                ]
-            else:
-                # A lenient save still stores an email step whose template does not resolve, and a later save
-                # grandfathers its stored sender, so the sandbox checks cannot wait for the template.
-                email_keys = ["email"] if data.get("type") == "function_email" else []
+            email_keys = [
+                s["key"]
+                for s in (template.inputs_schema if template else None) or []
+                if s.get("type") in {"email", "native_email"}
+            ]
+            # A lenient save still stores an email step whose template does not resolve or has no email input,
+            # and a later save grandfathers its stored sender, so the sandbox checks cannot wait for the template.
+            if data.get("type") == "function_email" and "email" not in email_keys:
+                email_keys.append("email")
             for key in email_keys:
                 email_input = inputs.get(key) if isinstance(inputs, dict) else None
                 if isinstance(email_input, dict):
