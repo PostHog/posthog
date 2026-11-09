@@ -3,7 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconCode, IconCopy, IconGithub, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { codeEmailLogic } from './codeEmailLogic'
 import { SourceCandidatePicker } from './SourceCandidatePicker'
@@ -12,9 +15,20 @@ import { SourceFileForm } from './SourceFileForm'
 
 /** The file in your repository that sends this email, or a way to link it. */
 export function SourceRow(): JSX.Element | null {
-    const { codeEmail, codeEmailLoading, sourceFormOpen, sourcePickerOpen, sourceDetectionEnabled, canFindInGitHub } =
-        useValues(codeEmailLogic)
+    const {
+        codeEmail,
+        codeEmailLoading,
+        sourceFormOpen,
+        sourcePickerOpen,
+        sourceDetectionEnabled,
+        canFindInGitHub,
+        sourceCandidatesLoading,
+    } = useValues(codeEmailLogic)
     const { linkSourceFile, setSourceFormOpen, findSourceCandidates } = useActions(codeEmailLogic)
+    const editDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Workflow,
+        AccessControlLevel.Editor
+    )
     if (!codeEmail) {
         return null
     }
@@ -60,6 +74,9 @@ export function SourceRow(): JSX.Element | null {
                                 type="tertiary"
                                 icon={<IconGithub />}
                                 onClick={findSourceCandidates}
+                                disabledReason={
+                                    editDisabledReason ?? (sourceCandidatesLoading ? 'Searching GitHub' : undefined)
+                                }
                                 data-attr="code-email-find-source-in-github"
                             >
                                 Find in GitHub
@@ -94,6 +111,7 @@ export function SourceRow(): JSX.Element | null {
                                     size="xsmall"
                                     type="tertiary"
                                     onClick={() => setSourceFormOpen(!sourceFormOpen)}
+                                    disabledReason={editDisabledReason ?? undefined}
                                     data-attr="code-email-change-detected-source-file"
                                 >
                                     Change

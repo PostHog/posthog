@@ -24,6 +24,7 @@ from products.messaging.backend.facade.code_emails import (
     update_code_email,
 )
 from products.messaging.backend.facade.contracts import (
+    CodeEmailSourceKeyUnsearchable,
     CodeEmailSourceOrigin,
     CodeEmailSourceSearchUnavailable,
     CodeManagedEmail,
@@ -130,8 +131,9 @@ class CodeEmailSourceSearchUnavailableError(exceptions.APIException):
 
 class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
-    scope_object_read_actions = ["list", "retrieve", "source_candidates"]
-    scope_object_write_actions = ["partial_update"]
+    scope_object_read_actions = ["list", "retrieve"]
+    # Searching the team's private repos only serves to set the link, so it needs the same access as setting it.
+    scope_object_write_actions = ["partial_update", "source_candidates"]
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -198,7 +200,8 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         parameters=[CODE_EMAIL_ID_PARAMETER],
         responses={
             200: CodeEmailSourceCandidatesSerializer,
-            400: OpenApiResponse(description="The key is too long for GitHub to search."),
+            400: OpenApiResponse(description="GitHub can't search for this key."),
+            403: OpenApiResponse(description="You need editor access to this email's workflow."),
             404: OpenApiResponse(description="No such code email in this project."),
             503: OpenApiResponse(description="GitHub could not be searched right now. Try again in a minute."),
         },
@@ -214,12 +217,13 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             email = get_code_email(
                 self.team_id, self._code_email_id(pk), viewable_workflow_ids=self._viewable_workflow_ids()
             )
-        except CodeManagedEmailNotFound:
+            self._require_workflow_editor(email)
+        except (CodeManagedEmailNotFound, WorkflowNotFound):
             raise exceptions.NotFound()
         try:
             found = find_source_candidates(self.team, email.key)
-        except ValueError:
-            raise exceptions.ValidationError("This key is too long for GitHub to search.")
+        except CodeEmailSourceKeyUnsearchable:
+            raise exceptions.ValidationError("GitHub can't search for this key.")
         except CodeEmailSourceSearchUnavailable as error:
             raise CodeEmailSourceSearchUnavailableError(
                 "GitHub is busy right now. Try again in a minute."

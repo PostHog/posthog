@@ -105,24 +105,30 @@ describe('codeEmailLogic', () => {
         logic.unmount()
     })
 
-    it('shows why the GitHub search failed instead of an empty result', async () => {
-        useMocks({
-            get: {
-                '/api/projects/:team_id/transactional_code_emails/receipt-id/source_candidates/': () => [
-                    503,
-                    { detail: 'GitHub is busy right now. Try again in a minute.' },
-                ],
-            },
-        })
-        const logic = codeEmailLogic({ id: 'receipt-id' })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+    it.each([
+        [503, 'GitHub is busy right now. Try again in a minute.', true],
+        [400, "GitHub can't search for this key.", false],
+    ])(
+        'shows why the GitHub search failed with status %s, offering a retry only when it can help',
+        async (status, detail, canRetry) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/transactional_code_emails/receipt-id/source_candidates/': () => [
+                        status,
+                        { detail },
+                    ],
+                },
+            })
+            const logic = codeEmailLogic({ id: 'receipt-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.findSourceCandidates()
-        await expectLogic(logic).toFinishAllListeners()
+            logic.actions.findSourceCandidates()
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.sourceCandidatesError).toEqual('GitHub is busy right now. Try again in a minute.')
-        expect(logic.values.sourceCandidates).toBeNull()
-        logic.unmount()
-    })
+            expect(logic.values.sourceCandidatesError).toEqual({ message: detail, canRetry })
+            expect(logic.values.sourceCandidates).toBeNull()
+            logic.unmount()
+        }
+    )
 })

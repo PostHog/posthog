@@ -5,6 +5,7 @@ answered in full. Anything less leaves the key for a person to link, who can run
 """
 
 import re
+import time
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import PurePosixPath
@@ -27,11 +28,11 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.integration.github import GitHubInstallationAccessFetchError
 from posthog.models.integration.github_code_search import (
-    MAX_LITERAL_LENGTH,
     ExactCodeMatch,
     ExactCodeSearchResult,
     GitHubExactCodeSearch,
     MatchedLine,
+    is_searchable_literal,
 )
 from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
@@ -39,6 +40,7 @@ from posthog.ph_client import ph_scoped_capture
 from products.messaging.backend.facade.contracts import (
     CodeEmailSourceCandidate,
     CodeEmailSourceCandidates,
+    CodeEmailSourceKeyUnsearchable,
     CodeEmailSourceOrigin,
     CodeEmailSourceSearchUnavailable,
 )
@@ -46,8 +48,11 @@ from products.messaging.backend.models import TransactionalEmailKey
 
 logger = structlog.get_logger(__name__)
 
+# Target it by organization: detection checks it for a team with no person, and the picker's button for a person.
 SOURCE_DETECTION_FLAG = "workflows-code-email-source-detection"
 SOURCE_DETECTED_EVENT = "transactional email source detected"
+# Bounds how long a person waits on the picker, and how long their search holds a web worker.
+SOURCE_SEARCH_SECONDS = 15
 
 # "kept" means the search found one call site, but a person linked or unlinked the key before detection could write it.
 SourceDetectionOutcome = Literal["linked", "kept", "several", "none", "incomplete", "budget"]
@@ -103,7 +108,7 @@ def _file_url(repository: str, path: str, line: int) -> str:
 
 @frozen
 class _InstallationSearches:
-    # An installation that failed is in ``results`` as an empty, incomplete search. A shed one is left out.
+    # A failed or timed-out installation is in ``results`` as an empty, incomplete search. A shed one is left out.
     results: list[ExactCodeSearchResult]
     shed: bool
     answered: int
@@ -174,14 +179,14 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
     """Search the team's GitHub installations for a key and link the one file that sends it.
 
     Returns None when detection does not apply: the flag is off, the key is gone, already linked or unlinked by a
-    person, too long to search, or the team has no GitHub installation.
+    person, a key GitHub can't search, or the team has no GitHub installation.
     """
     team = Team.objects.filter(id=team_id).first()
     if team is None or not source_detection_enabled(team):
         return None
     keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True)
     key = keys.filter(_UNTOUCHED, id=key_id).values_list("key", flat=True).first()
-    if key is None or len(key) > MAX_LITERAL_LENGTH:
+    if key is None or not is_searchable_literal(key):
         return None
     integrations = IntegrationManager.github.oauth.list(team_id)
     if not integrations:
@@ -203,19 +208,23 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
 def find_source_candidates(team: Team, key: str) -> CodeEmailSourceCandidates:
     """Search the team's GitHub installations for a key while a person waits, one candidate per file.
 
-    Files with a send call come first. Raises ``CodeEmailSourceSearchUnavailable`` when no installation answered,
-    and ``ValueError`` for a key GitHub can't search.
+    Files with a send call come first. A search that runs out of time returns what it read, marked incomplete.
+    Raises ``CodeEmailSourceKeyUnsearchable`` for a key GitHub can't search, and
+    ``CodeEmailSourceSearchUnavailable`` when no installation answered.
     """
+    if not is_searchable_literal(key):
+        raise CodeEmailSourceKeyUnsearchable()
     integrations = IntegrationManager.github.oauth.list(team.id)
     if not integrations:
         return CodeEmailSourceCandidates(candidates=(), complete=True)
-    searches = _search_installations(team.id, integrations, key, priority=Priority.NORMAL)
+    searches = _search_installations(
+        team.id, integrations, key, priority=Priority.NORMAL, deadline=time.monotonic() + SOURCE_SEARCH_SECONDS
+    )
     if not searches.answered:
         raise CodeEmailSourceSearchUnavailable(shed=searches.shed)
     key_argument = _key_argument(key)
     candidates = [_candidate(match, key_argument) for match in _kept_matches(searches.results)]
     return CodeEmailSourceCandidates(
-        # sorted is stable, so each group keeps GitHub's order.
         candidates=tuple(sorted(candidates, key=lambda candidate: not candidate.call_site)),
         complete=not searches.shed and all(result.complete for result in searches.results),
     )
@@ -233,15 +242,23 @@ def _candidate(match: ExactCodeMatch, key_argument: re.Pattern[str]) -> CodeEmai
 
 
 def _search_installations(
-    team_id: int, integrations: Sequence[IntegrationRecord], key: str, *, priority: Priority
+    team_id: int,
+    integrations: Sequence[IntegrationRecord],
+    key: str,
+    *,
+    priority: Priority,
+    deadline: float | None = None,
 ) -> _InstallationSearches:
     results: list[ExactCodeSearchResult] = []
     shed = False
     answered = 0
     for integration in integrations:
+        if deadline is not None and time.monotonic() >= deadline:
+            results.append(ExactCodeSearchResult(matches=[], complete=False))
+            continue
         github = GitHubIntegration(integration, source="transactional_email_source", priority=priority)
         try:
-            results.append(GitHubExactCodeSearch(github).find(key))
+            results.append(GitHubExactCodeSearch(github).find(key, deadline=deadline))
             answered += 1
         except GitHubEgressBudgetExhausted:
             shed = True

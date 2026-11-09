@@ -384,6 +384,10 @@ class CodeEmailSourceCandidates:
     complete: bool
 
 
+class CodeEmailSourceKeyUnsearchable(Exception):
+    """GitHub can't search for the key: it is blank, spans lines, or is longer than a search allows."""
+
+
 class CodeEmailSourceSearchUnavailable(Exception):
     """No GitHub installation answered the search."""
 

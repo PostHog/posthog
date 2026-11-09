@@ -44,6 +44,7 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
         literal: str,
         search_body: dict[str, Any],
         files: dict[str, MagicMock],
+        deadline: float | None = None,
     ) -> tuple[Any, list[dict[str, Any]]]:
         requests_made: list[dict[str, Any]] = []
 
@@ -54,7 +55,7 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
             return files[path]
 
         with patch.object(github, "api_request", side_effect=api_request):
-            result = GitHubExactCodeSearch(github).find(literal)
+            result = GitHubExactCodeSearch(github).find(literal, deadline=deadline)
         return result, requests_made
 
     def test_keeps_only_files_with_the_exact_literal(self) -> None:
@@ -122,6 +123,24 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
             {"/repos/acme/web/contents/a.py": file_response},
         )
 
+        assert result.complete is False
+
+    def test_stops_reading_files_once_the_deadline_passes(self) -> None:
+        with patch("posthog.models.integration.github_code_search.time.monotonic", side_effect=[0.0, 10.0]):
+            result, requests_made = self._search(
+                _github(),
+                "welcome",
+                {
+                    "total_count": 2,
+                    "incomplete_results": False,
+                    "items": [_search_item("acme/web", "a.py"), _search_item("acme/web", "b.py")],
+                },
+                {"/repos/acme/web/contents/a.py": _contents("send('welcome')", "sha-1")},
+                deadline=5.0,
+            )
+
+        assert [request["path"] for request in requests_made] == ["/search/code", "/repos/acme/web/contents/a.py"]
+        assert [match.path for match in result.matches] == ["a.py"]
         assert result.complete is False
 
     @parameterized.expand([("at_the_cap", 0, True), ("over_the_cap", 1, False)])

@@ -1,7 +1,7 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -157,22 +157,27 @@ class TestTransactionalCodeEmails(APIBaseTest):
         assert self.client.get(self._url(f"{hidden.id}/")).status_code == status.HTTP_404_NOT_FOUND
         patched = self.client.patch(self._url(f"{read_only.id}/"), {"description": "Edited"}, format="json")
         assert patched.status_code == status.HTTP_403_FORBIDDEN
+        searched, _ = self._find_candidates(read_only, ExactCodeSearchResult(matches=[], complete=True))
+        assert searched.status_code == status.HTTP_403_FORBIDDEN
 
     def test_is_not_found_without_the_transactional_email_flags(self, _post, flag):
         flag.return_value = False
 
         assert self.client.get(self._url()).status_code == status.HTTP_404_NOT_FOUND
 
-    def _find_candidates(self, email: TransactionalEmailKey, answer: ExactCodeSearchResult | Exception) -> Any:
-        Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+    def _find_candidates(
+        self, email: TransactionalEmailKey, *answers: ExactCodeSearchResult | Exception
+    ) -> tuple[Any, MagicMock]:
+        for installation, _ in enumerate(answers):
+            Integration.objects.create(team=self.team, kind="github", integration_id=str(installation), config={})
         with patch(
             "products.messaging.backend.services.code_email_source.GitHubExactCodeSearch.find",
-            **({"side_effect": answer} if isinstance(answer, Exception) else {"return_value": answer}),
+            side_effect=list(answers),
         ) as find:
             response = self.client.get(self._url(f"{email.id}/source_candidates/"))
         if response.status_code == status.HTTP_200_OK:
-            find.assert_called_once_with(email.key)
-        return response
+            assert find.call_args_list == [((email.key,), {"deadline": ANY})] * len(answers)
+        return response, find
 
     def test_finds_source_candidates_with_send_calls_first(self, _post, _flag):
         email = self._code_email("welcome")
@@ -202,7 +207,7 @@ class TestTransactionalCodeEmails(APIBaseTest):
             complete=False,
         )
 
-        response = self._find_candidates(email, search)
+        response, _ = self._find_candidates(email, search)
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
@@ -225,33 +230,48 @@ class TestTransactionalCodeEmails(APIBaseTest):
             "complete": False,
         }
 
+    def test_lists_what_answered_when_another_installation_is_busy(self, _post, _flag):
+        email = self._code_email("welcome")
+        found = ExactCodeMatch(
+            repository="acme/web",
+            path="src/mailer.ts",
+            lines=(MatchedLine(number=2, text="  template_key: 'welcome',", context="posthog.emails.send({"),),
+        )
+
+        response, _ = self._find_candidates(
+            email, GitHubEgressBudgetExhausted("shed"), ExactCodeSearchResult(matches=[found], complete=True)
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [candidate["path"] for candidate in response.json()["candidates"]] == ["src/mailer.ts"]
+        assert response.json()["complete"] is False
+
     @parameterized.expand(
         [
-            (
-                "budget_shed",
-                GitHubEgressBudgetExhausted("shed"),
-                503,
-                "GitHub is busy right now. Try again in a minute.",
-            ),
+            ("budget_shed", GitHubEgressBudgetExhausted("shed"), "GitHub is busy right now. Try again in a minute."),
             (
                 "github_error",
                 GitHubIntegrationError("bad credentials", status_code=401),
-                503,
                 "Couldn't search GitHub. Try again in a minute.",
             ),
-            ("detection_flag_off", ExactCodeSearchResult(matches=[], complete=True), 404, None),
         ]
     )
-    def test_source_candidates_unavailable(self, _post, flag, _name, answer, expected_status, detail):
-        email = self._code_email("welcome")
-        if expected_status == status.HTTP_404_NOT_FOUND:
-            flag.side_effect = lambda key, *args, **kwargs: key != "workflows-code-email-source-detection"
+    def test_source_candidates_unavailable(self, _post, _flag, _name, answer, detail):
+        response, _ = self._find_candidates(self._code_email("welcome"), answer)
 
-        response = self._find_candidates(email, answer)
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["detail"] == detail
+
+    @parameterized.expand([("detection_flag_off", "welcome", 404), ("key_github_cannot_search", "pass\nword", 400)])
+    def test_source_candidates_refused_before_searching(self, _post, flag, _name, key, expected_status):
+        flag.side_effect = lambda flag_key, *args, **kwargs: (
+            not (expected_status == status.HTTP_404_NOT_FOUND and flag_key == "workflows-code-email-source-detection")
+        )
+
+        response, find = self._find_candidates(self._code_email(key), ExactCodeSearchResult(matches=[], complete=True))
 
         assert response.status_code == expected_status
-        if detail:
-            assert response.json()["detail"] == detail
+        find.assert_not_called()
 
 
 class TestCodeEmailUpdateSerializer(SimpleTestCase):

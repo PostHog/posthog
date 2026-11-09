@@ -4,6 +4,10 @@ import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { codeEmailLogic } from './codeEmailLogic'
 
+function fileName(path: string): string {
+    return path.slice(path.lastIndexOf('/') + 1)
+}
+
 /** The files in the team's GitHub repositories that use this email's key, to pick one as its source file. */
 export function SourceCandidatePicker(): JSX.Element {
     const { sourceCandidates, sourceCandidatesLoading, sourceCandidatesError, codeEmailLoading } =
@@ -20,13 +24,21 @@ export function SourceCandidatePicker(): JSX.Element {
                     Searching your GitHub repos for this key
                 </div>
             ) : sourceCandidatesError ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: findSourceCandidates }}>
-                    {sourceCandidatesError}
+                <LemonBanner
+                    type="error"
+                    action={
+                        sourceCandidatesError.canRetry
+                            ? { children: 'Try again', onClick: findSourceCandidates }
+                            : undefined
+                    }
+                >
+                    {sourceCandidatesError.message}
                 </LemonBanner>
             ) : !sourceCandidates?.candidates.length ? (
                 <p className="m-0 text-secondary">
-                    No file in your GitHub repos uses this key.
-                    {incomplete ? " GitHub didn't finish the search, so try again in a few minutes." : null}
+                    {incomplete
+                        ? "GitHub didn't finish the search. Try again in a minute."
+                        : 'No file in your GitHub repos uses this key.'}
                 </p>
             ) : (
                 <>
@@ -52,12 +64,12 @@ export function SourceCandidatePicker(): JSX.Element {
                                     }
                                     data-attr="code-email-source-candidate"
                                 >
-                                    <span className="flex flex-col min-w-0">
+                                    <span className="flex flex-col min-w-0" title={candidate.path}>
                                         <span className="font-mono truncate">
-                                            {candidate.path}:{candidate.line}
+                                            {fileName(candidate.path)}:{candidate.line}
                                         </span>
-                                        <span className="text-secondary text-xs font-normal">
-                                            {candidate.repository}
+                                        <span className="text-secondary text-xs font-normal truncate">
+                                            {candidate.repository}/{candidate.path}
                                         </span>
                                     </span>
                                 </LemonButton>
