@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { MARKETING_INTEGRATION_CONFIGS, NodeKind } from '~/queries/schema/schema-general'
+import { BreakdownNotAppliedWarning, MARKETING_INTEGRATION_CONFIGS, NodeKind } from '~/queries/schema/schema-general'
 
 import { expect, userEvent } from 'storybook/test'
 
@@ -135,7 +135,8 @@ function useDashboardWithoutSourcesMocks(
     dataReady = false,
     searchConsoleState?: 'ready' | 'syncing',
     paidState?: 'ready' | 'syncing',
-    pending: { scan?: boolean; connections?: boolean } = {}
+    pending: { scan?: boolean; connections?: boolean } = {},
+    trendsWarnings?: BreakdownNotAppliedWarning[]
 ): void {
     useStorybookMocks({
         get: {
@@ -303,6 +304,7 @@ function useDashboardWithoutSourcesMocks(
                                         : [18, 17, 20, 19, 16, 18, 20],
                                 },
                             ],
+                            warnings: trendsWarnings,
                         },
                     ]
                 }
@@ -415,6 +417,32 @@ DashboardWithSearchConsoleOnly.play = async ({ canvasElement }: { canvasElement:
 
 export const DashboardWithAdsOnly = dashboardStory([], false, true, undefined, 'ready')
 DashboardWithAdsOnly.parameters = { ...DashboardWithSearchConsoleOnly.parameters, mockDate: '2026-09-16' }
+
+export const DashboardCostChartByCampaignOnLiveData = dashboardStory([], false, true, undefined, 'ready', {}, [
+    { type: 'breakdown_not_applied', message: "Costs are shown by source. This breakdown isn't available right now." },
+])
+DashboardCostChartByCampaignOnLiveData.parameters = {
+    ...DashboardWithAdsOnly.parameters,
+    featureFlags: [
+        FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+        FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
+        FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION,
+    ],
+}
+DashboardCostChartByCampaignOnLiveData.play = async ({
+    canvasElement,
+}: {
+    canvasElement: HTMLElement
+}): Promise<void> => {
+    const canvas = within(canvasElement)
+    expect((await canvas.findAllByText('Total Clicks'))[0]).toBeVisible()
+    expect(canvas.queryByText(/Costs are shown by source/)).not.toBeInTheDocument()
+    await userEvent.click(await canvas.findByRole('button', { name: /Ad platform/ }))
+    await userEvent.click(await within(document.body).findByRole('menuitem', { name: 'Campaign' }))
+    await expect(
+        canvas.findByText("Costs are shown by source. This breakdown isn't available right now.")
+    ).resolves.toBeVisible()
+}
 
 export const DashboardWithAdsSyncingWithoutSearchConsole = dashboardStory([], false, false, undefined, 'syncing')
 DashboardWithAdsSyncingWithoutSearchConsole.parameters = DashboardWithAdsOnly.parameters
