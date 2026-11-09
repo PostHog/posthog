@@ -1741,7 +1741,7 @@ describe('EmailService', () => {
                 ],
             ])(
                 'when a flow sends its next email inline while a download of the email before is still running, it %s',
-                async (_name, settleAfterMs, deadlineMs, expected) => {
+                async (_name, settleAfterFirstSendMs, deadlineMs, expected) => {
                     sesAccepts()
                     service['sesConfig'].attachmentSendDeadlineMs = deadlineMs
                     let downloadRunning = true
@@ -1764,13 +1764,13 @@ describe('EmailService', () => {
                         heapLimitBytes: Number.MAX_SAFE_INTEGER,
                         maxInFlight: 1,
                     })
-                    if (settleAfterMs !== null) {
-                        setTimeout(settleDownload, settleAfterMs)
-                    }
 
                     const admission = registry.tryStart(pdf.bytes.length, async () => {
                         send(pdf, attachmentFile())
                         const first = await service.executeSendEmail(invocation)
+                        if (settleAfterFirstSendMs !== null) {
+                            setTimeout(settleDownload, settleAfterFirstSendMs)
+                        }
                         send(pdf, logo)
                         return { first, second: await service.executeSendEmail(invocation) }
                     })
