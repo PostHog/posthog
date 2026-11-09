@@ -125,6 +125,12 @@ export const ExternalDataSchemasPartialUpdateBody = () => zod
             .describe(
                 'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
             ),
+        copy_access_rules_to_history: zod
+            .boolean()
+            .optional()
+            .describe(
+                "When the table keeps history after this update, replace the history table's access rules with the table's own rules. If the history table doesn't exist yet, the rules are copied when its first snapshot loads. Requires the right to manage access to both tables."
+            ),
         enabled_columns: zod
             .array(zod.string())
             .nullish()

@@ -76,6 +76,19 @@ class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
 
 
+HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE = (
+    "You need to be able to manage access to this table and its history table to copy its access rules."
+)
+
+
+class HistoryAccessRulesNotAllowedError(Exception):
+    """The user may not set the access rules of a table or of its history table."""
+
+
+class NoHistoryTableError(Exception):
+    """The table has no registered history table."""
+
+
 class HistoryTableDropRefusedError(Exception):
     """A history table can't be dropped now. The message says why and can be shown to the user."""
 
@@ -125,6 +138,16 @@ class ConfigValueError(ValueError):
     opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
     We name the field but never its value, so nothing a user typed reaches logs or error tracking.
     """
+
+
+@dataclass(frozen=True)
+class HistoryTableRef:
+    """A table's history table, as the table's access dialog shows it."""
+
+    id: UUID
+    # The name the history table is queried by in HogQL.
+    name: str
+    user_can_manage_access: bool
 
 
 @dataclass(frozen=True)

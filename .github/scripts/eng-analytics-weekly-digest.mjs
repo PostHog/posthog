@@ -35,6 +35,10 @@ const DEPOT_CI_USD_PER_VCPU_MINUTE = 0.003
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEK_MS = 7 * DAY_MS
 
+// Keep this, plus one day's retries, inside the job's timeout-minutes.
+const DEPOT_TIME_BUDGET_MS = 20 * 60 * 1000
+const STARTED_AT = performance.now()
+
 const PR_DURATION_BUDGET_SECONDS = 20 * 60
 // One slow run can move the p95 of a workflow with few runs in the week by minutes.
 const MIN_PERCENTILE_RUNS = 100
@@ -112,28 +116,36 @@ function isThisRepository(name) {
     return typeof name === 'string' && name.toLowerCase() === GITHUB_REPOSITORY.toLowerCase()
 }
 
+// GetUsage runs out of processing time on a week of our Depot CI usage and answers 500 or 429, so
+// every read asks for one UTC day at a time. Past the time budget, the digest posts without spend
+// rather than letting the job limit stop it before it posts anything. The contract range includes
+// both weeks, so a day is requested once per run and reused after that.
+const dayReads = new Map()
+
 async function spend(startAt, endAt) {
-    const usage = await withRetry(() => depotUsageSpend(startAt, endAt))
-    return { ...usage, total: usage.runners + usage.depotCi + usage.containerBuilds }
+    const sum = { runners: 0, repoRunners: 0, depotCi: 0, repoDepotCi: 0, containerBuilds: 0 }
+    for (const [from, to] of utcDays(startAt, endAt)) {
+        const range = `${from.toISOString()}/${to.toISOString()}`
+        if (!dayReads.has(range)) {
+            if (performance.now() - STARTED_AT > DEPOT_TIME_BUDGET_MS) {
+                throw new Error('Depot GetUsage reads ran past their time budget')
+            }
+            dayReads.set(range, withRetry(() => depotUsageSpend(from, to)))
+        }
+        const day = await dayReads.get(range)
+        for (const key of Object.keys(sum)) {
+            sum[key] += day[key]
+        }
+    }
+    return { ...sum, total: sum.runners + sum.depotCi + sum.containerBuilds }
 }
 
-function calendarMonths(startAt, endAt) {
-    const ranges = []
+function* utcDays(startAt, endAt) {
     for (let from = startAt; from < endAt; ) {
-        const nextMonth = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1))
-        const to = nextMonth < endAt ? nextMonth : endAt
-        ranges.push([from, to])
+        const to = new Date(Math.min(from.getTime() + DAY_MS, endAt.getTime()))
+        yield [from, to]
         from = to
     }
-    return ranges
-}
-
-async function contractSpend(startAt, endAt) {
-    let used = 0
-    for (const [from, to] of calendarMonths(startAt, endAt)) {
-        used += (await spend(from, to)).total
-    }
-    return used
 }
 
 function contractDates(weekEnd) {
@@ -174,7 +186,11 @@ async function readSpend(weekStart, weekEnd) {
     if (!priorWeek) {
         return null
     }
-    const used = contract && (await contractSpend(contract.start, weekEnd).catch(unavailable('Contract spend')))
+    const used =
+        contract &&
+        (await spend(contract.start, weekEnd)
+            .then((usage) => usage.total)
+            .catch(unavailable('Contract spend')))
     return { lastWeek, priorWeek, contract: used == null ? null : { ...contract, used } }
 }
 
