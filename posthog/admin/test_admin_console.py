@@ -326,6 +326,12 @@ class TestAdminConsoleViews(BaseTest):
         [
             ("form_page_keeps_its_parameters", "team", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
             ("button_action_lands_on_its_panel", "team", "rebuild-cache/", "#panel-remote-config"),
+            (
+                "suspend_form_keeps_its_parameters",
+                "team",
+                "suspend-email-sending/?from=ticket",
+                "email-sending/suspend/?from=ticket",
+            ),
             ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
             (
                 "deletion_request_form_page",
@@ -375,9 +381,9 @@ class TestAdminConsoleViews(BaseTest):
             ("operation_not_offered_in_this_state", "unsuspend", {}, False, 404, False),
         ]
     )
-    @patch("posthog.admin.admins.team_admin.create_notification")
-    @patch("posthog.admin.admins.team_admin.send_email_sending_suspended")
-    def test_email_sending_operations_run_the_admin_view(
+    @patch("products.workflows.backend.services.email_sending_suspension.create_notification")
+    @patch("products.workflows.backend.services.email_sending_suspension.send_email_sending_suspended")
+    def test_email_sending_operations_suspend_or_refuse(
         self,
         _name: str,
         operation_key: str,

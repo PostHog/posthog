@@ -5,7 +5,7 @@ import uuid
 import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 from urllib import parse
 
 from django.conf import settings
@@ -31,8 +31,7 @@ from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import TeamEventsRetentionConfigInline
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
-from posthog.helpers.impersonation import is_impersonated
-from posthog.models import Team, User
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
 from posthog.models.events_retention_config import (
     OrganizationEventsRetentionConfig,
@@ -51,7 +50,6 @@ from posthog.personhog_client.proto import (
     UpdateGroupTypeMappingRequest,
 )
 from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
-from posthog.tasks.email import send_email_sending_suspended, send_email_sending_unsuspended
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
@@ -63,19 +61,10 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     RecordingsWithTeamInput,
 )
 
-from products.notifications.backend.facade.api import (
-    NotificationData,
-    NotificationType,
-    Priority,
-    TargetType,
-    create_notification,
-)
 from products.workflows.backend.facade.api import (
     get_email_sending_state,
     get_email_sending_tier_limits,
     max_email_sending_tier,
-    suspend_email_sending,
-    unsuspend_email_sending,
 )
 
 logger = get_logger()
@@ -92,11 +81,6 @@ def _format_group_type_created_at(value: datetime | None) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class ReplayActivityContext(ActivityContextBase):
-    reason: str
-
-
-@dataclasses.dataclass(frozen=True)
-class EmailSendingSuspensionActivityContext(ActivityContextBase):
     reason: str
 
 
@@ -667,158 +651,6 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
-    def _log_email_suspension_activity(self, request, team: Team, activity: str, reason: str) -> None:
-        log_activity(
-            organization_id=team.organization_id,
-            team_id=team.id,
-            user=request.user,
-            was_impersonated=is_impersonated(request),
-            item_id=team.pk,
-            scope="Team",
-            activity=activity,
-            detail=Detail(
-                name=team.name,
-                type="admin_email_sending_suspension",
-                context=EmailSendingSuspensionActivityContext(reason=reason),
-            ),
-        )
-
-    def _notify_email_suspension_changed(self, team: Team, suspended: bool, reason: str) -> None:
-        create_notification(
-            NotificationData(
-                team_id=team.id,
-                notification_type=NotificationType.EMAIL_REPUTATION,
-                priority=Priority.CRITICAL if suspended else Priority.NORMAL,
-                title=(
-                    "Email sending has been suspended for this project"
-                    if suspended
-                    else "Email sending has been re-enabled for this project"
-                ),
-                body=(
-                    f"Reason: {reason}. Check the Reputation tab and contact support to get sending re-enabled."
-                    if suspended
-                    else "Your workflows can deliver email again. Keep bounce and complaint rates low to stay enabled."
-                ),
-                target_type=TargetType.TEAM,
-                target_id=str(team.id),
-                source_url="/workflows/reputation",
-            )
-        )
-
-    def suspend_email_sending_view(self, request, object_id):
-        team = Team.objects.get(pk=object_id)
-        if not self.has_change_permission(request, team):
-            raise PermissionDenied
-
-        suspend_url = reverse("admin:posthog_team_suspend_email_sending", args=[object_id])
-        team_url = reverse("admin:posthog_team_change", args=[object_id])
-
-        if request.method == "GET":
-            context = {
-                **self.admin_site.each_context(request),
-                "team": team,
-                "title": f"Suspend email sending - {team.name}",
-            }
-            return render(request, "admin/posthog/team/suspend_email_sending_form.html", context)
-
-        if request.method != "POST":
-            return HttpResponseNotAllowed(["POST"])
-
-        reason = request.POST.get("reason", "").strip()
-        if not reason:
-            messages.error(request, "Reason is required")
-            return redirect(suspend_url)
-
-        # The facade row-locks the config while checking + flipping, so concurrent submits can't
-        # both dispatch the customer email + notification. Side effects stay outside that lock.
-        change = suspend_email_sending(
-            team.pk, reason, user_id=cast(User, request.user).pk, was_impersonated=is_impersonated(request)
-        )
-        already_suspended_at = change.previously_suspended_at
-        suspended_at = change.changed_at
-
-        if already_suspended_at is not None:
-            self.message_user(
-                request,
-                f"Email sending for team '{team.name}' was already suspended "
-                f"(since {already_suspended_at.isoformat()}).",
-                level=messages.INFO,
-            )
-            return redirect(team_url)
-
-        assert suspended_at is not None
-        logger.info(
-            "admin_suspend_email_sending",
-            team_id=team.id,
-            reason=reason,
-            triggered_by=request.user.email,
-        )
-        self._log_email_suspension_activity(request, team, "email_sending_suspended", reason)
-        # Best-effort side effects: the state flip has already committed, and the idempotency
-        # guard would silently skip a retry. Log the failure and let the admin know rather than
-        # 500-ing on a broker/DB hiccup and stranding the state without a customer notification.
-        try:
-            send_email_sending_suspended.delay(team_id=team.id, reason=reason, suspended_at=suspended_at.isoformat())
-            self._notify_email_suspension_changed(team, suspended=True, reason=reason)
-        except Exception:
-            logger.exception("admin_suspend_email_sending_notify_failed", team_id=team.id)
-            self.message_user(
-                request,
-                f"Suspended team '{team.name}', but sending the customer email/notification failed. "
-                "Check logs and follow up manually.",
-                level=messages.ERROR,
-            )
-            return redirect(team_url)
-        self.message_user(
-            request,
-            f"Suspended workflow email sending for team '{team.name}'. "
-            "Workers pick this up within a few minutes; the team has been notified.",
-            level=messages.WARNING,
-        )
-        return redirect(team_url)
-
-    def unsuspend_email_sending_view(self, request, object_id):
-        if request.method != "POST":
-            return HttpResponseNotAllowed(["POST"])
-
-        team = Team.objects.get(pk=object_id)
-        if not self.has_change_permission(request, team):
-            raise PermissionDenied
-
-        team_url = reverse("admin:posthog_team_change", args=[object_id])
-        unsuspended_at = unsuspend_email_sending(team.pk).changed_at
-        was_suspended = unsuspended_at is not None
-
-        if not was_suspended:
-            self.message_user(request, f"Email sending for team '{team.name}' is not suspended.", level=messages.INFO)
-            return redirect(team_url)
-
-        assert unsuspended_at is not None
-        logger.info(
-            "admin_unsuspend_email_sending",
-            team_id=team.id,
-            triggered_by=request.user.email,
-        )
-        self._log_email_suspension_activity(request, team, "email_sending_unsuspended", "")
-        try:
-            send_email_sending_unsuspended.delay(team_id=team.id, unsuspended_at=unsuspended_at.isoformat())
-            self._notify_email_suspension_changed(team, suspended=False, reason="")
-        except Exception:
-            logger.exception("admin_unsuspend_email_sending_notify_failed", team_id=team.id)
-            self.message_user(
-                request,
-                f"Re-enabled sending for team '{team.name}', but the customer email/notification failed. "
-                "Check logs and follow up manually.",
-                level=messages.ERROR,
-            )
-            return redirect(team_url)
-        self.message_user(
-            request,
-            f"Re-enabled workflow email sending for team '{team.name}'. The team has been notified.",
-            level=messages.SUCCESS,
-        )
-        return redirect(team_url)
-
     @admin.display(description="Email sending state")
     def email_sending_suspension_state(self, team: Team):
         if not team.pk:
@@ -988,16 +820,6 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/delete-recordings/workflows/",
                 self.admin_site.admin_view(self.delete_recordings_workflows_fragment),
                 name="posthog_team_delete_recordings_workflows",
-            ),
-            path(
-                "<path:object_id>/suspend-email-sending/",
-                self.admin_site.admin_view(self.suspend_email_sending_view),
-                name="posthog_team_suspend_email_sending",
-            ),
-            path(
-                "<path:object_id>/unsuspend-email-sending/",
-                self.admin_site.admin_view(self.unsuspend_email_sending_view),
-                name="posthog_team_unsuspend_email_sending",
             ),
         ]
         return custom_urls + urls

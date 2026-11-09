@@ -15,6 +15,8 @@ MOVED_TEAM_ACTIONS = {
     "revoke-ai-gateway": "#panel-ai-gateway",
     "clear-ai-gateway-revoke": "#panel-ai-gateway",
     "recompute-email-sending-tier": "#panel-email-sending",
+    "suspend-email-sending": "email-sending/suspend/",
+    "unsuspend-email-sending": "#panel-email-sending",
 }
 
 MOVED_ORGANIZATION_ACTIONS = {
