@@ -179,9 +179,14 @@ def test_validate_constraint_is_idempotent(temp_model):
     validate = ValidateConstraint(model_name=MODEL_NAME, name=name)
 
     _apply_forwards(validate, state)
+    with connection.cursor() as cursor:
+        cursor.execute("SET lock_timeout = '5s'")
     _apply_forwards(validate, state)  # already validated -> skipped
 
     assert _convalidated(name) is True
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW lock_timeout")
+        assert cursor.fetchone()[0] == "5s"
 
 
 @pytest.mark.django_db(transaction=True)
