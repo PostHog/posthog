@@ -20,8 +20,7 @@ export type InternalCaptureEvent = {
     timestamp?: string
 }
 
-// Capture rollouts close pooled keep-alive sockets under in-flight requests. One retry on a socket
-// error or 5xx, after a short jittered pause, sends the event on another connection.
+// One retry after a jittered pause covers a pooled socket that a capture rollout closed mid-request.
 const MAX_ATTEMPTS = 2
 const RETRY_DELAY_MS = 250
 
@@ -48,7 +47,7 @@ export class InternalCaptureService {
         const properties = { ...disableGeoipWithoutClientIp(event.properties ?? {}), capture_internal: true }
         const now = DateTime.utc().toISO()
         return {
-            // Stable across attempts, so a resend after an ingested-but-unanswered POST dedups.
+            // Reused on retry so the events table collapses a resend that capture already ingested.
             uuid: new UUIDT().toString(),
             api_key: event.team_token,
             timestamp: event.timestamp ?? now,
