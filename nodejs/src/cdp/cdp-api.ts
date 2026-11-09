@@ -3,7 +3,6 @@ import express from 'ultimate-express'
 import { z } from 'zod'
 
 import { ModifiedRequest } from '~/common/api/router'
-import { buildIntegerMatcher } from '~/common/config/matchers'
 import type { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT, delay } from '~/common/utils/utils'
@@ -70,7 +69,11 @@ import {
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
-import { stepThatCanWaitBeforeEmail } from './services/hogflows/waits-before-email'
+import {
+    EmailStep,
+    emailStepsReachableFromTrigger,
+    stepThatCanWaitBeforeEmail,
+} from './services/hogflows/waits-before-email'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
@@ -86,8 +89,10 @@ import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
-import { htmlForSesMaxBytes, utmTagsFor } from './services/messaging/helpers/email-html'
+import { utmTagsFor } from './services/messaging/helpers/email-html'
+import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
+import { estimateMessageBytes } from './services/messaging/message-estimate'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
     HogWatcherService,
@@ -223,6 +228,11 @@ const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | 
         return undefined
     }
     return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
+}
+
+const sendBodyBytes = (invocation: CyclotronJobInvocationHogFlow): number[] => {
+    const sendFields = acceptedSendEmailFields(invocation.state.send)
+    return [sendFields.html ?? '', sendFields.text ?? ''].map((body) => Buffer.byteLength(body))
 }
 
 export class CdpApi {
@@ -1543,14 +1553,24 @@ export class CdpApi {
         }
 
     private async messageBodyBytes(hogFlow: HogFlow, invocation: CyclotronJobInvocationHogFlow): Promise<number[]> {
-        const sendFields = acceptedSendEmailFields(invocation.state.send)
-        const sendBodyBytes = [sendFields.html ?? '', sendFields.text ?? ''].map((body) => Buffer.byteLength(body))
-        const step = hogFlow.actions.find(
-            (action): action is Extract<HogFlowAction, { type: 'function_email' }> => action.type === 'function_email'
-        )
-        if (!step) {
-            return sendBodyBytes
+        const steps = emailStepsReachableFromTrigger(hogFlow)
+        if (steps.length === 0) {
+            return sendBodyBytes(invocation)
         }
+        const bodyBytesPerStep: number[][] = []
+        for (const step of steps) {
+            bodyBytesPerStep.push(await this.emailStepBodyBytes(hogFlow, invocation, step))
+        }
+        return bodyBytesPerStep.reduce((largest, bodyBytes) =>
+            estimateMessageBytes(bodyBytes) > estimateMessageBytes(largest) ? bodyBytes : largest
+        )
+    }
+
+    private async emailStepBodyBytes(
+        hogFlow: HogFlow,
+        invocation: CyclotronJobInvocationHogFlow,
+        step: EmailStep
+    ): Promise<number[]> {
         try {
             const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, step.config, step.name)
             const atEmailStep = {
@@ -1563,7 +1583,7 @@ export class CdpApi {
                 groups: invocation.groups,
                 variables: invocation.state.variables,
             })
-            const email = { ...rendered.state.globals.inputs?.email, ...sendFields }
+            const email = { ...rendered.state.globals.inputs?.email, ...acceptedSendEmailFields(invocation.state.send) }
             return [
                 typeof email.html === 'string' && email.html
                     ? this.sesHtmlMaxBytes(rendered, email.html, email.preheader)
@@ -1579,29 +1599,17 @@ export class CdpApi {
                 hog_flow_id: hogFlow.id,
                 error: error instanceof Error ? error.message : String(error),
             })
-            return sendBodyBytes
+            return sendBodyBytes(invocation)
         }
     }
 
     private sesHtmlMaxBytes(rendered: CyclotronJobInvocationHogFunction, html: string, preheader: unknown): number {
-        const tags = utmTagsFor(rendered, () => undefined)
-        const utm = tags
-            ? {
-                  tags,
-                  siteUrl: this.config.SITE_URL,
-                  fixedScanner: buildIntegerMatcher(
-                      this.config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
-                      true
-                  )(rendered.teamId),
-              }
-            : null
-        return htmlForSesMaxBytes(
-            html,
-            utm,
-            rendered.id,
-            { invocation: rendered, signer: this.emailTrackingCodeSigner, isTest: false },
-            typeof preheader === 'string' ? preheader : undefined
-        )
+        return sesHtmlMaxBytes(html, {
+            utmTags: utmTagsFor(rendered, () => undefined),
+            invocation: rendered,
+            signer: this.emailTrackingCodeSigner,
+            preheader: typeof preheader === 'string' ? preheader : undefined,
+        })
     }
 
     private postAttachmentUploads = async (req: ModifiedRequest, res: express.Response): Promise<any> => {

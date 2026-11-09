@@ -185,6 +185,8 @@ const isJavascriptHref = (href: string): boolean => {
     return url.slice(start, start + 'javascript:'.length).toLowerCase() === 'javascript:'
 }
 
+export const openPixelTag = (pixelUrl: string): string => `<img src="${pixelUrl}" style="display: none;" />`
+
 export const addTrackingToEmail = (
     html: string,
     invocation: CyclotronJobInvocationHogFunction,
@@ -249,7 +251,7 @@ export const addTrackingToEmail = (
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
     })
 
-    html = html.replace('</body>', `<img src="${trackingUrl}" style="display: none;" /></body>`)
+    html = html.replace('</body>', `${openPixelTag(trackingUrl)}</body>`)
 
     return html
 }

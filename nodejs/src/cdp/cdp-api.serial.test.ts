@@ -2877,7 +2877,8 @@ describe('CDP API', () => {
             const flowThrough = (
                 steps: SimpleHogFlowRepresentation['actions'],
                 edges: SimpleHogFlowRepresentation['edges'],
-                category: 'transactional' | 'marketing' = 'transactional'
+                category: 'transactional' | 'marketing' = 'transactional',
+                emailInputs: Record<string, CyclotronInputType> = {}
             ): Promise<HogFlow> =>
                 insertHogFlow(
                     new FixtureHogFlowBuilder()
@@ -2892,7 +2893,7 @@ describe('CDP API', () => {
                                     type: 'function_email',
                                     config: {
                                         template_id: 'template-email',
-                                        inputs: {},
+                                        inputs: emailInputs,
                                         message_category_type: category,
                                     },
                                 },
@@ -3267,30 +3268,56 @@ describe('CDP API', () => {
             const contentOf = (html: string): SendOptions => ({
                 acceptedSend: { ...codeSend, content: { subject: 'Your report', html } },
             })
+            const storedEmail = (email: Record<string, string>): Record<string, CyclotronInputType> => ({
+                email: {
+                    templating: 'liquid',
+                    value: {
+                        to: { email: '{{ event.properties.to }}', name: '' },
+                        from: {},
+                        subject: 'Your report',
+                        text: 'Your report is attached',
+                        ...email,
+                    },
+                },
+            })
+            const storedTemplateSend = (flow: HogFlow, chunk: string): SendOptions => ({
+                flowId: flow.id,
+                variables: { chunk },
+                acceptedSend: { tracking: { captureEngagement: false } },
+            })
             const storedTemplateRendering = async (
                 email: Record<string, string>,
                 chunk: string
             ): Promise<SendOptions> => {
                 await insertHogFunctionTemplate(hub.postgres, emailTemplate)
                 const flow = await insertHogFlow(
-                    transactionalFlow('api', 'active', 'transactional', {
-                        email: {
-                            templating: 'liquid',
-                            value: {
-                                to: { email: '{{ event.properties.to }}', name: '' },
-                                from: {},
-                                subject: 'Your report',
-                                text: 'Your report is attached',
-                                ...email,
-                            },
-                        },
-                    })
+                    transactionalFlow('api', 'active', 'transactional', storedEmail(email))
                 )
-                return {
-                    flowId: flow.id,
-                    variables: { chunk },
-                    acceptedSend: { tracking: { captureEngagement: false } },
-                }
+                return storedTemplateSend(flow, chunk)
+            }
+            const branchToASmallEmailFirstAndALargeOne = async (): Promise<SendOptions> => {
+                await insertHogFunctionTemplate(hub.postgres, emailTemplate)
+                const small = {
+                    type: 'function_email',
+                    config: {
+                        template_id: 'template-email',
+                        inputs: storedEmail({ html: '<p>Your report</p>' }),
+                        message_category_type: 'transactional',
+                    },
+                } as const
+                const flow = await flowThrough(
+                    { branch: { type: 'conditional_branch', config: { conditions: [{ filters: {} }] } }, small, exit },
+                    [
+                        step('trigger', 'branch'),
+                        { from: 'branch', to: 'small', type: 'branch', index: 0 },
+                        step('branch', 'email'),
+                        step('small', 'exit'),
+                        step('email', 'exit'),
+                    ],
+                    'transactional',
+                    storedEmail({ html: '<p>{{ variables.chunk }}</p>' })
+                )
+                return storedTemplateSend(flow, bodyThatOverflows)
             }
             const chunkRenderedTwice = { html: '<p>{{ variables.chunk }}</p><p>{{ variables.chunk }}</p>' }
             const chunkAsPreheader = { html: '<p>Your report</p>', preheader: '{{ variables.chunk }}' }
@@ -3344,6 +3371,10 @@ describe('CDP API', () => {
                 [
                     'a stored template whose preheader goes into the html',
                     () => storedTemplateRendering(chunkAsPreheader, bodyThatOverflows),
+                ],
+                [
+                    'a branch to a small email and a large one, whose large email is',
+                    branchToASmallEmailFirstAndALargeOne,
                 ],
             ])(
                 'refuses a send with files and %s too large to fit beside them, and its key sends smaller files',
