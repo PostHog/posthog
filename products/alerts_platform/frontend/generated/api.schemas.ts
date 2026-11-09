@@ -921,9 +921,10 @@ export const TracesPlatformAlertConditionApiPercentile = {
     Number99: 99,
 } as const
 
-export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
+export type TracesAlertThresholdOperatorApi =
+    (typeof TracesAlertThresholdOperatorApi)[keyof typeof TracesAlertThresholdOperatorApi]
 
-export const ThresholdOperatorEnumApi = {
+export const TracesAlertThresholdOperatorApi = {
     Above: 'above',
     Below: 'below',
 } as const
@@ -939,7 +940,7 @@ export interface TracesPlatformAlertConditionApi {
      */
     threshold: number
     /** Whether the alert fires above or below it. */
-    threshold_operator: ThresholdOperatorEnumApi
+    threshold_operator: TracesAlertThresholdOperatorApi
     /** Time window in minutes that each check measures. */
     window_minutes: WindowMinutesEnumApi
 }

@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from posthog.schema import PropertyGroupFilter
 
+from posthog.enums import LabeledStrEnum
+
 from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
     InvalidPlatformAlertEdit,
@@ -30,6 +32,12 @@ MAX_ALERTS_PER_TEAM: Final = 20
 Measure = Literal["request_count", "error_count", "error_rate", "latency"]
 Percentile = Literal[50, 90, 95, 99]
 WindowMinutes = Literal[5, 10, 15, 30, 60]
+
+
+class TracesAlertThresholdOperator(LabeledStrEnum):
+    # Labels differ from the logs alert's operator choices, or the two classes would share one schema hash.
+    ABOVE = "above", "Above the threshold"
+    BELOW = "below", "Below the threshold"
 
 
 class TracesAlertFilters(BaseModel):
@@ -58,7 +66,7 @@ class TracesPlatformAlertCondition(BaseModel):
         description="The bound: a count for request_count and error_count, a fraction from 0 to 1 for "
         "error_rate, milliseconds for latency.",
     )
-    threshold_operator: Literal["above", "below"] = Field(description="Whether the alert fires above or below it.")
+    threshold_operator: TracesAlertThresholdOperator = Field(description="Whether the alert fires above or below it.")
     window_minutes: WindowMinutes = Field(description="Time window in minutes that each check measures.")
 
     @model_validator(mode="after")

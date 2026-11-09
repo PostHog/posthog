@@ -63176,10 +63176,10 @@ export namespace Schemas {
       Broken: 'broken',
     } as const;
 
-    export type ThresholdOperatorEnum = typeof ThresholdOperatorEnum[keyof typeof ThresholdOperatorEnum];
+    export type LogsAlertStateChangeSignalExtraThresholdOperatorEnum = typeof LogsAlertStateChangeSignalExtraThresholdOperatorEnum[keyof typeof LogsAlertStateChangeSignalExtraThresholdOperatorEnum];
 
 
-    export const ThresholdOperatorEnum = {
+    export const LogsAlertStateChangeSignalExtraThresholdOperatorEnum = {
       Above: 'above',
       Below: 'below',
     } as const;
@@ -63189,7 +63189,7 @@ export namespace Schemas {
       alert_name: string;
       action: LogsAlertStateChangeSignalExtraActionEnum;
       threshold_count: number;
-      threshold_operator: ThresholdOperatorEnum;
+      threshold_operator: LogsAlertStateChangeSignalExtraThresholdOperatorEnum;
       window_minutes: number;
       result_count: number | null;
       consecutive_failures: number;
@@ -86109,6 +86109,14 @@ export namespace Schemas {
       Number99: 99,
     } as const;
 
+    export type TracesAlertThresholdOperator = typeof TracesAlertThresholdOperator[keyof typeof TracesAlertThresholdOperator];
+
+
+    export const TracesAlertThresholdOperator = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
     export interface TracesPlatformAlertCondition {
       /** What the alert measures over requests: their count, the count with an error status, the share with an error status, or a latency percentile. A request is a trace root, server or consumer span. */
       measure: MeasureEnum;
@@ -86120,7 +86128,7 @@ export namespace Schemas {
          */
       threshold: number;
       /** Whether the alert fires above or below it. */
-      threshold_operator: ThresholdOperatorEnum;
+      threshold_operator: TracesAlertThresholdOperator;
       /** Time window in minutes that each check measures. */
       window_minutes: WindowMinutesEnum;
     }
