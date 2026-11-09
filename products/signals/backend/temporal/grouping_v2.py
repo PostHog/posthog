@@ -44,7 +44,7 @@ RETRY_BACKOFF = timedelta(seconds=10)
 _PATCH_COLLECT_BATCH = "collect-batch-signals-v1"
 
 
-@dataclass
+@dataclass(frozen=False)
 class CollectedBatch:
     """Result of collecting signals from one or more S3 batches."""
 
