@@ -87,6 +87,8 @@ def build_check_query(
     windows: Sequence[CheckWindow],
     *,
     group_by: Sequence[str],
+    open_groups: Sequence[dict[str, str]],
+    datapoints_to_alarm: int,
     limit: int,
 ) -> ast.SelectQuery:
     lookback_start, check_end = windows[0].start, windows[-1].end
@@ -109,18 +111,78 @@ def build_check_query(
         ast.Alias(alias=f"period_{index}", expr=_measure(config.condition, window))
         for index, window in enumerate(windows)
     ]
-    newest = ast.Field(chain=[f"period_{len(windows) - 1}"])
     return ast.SelectQuery(
         select=[*(ast.Field(chain=[column]) for column in group_by), *periods],
         select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "trace_spans"])),
         where=ast.And(exprs=where),
         group_by=[ast.Field(chain=[column]) for column in group_by] or None,
-        # The worst groups first, so the limit keeps the ones that can fire.
-        order_by=[ast.OrderExpr(expr=newest, order="DESC" if config.condition.threshold_operator == "above" else "ASC")]
+        order_by=_ranking(config.condition, len(windows), group_by, open_groups, datapoints_to_alarm)
         if group_by
         else None,
         limit=ast.Constant(value=limit + 1) if group_by else None,
     )
+
+
+def _ranking(
+    condition: TracesPlatformAlertCondition,
+    window_count: int,
+    group_by: Sequence[str],
+    open_groups: Sequence[dict[str, str]],
+    datapoints_to_alarm: int,
+) -> list[ast.OrderExpr]:
+    """Open groups first, then groups that breach N of M, then the worst newest value.
+
+    An open group has to come back whatever its value, or the check could not resolve it. Ranking by
+    the N-of-M verdict before the newest value keeps a steady breach that the limit would otherwise
+    cut behind groups that spiked once and do not breach.
+    """
+    above = condition.threshold_operator == "above"
+    breached_windows = ast.Call(
+        name="arraySum",
+        args=[
+            ast.Array(
+                exprs=[
+                    # A window with no data never breaches, as in `derive_breaches`.
+                    ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Gt if above else ast.CompareOperationOp.Lt,
+                                left=ast.Field(chain=[f"period_{index}"]),
+                                right=ast.Constant(value=condition.threshold),
+                            ),
+                            ast.Constant(value=0),
+                        ],
+                    )
+                    for index in range(window_count)
+                ]
+            )
+        ],
+    )
+    order_by = [
+        ast.OrderExpr(
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq, left=breached_windows, right=ast.Constant(value=datapoints_to_alarm)
+            ),
+            order="DESC",
+        ),
+        ast.OrderExpr(expr=ast.Field(chain=[f"period_{window_count - 1}"]), order="DESC" if above else "ASC"),
+    ]
+    if open_groups:
+        group = ast.Tuple(exprs=[ast.Field(chain=[column]) for column in group_by])
+        known = ast.Tuple(
+            exprs=[
+                ast.Tuple(exprs=[ast.Constant(value=labels.get(column, "")) for column in group_by])
+                for labels in open_groups
+            ]
+        )
+        order_by.insert(
+            0,
+            ast.OrderExpr(
+                expr=ast.CompareOperation(op=ast.CompareOperationOp.In, left=group, right=known), order="DESC"
+            ),
+        )
+    return order_by
 
 
 def run_check_query(
@@ -129,6 +191,8 @@ def run_check_query(
     windows: Sequence[CheckWindow],
     *,
     group_by: Sequence[str],
+    open_groups: Sequence[dict[str, str]],
+    datapoints_to_alarm: int,
     limit: int,
     configuration_id: str,
     max_execution_time: int,
@@ -143,7 +207,15 @@ def run_check_query(
     started = time.monotonic()
     response = execute_hogql_query(
         query_type="traces_alert_check",
-        query=build_check_query(team, config, windows, group_by=group_by, limit=limit),
+        query=build_check_query(
+            team,
+            config,
+            windows,
+            group_by=group_by,
+            open_groups=open_groups,
+            datapoints_to_alarm=datapoints_to_alarm,
+            limit=limit,
+        ),
         team=team,
         workload=Workload.LOGS,
         ch_user=ClickHouseUser.ALERTS_PLATFORM_TRACES,
@@ -159,8 +231,9 @@ def run_check_query(
     )
     duration_ms = int((time.monotonic() - started) * 1000)
     width = len(group_by)
-    # An ungrouped query aggregates without GROUP BY, so it returns exactly one row.
-    rows = (response.results or [])[: limit if group_by else 1]
+    # An ungrouped query aggregates without GROUP BY, so it returns exactly one row. A grouped one
+    # keeps its row past `limit`, so admission sees that group and reports it as overflow when it breaches.
+    rows = (response.results or [])[: None if group_by else 1]
     groups = tuple(
         GroupValues(
             labels={column: str(value) for column, value in zip(group_by, row[:width])},

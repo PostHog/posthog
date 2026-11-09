@@ -6,7 +6,8 @@ each service or operation is a group.
 
 A window with no request measures zero for a count, and no data for an error rate or a latency.
 No data never breaches. An open group the query did not return had no request in the lookback, so
-it is judged as such and can resolve, unless the query cut the result short.
+it is judged as such and can resolve, unless the query cut the result short and the group's
+key is hashed, so the query could not put it first.
 
 This reads and decides. It writes nothing, so a retried attempt reads the same due checks and makes
 the same decisions. The platform records the outcomes in its own activity.
@@ -25,6 +26,7 @@ import structlog
 from pydantic import ValidationError
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
@@ -90,6 +92,7 @@ MAX_QUERY_SECONDS: Final = 20
 # Below this there is no point starting another query.
 MIN_QUERY_SECONDS: Final = 2
 CHECKPOINT_QUERY_SECONDS: Final = 5
+_OUT_OF_TIME_ERRORS: Final = (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)
 INFLIGHT_KEY: Final = "alerts:platform:traces:batches:inflight"
 # Outlasts the evaluation activity's run, so a slot frees before its batch ends only when a worker
 # died mid-batch.
@@ -137,20 +140,26 @@ def _evaluate_admitted(
     checkpoint = _checkpoint(team)
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
     decided: list[Decision] = []
+    # A query that runs out of the time the queries before it spent records nothing, so its check
+    # keeps its due time and a later batch gives it the full time. A batch's first query has nothing
+    # before it to blame, so its timeout counts toward BROKEN.
+    queried = False
     for check in checks:
-        remaining = deadline - time.monotonic()
-        if remaining < MIN_QUERY_SECONDS:
+        query_seconds = int(min(MAX_QUERY_SECONDS, deadline - time.monotonic()))
+        if query_seconds < MIN_QUERY_SECONDS:
             break
-        decided.append(
-            _evaluate(
-                team,
-                check,
-                check_end=resolve_check_end(check.next_check_at or cutoff, checkpoint),
-                now=cutoff,
-                query_seconds=int(min(MAX_QUERY_SECONDS, remaining)),
-                muted=_in_quiet_hours(check, cutoff, team.timezone),
-            )
+        decision = _evaluate(
+            team,
+            check,
+            check_end=resolve_check_end(check.next_check_at or cutoff, checkpoint),
+            now=cutoff,
+            query_seconds=query_seconds,
+            cut_short=queried and query_seconds < MAX_QUERY_SECONDS,
+            muted=_in_quiet_hours(check, cutoff, team.timezone),
         )
+        queried = True
+        if decision is not None:
+            decided.append(decision)
     evaluation = _collect(decided, team_id=team.id, slot=slot, past_budget=len(checks) - len(decided))
     safe_record(record_batch_duration, SOURCE.value, int((time.monotonic() - started_at) * 1000))
     return evaluation
@@ -177,8 +186,15 @@ def _in_quiet_hours(check: PlatformAlertCheckInput, now: datetime, tz_name: str)
 
 
 def _evaluate(
-    team: Team, check: PlatformAlertCheckInput, *, check_end: datetime, now: datetime, query_seconds: int, muted: bool
-) -> Decision:
+    team: Team,
+    check: PlatformAlertCheckInput,
+    *,
+    check_end: datetime,
+    now: datetime,
+    query_seconds: int,
+    cut_short: bool,
+    muted: bool,
+) -> Decision | None:
     try:
         config = TracesPlatformAlertConfig.model_validate(check.source_config)
     except ValidationError:
@@ -196,12 +212,16 @@ def _evaluate(
             config,
             windows,
             group_by=group_by,
+            open_groups=[labels for key in open_keys if (labels := _labels_of(key)) is not None],
+            datapoints_to_alarm=check.datapoints_to_alarm,
             # Room for every open group and a full cap of new ones, so admission sees the worst.
             limit=len(open_keys) + check.grouping.max_instances,
             configuration_id=str(check.id),
             max_execution_time=query_seconds,
         )
     except Exception as error:
+        if cut_short and isinstance(error, _OUT_OF_TIME_ERRORS):
+            return None
         classified = classify_check_error(error)
         if not classified.is_transient:
             logger.warning("Traces alert query refused", check_id=str(check.id), code=classified.code)
@@ -215,10 +235,11 @@ def _evaluate(
 
     def absent(key: str) -> GroupObservation | None:
         labels = _labels_of(key)
-        # A cut result may have left out an open group that still has requests.
-        if result.truncated or labels is None:
+        # The query puts every open group it can name first, so only a hashed key, which keeps no
+        # labels, can be cut while it still has requests. Without a cut, absence means no request.
+        if result.truncated and labels is None:
             return None
-        no_requests = GroupValues(labels=labels, values=window_values_with_no_requests(condition, len(windows)))
+        no_requests = GroupValues(labels=labels or {}, values=window_values_with_no_requests(condition, len(windows)))
         return _observe(condition, no_requests, key=key)
 
     decision = decide_groups(
