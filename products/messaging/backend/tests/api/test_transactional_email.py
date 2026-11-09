@@ -937,7 +937,15 @@ class TestTransactionalEmail(APIBaseTest):
         body = response.json()
         assert (body["code"], body["attr"]) == ("invalid_request", "attachments")
         assert body["why"] and body["fix"]
-        assert capture.call_args.kwargs["properties"]["error_code"] == "field_not_accepted"
+        assert [
+            (
+                call.kwargs["properties"]["error_code"],
+                call.kwargs["properties"]["attachment_count"],
+                call.kwargs["properties"]["attachment_bytes"],
+            )
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "transactional email api send"
+        ] == [("field_not_accepted", 1, 4)]
 
     @parameterized.expand(
         [
