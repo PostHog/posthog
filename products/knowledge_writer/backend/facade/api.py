@@ -3,7 +3,7 @@ from typing import Any
 
 from posthog.github.installations import installation_team_ids
 
-from ...merge_check.sources import landed_change
+from ...merge_check.sources import merged_pull_request_change
 from ..adapters.registry import REGISTRY
 from ..logic import intake
 from ..settings import source_repositories, writer_settings
@@ -21,10 +21,10 @@ def request_docs_for_pull_request(command: DocsCommandRequest, *, team_id: int) 
     return intake.submit(verdict, team_id=team_id)
 
 
-def record_default_branch_push(payload: Mapping[str, Any]) -> None:
+def record_merged_pull_request(payload: Mapping[str, Any]) -> None:
     from ..temporal.client import start_merge_check  # noqa: PLC0415 — keeps temporalio off the facade import path
 
-    change = landed_change(payload, source_repositories())
+    change = merged_pull_request_change(payload, source_repositories())
     if change is None:
         return
     writer = writer_settings()

@@ -52,7 +52,12 @@ async def start_merge_check_workflow(change: LandedChange, *, team_id: int, clie
     try:
         await temporal.start_workflow(
             MergeCheckWorkflow.run,
-            MergeCheckInputs(commit_sha=change.after, team_id=team_id, repository=change.repository),
+            MergeCheckInputs(
+                commit_sha=change.after,
+                team_id=team_id,
+                repository=change.repository,
+                pull_request_number=change.pull_request_number,
+            ),
             id=merge_check_workflow_id(change.after),
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,

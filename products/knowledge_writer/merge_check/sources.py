@@ -39,6 +39,7 @@ class MergedPullRequest:
 class LandedChange:
     repository: str
     after: str
+    pull_request_number: int | None = None
 
 
 class GitHubReader(Protocol):
@@ -101,17 +102,20 @@ def commit_sha_or_none(value: object) -> str | None:
     return value
 
 
-def landed_change(push: Mapping[str, Any], source_repositories: tuple[str, ...]) -> LandedChange | None:
-    repository = push.get("repository") or {}
+def merged_pull_request_change(
+    delivery: Mapping[str, Any], source_repositories: tuple[str, ...]
+) -> LandedChange | None:
+    repository = delivery.get("repository") or {}
     full_name = repository.get("full_name")
-    after = commit_sha_or_none(push.get("after"))
-    if after is None or push.get("deleted") or repository.get("private") is not False:
+    listed = delivery.get("pull_request") or {}
+    after = commit_sha_or_none(listed.get("merge_commit_sha"))
+    if delivery.get("action") != "closed" or after is None or repository.get("private") is not False:
         return None
     if not isinstance(full_name, str) or full_name.lower() not in {name.lower() for name in source_repositories}:
         return None
-    if push.get("ref") != f"refs/heads/{repository.get('default_branch')}":
+    if not isinstance(listed.get("number"), int) or merged_pull_request(listed, after) is None:
         return None
-    return LandedChange(repository=full_name, after=after)
+    return LandedChange(repository=full_name, after=after, pull_request_number=listed["number"])
 
 
 def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPullRequest | None:
@@ -123,6 +127,30 @@ def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPul
         url=listed["html_url"],
         is_trusted_author=listed.get("author_association") in TRUSTED_AUTHOR_ASSOCIATIONS,
     )
+
+
+def read_numbered_pull_request(github: GitHubReader, change: LandedChange) -> dict[str, Any] | None:
+    if change.pull_request_number is None:
+        return None
+    response = read_github(
+        github,
+        f"/repos/{change.repository}/pulls/{change.pull_request_number}",
+        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+    )
+    return response.json()
+
+
+def reached_default_branch(github: GitHubReader, repository: str, listed: Mapping[str, Any], commit_sha: str) -> bool:
+    default_branch = listed["base"]["repo"]["default_branch"]
+    if listed["base"]["ref"] == default_branch:
+        return True
+    response = read_github(
+        github,
+        f"/repos/{repository}/compare/{default_branch}...{commit_sha}",
+        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+        params={"per_page": 1},
+    )
+    return response.json()["status"] in ("behind", "identical")
 
 
 def find_merged_pull_request(github: GitHubReader, repository: str, commit_sha: str) -> MergedPullRequest | None:

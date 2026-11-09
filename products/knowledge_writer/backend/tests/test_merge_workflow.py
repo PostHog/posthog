@@ -32,8 +32,8 @@ from products.knowledge_writer.backend.webhook_consumers import WEBHOOK_CONSUMER
 from products.knowledge_writer.merge_check.sources import LandedChange
 
 MERGE_COMMIT_SHA = "b" * 40
-PARENT_COMMIT_SHA = "a" * 40
-LANDED = LandedChange(repository="PostHog/posthog", after=MERGE_COMMIT_SHA)
+PULL_REQUEST_NUMBER = 7
+LANDED = LandedChange(repository="PostHog/posthog", after=MERGE_COMMIT_SHA, pull_request_number=PULL_REQUEST_NUMBER)
 WEBHOOK_SECRET = "test-knowledge-writer-webhook-secret"
 LINKED_INSTALLATION_ID = 1234
 START_MERGE_CHECK = "products.knowledge_writer.backend.temporal.client.start_merge_check"
@@ -70,19 +70,25 @@ def github_webhook_view():
     caches[INGRESS_DEDUP_CACHE_ALIAS].clear()
 
 
-def _push_delivery(
+def _merged_pull_request_delivery(
     *,
-    ref: str = "refs/heads/master",
+    action: str = "closed",
+    is_merged: bool = True,
     repository: str = "PostHog/posthog",
     is_private: bool = False,
-    deleted: bool = False,
     installation_id: int = LINKED_INSTALLATION_ID,
 ) -> dict[str, object]:
     return {
-        "ref": ref,
-        "before": PARENT_COMMIT_SHA,
-        "after": MERGE_COMMIT_SHA,
-        "deleted": deleted,
+        "action": action,
+        "pull_request": {
+            "number": PULL_REQUEST_NUMBER,
+            "title": "feat: add flag banner",
+            "html_url": f"https://github.com/{repository}/pull/{PULL_REQUEST_NUMBER}",
+            "merged": is_merged,
+            "merged_at": "2026-11-09T12:00:00Z" if is_merged else None,
+            "merge_commit_sha": MERGE_COMMIT_SHA,
+            "base": {"ref": "stack/parent-branch"},
+        },
         "installation": {"id": installation_id},
         "repository": {"full_name": repository, "default_branch": "master", "private": is_private},
     }
@@ -95,7 +101,7 @@ def _post_signed(view, payload: dict[str, object], *, delivery_id: str = "delive
         data=body,
         content_type="application/json",
         headers={
-            "X-GitHub-Event": "push",
+            "X-GitHub-Event": "pull_request",
             "X-GitHub-Delivery": delivery_id,
             "X-Hub-Signature-256": "sha256=" + hmac.digest(WEBHOOK_SECRET.encode(), body, "sha256").hex(),
         },
@@ -107,15 +113,15 @@ def _post_signed(view, payload: dict[str, object], *, delivery_id: str = "delive
 @pytest.mark.parametrize(
     "delivery, starts_merge_check",
     [
-        pytest.param(_push_delivery(), True, id="pushed_to_the_default_branch"),
-        pytest.param(_push_delivery(ref="refs/heads/stack/parent-branch"), False, id="pushed_to_another_branch"),
-        pytest.param(_push_delivery(deleted=True), False, id="default_branch_deleted"),
-        pytest.param(_push_delivery(is_private=True), False, id="private_repository"),
-        pytest.param(_push_delivery(repository="PostHog/posthog.com"), False, id="unlisted_repository"),
-        pytest.param(_push_delivery(installation_id=9999), False, id="installation_not_linked"),
+        pytest.param(_merged_pull_request_delivery(), True, id="merged_into_a_stack_parent_branch"),
+        pytest.param(_merged_pull_request_delivery(is_merged=False), False, id="closed_without_merging"),
+        pytest.param(_merged_pull_request_delivery(action="synchronize"), False, id="not_closed"),
+        pytest.param(_merged_pull_request_delivery(is_private=True), False, id="private_repository"),
+        pytest.param(_merged_pull_request_delivery(repository="PostHog/posthog.com"), False, id="unlisted_repository"),
+        pytest.param(_merged_pull_request_delivery(installation_id=9999), False, id="installation_not_linked"),
     ],
 )
-def test_a_signed_default_branch_push_starts_the_merge_check(
+def test_a_signed_merged_pull_request_starts_the_merge_check(
     team, writer_env, github_webhook_view, delivery, starts_merge_check
 ) -> None:
     with (
@@ -132,13 +138,13 @@ def test_a_signed_default_branch_push_starts_the_merge_check(
 
 
 @pytest.mark.django_db
-def test_a_redelivered_push_starts_one_merge_check(team, writer_env, github_webhook_view) -> None:
+def test_a_redelivered_merged_pull_request_starts_one_merge_check(team, writer_env, github_webhook_view) -> None:
     with (
         patch(KNOWLEDGE_WRITER_ENABLED, return_value=True),
         patch(START_MERGE_CHECK) as start_merge_check,
     ):
         for _ in range(2):
-            assert _post_signed(github_webhook_view, _push_delivery()).status_code == 202
+            assert _post_signed(github_webhook_view, _merged_pull_request_delivery()).status_code == 202
 
     start_merge_check.assert_called_once_with(LANDED, team_id=team.id)
 

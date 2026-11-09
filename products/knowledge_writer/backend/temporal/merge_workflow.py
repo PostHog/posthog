@@ -15,7 +15,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from ...merge_check.check import run_merge_check
+from ...merge_check.check import MergeNotOnDefaultBranch, run_merge_check
 from ...merge_check.judge import judge_client
 from ...merge_check.sources import LandedChange
 from ..adapters.registry import REGISTRY
@@ -44,6 +44,7 @@ class MergeCheckInputs:
     commit_sha: str
     team_id: int
     repository: str = LEGACY_MERGE_CHECK_REPOSITORY
+    pull_request_number: int | None = None
 
 
 def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
@@ -70,12 +71,18 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
     try:
         with httpx.Client(timeout=30) as http, anthropic_client:
             report = run_merge_check(
-                LandedChange(repository=inputs.repository, after=inputs.commit_sha),
+                LandedChange(
+                    repository=inputs.repository,
+                    after=inputs.commit_sha,
+                    pull_request_number=inputs.pull_request_number,
+                ),
                 is_final_attempt=is_final_attempt,
                 github=github,
                 http=http,
                 anthropic_client=anthropic_client,
             )
+    except MergeNotOnDefaultBranch:
+        return
     except MERGE_CHECK_RETRYABLE_ERRORS as error:
         if not is_final_attempt:
             raise
