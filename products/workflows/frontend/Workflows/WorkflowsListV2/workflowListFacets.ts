@@ -55,11 +55,11 @@ export function buildWorkflowListFacets(
     rows: WorkflowListRow[],
     {
         viewer = null,
-        itemsByRef = {},
+        filesByRef = {},
         includeDescendants = false,
     }: {
         viewer?: WorkflowListViewer | null
-        itemsByRef?: Record<string, FileSystemEntry>
+        filesByRef?: Record<string, FileSystemEntry>
         includeDescendants?: boolean
     } = {}
 ): FacetDefinition<WorkflowListRow>[] {
@@ -93,7 +93,7 @@ export function buildWorkflowListFacets(
             caseSensitive: true,
             formatValue: (value) => splitPath(value).join(' / '),
             getValues: (row) => {
-                const entry = itemsByRef[`hog_flow::${row.id}`]
+                const entry = filesByRef[`hog_flow::${row.id}`]
                 return !entry || entry.shortcut ? ['Unfiled'] : folderScopes(parentPath(entry.path), includeDescendants)
             },
         },

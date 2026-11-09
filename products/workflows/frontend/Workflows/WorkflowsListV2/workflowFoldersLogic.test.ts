@@ -407,8 +407,8 @@ describe('workflowFoldersLogic', () => {
         )
         projectTreeDataLogic.actions.pruneClosedFolders(['project://'])
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.itemsByRef[`hog_flow::${FIXTURE_WORKFLOWS[0].id}`]).toBeUndefined()
-        expect(logic.values.itemsByRef[`hog_flow::${FIXTURE_WORKFLOWS[1].id}`]?.path).toEqual('Billing/Cards/Renewal')
+        expect(logic.values.filesByRef[`hog_flow::${FIXTURE_WORKFLOWS[0].id}`]).toBeUndefined()
+        expect(logic.values.filesByRef[`hog_flow::${FIXTURE_WORKFLOWS[1].id}`]?.path).toEqual('Billing/Cards/Renewal')
     })
 
     it.each([
@@ -539,6 +539,40 @@ describe('workflowFoldersLogic', () => {
         logic.actions.startFolderDraft('')
         logic.actions.setFolderDraftName('reports')
         expect(logic.values.folderDraftError).toBe(EXISTS)
+    })
+
+    it("paints the folders before other products' files load, and checks folder names once they have", async () => {
+        logic.unmount()
+        let releaseOtherFiles!: () => void
+        const otherFilesHeld = new Promise<void>((resolve) => (releaseOtherFiles = resolve))
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
+                    if (search.startsWith('-')) {
+                        await otherFilesHeld
+                        return [200, paginated([{ id: 'dashboards', path: 'Reports', type: 'folder' }])]
+                    }
+                    return [
+                        200,
+                        paginated(search === 'type:folder' ? [{ id: 'billing', path: 'Billing', type: 'folder' }] : []),
+                    ]
+                },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true })
+        logic = workflowFoldersLogic()
+        logic.mount()
+
+        await waitFor(() => expect(logic.values.browserReady).toBe(true))
+        expect(logic.values.folderPaths).toContain('Billing')
+        logic.actions.startFolderDraft('')
+        logic.actions.setFolderDraftName('reports')
+        expect(logic.values.folderDraftError).toBe('Checking existing folder names. Try again in a moment.')
+
+        releaseOtherFiles()
+        await waitFor(() => expect(logic.values.folderDraftError).toBe(EXISTS))
     })
 
     it.each([
