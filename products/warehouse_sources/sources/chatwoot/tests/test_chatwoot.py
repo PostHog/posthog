@@ -10,6 +10,7 @@ import requests
 from products.warehouse_sources.sources.chatwoot._config import ChatwootSourceConfig
 from products.warehouse_sources.sources.chatwoot.chatwoot import (
     AUDIT_LOGS_UNAVAILABLE_ERROR,
+    INVALID_ACCOUNT_ID_ERROR,
     REPORTING_EVENTS_UNAVAILABLE_ERROR,
     ChatwootResumeConfig,
     _normalize_account_id,
@@ -76,29 +77,60 @@ class TestNormalizeHost:
 class TestNormalizeAccountId:
     @pytest.mark.parametrize("account_id", ["", None, "1/../2", "abc", "1?x=1"])
     def test_rejects_non_numeric(self, account_id):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=INVALID_ACCOUNT_ID_ERROR):
             _normalize_account_id(account_id)
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code, expected_valid",
-        [(404, False)],
+        "status_code, expected_valid, expected_substring",
+        [
+            (200, True, None),
+            (401, False, "rejected the credentials"),
+            (403, False, "administrator's access token"),
+            (404, False, "account not found"),
+            (500, False, "couldn't complete the connection check"),
+            (502, False, "couldn't complete the connection check"),
+        ],
     )
-    def test_status_mapping(self, status_code, expected_valid):
+    def test_status_mapping(self, status_code, expected_valid, expected_substring):
         with scripted_network(always(ScriptedResponse(status=status_code, json=[]))) as network:
-            is_valid, _ = validate_credentials(None, "1", "token", TEAM_ID)
-
-        assert is_valid is expected_valid
-        assert {request.path for request in network.requests_log} == {"/api/v1/accounts/1/agents"}
-
-    def test_connection_error_is_reported_not_raised(self):
-        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials(None, "1", "token", TEAM_ID)
 
-        assert is_valid is False
-        assert message is not None and "Could not connect" in message
+        assert is_valid is expected_valid
+        if expected_substring is None:
+            assert message is None
+        else:
+            assert message is not None and expected_substring in message
+            assert str(status_code) not in message
         assert {request.path for request in network.requests_log} == {"/api/v1/accounts/1/agents"}
+
+    @pytest.mark.parametrize(
+        "error, expected_substring",
+        [
+            (requests.ConnectionError("boom host.invalid pool"), "Couldn't connect to Chatwoot"),
+            (requests.ReadTimeout("boom host.invalid pool"), "took too long to respond"),
+            (requests.ConnectTimeout("boom host.invalid pool"), "took too long to respond"),
+            (requests.exceptions.SSLError("boom host.invalid pool"), "TLS certificate"),
+            (requests.exceptions.RequestException("boom host.invalid pool"), "Couldn't reach Chatwoot"),
+            (RuntimeError("boom host.invalid pool"), "Couldn't reach Chatwoot"),
+        ],
+    )
+    def test_request_errors_are_reported_not_raised(self, error, expected_substring):
+        # The fake network raises below the HTTP stack, which flattens every error to a
+        # ConnectionError, so patch the session to raise the exact exception type under test.
+        session = mock.MagicMock()
+        session.get.side_effect = error
+        with mock.patch(
+            "products.warehouse_sources.sources.chatwoot.chatwoot._make_session", return_value=session
+        ) as make_session:
+            is_valid, message = validate_credentials(None, "1", "token", TEAM_ID)
+
+        make_session.assert_called_once()
+        session.get.assert_called_once()
+        assert is_valid is False
+        assert message is not None and expected_substring in message
+        assert "boom" not in message and "host.invalid" not in message
 
     def test_plain_http_host_is_rejected(self):
         is_valid, message = validate_credentials("http://chatwoot.internal", "1", "token", TEAM_ID)
@@ -106,11 +138,15 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is not None and "HTTPS" in message
 
-    def test_non_numeric_account_id_is_rejected_without_a_request(self):
-        is_valid, message = validate_credentials(None, "not-a-number", "token", TEAM_ID)
+    @pytest.mark.parametrize("account_id", ["not-a-number", "", None, "accounts/1", "1/../2"])
+    def test_non_numeric_account_id_is_rejected_without_a_request(self, account_id):
+        with scripted_network([]) as network:
+            is_valid, message = validate_credentials(None, account_id, "token", TEAM_ID)
 
         assert is_valid is False
-        assert message is not None and "number" in message
+        assert message is not None and "must be a number" in message and "/accounts/" in message
+        assert message != INVALID_ACCOUNT_ID_ERROR
+        assert network.requests_log == []
 
     @pytest.mark.parametrize(
         "host",
