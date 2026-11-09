@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, patch
 
@@ -38,6 +39,7 @@ TWO_TABS = "https://example.com/two-tabs"
 SESSION_OFFSET_SECONDS = 10
 
 
+@time_machine.travel("2026-11-06 12:00:00", tick=False)
 class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

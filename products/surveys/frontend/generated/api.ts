@@ -482,8 +482,8 @@ export const getSurveysSiteSnapshotRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/surveys/${id}/site-snapshot/?${stringifiedParams}`
-        : `/api/projects/${projectId}/surveys/${id}/site-snapshot/`
+        ? `/api/projects/${projectId}/surveys/${id}/site_snapshot/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/${id}/site_snapshot/`
 }
 
 /**

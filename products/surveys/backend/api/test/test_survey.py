@@ -5903,7 +5903,7 @@ class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):
     def test_site_snapshot_needs_session_recording_read(self):
         survey = Survey.objects.create(team=self.team, name="Draft", type="popover")
 
-        response = self._do_request(f"/api/projects/{self.team.id}/surveys/{survey.id}/site-snapshot/?device=desktop")
+        response = self._do_request(f"/api/projects/{self.team.id}/surveys/{survey.id}/site_snapshot/?device=desktop")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 

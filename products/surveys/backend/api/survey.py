@@ -3047,7 +3047,6 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
     @action(
         methods=["GET"],
         detail=True,
-        url_path="site-snapshot",
         required_scopes=["survey:read", "session_recording:read"],
         pagination_class=None,
     )
