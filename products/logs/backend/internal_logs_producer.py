@@ -199,7 +199,7 @@ class InternalLogsProducer:
         )
         self._waiting.clear()
         self._buffered_bytes = sum(request.byte_count for request in self._in_flight)
-        # A cancelled request releases its bytes and its slot in `_run`.
+        # A cancelled request releases its bytes and its slot in `_release`.
         for task in self._in_flight.values():
             task.cancel()
         self._report()
@@ -212,16 +212,16 @@ class InternalLogsProducer:
             request = _take_request(batch)
             if batch.records:
                 self._waiting[key] = batch
-            self._in_flight[request] = asyncio.get_running_loop().create_task(self._run(request))
+            task = asyncio.get_running_loop().create_task(self._deliver(request))
+            # A callback, not a `finally`, because a task cancelled before it starts never runs its body.
+            task.add_done_callback(lambda _task, request=request: self._release(request))
+            self._in_flight[request] = task
         self._report()
 
-    async def _run(self, request: _Request) -> None:
-        try:
-            await self._deliver(request)
-        finally:
-            self._in_flight.pop(request, None)
-            self._buffered_bytes -= request.byte_count
-            self._pump()
+    def _release(self, request: _Request) -> None:
+        self._in_flight.pop(request, None)
+        self._buffered_bytes -= request.byte_count
+        self._pump()
 
     def _has_stopped(self) -> bool:
         return self._stopped
@@ -288,6 +288,8 @@ class InternalLogsProducer:
                     INTERNAL_LOGS_HTTP_HEADER: sign_internal_logs(self._config.signing_keys, source, team_id),
                 },
                 timeout=aiohttp.ClientTimeout(total=max(0.001, deadline - time.monotonic())),
+                # A redirect turns the POST into a GET without a body, which can still answer 200.
+                allow_redirects=False,
             ) as response:
                 await response.read()
                 status = response.status
@@ -297,7 +299,8 @@ class InternalLogsProducer:
             retriable = status >= 500 or status in (408, 429)
             return _AttemptResult(outcome="retry" if retriable else "rejected", detail=str(status))
         except Exception as error:
-            return _AttemptResult(outcome="retry", detail=repr(error))
+            # The type only, because the repr of a response error holds the signed request headers.
+            return _AttemptResult(outcome="retry", detail=type(error).__name__)
 
 
 def _encode_otlp_log_record(entry: InternalLogEntry) -> bytes:

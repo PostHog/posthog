@@ -54,15 +54,21 @@ async def _api_token(team_id: int) -> str | None:
 
 
 @pytest.mark.parametrize(
-    "statuses, max_buffered_bytes, expected",
+    "statuses, max_buffered_bytes, drain_timeout_seconds, expected",
     [
-        ([503, 200], 1024 * 1024, {"sent": 1}),
-        ([400], 1024 * 1024, {"rejected": 1}),
-        ([], 1, {"dropped": 1}),
+        ([503, 200], 1024 * 1024, 5, {"sent": 1}),
+        ([400], 1024 * 1024, 5, {"rejected": 1}),
+        ([302], 1024 * 1024, 5, {"rejected": 1}),
+        ([], 1, 5, {"dropped": 1}),
+        ([], 1024 * 1024, 0, {"abandoned": 1}),
     ],
 )
 async def test_producer_counts_each_record_once_by_outcome(
-    monkeypatch: pytest.MonkeyPatch, statuses: list[int], max_buffered_bytes: int, expected: dict[str, int]
+    monkeypatch: pytest.MonkeyPatch,
+    statuses: list[int],
+    max_buffered_bytes: int,
+    drain_timeout_seconds: float,
+    expected: dict[str, int],
 ) -> None:
     monkeypatch.setattr(random, "random", lambda: 0.0)
     producer = InternalLogsProducer(
@@ -91,15 +97,17 @@ async def test_producer_counts_each_record_once_by_outcome(
 
     with aioresponses() as mocked:
         for status in statuses:
-            mocked.post(URL, status=status)
+            mocked.post(URL, status=status, headers={"Location": "http://capture-logs.test/elsewhere"})
         producer.enqueue("hog_flow", entries)
         producer.flush()
-        await producer.drain(timeout_seconds=5)
+        await producer.drain(timeout_seconds=drain_timeout_seconds)
 
     after = _outcome_counts()
     assert {outcome: after[outcome] - before[outcome] for outcome in OUTCOMES} == {
         outcome: expected.get(outcome, 0) for outcome in OUTCOMES
     }
+    assert REGISTRY.get_sample_value("logs_internal_producer_buffered_bytes") == 0
+    assert REGISTRY.get_sample_value("logs_internal_producer_in_flight_requests") == 0
     calls = [call for url_calls in mocked.requests.values() for call in url_calls]
     assert len(calls) == len(statuses)
     for call in calls:
