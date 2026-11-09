@@ -353,10 +353,12 @@ def _route_organization_id(request: HttpRequest, user: Any, kwargs: dict[str, An
         if team_id == "@current":
             team_id = getattr(user, "current_team_id", None)
         return _team_organization_id(team_id)
-    if organization_id is None or organization_id == "@current":
+    if organization_id == "@current":
         organization_id = getattr(user, "current_organization_id", None)
-        if organization_id is None:
-            organization_id = getattr(getattr(user, "team", None), "organization_id", None)
+    elif organization_id is None:
+        organization_id = getattr(getattr(user, "team", None), "organization_id", None) or getattr(
+            user, "current_organization_id", None
+        )
     try:
         return str(UUID(str(organization_id))) if organization_id else None
     except ValueError:

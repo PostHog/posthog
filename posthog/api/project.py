@@ -1285,6 +1285,7 @@ class ProjectBackwardCompatSerializer(
         )
 
         request.user.current_team = team
+        request.user.current_organization_id = team.organization_id
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()
 
