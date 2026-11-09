@@ -49,6 +49,7 @@ import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { LARGEST_SEND_FILE_BYTES } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
+import { MESSAGE_MAX_BYTES } from './message-estimate'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 class ThrottlingException extends Error {
@@ -1651,18 +1652,38 @@ describe('EmailService', () => {
                 })
             })
 
-            it.each([
-                ['was never uploaded', () => Promise.resolve(attachmentFile())],
-                ['belongs to another team', async () => await uploadAttachment(team.id + 1, { filename: 'a.pdf' })],
-            ])('fails as attachments_missing and sends nothing when a file %s', async (_name, otherFile) => {
+            const preheaderThatOverflowsTheMessage = 'x'.repeat((MESSAGE_MAX_BYTES * 3) / 4)
+
+            it.each<[string, () => Promise<Partial<CyclotronInvocationQueueParametersEmailType>>, string]>([
+                [
+                    'a file was never uploaded',
+                    () => Promise.resolve({ attachments: [pdf.metadata, attachmentFile().metadata] }),
+                    'attachments_missing',
+                ],
+                [
+                    'a file belongs to another team',
+                    async () => ({
+                        attachments: [
+                            pdf.metadata,
+                            (await uploadAttachment(team.id + 1, { filename: 'a.pdf' })).metadata,
+                        ],
+                    }),
+                    'attachments_missing',
+                ],
+                [
+                    'its preheader carries the final message past the size limit',
+                    () => Promise.resolve({ attachments: [pdf.metadata], preheader: preheaderThatOverflowsTheMessage }),
+                    'message_too_large',
+                ],
+            ])('sends nothing and fails when %s', async (_name, emailParams, reason) => {
                 sesAccepts()
-                send(pdf, await otherFile())
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, ...(await emailParams()) })
 
                 const result = await service.executeSendEmail(invocation)
 
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.finished).toBe(true)
-                expect(result.error).toMatch(/^attachments_missing: /)
+                expect(result.error).toMatch(new RegExp(`^${reason}: `))
             })
 
             const loadRetry = { finished: false, error: undefined, loadRetries: 1, rescheduled: true, failed: false }

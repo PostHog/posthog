@@ -48,6 +48,7 @@ import {
 import { S3AttachmentStore, buildAttachmentStore } from './services/messaging/attachment-store'
 import { ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX, AttachmentUploads } from './services/messaging/attachment-uploads'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
+import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './services/messaging/message-estimate'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { template as emailTemplate } from './templates/_destinations/email/email.template'
 import { compileHog } from './templates/compiler'
@@ -2500,17 +2501,32 @@ describe('CDP API', () => {
                     expect(sent.status).toEqual(202)
                     expect(sent.body).toMatchObject({ replayed: false })
                     expect(replayed.status).toEqual(202)
-                    expect(replayed.body).toEqual({
-                        status: 'queued',
-                        invocation_id: sent.body.invocation_id,
-                        replayed: true,
-                    })
+                    expect(replayed.body).toEqual({ ...sent.body, replayed: true })
                     expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
                     expect(emailStatusRows()).toEqual([
                         expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
                     ])
                 }
             )
+
+            it('replays a key an older pod recorded without totals as a send without files', async () => {
+                const keys = api['transactionalEmailIdempotencyKeys']
+                const recordLikeAnOlderPod = keys.markQueued.bind(keys)
+                jest.spyOn(keys, 'markQueued').mockImplementationOnce((teamId, key, fingerprint, invocationId) =>
+                    recordLikeAnOlderPod(teamId, key, fingerprint, invocationId)
+                )
+                const sent = await sendKeyedOn('transactional_email/send', { ...body, send: codeSend })
+
+                const replayed = await sendKeyedOn('transactional_email/send', { ...body, send: codeSend })
+
+                expect(replayed.body).toEqual({
+                    status: 'queued',
+                    invocation_id: sent.body.invocation_id,
+                    replayed: true,
+                    attachment_count: 0,
+                    attachment_bytes: 0,
+                })
+            })
 
             it.each([
                 [
@@ -2735,9 +2751,12 @@ describe('CDP API', () => {
         })
 
         describe('with files', () => {
-            // Travels as 39,476,063 bytes with the headers, so bodies over 523,937 bytes do not fit beside it.
             const large = fileOf(Buffer.alloc(28_800_000, 'a'))
+            const roomForBodies = MESSAGE_MAX_BYTES - estimateMessageBytes([large.size])
+            const bodyThatOverflows = 'x'.repeat(roomForBodies)
+            const chunkThatFitsOnceNotTwice = 'x'.repeat(Math.ceil(roomForBodies / 2))
             const newKey = () => `key-${new UUIDT().toString()}`
+            type SendOptions = { acceptedSend?: object; flowId?: string; variables?: Record<string, string> }
             const sendWithFiles = (
                 key: string,
                 attachments: object[],
@@ -2745,7 +2764,7 @@ describe('CDP API', () => {
                     acceptedSend = codeSend as object,
                     flowId = hogFlow.id,
                     variables = body.variables as Record<string, string>,
-                } = {}
+                }: SendOptions = {}
             ) =>
                 sendAccepted(flowId, {
                     ...body,
@@ -2890,66 +2909,83 @@ describe('CDP API', () => {
                 }
             )
 
-            it.each([
-                ['content whose body fits beside the files', false, 1, true, true],
-                ['content whose body does not fit beside the files', false, 600_000, false, true],
-                // The request carries 300 KB, which would fit, and the template renders it twice.
-                ['a template whose rendered body fits beside the files', true, 1, true, true],
-                ['a template whose rendered body does not fit beside the files', true, 300_000, false, true],
-                ['a template whose step cannot be built at accept, as no body', true, 300_000, true, false],
-            ])('counts the bodies of %s', async (_name, fromTemplate, length, fits, buildsAtAccept) => {
-                const chunk = 'x'.repeat(length)
-                if (!buildsAtAccept) {
-                    jest.spyOn(api['hogFlowFunctionsService'], 'buildHogFunction').mockRejectedValueOnce(
-                        new Error('template could not be built')
-                    )
-                }
-                let options: Parameters<typeof sendWithFiles>[2]
-                if (fromTemplate) {
-                    await insertHogFunctionTemplate(hub.postgres, emailTemplate)
-                    const flow = await insertHogFlow(
-                        transactionalFlow('api', 'active', 'transactional', {
-                            email: {
-                                templating: 'liquid',
-                                value: {
-                                    to: { email: '{{ event.properties.to }}', name: '' },
-                                    from: {},
-                                    subject: 'Your report',
-                                    html: '<p>{{ variables.chunk }}</p><p>{{ variables.chunk }}</p>',
-                                    text: 'Your report is attached',
-                                },
+            const contentOf = (html: string): SendOptions => ({
+                acceptedSend: { ...codeSend, content: { subject: 'Your report', html } },
+            })
+            const storedTemplateRendering = async (
+                email: Record<string, string>,
+                chunk: string
+            ): Promise<SendOptions> => {
+                await insertHogFunctionTemplate(hub.postgres, emailTemplate)
+                const flow = await insertHogFlow(
+                    transactionalFlow('api', 'active', 'transactional', {
+                        email: {
+                            templating: 'liquid',
+                            value: {
+                                to: { email: '{{ event.properties.to }}', name: '' },
+                                from: {},
+                                subject: 'Your report',
+                                text: 'Your report is attached',
+                                ...email,
                             },
-                        })
-                    )
-                    options = {
-                        flowId: flow.id,
-                        variables: { chunk },
-                        acceptedSend: { tracking: { captureEngagement: false } },
-                    }
-                } else {
-                    options = { acceptedSend: { ...codeSend, content: { subject: 'Your report', html: chunk } } }
+                        },
+                    })
+                )
+                return {
+                    flowId: flow.id,
+                    variables: { chunk },
+                    acceptedSend: { tracking: { captureEngagement: false } },
                 }
-                const key = newKey()
+            }
+            const chunkRenderedTwice = { html: '<p>{{ variables.chunk }}</p><p>{{ variables.chunk }}</p>' }
+            const chunkAsPreheader = { html: '<p>Your report</p>', preheader: '{{ variables.chunk }}' }
+            const chunkRenderedTwiceBehindAnUnclosedTag = { html: `{% if variables.chunk %}${chunkRenderedTwice.html}` }
 
-                const res = await sendWithFiles(key, [reference(large)], options)
+            it.each<[string, () => Promise<SendOptions>]>([
+                ['content', () => Promise.resolve(contentOf('x'))],
+                ['a stored template whose rendered body', () => storedTemplateRendering(chunkRenderedTwice, 'x')],
+                [
+                    'a stored template that fails to parse at accept, counted as no body, whose body',
+                    () => storedTemplateRendering(chunkRenderedTwiceBehindAnUnclosedTag, chunkThatFitsOnceNotTwice),
+                ],
+            ])('accepts a send with files and %s fits beside them', async (_name, arrange) => {
+                const res = await sendWithFiles(newKey(), [reference(large)], await arrange())
 
-                if (fits) {
-                    expect(res.status).toBe(202)
-                    expect(res.body).toMatchObject({ attachment_count: 1, attachment_bytes: large.size })
-                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                } else {
+                expect(res.status).toBe(202)
+                expect(res.body).toMatchObject({ attachment_count: 1, attachment_bytes: large.size })
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            })
+
+            it.each<[string, () => Promise<SendOptions>]>([
+                ['content', () => Promise.resolve(contentOf(bodyThatOverflows))],
+                [
+                    'a stored template that renders a chunk twice',
+                    () => storedTemplateRendering(chunkRenderedTwice, chunkThatFitsOnceNotTwice),
+                ],
+                [
+                    'a stored template whose preheader goes into the html',
+                    () => storedTemplateRendering(chunkAsPreheader, bodyThatOverflows),
+                ],
+            ])(
+                'refuses a send with files and %s too large to fit beside them, and its key sends smaller files',
+                async (_name, arrange) => {
+                    const options = await arrange()
+                    const key = newKey()
+
+                    const res = await sendWithFiles(key, [reference(large)], options)
+
                     expect(res.status).toBe(400)
                     expect(res.body).toEqual({
                         error: 'message_too_large',
                         message_bytes: expect.any(Number),
-                        max_message_bytes: 40_000_000,
+                        max_message_bytes: MESSAGE_MAX_BYTES,
                         attachment_bytes: large.size,
                     })
-                    expect(res.body.message_bytes).toBeGreaterThan(40_000_000)
+                    expect(res.body.message_bytes).toBeGreaterThan(MESSAGE_MAX_BYTES)
                     expect(mockQueueInvocations).not.toHaveBeenCalled()
                     expect((await sendWithFiles(key, [reference(invoice)], options)).status).toBe(202)
                 }
-            })
+            )
         })
 
         it.each<[string, () => { payload: Record<string, unknown>; verify?: () => void }]>([
@@ -3091,11 +3127,7 @@ describe('CDP API', () => {
                 const retry = await sendOn(route, hogFlow.id, headers, keyed)
 
                 expect(retry.status).toEqual(202)
-                expect(retry.body).toEqual({
-                    status: 'queued',
-                    invocation_id: first.body.invocation_id,
-                    replayed: true,
-                })
+                expect(retry.body).toEqual({ ...first.body, replayed: true })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
             })
         })

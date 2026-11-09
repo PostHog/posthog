@@ -79,6 +79,7 @@ import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
+import { maybeAddPreheaderToEmail } from './services/messaging/helpers/preheader'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
@@ -177,6 +178,8 @@ function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort
     }
     return { id: id as number, teamId: team_id as number, waitUntil: waitUntil.toISOString() }
 }
+
+const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 
@@ -1407,6 +1410,8 @@ export class CdpApi {
                                 status: 'queued',
                                 invocation_id: reservation.invocationId,
                                 replayed: true,
+                                ...NO_ATTACHMENTS,
+                                ...reservation.replayFields,
                             })
                         case 'in_flight':
                             return reply('idempotency_key_in_flight', 409, { error: 'idempotency_key_in_flight' })
@@ -1416,7 +1421,7 @@ export class CdpApi {
                             return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
                     }
                 }
-                let attachmentTotals = { attachment_count: 0, attachment_bytes: 0 }
+                let attachmentTotals = NO_ATTACHMENTS
                 try {
                     stages.start('checks')
                     const refusal = await this.refuseTransactionalEmail(
@@ -1465,7 +1470,13 @@ export class CdpApi {
                 }
                 if (idempotencyKey) {
                     stages.start('idempotency')
-                    await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
+                    await idempotencyKeys.markQueued(
+                        team.id,
+                        idempotencyKey,
+                        fingerprint,
+                        invocation.id,
+                        attachmentTotals
+                    )
                 }
                 stages.start('metrics_flush')
                 this.emailStatusService.queue({
@@ -1525,7 +1536,8 @@ export class CdpApi {
                 variables: invocation.state.variables,
             })
             const email = rendered.state.globals.inputs?.email
-            return [email?.html, email?.text].filter((body): body is string => typeof body === 'string')
+            const html = typeof email?.html === 'string' ? maybeAddPreheaderToEmail(email.html, email.preheader) : null
+            return [html, email?.text].filter((body): body is string => typeof body === 'string')
         } catch (error) {
             logger.warn('⚠️', 'Could not render the email step of a send with files', {
                 team_id: hogFlow.team_id,
