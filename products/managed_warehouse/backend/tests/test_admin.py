@@ -223,88 +223,6 @@ class TestDuckgresServerAdminProvision(BaseTest):
         server.refresh_from_db()
         assert server.trino_password == "trino-test-secret"
 
-    @parameterized.expand([False, True])
-    def test_provision_post_calls_managed_warehouse_bypassing_flag(self, internal_only: bool) -> None:
-        request = self._post(
-            "/admin/posthog/duckgresserver/provision/",
-            {
-                "organization_id": str(self.organization.id),
-                "team_id": str(self.team.id),
-                "database_name": "my-warehouse",
-                "schema_name": "prod_events",
-                **({"internal_only": "on"} if internal_only else {}),
-            },
-        )
-        body = {"username": "root", "password": "sup3r-secret-pw"}
-        with patch(f"{MW}.provision", return_value=Response(body, status=202)) as mock_provision:
-            response = self.admin.provision_view(request)
-
-        mock_provision.assert_called_once_with(
-            self.organization.id,
-            "my-warehouse",
-            self.team.id,
-            "prod_events",
-            require_enabled=False,
-            triggered_by=f"django-admin:{self.user.email}",
-            internal_only=internal_only,
-        )
-        # Success renders the credentials once, in the page body...
-        assert response.status_code == 200
-        assert b"sup3r-secret-pw" in response.content
-        # ...and the password must NOT leak into the message framework (it persists
-        # to the session/cookie store).
-        assert all("sup3r-secret-pw" not in m for m in _messages(request))
-
-    def test_provision_failure_surfaces_error_without_rendering_password(self) -> None:
-        request = self._post(
-            "/admin/posthog/duckgresserver/provision/",
-            {
-                "organization_id": str(self.organization.id),
-                "team_id": str(self.team.id),
-                "database_name": "my-warehouse",
-                "schema_name": "prod_events",
-            },
-        )
-        with patch(f"{MW}.provision", return_value=Response({"error": "nope"}, status=400)):
-            response = self.admin.provision_view(request)
-
-        # Failures still flash the error and redirect back to the form.
-        assert response.status_code == 302
-        assert any("Failed (status 400): nope" in m for m in _messages(request))
-
-    def test_provision_rejects_team_org_mismatch(self) -> None:
-        other_org = Organization.objects.create(name="Other")
-        other_team = Team.objects.create(organization=other_org)
-        request = self._post(
-            "/admin/posthog/duckgresserver/provision/",
-            {
-                "organization_id": str(self.organization.id),
-                "team_id": str(other_team.id),
-                "database_name": "my-warehouse",
-                "schema_name": "prod_events",
-            },
-        )
-        with patch(f"{MW}.provision") as mock_provision:
-            self.admin.provision_view(request)
-
-        mock_provision.assert_not_called()
-        assert any("does not belong to organization" in m for m in _messages(request))
-
-    def test_provision_surfaces_helper_error(self) -> None:
-        request = self._post(
-            "/admin/posthog/duckgresserver/provision/",
-            {
-                "organization_id": str(self.organization.id),
-                "team_id": str(self.team.id),
-                "database_name": "my-warehouse",
-                "schema_name": "prod_events",
-            },
-        )
-        with patch(f"{MW}.provision", return_value=Response({"error": "boom"}, status=400)):
-            self.admin.provision_view(request)
-
-        assert any("Failed (status 400): boom" in m for m in _messages(request))
-
     def test_change_form_links_to_the_console_panel(self) -> None:
         server = self._server()
         self.client.force_login(self.user)
@@ -338,6 +256,7 @@ class TestManagedWarehouseConsolePanel(BaseTest):
     def test_panel_offers_operations_only_for_a_provisioned_organization(self) -> None:
         response = self.client.get(self.organization_url)
         assert "Not provisioned" in response.content.decode()
+        assert "Provision warehouse" in response.content.decode()
         assert "Deprovision warehouse" not in response.content.decode()
 
         self._server()
@@ -348,6 +267,67 @@ class TestManagedWarehouseConsolePanel(BaseTest):
         assert "duckgres.example.com" in content
         assert "Enable backfill for a team" in content and "Deprovision warehouse" in content
         assert "example-password" not in content
+
+    def _provision(self, team_id: int, **extra: str):
+        url = f"{self.organization_url}managed-warehouse/provision/"
+        form = {
+            "team_id": str(team_id),
+            "database_name": "my-warehouse",
+            "schema_name": "prod_events",
+            "reason": "Customer onboarding",
+            **extra,
+        }
+        preview = self.client.post(url, form)
+        if preview.status_code != 200:
+            return preview, None
+        return preview, self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+    @parameterized.expand([("customer", False), ("internal_testing", True)])
+    def test_provision_shows_the_root_password_once_after_a_preview(self, _name: str, internal_only: bool) -> None:
+        body = {"username": "root", "password": "example-root-password"}
+        with patch(f"{MW}.provision", return_value=Response(body, status=202)) as mock_provision:
+            preview, confirmed = self._provision(self.team.id, **({"internal_only": "on"} if internal_only else {}))
+            assert confirmed is not None
+            result = self.client.get(confirmed["Location"])
+
+        assert "my-warehouse.dw." in preview.content.decode()
+        mock_provision.assert_called_once_with(
+            self.organization.id,
+            "my-warehouse",
+            self.team.id,
+            "prod_events",
+            require_enabled=False,
+            triggered_by=f"django-admin:{self.user.email}",
+            internal_only=internal_only,
+        )
+        assert confirmed.status_code == 302
+        assert "example-root-password" in result.content.decode()
+        assert all("example-root-password" not in m for m in _messages(result.wsgi_request))
+
+    def test_provision_failure_shows_the_error_on_the_form(self) -> None:
+        with patch(f"{MW}.provision", return_value=Response({"error": "nope"}, status=400)):
+            _, confirmed = self._provision(self.team.id)
+
+        assert confirmed is not None
+        assert confirmed.status_code == 400
+        assert "Failed (status 400): nope" in confirmed.content.decode()
+
+    def test_provision_refuses_a_team_of_another_organization_in_the_preview(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
+        with patch(f"{MW}.provision") as mock_provision:
+            preview, confirmed = self._provision(other_team.id)
+
+        assert preview.status_code == 400
+        assert confirmed is None
+        mock_provision.assert_not_called()
+        assert "does not belong to organization" in preview.content.decode()
+
+    def test_old_provision_url_points_to_the_console(self) -> None:
+        response = self.client.get("/admin/managed_warehouse/duckgresserver/provision/")
+
+        assert response.status_code == 302
+        assert response["Location"] == "/admin/console/"
+        assert any("Provisioning a managed warehouse moved" in m for m in _messages(response.wsgi_request))
 
     def test_enable_backfill_calls_helper_bypassing_flag(self) -> None:
         self._server()

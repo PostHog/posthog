@@ -1,8 +1,8 @@
 from collections.abc import Callable
 from uuid import UUID
 
-from django.contrib import admin
-from django.http import Http404, HttpRequest, HttpResponse
+from django.contrib import admin, messages
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.urls import path, re_path
 
 from posthog.admin.console import views
@@ -62,6 +62,18 @@ def _moved_duckgres_server_action(target: str) -> Callable[..., HttpResponse]:
         return organization_redirect(request, pk=organization_id)
 
     return view
+
+
+def _moved_duckgres_server_provision(request: HttpRequest) -> HttpResponse:
+    # The old page asked for the organization in its form, so its URL names none. Provisioning is now an
+    # operation on each organization's page.
+    messages.info(
+        request,
+        "Provisioning a managed warehouse moved to the Managed warehouse panel on the organization's page in "
+        "PostHog Admin. Look up a team of the organization, then open its organization.",
+    )
+    query = request.META.get("QUERY_STRING", "")
+    return HttpResponseRedirect("/admin/console/" + (f"?{query}" if query else ""))
 
 
 # Every route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up, and admin_view
@@ -148,6 +160,10 @@ urlpatterns = [
         )
         for old, target in MOVED_DUCKGRES_SERVER_ACTIONS.items()
     ],
+    path(
+        "admin/managed_warehouse/duckgresserver/provision/",
+        admin.site.admin_view(_moved_duckgres_server_provision),
+    ),
     path(
         "admin/posthog/organization/bulk-deactivate/",
         MovedToConsole.page_redirect("Bulk deactivation", "/admin/console/tools/bulk-deactivate-organizations/"),

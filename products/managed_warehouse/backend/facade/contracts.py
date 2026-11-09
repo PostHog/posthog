@@ -41,6 +41,7 @@ __all__ = [
     "ManagedWarehousePostgresConnection",
     "ManagedWarehouseTrinoConnection",
     "ManagedWarehouseTrinoConnectionUnavailable",
+    "ProvisionedWarehouseLogin",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
@@ -54,6 +55,7 @@ __all__ = [
     "ServiceCredentialTrinoConnect",
     "ServiceCredentialUnavailable",
     "StaffActionOutcome",
+    "StaffProvisionPreview",
     "TrinoCompiledQuery",
     "TrinoExpansionMode",
 ]
@@ -488,7 +490,29 @@ class DuckgresServerSummary:
 
 
 @frozen
+class ProvisionedWarehouseLogin:
+    """The root login of a newly provisioned warehouse. The control plane returns the password only once."""
+
+    host: str
+    port: int
+    database: str
+    username: str
+    # Empty when the control plane returned no password.
+    password: str = field(repr=False)
+
+
+@frozen
 class StaffActionOutcome:
     ok: bool
     status_code: int
     message: str
+    login: ProvisionedWarehouseLogin | None = None
+
+
+@frozen
+class StaffProvisionPreview:
+    """What provisioning would set up, for staff to confirm. `problem` says why it cannot run."""
+
+    team_name: str
+    host: str
+    problem: str | None = None
