@@ -6,7 +6,8 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import activity_visibility_manager
 
-from products.annotations.backend.facade.change_feed import Change, ChangeFeed, ChangeKind, ChangeWindow, KindVisibility
+from products.annotations.backend.facade.contracts import Change, ChangeFeed, ChangeWindow, KindVisibility
+from products.annotations.backend.facade.enums import AnnotationScope, ChangeKind
 from products.annotations.backend.models.annotation import Annotation
 from products.error_tracking.backend.facade import api as error_tracking_api
 
@@ -97,11 +98,11 @@ def _annotation_changes(
 ) -> list[Change]:
     queryset = (
         Annotation.objects.select_related("created_by")
-        .filter(Q(scope=Annotation.Scope.ORGANIZATION, organization_id=organization_id) | Q(team_id=team_id))
+        .filter(Q(scope=AnnotationScope.ORGANIZATION, organization_id=organization_id) | Q(team_id=team_id))
         .filter(deleted=False, date_marker__gte=window.start, date_marker__lte=window.end)
         # Matches the annotations list: a note on a soft-deleted insight or dashboard is hidden.
-        .exclude(scope=Annotation.Scope.INSIGHT, dashboard_item__deleted=True)
-        .exclude(scope=Annotation.Scope.DASHBOARD, dashboard__deleted=True)
+        .exclude(scope=AnnotationScope.INSIGHT, dashboard_item__deleted=True)
+        .exclude(scope=AnnotationScope.DASHBOARD, dashboard__deleted=True)
     )
     if visibility.allowed_ids is not None:
         queryset = queryset.filter(id__in=visibility.allowed_ids)
