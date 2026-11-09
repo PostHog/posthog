@@ -721,7 +721,9 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 writeUrl()
             },
             setValue: ({ value, fromUrl }) => {
-                if (!fromUrl) {
+                // A link can spell a filter another way, such as Folder: for in:, so the URL takes the canonical
+                // spelling. The rewrite parses to the same filters, so the next URL sync does not call setValue again.
+                if (!fromUrl || rawSearchParam('q') !== serializeFacetQuery(value.filters)) {
                     writeUrl()
                 }
                 const text = value.text.trim()
