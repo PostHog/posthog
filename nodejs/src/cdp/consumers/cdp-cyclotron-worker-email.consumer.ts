@@ -61,7 +61,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                 deferrals.push(deferral(invocation))
             }
         }
-        const deferring = deferrals.length ? this.cyclotronJobQueue.deferInvocations(deferrals) : Promise.resolve()
+        const deferring = deferrals.length ? this.deferWithHeartbeat(deferrals) : Promise.resolve()
         // Settled results never reject, so a send that fails while the plain batch runs leaves no unhandled rejection.
         const besideTheBatch = Promise.allSettled([deferring, ...sends])
 
@@ -75,6 +75,17 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         return {
             backgroundTask: settleAll([batch.backgroundTask, besideTheBatch.then(rethrowFirstFailure)]),
             invocationResults: batch.invocationResults,
+        }
+    }
+
+    private async deferWithHeartbeat(
+        deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]
+    ): Promise<void> {
+        const stopHeartbeat = this.startPeriodicHeartbeat(deferrals.map(({ invocation }) => invocation))
+        try {
+            await this.cyclotronJobQueue.deferInvocations(deferrals)
+        } finally {
+            stopHeartbeat()
         }
     }
 

@@ -9,8 +9,9 @@ import { CyclotronJobInvocation } from '~/cdp/types'
 const MIB = 1024 * 1024
 const EMAIL_MESSAGE_MAX_BYTES = 40_000_000
 const LARGEST_SEND_FILE_BYTES = (EMAIL_MESSAGE_MAX_BYTES * 3) / 4
-// The raw bytes sit outside the V8 heap. The Base64 copy and the JSON body the SES client builds sit on it.
-const RESERVED_BYTES_PER_FILE_BYTE = 5
+// The raw bytes sit outside the V8 heap. The Base64 copy and the JSON body the SES client builds sit on it. Email text
+// outside Latin-1 makes V8 store that body at two bytes per character, Base64 included, which the reservation covers.
+const RESERVED_BYTES_PER_FILE_BYTE = 7
 const HEAP_BYTES_PER_FILE_BYTE = 3
 const BYTES_PER_SEND = 2 * MIB
 const PLAIN_BATCH_ALLOWANCE_BYTES = 512 * MIB
@@ -96,7 +97,13 @@ const sendCalls = new AsyncLocalStorage<Set<Promise<unknown>>>()
 // A send's call holds its bytes until it settles, even after the send stopped waiting for it on a deadline or on a
 // sibling call's failure.
 export function holdUntilSettled(call: Promise<unknown>): void {
-    sendCalls.getStore()?.add(call)
+    const calls = sendCalls.getStore()
+    if (!calls) {
+        return
+    }
+    calls.add(call)
+    const forget = (): void => void calls.delete(call)
+    call.then(forget, forget)
 }
 
 export async function callsSettledWithin(maxWaitMs: number): Promise<void> {
@@ -117,9 +124,7 @@ export async function callsSettledWithin(maxWaitMs: number): Promise<void> {
 async function everyCallSettled(): Promise<void> {
     const calls = sendCalls.getStore()
     while (calls?.size) {
-        const pending = [...calls]
-        await Promise.allSettled(pending)
-        pending.forEach((call) => calls.delete(call))
+        await Promise.allSettled([...calls])
     }
 }
 

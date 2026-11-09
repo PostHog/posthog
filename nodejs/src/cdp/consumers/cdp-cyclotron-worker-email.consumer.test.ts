@@ -200,14 +200,17 @@ describe('CdpCyclotronWorkerEmail', () => {
             expect(scheduledAt.getTime() - Date.now()).toBeLessThanOrEqual(20_000)
         })
 
-        it('heartbeats a send with files until its result write settles', async () => {
-            const { worker, queue } = workerWith(roomFor(1), { CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 5 })
+        it.each([
+            ['an admitted send with files until its result write settles', roomFor(1), 'queueInvocationResults'],
+            ['a deferred send with files until its deferral write settles', roomFor(0), 'deferInvocations'],
+        ] as const)('heartbeats %s', async (_, limits, write) => {
+            const { worker, queue } = workerWith(limits, { CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 5 })
             const send = withFiles()
             jest.spyOn(worker, 'processInvocations').mockImplementation((invocations) =>
                 Promise.resolve(resultsOf(invocations))
             )
             let finishWrite!: () => void
-            queue.queueInvocationResults.mockImplementation(() => new Promise((resolve) => (finishWrite = resolve)))
+            queue[write].mockImplementation(() => new Promise<void>((resolve) => (finishWrite = resolve)))
 
             const { backgroundTask } = await worker.processBatch([send])
             await waitForExpect(() => expect(finishWrite).toBeDefined())
@@ -218,7 +221,7 @@ describe('CdpCyclotronWorkerEmail', () => {
             finishWrite()
             await backgroundTask
 
-            expect(queue.heartbeatInvocations).toHaveBeenLastCalledWith([send])
+            expect(queue.heartbeatInvocations).toHaveBeenLastCalledWith([expect.objectContaining({ id: send.id })])
         })
 
         it.each([
