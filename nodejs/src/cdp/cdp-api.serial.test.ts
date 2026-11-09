@@ -3638,10 +3638,10 @@ describe('CDP API', () => {
             expect(res.body.error).toBe('invalid_request')
         })
 
-        // The largest file that fits 40,000,000 bytes after Base64 with line breaks, plus 64 KiB of headers.
+        const LARGEST_FILE_IN_ONE_MESSAGE = 29_182_875
         it.each([
-            ['one file at the largest size that fits', [29_182_875], null],
-            ['one file a byte over it', [29_182_876], 0],
+            ['one file at the largest size that fits', [LARGEST_FILE_IN_ONE_MESSAGE], null],
+            ['one file a byte over it', [LARGEST_FILE_IN_ONE_MESSAGE + 1], 0],
             ['two files that only fit apart', [10_000_000, 20_000_000], 1],
         ])('answers %s', async (_name, sizes, largestIndex) => {
             const body = sized(...sizes)
@@ -3710,8 +3710,7 @@ describe('CDP API', () => {
         })
 
         it('lets a request that fits through while larger requests at the same time are refused', async () => {
-            // Signing is local, so the requests reach the counter together.
-            const signsEverything = {
+            const signsEveryFileWithoutWaiting = {
                 prepareUploads: (_teamId: number, files: { sha256: string }[]) =>
                     Promise.resolve(
                         files.map(({ sha256 }) => ({
@@ -3724,7 +3723,10 @@ describe('CDP API', () => {
                         }))
                     ),
             } as unknown as S3AttachmentStore
-            const uploads = uploadsFor(`${team.id}`, { maxBytesPerTeamDay: 100, attachmentStore: signsEverything })
+            const uploads = uploadsFor(`${team.id}`, {
+                maxBytesPerTeamDay: 100,
+                attachmentStore: signsEveryFileWithoutWaiting,
+            })
             const request = (size: number) => uploads.prepare(team.id, sized(size))
             expect((await request(90)).status).toBe(200)
 
