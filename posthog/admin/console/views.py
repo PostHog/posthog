@@ -269,13 +269,16 @@ def _require_gate(
         raise PermissionDenied(f"Only {gate.label} can run {operation.label}")
 
 
-# Query keys that name the record a tool operation acts on. Other values can hold customer data,
-# for example a TopHog distinct ID that is an email address, so the audit log keeps only their key.
+# Query keys that name what a tool operation acts on, such as a record, a health check or an ingestion
+# pipeline. Other values can hold customer data, for example a TopHog distinct ID that is an email
+# address, so the audit log keeps only their key.
 AUDITED_QUERY_KEYS = frozenset(
     {
+        "check",
         "id",
         "organization",
         "organization_id",
+        "pipelines",
         "project",
         "project_id",
         "schema",

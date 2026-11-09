@@ -736,14 +736,20 @@ class TestAdminConsoleViews(BaseTest):
 
         with capture_logs() as logs:
             response = self.client.post(
-                f"/admin/console/tools/tophog/extend-{restriction.pk}/?token=phc_tophog&distinct_id=new-id&team_id=7",
+                f"/admin/console/tools/tophog/extend-{restriction.pk}/"
+                "?token=phc_tophog&distinct_id=new-id&pipelines=sessionreplay&team_id=7",
                 data,
             )
 
         assert response.status_code == expected_status
         if expected_status == 302:
             started = next(log for log in logs if log["event"] == "admin_console_operation_started")
-            assert started["query"] == {"token": "phc_tophog", "distinct_id": "<not logged>", "team_id": "7"}
+            assert started["query"] == {
+                "token": "phc_tophog",
+                "distinct_id": "<not logged>",
+                "pipelines": "sessionreplay",
+                "team_id": "7",
+            }
         restriction.refresh_from_db()
         assert restriction.distinct_ids == expected_distinct_ids
 
