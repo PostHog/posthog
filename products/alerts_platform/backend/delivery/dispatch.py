@@ -14,13 +14,14 @@ import structlog
 from products.alerts_platform.backend.delivery.message import AlertMessage, build_message
 from products.alerts_platform.backend.delivery.root_state import state_line
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
-from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, ThreadKey, ThreadStore
+from products.alerts_platform.backend.delivery.thread_store import Opening, ThreadBusy, ThreadKey, ThreadStore
 from products.alerts_platform.backend.delivery.transport import (
     DeliveryError,
     DeliveryTransport,
     DestinationMisconfigured,
     MessageHandle,
     RootEditor,
+    RootImageEditor,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -28,6 +29,8 @@ from products.alerts_platform.backend.facade.contracts import (
     DeliveryPath,
     EvaluationAnnouncement,
     IncidentAction,
+    LateImageResult,
+    MessageImage,
     MessageLink,
 )
 from products.alerts_platform.backend.logic.platform_reads import alert_snapshot
@@ -181,13 +184,88 @@ def _edit_root(
     if not isinstance(transport, RootEditor) or not root.root_content:
         return
     try:
-        snapshot = alert_snapshot(team_id, key.configuration_id, key.grouping_key)
-        line = state_line(snapshot, episode_started_at=key.episode_started_at, as_of=timezone.now())
+        line = _current_state_line(team_id, key)
         if line is not None:
             transport.edit_root(team_id=team_id, target=target, root=root, state_line=line)
     except Exception:
         logger.exception("alerts_platform.root_edit_failed", provider=transport.provider)
         safe_record(increment_root_edit_failures, transport.provider)
+
+
+def _current_state_line(team_id: int, key: ThreadKey) -> str | None:
+    snapshot = alert_snapshot(team_id, key.configuration_id, key.grouping_key)
+    return state_line(snapshot, episode_started_at=key.episode_started_at, as_of=timezone.now())
+
+
+# Claims a conversation for a late image under its own key, so a retried edit finds it done.
+LATE_IMAGE_KEY_PREFIX = "late-image:"
+
+
+def add_late_image(
+    *,
+    transport: DeliveryTransport,
+    thread_store: ThreadStore,
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    target: AlertDestinationData,
+    transitions: tuple[AnnouncedTransition, ...],
+    image: MessageImage,
+) -> LateImageResult:
+    """Puts an image that was not ready when these transitions went out into the messages they opened.
+
+    Only an opening message changes, because the thread store keeps the handle of no other. A
+    conversation is claimed for the edit, so it never interleaves with a send or a state edit to
+    the same message, and the image stays in the content later state edits start from.
+    """
+    if not isinstance(transport, RootImageEditor):
+        return LateImageResult(edited=0, waiting=0)
+    channel_target = transport.channel_target(target)
+    edited = 0
+    waiting = 0
+    for transition in transitions:
+        key = _thread_key(
+            configuration_id=configuration_id,
+            provider=transport.provider,
+            channel_target=channel_target,
+            transition=transition,
+        )
+        opening = thread_store.opening(key, evaluation_key)
+        if opening == Opening.REPLY:
+            continue
+        if opening != Opening.ROOT:
+            waiting += 1
+            continue
+        try:
+            claim = thread_store.claim(key, f"{LATE_IMAGE_KEY_PREFIX}{evaluation_key}")
+        except ThreadBusy:
+            waiting += 1
+            continue
+        if claim is None:
+            # An earlier attempt added it.
+            edited += 1
+            continue
+        if claim.handle is None:
+            thread_store.release(claim)
+            continue
+        try:
+            content = transport.add_root_image(
+                team_id=team_id,
+                target=target,
+                root=claim.handle,
+                image=image,
+                state_line=_current_state_line(team_id, key),
+            )
+        except Exception:
+            thread_store.release(claim)
+            raise
+        if content is None:
+            # No slot for an image, which no retry changes.
+            thread_store.delivered(claim, None)
+            continue
+        thread_store.edited_root(claim, content)
+        edited += 1
+    return LateImageResult(edited=edited, waiting=waiting)
 
 
 def _thread_key(

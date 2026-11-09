@@ -1073,11 +1073,14 @@ def _wants_chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> b
     return check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME
 
 
-def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> RenderedChart | None:
+def render_firing_chart(
+    team_id: int, alert_id: str, *, held_until: float, raise_on_failed_render: bool = False
+) -> RenderedChart | None:
     """Render the chart a firing of this alert sends, or None when none applies or the render fails.
 
     The evaluation workflow calls this after the check, so the render never holds the check's slot.
-    Raises `ChartRenderPoolFull` when the render pool has no room.
+    Raises `ChartRenderPoolFull` when the render pool has no room, and `InsightChartRenderFailed`
+    for a failed render under `raise_on_failed_render`.
     """
     if not admit_evaluation_slots(
         [alert_id],
@@ -1090,7 +1093,7 @@ def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> Re
         alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
         if alert is None:
             return None
-        chart = render_alert_insight_chart(alert)
+        chart = render_alert_insight_chart(alert, raise_on_failed_render=raise_on_failed_render)
         return (
             RenderedChart(asset_id=chart.asset_id, render_user_id=chart.render_user_id) if chart is not None else None
         )

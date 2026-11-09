@@ -15,7 +15,8 @@ conversation until then.
 """
 
 from datetime import datetime, timedelta
-from typing import Protocol
+from enum import StrEnum
+from typing import Any, Protocol
 
 from django.db import models
 from django.utils import timezone
@@ -69,6 +70,16 @@ class ThreadClaim:
     claimed_at: datetime
 
 
+class Opening(StrEnum):
+    """What an evaluation's message is in a conversation."""
+
+    ROOT = "root"
+    REPLY = "reply"
+    SENDING = "sending"
+    # Nothing of it is in the conversation, or there is no conversation.
+    ABSENT = "absent"
+
+
 class ThreadBusy(Exception):
     """Another send holds this conversation and has not finished with it."""
 
@@ -84,6 +95,10 @@ class ThreadStore(Protocol):
     def delivered(self, claim: ThreadClaim, handle: MessageHandle | None) -> None: ...
 
     def release(self, claim: ThreadClaim) -> None: ...
+
+    def opening(self, key: ThreadKey, evaluation_key: str) -> Opening: ...
+
+    def edited_root(self, claim: ThreadClaim, root_content: dict[str, Any]) -> None: ...
 
 
 class NullThreadStore:
@@ -101,6 +116,12 @@ class NullThreadStore:
         return None
 
     def release(self, claim: ThreadClaim) -> None:
+        return None
+
+    def opening(self, key: ThreadKey, evaluation_key: str) -> Opening:
+        return Opening.ABSENT
+
+    def edited_root(self, claim: ThreadClaim, root_content: dict[str, Any]) -> None:
         return None
 
 
@@ -169,6 +190,45 @@ class DatabaseThreadStore:
 
     def release(self, claim: ThreadClaim) -> None:
         self._fenced(claim).update(pending_evaluation_key=None, pending_claimed_at=None, updated_at=timezone.now())
+
+    def opening(self, key: ThreadKey, evaluation_key: str) -> Opening:
+        """Where this evaluation's message is in the conversation, read without creating one."""
+        thread = (
+            PlatformAlertThread.objects.for_team(self._team_id)
+            .filter(
+                configuration_id=key.configuration_id,
+                grouping_key=key.grouping_key,
+                provider=key.provider,
+                channel_target=key.channel_target,
+                episode_started_at=key.episode_started_at,
+            )
+            .first()
+        )
+        if thread is None:
+            return Opening.ABSENT
+        delivered = thread.delivered_evaluation_keys or []
+        if evaluation_key in delivered:
+            # The list keeps its oldest entry first, and a conversation opens with its first send.
+            # The cap only drops that entry after DELIVERED_KEYS_CAP sends, long after a late edit.
+            return Opening.ROOT if delivered[0] == evaluation_key and thread.external_ref else Opening.REPLY
+        if thread.pending_evaluation_key == evaluation_key:
+            return Opening.SENDING
+        return Opening.ABSENT
+
+    def edited_root(self, claim: ThreadClaim, root_content: dict[str, Any]) -> None:
+        """Records an edit that changed what the opening message shows, so later edits keep it."""
+        thread = PlatformAlertThread.objects.for_team(self._team_id).filter(id=claim.thread_id).first()
+        if thread is None:
+            return
+        self._fenced(claim).update(
+            delivered_evaluation_keys=[*(thread.delivered_evaluation_keys or []), claim.evaluation_key][
+                -DELIVERED_KEYS_CAP:
+            ],
+            root_message=root_content,
+            pending_evaluation_key=None,
+            pending_claimed_at=None,
+            updated_at=timezone.now(),
+        )
 
     def _fenced(self, claim: ThreadClaim) -> models.QuerySet[PlatformAlertThread]:
         return PlatformAlertThread.objects.for_team(self._team_id).filter(

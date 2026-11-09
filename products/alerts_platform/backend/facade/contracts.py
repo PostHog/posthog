@@ -1470,6 +1470,23 @@ class MessageImage:
     alt_text: str
 
 
+# The `block_id` a source's Slack renderer puts on the block where its image goes, a placeholder when
+# the message went out without one. A chart that renders after the message lands replaces that block.
+SLACK_IMAGE_SLOT_BLOCK_ID: Final = "alert_image"
+
+
+@frozen
+class LateImageResult:
+    """What adding a late image to an evaluation's Slack messages did.
+
+    `waiting` counts the Slack destinations with no message for the evaluation yet, because its
+    delivery has not sent it, or because the destination is not delivered natively.
+    """
+
+    edited: int
+    waiting: int
+
+
 @frozen
 class SourceDescription:
     """What a source says about one transition, in the words its own product uses.

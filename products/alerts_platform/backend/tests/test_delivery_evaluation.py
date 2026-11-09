@@ -14,7 +14,7 @@ from posthog.utils import absolute_uri
 
 from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook, recipients
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
-from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+from products.alerts_platform.backend.delivery.evaluation import add_late_image, deliver_evaluation
 from products.alerts_platform.backend.delivery.legacy_webhook import (
     ALERTMANAGER_WEBHOOK_BODY_FLAG,
     LEGACY_WEBHOOK_BODY_FLAG,
@@ -33,7 +33,9 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
     EvaluationAnnouncement,
     IncidentAction,
+    LateImageResult,
     LegacyEventEmission,
+    MessageImage,
     MessageLink,
     NewAlertDestination,
     SourceKind,
@@ -227,6 +229,31 @@ class TestDeliverEvaluation(APIBaseTest):
                 part=part,
             )
             return deliver_evaluation(replace(request, source_alert_url=source_alert_url))
+
+    def test_a_late_image_is_drawn_from_the_late_detail_and_goes_to_slack_only(self) -> None:
+        drawn: list[dict[str, Any]] = []
+
+        def resolver(*, team_id: int, transition: AnnouncedTransition) -> MessageImage | None:
+            drawn.append(transition.source_detail)
+            return (
+                MessageImage(url="https://example.com/chart.png", alt_text="Chart")
+                if "chart" in transition.source_detail
+                else None
+            )
+
+        with (
+            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
+            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK), _group(WEBHOOK)]),
+            patch.dict(describers._image_resolvers, {SourceKind.LOGS: resolver}),
+            patch(f"{_MODULE}.add_late_image_to_target", return_value=LateImageResult(edited=1, waiting=0)) as edit,
+        ):
+            result = add_late_image(_request(self.team.id), {"chart": 7})
+
+        assert result == LateImageResult(edited=1, waiting=0)
+        assert drawn == [{"chart": 7}]
+        assert [(call.kwargs["target"], call.kwargs["image"].url) for call in edit.call_args_list] == [
+            (SLACK, "https://example.com/chart.png")
+        ]
 
     def test_a_destination_hears_only_about_the_kinds_it_subscribed_to(self) -> None:
         # One group fires while another resolves. A destination that asked for firings must not

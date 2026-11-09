@@ -16,7 +16,7 @@ from dataclasses import replace
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -34,7 +34,13 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
     from posthog.temporal.common.utils import close_db_connections
 
-    from products.alerts.backend.platform_chart_detail import RenderedChart, pending_chart_alert_id, with_chart
+    from products.alerts.backend.platform_chart_detail import (
+        LATE_CHART_WORKFLOW,
+        LateChartInputs,
+        RenderedChart,
+        pending_chart_alert_id,
+        with_chart,
+    )
     from products.alerts.backend.platform_investigation_detail import (
         InvestigationClaims,
         InvestigationStart,
@@ -57,7 +63,11 @@ with workflow.unsafe.imports_passed_through():
         increment_checks_unfinished,
         safe_record,
     )
-    from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout, start_deliveries
+    from products.alerts_platform.backend.facade.temporal import (
+        DELIVERY_EXECUTION_TIMEOUT,
+        source_evaluation_timeout,
+        start_deliveries,
+    )
 
 PLAN_START_TO_CLOSE = dt.timedelta(seconds=10)
 PLAN_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
@@ -91,6 +101,26 @@ CHART_RETRY_POLICY = RetryPolicy(
     backoff_coefficient=2.0,
     maximum_interval=dt.timedelta(seconds=15),
 )
+# The type a failed render raises, which the firing's own wait does not retry: a second render
+# cannot fit in its budget. The late chart's render retries it.
+CHART_RENDER_FAILED = "InsightChartRenderFailed"
+ON_TIME_CHART_RETRY_POLICY = RetryPolicy(
+    initial_interval=CHART_RETRY_POLICY.initial_interval,
+    backoff_coefficient=CHART_RETRY_POLICY.backoff_coefficient,
+    maximum_interval=CHART_RETRY_POLICY.maximum_interval,
+    non_retryable_error_types=[CHART_RENDER_FAILED],
+)
+# A firing that went out without its chart renders again for this long, on the same pool. An export
+# stall that outlasts it costs the chart for good.
+LATE_CHART_RENDER_WINDOW = dt.timedelta(minutes=10)
+LATE_CHART_RENDER_RETRY_POLICY = RetryPolicy(
+    initial_interval=dt.timedelta(seconds=30),
+    backoff_coefficient=2.0,
+    maximum_interval=dt.timedelta(minutes=2),
+)
+# The firing's delivery can still be sending until its own deadline, so the edit waits for it as long.
+LATE_CHART_EDIT_WINDOW = DELIVERY_EXECUTION_TIMEOUT
+LATE_CHART_EXECUTION_TIMEOUT = LATE_CHART_RENDER_WINDOW + LATE_CHART_EDIT_WINDOW + dt.timedelta(minutes=1)
 FAIL_START_TO_CLOSE = dt.timedelta(seconds=10)
 FAIL_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
 # Stopping a query can wait on a slow ClickHouse, so it runs apart from the failed check's record
@@ -144,6 +174,8 @@ _PATCH_WAIT_FOR_POOL = "platform-insight-wait-for-pool-2026-10"
 _PATCH_INVESTIGATIONS = "platform-insight-investigations-2026-11"
 # Runs started before it ran metrics investigations after a claim, and replay must not schedule one.
 _PATCH_METRICS_INVESTIGATIONS = "platform-insight-metrics-investigations-2026-11"
+# Runs started before it rendered a firing's chart again once the firing went out without it.
+_PATCH_LATE_CHART = "platform-insight-late-chart-2026-11"
 
 
 @frozen
@@ -168,6 +200,7 @@ class AdmittedInsightCheck:
 class InsightChartInputs:
     team_id: int
     alert_id: str
+    raise_on_failed_render: bool = False
 
 
 @frozen
@@ -416,17 +449,25 @@ def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsIn
 @activity.defn
 @close_db_connections
 def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> RenderedChart | None:
-    """Sync, because the render blocks for its whole duration. Only a full render pool raises, for a
-    retry. Any other failure sends the firing without a chart, as production does."""
+    """Sync, because the render blocks for its whole duration. A full render pool raises, for a retry, and
+    so does a failed render the caller asked about. Any other failure sends the firing without a chart,
+    as production does."""
+    from posthog.tasks.alerts.utils import InsightChartRenderFailed  # noqa: PLC0415
+
     from products.alerts.backend.platform_source_cycle import ChartRenderPoolFull, render_firing_chart  # noqa: PLC0415
 
     try:
         # A slot of its own per attempt, so a timed-out attempt cannot release its retry's slot.
         return render_firing_chart(
-            inputs.team_id, inputs.alert_id, held_until=time.time() + CHART_START_TO_CLOSE.total_seconds()
+            inputs.team_id,
+            inputs.alert_id,
+            held_until=time.time() + CHART_START_TO_CLOSE.total_seconds(),
+            raise_on_failed_render=inputs.raise_on_failed_render,
         )
     except ChartRenderPoolFull:
         raise
+    except InsightChartRenderFailed as error:
+        raise ApplicationError(str(error), type=CHART_RENDER_FAILED) from error
     except Exception:
         activity.logger.exception(
             "Could not render a platform insight firing's chart", extra={"alert_id": inputs.alert_id}
@@ -447,6 +488,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # check releases its slot only while the slot still carries this expiry.
         expires_at = (workflow.now() + source_evaluation_timeout(SourceKind.INSIGHT)).timestamp()
         self._investigating: list[asyncio.Task[None]] = []
+        self._late_charts: dict[str, str] = {}
         if workflow.patched(_PATCH_READMISSION) and workflow.patched(_PATCH_RECORD_AS_FINISHED):
             return await self._evaluate_and_record_in_rounds(inputs, expires_at)
         if workflow.patched(_PATCH_READMISSION):
@@ -491,17 +533,21 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         self, inputs: SourceEvaluationInputs, evaluations: list[SourceBatchEvaluation]
     ) -> list[SourceBatchEvaluation]:
         """Renders each firing's chart side by side. A render that fails leaves its firing without one,
-        as production sends a firing without its chart."""
+        as production sends a firing without its chart. A render that failed or ran out of time
+        renders again once its firing is recorded, and the chart is added to its Slack messages."""
         pending = [pending_chart_alert_id(evaluation) for evaluation in evaluations]
+        late = workflow.patched(_PATCH_LATE_CHART) if any(pending) else False
         rendered = await asyncio.gather(
             *(
                 workflow.execute_activity(
                     render_platform_insight_chart_activity,
-                    InsightChartInputs(team_id=inputs.batch_key.team_id, alert_id=alert_id),
+                    InsightChartInputs(
+                        team_id=inputs.batch_key.team_id, alert_id=alert_id, raise_on_failed_render=late
+                    ),
                     start_to_close_timeout=CHART_START_TO_CLOSE,
                     # A firing waits for one render at most, slot wait included, then goes without its chart.
                     schedule_to_close_timeout=CHART_START_TO_CLOSE,
-                    retry_policy=CHART_RETRY_POLICY,
+                    retry_policy=ON_TIME_CHART_RETRY_POLICY if late else CHART_RETRY_POLICY,
                 )
                 for alert_id in pending
                 if alert_id is not None
@@ -518,6 +564,9 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             if isinstance(chart, BaseException) and not isinstance(chart, ActivityError):
                 raise chart
             safe_record(increment_chart_renders, SourceKind.INSIGHT.value, _render_outcome(chart))
+            if late and isinstance(chart, ActivityError):
+                for outcome in evaluation.outcomes:
+                    self._late_charts[str(outcome.configuration_id)] = alert_id
             result.append(with_chart(evaluation, chart if isinstance(chart, RenderedChart) else None))
         return result
 
@@ -835,6 +884,15 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # Started only after the record, because a delivery reads the history row the record writes.
         recorded = {str(outcome.configuration_id) for outcome in chunk}
         await start_deliveries([delivery for delivery in deliveries if delivery.configuration_id in recorded])
+        # After the deliveries, so the late chart finds the messages it edits on their way.
+        for configuration_id in sorted(recorded & self._late_charts.keys()):
+            await self._start_late_chart(
+                LateChartInputs(
+                    team_id=inputs.batch_key.team_id,
+                    alert_id=self._late_charts.pop(configuration_id),
+                    deliveries=tuple(d for d in deliveries if d.configuration_id == configuration_id),
+                )
+            )
         investigated = tuple(outcome for outcome in chunk if requested_investigation(outcome) is not None)
         if workflow.patched(_PATCH_INVESTIGATIONS) and investigated:
             # A task, so a slow claim holds back only the firings it holds, not the next record or round.
@@ -876,6 +934,21 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             workflow.logger.warning("Could not claim the investigations of recorded platform insight firings")
             return InvestigationClaims()
 
+    async def _start_late_chart(self, late: LateChartInputs) -> None:
+        if not late.deliveries:
+            return
+        try:
+            await workflow.start_child_workflow(
+                LATE_CHART_WORKFLOW,
+                late,
+                id=f"{LATE_CHART_WORKFLOW}-{late.deliveries[0].configuration_id}-{late.deliveries[0].evaluation_key}",
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                execution_timeout=LATE_CHART_EXECUTION_TIMEOUT,
+            )
+        except WorkflowAlreadyStartedError:
+            # A retried record starts the same late chart again.
+            pass
+
     async def _start_investigation(self, start: InvestigationStart) -> None:
         try:
             await workflow.start_child_workflow(
@@ -898,9 +971,13 @@ def _render_outcome(chart: object) -> "ChartRenderOutcome":
     """
     if isinstance(chart, RenderedChart):
         return "rendered"
-    if isinstance(chart, ActivityError):
+    if isinstance(chart, ActivityError) and not _render_failed(chart):
         return "timed_out"
     return "no_chart"
+
+
+def _render_failed(error: ActivityError) -> bool:
+    return isinstance(error.cause, ApplicationError) and error.cause.type == CHART_RENDER_FAILED
 
 
 def _maximum_attempts(check: AdmittedInsightCheck) -> int:
