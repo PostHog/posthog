@@ -29,6 +29,9 @@ describe('InternalCaptureService', () => {
             properties: {},
         })
         expect(res.status).toBe(200)
+        const { uuid, ...rest } = parseJSON(mockInternalFetch.mock.calls[0][1].body)
+        expect(uuid).toMatch(/^[0-9a-f-]{36}$/)
+        mockInternalFetch.mock.calls[0][1].body = JSON.stringify(rest)
         expect(mockInternalFetch.mock.calls).toMatchInlineSnapshot(
             `
             [
@@ -69,7 +72,9 @@ describe('InternalCaptureService', () => {
                 foo: 'bar',
             },
         })
-        expect(parseJSON(mockInternalFetch.mock.calls[0][1].body)).toMatchInlineSnapshot(`
+        expect(parseJSON(mockInternalFetch.mock.calls[0][1].body)).toMatchInlineSnapshot(
+            { uuid: expect.any(String) },
+            `
             {
               "api_key": "token",
               "distinct_id": "distinct-id",
@@ -81,7 +86,50 @@ describe('InternalCaptureService', () => {
               },
               "sent_at": "2025-01-01T00:00:00.000Z",
               "timestamp": "2025-03-03T03:03:03.000Z",
+              "uuid": Any<String>,
             }
-        `)
+        `
+        )
+    })
+
+    describe('retry', () => {
+        const event = { team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' }
+        const response = (status: number) => ({
+            status,
+            headers: {},
+            json: () => Promise.resolve({}),
+            text: () => Promise.resolve(''),
+            dump: () => Promise.resolve(),
+        })
+        const sentUuids = () => mockInternalFetch.mock.calls.map((call) => parseJSON(call[1].body).uuid)
+
+        it('retries a socket error once with the same uuid', async () => {
+            mockInternalFetch.mockRejectedValueOnce(new Error('other side closed'))
+            const res = await service.capture(event)
+            expect(res.status).toBe(200)
+            expect(mockInternalFetch).toHaveBeenCalledTimes(2)
+            const [first, second] = sentUuids()
+            expect(first).toBe(second)
+        })
+
+        it('retries a 5xx once', async () => {
+            mockInternalFetch.mockResolvedValueOnce(response(503))
+            const res = await service.capture(event)
+            expect(res.status).toBe(200)
+            expect(mockInternalFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('does not retry a 4xx', async () => {
+            mockInternalFetch.mockResolvedValueOnce(response(400))
+            const res = await service.capture(event)
+            expect(res.status).toBe(400)
+            expect(mockInternalFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('throws after the second socket error', async () => {
+            mockInternalFetch.mockRejectedValue(new Error('other side closed'))
+            await expect(service.capture(event)).rejects.toThrow('other side closed')
+            expect(mockInternalFetch).toHaveBeenCalledTimes(2)
+        })
     })
 })
