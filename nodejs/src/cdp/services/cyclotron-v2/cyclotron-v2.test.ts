@@ -1812,23 +1812,55 @@ describe('Cyclotron V2', () => {
             expect(row.person_id).toBe(original)
         })
 
-        it('heartbeat() does not refuse while the release write is pending, and refuses once it settles', async () => {
-            const { id, job } = await seedAndDequeue()
+        it('heartbeat() renews a job while its release write is pending, stops past the limit, and refuses once it settles', async () => {
+            const releaseWriteHeartbeatLimitMs = 5_000
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            const [job] = await dequeueOneBatch(createWorker(QUEUE, { releaseWriteHeartbeatLimitMs }))
+            const staleHeartbeat = async (): Promise<void> => {
+                await assertPool.query(
+                    `UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`,
+                    [id]
+                )
+            }
+            const heartbeatIsFresh = async (): Promise<boolean> => {
+                const res = await assertPool.query<{ fresh: boolean }>(
+                    `SELECT last_heartbeat > NOW() - INTERVAL '10 seconds' AS fresh FROM cyclotron_jobs WHERE id = $1`,
+                    [id]
+                )
+                return res.rows[0].fresh
+            }
+
             const blocker = await assertPool.connect()
+            jest.useFakeTimers({
+                doNotFake: ['nextTick', 'setImmediate', 'setTimeout', 'setInterval', 'queueMicrotask'],
+            })
             try {
                 await blocker.query('BEGIN')
-                await blocker.query('SELECT 1 FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
-                const acked = job.ack()
-                const beat = job.heartbeat()
-                await blocker.query('COMMIT')
+                await blocker.query(
+                    `INSERT INTO cyclotron_email_team_seq (team_id, counter) VALUES (1, 1)
+                     ON CONFLICT (team_id) DO UPDATE SET counter = cyclotron_email_team_seq.counter`
+                )
+                const rescheduled = job.reschedule({ queueName: 'email' })
 
-                await expect(beat).resolves.toBeUndefined()
-                await acked
+                await staleHeartbeat()
+                await job.heartbeat()
+                expect(await heartbeatIsFresh()).toBe(true)
+
+                await staleHeartbeat()
+                jest.setSystemTime(Date.now() + releaseWriteHeartbeatLimitMs + 1)
+                await expect(job.heartbeat()).rejects.toThrow('already released')
+                expect(await heartbeatIsFresh()).toBe(false)
+
+                jest.useRealTimers()
+                await blocker.query('COMMIT')
+                await rescheduled
             } finally {
+                jest.useRealTimers()
                 blocker.release()
             }
 
             await expect(job.heartbeat()).rejects.toThrow('already released')
+            expect((await queryJob(id)).status).toBe('available')
         })
 
         it('heartbeat() extends last_heartbeat', async () => {

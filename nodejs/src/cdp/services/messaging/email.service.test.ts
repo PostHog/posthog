@@ -3,6 +3,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { MessageRejected, SESv2Client, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { createHash, randomBytes } from 'node:crypto'
+import { Readable } from 'node:stream'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -47,7 +48,7 @@ import {
 } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
-import { LARGEST_SEND_FILE_BYTES } from './in-flight-registry'
+import { InFlightRegistry, LARGEST_SEND_FILE_BYTES } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES } from './message-estimate'
 import { RecipientTokensService } from './recipient-tokens.service'
@@ -226,6 +227,47 @@ const rejectOnAbort = (signal: AbortSignal): Promise<never> =>
             reject(Object.assign(new Error('Request aborted'), { name: 'AbortError' }))
         )
     )
+
+const sesClientWith = (overrides: Partial<ConstructorParameters<typeof SESv2Client>[0]>): SESv2Client =>
+    new SESv2Client({
+        region: 'us-east-1',
+        credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' },
+        ...overrides,
+    })
+
+const sesRequestHandler = (handle: (options?: { abortSignal?: AbortSignal }) => Promise<unknown>): any => ({
+    handle: (_request: unknown, options?: { abortSignal?: AbortSignal }) => handle(options),
+    updateHttpClientConfig: () => {},
+    httpHandlerConfigs: () => ({}),
+})
+
+const bodyThatStallsUntil = (signal: AbortSignal): Readable => {
+    const body = new Readable({ read: () => {} })
+    signal.addEventListener('abort', () => body.destroy())
+    return body
+}
+
+const sesThrottleAnswer = (): Promise<unknown> =>
+    Promise.resolve({
+        response: {
+            statusCode: 429,
+            headers: { 'x-amzn-errortype': 'TooManyRequestsException' },
+            body: new Uint8Array(),
+        },
+    })
+
+const oneRetryAfter = (delayMs: number): any => {
+    const token = (retries: number): { getRetryCount: () => number; getRetryDelay: () => number } => ({
+        getRetryCount: () => retries,
+        getRetryDelay: () => delayMs,
+    })
+    return {
+        acquireInitialRetryToken: () => Promise.resolve(token(0)),
+        refreshRetryTokenForRetry: (previous: ReturnType<typeof token>) =>
+            previous.getRetryCount() > 0 ? Promise.reject(new Error('no retries left')) : Promise.resolve(token(1)),
+        recordSuccess: () => {},
+    }
+}
 
 describe('EmailService', () => {
     let service: EmailService
@@ -1108,7 +1150,6 @@ describe('EmailService', () => {
                 expect(result.logs.map((log) => log.message).join(' ')).toContain('reached its email sending limit of')
             })
 
-            // Each queueMetadata below is what the release before attachment load retries wrote for that reschedule.
             it.each([
                 ['a team cap delay', { originQueue: 'hogflow', originPriority: 2, teamCapped: true }],
                 [
@@ -1116,43 +1157,47 @@ describe('EmailService', () => {
                     { originQueue: 'hogflow', originPriority: 2, suppressionLookupAttempts: 1 },
                 ],
                 ['an SES throttle', { originQueue: 'hogflow', originPriority: 2 }],
-            ])('charges and sends a job the previous release rescheduled after %s', async (_name, queueMetadata) => {
-                claimAllOrNothing.mockResolvedValue({ granted: true, retryAfterMs: null })
-                const storedByThePreviousRelease = Buffer.from(
-                    JSON.stringify({
-                        state: invocation.state,
-                        queueParameters: invocation.queueParameters,
-                        queueMetadata,
+            ])(
+                'charges and sends a job the previous release rescheduled after %s',
+                async (_name, queueMetadataWrittenByThePreviousRelease) => {
+                    claimAllOrNothing.mockResolvedValue({ granted: true, retryAfterMs: null })
+                    const storedByThePreviousRelease = Buffer.from(
+                        JSON.stringify({
+                            state: invocation.state,
+                            queueParameters: invocation.queueParameters,
+                            queueMetadata: queueMetadataWrittenByThePreviousRelease,
+                        })
+                    )
+                    const dequeued = v2JobToInvocation({
+                        id: invocation.id,
+                        teamId: invocation.teamId,
+                        functionId: invocation.functionId,
+                        queueName: 'email',
+                        priority: 0,
+                        scheduled: DateTime.now(),
+                        created: DateTime.now(),
+                        parentRunId: null,
+                        transitionCount: 1,
+                        state: storedByThePreviousRelease,
+                        distinctId: null,
+                        personId: null,
+                        actionId: null,
+                        cancelRequestedAt: null,
+                    } as unknown as CyclotronV2DequeuedJob)
+
+                    const result = await cappedService.executeSendEmail({
+                        ...invocation,
+                        queueParameters:
+                            dequeued.queueParameters as CyclotronJobInvocationHogFunction['queueParameters'],
+                        queueMetadata: dequeued.queueMetadata,
                     })
-                )
-                const dequeued = v2JobToInvocation({
-                    id: invocation.id,
-                    teamId: invocation.teamId,
-                    functionId: invocation.functionId,
-                    queueName: 'email',
-                    priority: 0,
-                    scheduled: DateTime.now(),
-                    created: DateTime.now(),
-                    parentRunId: null,
-                    transitionCount: 1,
-                    state: storedByThePreviousRelease,
-                    distinctId: null,
-                    personId: null,
-                    actionId: null,
-                    cancelRequestedAt: null,
-                } as unknown as CyclotronV2DequeuedJob)
 
-                const result = await cappedService.executeSendEmail({
-                    ...invocation,
-                    queueParameters: dequeued.queueParameters as CyclotronJobInvocationHogFunction['queueParameters'],
-                    queueMetadata: dequeued.queueMetadata,
-                })
-
-                expect(result.finished).toBe(true)
-                expect(result.error).toBeUndefined()
-                expect(cappedSendSpy).toHaveBeenCalledTimes(1)
-                expect(claimAllOrNothing).toHaveBeenCalledTimes(1)
-            })
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeUndefined()
+                    expect(cappedSendSpy).toHaveBeenCalledTimes(1)
+                    expect(claimAllOrNothing).toHaveBeenCalledTimes(1)
+                }
+            )
 
             it('retries on the token bucket cadence when the limiter reports no horizon', async () => {
                 // A Valkey fault denies with no horizon. Parking on the daily cap's pacing
@@ -1652,41 +1697,121 @@ describe('EmailService', () => {
                 })
             })
 
-            const preheaderThatOverflowsTheMessage = 'x'.repeat((MESSAGE_MAX_BYTES * 3) / 4)
-
-            it.each<[string, () => Promise<Partial<CyclotronInvocationQueueParametersEmailType>>, string]>([
-                [
-                    'a file was never uploaded',
-                    () => Promise.resolve({ attachments: [pdf.metadata, attachmentFile().metadata] }),
-                    'attachments_missing',
-                ],
-                [
-                    'a file belongs to another team',
-                    async () => ({
-                        attachments: [
-                            pdf.metadata,
-                            (await uploadAttachment(team.id + 1, { filename: 'a.pdf' })).metadata,
-                        ],
-                    }),
-                    'attachments_missing',
-                ],
-                [
-                    'its preheader carries the final message past the size limit',
-                    () => Promise.resolve({ attachments: [pdf.metadata], preheader: preheaderThatOverflowsTheMessage }),
-                    'message_too_large',
-                ],
-            ])('sends nothing and fails when %s', async (_name, emailParams, reason) => {
+            it('sends nothing and fails as message_too_large when the preheader carries the final message past the size limit', async () => {
                 sesAccepts()
-                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, ...(await emailParams()) })
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    attachments: [pdf.metadata],
+                    preheader: 'x'.repeat((MESSAGE_MAX_BYTES * 3) / 4),
+                })
 
                 const result = await service.executeSendEmail(invocation)
 
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.finished).toBe(true)
-                expect(result.error).toMatch(new RegExp(`^${reason}: `))
+                expect(result.error).toMatch(/^message_too_large: /)
             })
 
+            it.each([
+                ['was never uploaded', () => Promise.resolve(attachmentFile())],
+                ['belongs to another team', async () => await uploadAttachment(team.id + 1, { filename: 'a.pdf' })],
+            ])(
+                'fails as attachments_missing, sends nothing and stops the other downloads when a file %s',
+                async (_name, otherFile) => {
+                    sesAccepts()
+                    send(pdf, await otherFile())
+                    const download = attachmentStore.s3.send.bind(attachmentStore.s3) as (...args: any[]) => any
+                    let pdfDownload: AbortSignal | undefined
+                    jest.spyOn(attachmentStore.s3, 'send').mockImplementation(((
+                        command: { input: { Key?: string } },
+                        options?: { abortSignal?: AbortSignal }
+                    ) => {
+                        if (command.input.Key?.endsWith(pdf.metadata.sha256)) {
+                            pdfDownload = options!.abortSignal!
+                            return rejectOnAbort(pdfDownload)
+                        }
+                        return download(command, options)
+                    }) as any)
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toMatch(/^attachments_missing: /)
+                    expect(pdfDownload?.aborted).toBe(true)
+                }
+            )
+
+            it.each([
+                [
+                    'loads its files only once that download settles',
+                    500,
+                    5000,
+                    { finished: true, loadRetries: undefined, sent: 1, downloadRunningAtEachLoad: [true, false] },
+                ],
+                [
+                    'reschedules as a load retry when its deadline passes before that download settles',
+                    null,
+                    500,
+                    { finished: false, loadRetries: 1, sent: 0, downloadRunningAtEachLoad: [true] },
+                ],
+            ])(
+                'when a flow sends its next email inline while a download of the email before is still running, it %s',
+                async (_name, settleAfterMs, deadlineMs, expected) => {
+                    sesAccepts()
+                    service['sesConfig'].attachmentSendDeadlineMs = deadlineMs
+                    let downloadRunning = true
+                    let settleDownload!: () => void
+                    const download = new Promise<never>((_, reject) => {
+                        settleDownload = () => {
+                            downloadRunning = false
+                            reject(new Error('Request aborted'))
+                        }
+                    })
+                    jest.spyOn(attachmentStore.s3, 'send').mockImplementationOnce((() => download) as never)
+                    const downloadRunningAtEachLoad: boolean[] = []
+                    const realLoad = attachmentStore.load.bind(attachmentStore)
+                    jest.spyOn(attachmentStore, 'load').mockImplementation((...args) => {
+                        downloadRunningAtEachLoad.push(downloadRunning)
+                        return realLoad(...args)
+                    })
+                    const registry = new InFlightRegistry({
+                        budgetBytes: Number.MAX_SAFE_INTEGER,
+                        heapLimitBytes: Number.MAX_SAFE_INTEGER,
+                        maxInFlight: 1,
+                    })
+                    if (settleAfterMs !== null) {
+                        setTimeout(settleDownload, settleAfterMs)
+                    }
+
+                    const admission = registry.tryStart(pdf.bytes.length, async () => {
+                        send(pdf, attachmentFile())
+                        const first = await service.executeSendEmail(invocation)
+                        send(pdf, logo)
+                        return { first, second: await service.executeSendEmail(invocation) }
+                    })
+                    const { first, second } = await (admission as Extract<typeof admission, { started: unknown }>)
+                        .started
+                    settleDownload()
+
+                    expect(first.error).toMatch(/^attachments_missing: /)
+                    expect({
+                        finished: second.finished,
+                        loadRetries: second.invocation.queueMetadata?.attachmentLoadRetries,
+                        sent: sendEmailSpy.mock.calls.length,
+                        downloadRunningAtEachLoad,
+                    }).toEqual(expected)
+                }
+            )
+
             const loadRetry = { finished: false, error: undefined, loadRetries: 1, rescheduled: true, failed: false }
+            const sesMayHaveSent = {
+                finished: true,
+                error: expect.stringMatching(/^Failed to send email via SES: /),
+                loadRetries: undefined,
+                rescheduled: false,
+                failed: true,
+            }
 
             it.each([
                 [
@@ -1712,27 +1837,56 @@ describe('EmailService', () => {
                     loadRetry,
                 ],
                 [
+                    'SES answers a throttle and the SDK is still backing off',
+                    'reschedules the send as a load retry, because SES refused every attempt',
+                    () => {
+                        service.sesV2Client = sesClientWith({
+                            requestHandler: sesRequestHandler(sesThrottleAnswer),
+                            retryStrategy: oneRetryAfter(2_000),
+                        })
+                    },
+                    loadRetry,
+                ],
+                [
                     'SES receives the request and does not answer',
                     'fails the send without a retry, because SES may have sent it',
                     () => {
-                        service.sesV2Client = new SESv2Client({
-                            region: 'us-east-1',
-                            credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' },
-                            requestHandler: {
-                                handle: (_request: unknown, options?: { abortSignal?: AbortSignal }) =>
-                                    rejectOnAbort(options!.abortSignal!),
-                                updateHttpClientConfig: () => {},
-                                httpHandlerConfigs: () => ({}),
-                            },
+                        service.sesV2Client = sesClientWith({
+                            requestHandler: sesRequestHandler((options) => rejectOnAbort(options!.abortSignal!)),
                         })
                     },
-                    {
-                        finished: true,
-                        error: expect.stringMatching(/^Failed to send email via SES: /),
-                        loadRetries: undefined,
-                        rescheduled: false,
-                        failed: true,
+                    sesMayHaveSent,
+                ],
+                [
+                    'SES answers 200 and its body stalls',
+                    'fails the send without a retry, because SES accepted it',
+                    () => {
+                        service.sesV2Client = sesClientWith({
+                            requestHandler: sesRequestHandler((options) =>
+                                Promise.resolve({
+                                    response: {
+                                        statusCode: 200,
+                                        headers: { 'content-type': 'application/json' },
+                                        body: bodyThatStallsUntil(options!.abortSignal!),
+                                    },
+                                })
+                            ),
+                        })
                     },
+                    sesMayHaveSent,
+                ],
+                [
+                    'the connection drops after the request went out and the SDK is still backing off',
+                    'fails the send without a retry, because SES may have sent it',
+                    () => {
+                        service.sesV2Client = sesClientWith({
+                            requestHandler: sesRequestHandler(() =>
+                                Promise.reject(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }))
+                            ),
+                            retryStrategy: oneRetryAfter(2_000),
+                        })
+                    },
+                    sesMayHaveSent,
                 ],
             ])('when %s past the deadline, %s', async (_name, _outcome, hang, expected) => {
                 service['sesConfig'].attachmentSendDeadlineMs = 1000

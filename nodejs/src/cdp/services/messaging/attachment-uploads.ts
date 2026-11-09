@@ -11,7 +11,7 @@ import {
     AttachmentStore,
     AttachmentStoreUnavailableError,
     UploadSlot,
-    settleBefore,
+    settleBeforeAbortEvenWhileCredentialsStall,
 } from './attachment-store'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 
@@ -147,7 +147,10 @@ export class AttachmentUploads {
         }
         const deadline = AbortSignal.timeout(ATTACHMENT_VERIFICATION_DEADLINE_MS)
         try {
-            return await settleBefore(deadline, this.verifySend(store, teamId, refs, bodies))
+            return await settleBeforeAbortEvenWhileCredentialsStall(
+                deadline,
+                this.verifySend(store, teamId, refs, bodies)
+            )
         } catch (error) {
             if (deadline.aborted) {
                 return { refused: unavailable(teamId, 'Could not verify the files of a send in time', error) }

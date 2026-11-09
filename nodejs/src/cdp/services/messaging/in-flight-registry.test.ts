@@ -1,4 +1,4 @@
-import { settleBefore } from './attachment-store'
+import { settleBeforeAbortEvenWhileCredentialsStall } from './attachment-store'
 import {
     InFlightLimits,
     InFlightRegistry,
@@ -53,7 +53,7 @@ describe('InFlightRegistry', () => {
         [
             'its deadline passed',
             (deadline: AbortController, call: Promise<void>): Promise<unknown> => {
-                const loading = settleBefore(deadline.signal, call)
+                const loading = settleBeforeAbortEvenWhileCredentialsStall(deadline.signal, call)
                 deadline.abort(new Error('deadline'))
                 return loading
             },
@@ -62,8 +62,8 @@ describe('InFlightRegistry', () => {
             'another file of the send failed',
             (deadline: AbortController, call: Promise<void>): Promise<unknown> =>
                 Promise.all([
-                    settleBefore(deadline.signal, call),
-                    settleBefore(deadline.signal, Promise.reject(new Error('missing'))),
+                    settleBeforeAbortEvenWhileCredentialsStall(deadline.signal, call),
+                    settleBeforeAbortEvenWhileCredentialsStall(deadline.signal, Promise.reject(new Error('missing'))),
                 ]),
         ],
     ])(

@@ -108,7 +108,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
 
 function registryFor(config: PluginsServerConfig): InFlightRegistry {
     const admission = inFlightLimitsFor({
-        memoryFraction: config.CDP_EMAIL_ATTACHMENTS_MEMORY_FRACTION,
+        memoryFraction: config.CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION,
         maxInFlight: config.CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT,
         heartbeatIntervalMs: config.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS,
     })

@@ -205,8 +205,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
     // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
-    // The bucket that holds the files of code sends. Empty in production leaves the endpoints and credentials to the
-    // SDK's regional default and the pod's role. PUBLIC_ENDPOINT is the host a presigned upload URL names.
     CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
     CDP_EMAIL_ATTACHMENTS_S3_REGION: string
     CDP_EMAIL_ATTACHMENTS_S3_PREFIX: string
@@ -216,7 +214,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: string
     CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: number
     CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: number
-    CDP_EMAIL_ATTACHMENTS_MEMORY_FRACTION: number
+    CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: number
     CDP_EMAIL_ATTACHMENTS_TEAMS: string
     CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: number
 
@@ -469,7 +467,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: isDevEnv() || isTestEnv() ? 'object_storage_root_password' : '',
         CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 10_000,
         CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: 4,
-        CDP_EMAIL_ATTACHMENTS_MEMORY_FRACTION: 0.5,
+        CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: 0.5,
         CDP_EMAIL_ATTACHMENTS_TEAMS: '',
         CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: 50_000_000_000,
 

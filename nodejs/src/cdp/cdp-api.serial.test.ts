@@ -3942,8 +3942,7 @@ describe('CDP API', () => {
         let redis: RedisV2
         let otherTeamId: number
 
-        // Raw audience literal and claim names: the wire contract with the Django route that mints this token.
-        const mintUploadToken = (
+        const mintUploadTokenAsTheDjangoRouteDoes = (
             teamId: number,
             claims: Record<string, string> = { kind: 'attachment_upload' },
             secret = 'local-dev-workflows-transactional-email-jwt'
@@ -3953,7 +3952,7 @@ describe('CDP API', () => {
                 expiresIn: '2m',
             })
 
-        const requestUploads = (teamId: number, body: object, token = mintUploadToken(teamId)) =>
+        const requestUploads = (teamId: number, body: object, token = mintUploadTokenAsTheDjangoRouteDoes(teamId)) =>
             supertest(app)
                 .post(`/api/projects/${teamId}/transactional_email/attachments/uploads`)
                 .set({ Authorization: `Bearer ${token}` })
@@ -4076,10 +4075,10 @@ describe('CDP API', () => {
             expect(res.body.error).toBe('invalid_request')
         })
 
-        // The largest file that fits 40,000,000 bytes after Base64 with line breaks, plus 64 KiB of headers.
+        const LARGEST_FILE_IN_ONE_MESSAGE = 29_182_875
         it.each([
-            ['one file at the largest size that fits', [29_182_875], null],
-            ['one file a byte over it', [29_182_876], 0],
+            ['one file at the largest size that fits', [LARGEST_FILE_IN_ONE_MESSAGE], null],
+            ['one file a byte over it', [LARGEST_FILE_IN_ONE_MESSAGE + 1], 0],
             ['two files that only fit apart', [10_000_000, 20_000_000], 1],
         ])('answers %s', async (_name, sizes, largestIndex) => {
             const body = sized(...sizes)
@@ -4102,10 +4101,13 @@ describe('CDP API', () => {
         })
 
         it.each([
-            ['a code send token', () => mintUploadToken(team.id, { kind: 'code_send' })],
-            ['a template send token', () => mintUploadToken(team.id, {})],
-            ["another team's token", () => mintUploadToken(otherTeamId)],
-            ['a token signed with another key', () => mintUploadToken(team.id, undefined, 'wrong-key')],
+            ['a code send token', () => mintUploadTokenAsTheDjangoRouteDoes(team.id, { kind: 'code_send' })],
+            ['a template send token', () => mintUploadTokenAsTheDjangoRouteDoes(team.id, {})],
+            ["another team's token", () => mintUploadTokenAsTheDjangoRouteDoes(otherTeamId)],
+            [
+                'a token signed with another key',
+                () => mintUploadTokenAsTheDjangoRouteDoes(team.id, undefined, 'wrong-key'),
+            ],
         ])('refuses %s, and counts it as unauthorized', async (_name, token) => {
             const unauthorizedCount = async (): Promise<number> =>
                 (
@@ -4135,7 +4137,7 @@ describe('CDP API', () => {
             try {
                 const res = await supertest(builtApp)
                     .post(`/api/projects/${team.id}/transactional_email/attachments/uploads`)
-                    .set({ Authorization: `Bearer ${mintUploadToken(team.id)}` })
+                    .set({ Authorization: `Bearer ${mintUploadTokenAsTheDjangoRouteDoes(team.id)}` })
                     .send(asked(pdf()))
 
                 expect(res.status).toBe(status)
@@ -4145,8 +4147,7 @@ describe('CDP API', () => {
         })
 
         it('lets a request that fits through while larger requests at the same time are refused', async () => {
-            // Signing is local, so the requests reach the counter together.
-            const signsEverything = {
+            const signsEveryFileWithoutWaiting = {
                 prepareUploads: (_teamId: number, files: { sha256: string }[]) =>
                     Promise.resolve(
                         files.map(({ sha256 }) => ({
@@ -4159,7 +4160,10 @@ describe('CDP API', () => {
                         }))
                     ),
             } as unknown as S3AttachmentStore
-            const uploads = uploadsFor(`${team.id}`, { maxBytesPerTeamDay: 100, attachmentStore: signsEverything })
+            const uploads = uploadsFor(`${team.id}`, {
+                maxBytesPerTeamDay: 100,
+                attachmentStore: signsEveryFileWithoutWaiting,
+            })
             const request = (size: number) => uploads.prepare(team.id, sized(size))
             expect((await request(90)).status).toBe(200)
 
