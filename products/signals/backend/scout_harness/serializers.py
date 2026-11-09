@@ -102,6 +102,10 @@ from products.signals.backend.scout_harness.tools.report import (
     MAX_REPORT_TITLE_LENGTH,
     MAX_SUGGESTED_REVIEWERS,
 )
+from products.signals.backend.scout_harness.tools.report_quality import (
+    ReportQualityHintField,
+    ReportQualityHintSeverity,
+)
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
     DEFAULT_RUNS_PER_SCOUT,
@@ -1746,10 +1750,10 @@ class EmitReportRequestSerializer(serializers.Serializer):
 class ReportQualityHintSerializer(serializers.Serializer):
     check_id = serializers.CharField(help_text="Stable id of the quality check, e.g. `literal_newline_escapes`.")
     severity = serializers.ChoiceField(
-        choices=["repair", "hint"],
+        choices=ReportQualityHintSeverity.choices,
         help_text="`repair`: the text was fixed before it was stored. `hint`: the text was stored as sent.",
     )
-    field = serializers.ChoiceField(choices=["title", "summary"], help_text="The field the check matched.")
+    field = serializers.ChoiceField(choices=ReportQualityHintField.choices, help_text="The field the check matched.")
     message = serializers.CharField(help_text="What the check found and what to do next time.")
 
 

@@ -16,9 +16,9 @@ class TestReportQualityChecks(SimpleTestCase):
         ]
     )
     def test_summary_repairs(self, _name: str, summary: str, expected: str, check_ids: list[str]) -> None:
-        _, repaired, hints = apply_report_quality_checks(title="Checkout p99 regressed", summary=summary)
-        assert repaired == expected
-        assert [hint.check_id for hint in hints] == check_ids
+        result = apply_report_quality_checks(title="Checkout p99 regressed", summary=summary)
+        assert result.summary == expected
+        assert [hint.check_id for hint in result.hints] == check_ids
 
     @parameterized.expand(
         [
@@ -28,6 +28,6 @@ class TestReportQualityChecks(SimpleTestCase):
         ]
     )
     def test_pr_style_title_is_a_hint_only(self, title: str, check_ids: list[str]) -> None:
-        stored_title, _, hints = apply_report_quality_checks(title=title, summary=None)
-        assert stored_title == title
-        assert [hint.check_id for hint in hints] == check_ids
+        result = apply_report_quality_checks(title=title, summary=None)
+        assert result.title == title
+        assert [hint.check_id for hint in result.hints] == check_ids

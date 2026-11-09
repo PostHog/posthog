@@ -10,11 +10,21 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Literal
 
-QualitySeverity = Literal["repair", "hint"]
-QualityField = Literal["title", "summary"]
+from django.db import models
+
+from posthog.dataclasses import frozen
+
+
+class ReportQualityHintSeverity(models.TextChoices):
+    REPAIR = "repair", "repair"
+    HINT = "hint", "hint"
+
+
+class ReportQualityHintField(models.TextChoices):
+    TITLE = "title", "title"
+    SUMMARY = "summary", "summary"
+
 
 _LITERAL_NEWLINE = re.compile(r"\\r\\n|\\n")
 _UNESCAPED_BACKTICK = re.compile(r"(?<!\\)`")
@@ -23,15 +33,22 @@ _PR_STYLE_TITLE = re.compile(
 )
 
 
-@dataclass(frozen=True)
+@frozen
 class QualityHint:
     check_id: str
-    severity: QualitySeverity
-    field: QualityField
+    severity: ReportQualityHintSeverity
+    field: ReportQualityHintField
     message: str
 
 
-@dataclass(frozen=True)
+@frozen
+class QualityCheckResult:
+    title: str | None
+    summary: str | None
+    hints: tuple[QualityHint, ...]
+
+
+@frozen
 class _QualityCheck:
     hint: QualityHint
     applies: Callable[[str], bool]
@@ -51,8 +68,8 @@ _CHECKS: tuple[_QualityCheck, ...] = (
     _QualityCheck(
         hint=QualityHint(
             check_id="literal_newline_escapes",
-            severity="repair",
-            field="summary",
+            severity=ReportQualityHintSeverity.REPAIR,
+            field=ReportQualityHintField.SUMMARY,
             message=(
                 "The summary had literal \\n sequences and no line breaks, so they were changed to line breaks. "
                 "Send real newlines in the JSON string, escaped one time only."
@@ -64,8 +81,8 @@ _CHECKS: tuple[_QualityCheck, ...] = (
     _QualityCheck(
         hint=QualityHint(
             check_id="escaped_backticks",
-            severity="repair",
-            field="summary",
+            severity=ReportQualityHintSeverity.REPAIR,
+            field=ReportQualityHintField.SUMMARY,
             message="The summary had only escaped backticks (\\`), so they were changed to plain backticks.",
         ),
         applies=_has_only_escaped_backticks,
@@ -74,8 +91,8 @@ _CHECKS: tuple[_QualityCheck, ...] = (
     _QualityCheck(
         hint=QualityHint(
             check_id="pr_style_title",
-            severity="hint",
-            field="title",
+            severity=ReportQualityHintSeverity.HINT,
+            field=ReportQualityHintField.TITLE,
             message=(
                 "The title reads like a commit message (for example `fix(scope): ...`). An inbox title names "
                 "the problem a reader has, not the change. Rewrite it with edit_report."
@@ -86,12 +103,13 @@ _CHECKS: tuple[_QualityCheck, ...] = (
 )
 
 
-def apply_report_quality_checks(
-    *, title: str | None, summary: str | None
-) -> tuple[str | None, str | None, tuple[QualityHint, ...]]:
+def apply_report_quality_checks(*, title: str | None, summary: str | None) -> QualityCheckResult:
     """Run every check on the fields the call sent. Returns the repaired title and summary, and one hint
     for each check that matched. A field the call omitted (None) is not checked."""
-    fields: dict[QualityField, str | None] = {"title": title, "summary": summary}
+    fields: dict[ReportQualityHintField, str | None] = {
+        ReportQualityHintField.TITLE: title,
+        ReportQualityHintField.SUMMARY: summary,
+    }
     hints: list[QualityHint] = []
     for check in _CHECKS:
         text = fields[check.hint.field]
@@ -100,4 +118,8 @@ def apply_report_quality_checks(
         if check.repair is not None:
             fields[check.hint.field] = check.repair(text)
         hints.append(check.hint)
-    return fields["title"], fields["summary"], tuple(hints)
+    return QualityCheckResult(
+        title=fields[ReportQualityHintField.TITLE],
+        summary=fields[ReportQualityHintField.SUMMARY],
+        hints=tuple(hints),
+    )

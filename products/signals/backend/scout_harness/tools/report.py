@@ -477,10 +477,9 @@ def _capture_quality_hints(*, team: Team, author: ReportAuthor, tool: str, hints
 
 
 def _repair_report_text(kwargs: dict[str, Any]) -> tuple[QualityHint, ...]:
-    kwargs["title"], kwargs["summary"], hints = apply_report_quality_checks(
-        title=kwargs.get("title"), summary=kwargs.get("summary")
-    )
-    return hints
+    result = apply_report_quality_checks(title=kwargs.get("title"), summary=kwargs.get("summary"))
+    kwargs["title"], kwargs["summary"] = result.title, result.summary
+    return result.hints
 
 
 def _report_quality_checks(
