@@ -23,7 +23,9 @@ import type {
     TeamType,
     UserBasicType,
 } from '../../../../../frontend/src/types'
-import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
+import { DefaultEmailSender, resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
+import { sandboxSenderLogic } from '../../Channels/sandboxSenderLogic'
+import type { WorkflowEmailSandboxStatusApi } from '../../generated/api.schemas'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
@@ -31,6 +33,7 @@ import { getEdgeId } from './edgeId'
 import { getTeamUtmDefaults, newEmailUtmConfig, utmKeysFollowingSavedDefault } from './steps/components/utmDefaults'
 import type { UtmTagValues } from './steps/components/UtmTagFields'
 import type { UtmTagKey } from './steps/components/UtmTagFields'
+import { needsSandboxSender, toSandboxAction } from './steps/email/emailStepVariants'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType } from './steps/types'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
@@ -223,6 +226,8 @@ export interface hogFlowEditorLogicValues {
     integrations: IntegrationType[] | null // integrationsLogic
     categories: MessageCategory[] // optOutCategoriesLogic
     categoriesLoading: boolean // optOutCategoriesLogic
+    canAdoptSandbox: boolean // sandboxSenderLogic
+    sandboxStatus: WorkflowEmailSandboxStatusApi | null // sandboxSenderLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     edgesByActionId: Record<string, HogFlowEdge[]> // workflowLogic
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType> // workflowLogic
@@ -249,6 +254,9 @@ export interface hogFlowEditorLogicActions {
     loadCategories: () => {
         value: true
     } // optOutCategoriesLogic
+    provisionSandboxSender: (surface: import('../../Channels/sandboxSender').SandboxSenderSurface) => {
+        surface: import('../../Channels/sandboxSender').SandboxSenderSurface
+    } // sandboxSenderLogic
     loadWorkflowSuccess: (
         originalWorkflow:
             | HogFlow
@@ -2190,12 +2198,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             ['integrations'],
             teamLogic,
             ['currentTeam'],
+            sandboxSenderLogic,
+            ['canAdoptSandbox', 'sandboxStatus'],
         ],
         actions: [
             workflowLogic,
             ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
             optOutCategoriesLogic(),
             ['loadCategories'],
+            sandboxSenderLogic,
+            ['provisionSandboxSender'],
         ],
     })),
     actions({
@@ -2568,7 +2580,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         })
                         const dynamicInputs = (partialNewAction as CreateActionType).getDefaultInputs?.()
                         if (dynamicInputs && 'inputs' in config) {
-                            config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } }
+                            config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } } as typeof config
                         }
                     }
                     // Seed the step's inputs with the template defaults at creation time. The input renderer
@@ -2598,6 +2610,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
+                    let ownSender: DefaultEmailSender | null = null
                     if (!isHogFlowActionNode && 'template_id' in config && config.template_id === 'template-email') {
                         const emailInput = config.inputs?.email
                         const team = values.currentTeam
@@ -2607,6 +2620,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ? team.workflows_config?.default_email_integration_id
                                 : null
                         )
+                        ownSender = sender
                         if (sender && emailInput?.value && !emailInput.value.from?.integrationId) {
                             config = {
                                 ...config,
@@ -2626,7 +2640,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
-                    const newAction = {
+                    let newAction = {
                         id: isHogFlowActionNode
                             ? (values.nodeToBeAdded as HogFlowActionNode).id
                             : `action_${partialNewAction.type}_${uuid()}`,
@@ -2643,6 +2657,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             ? { on_error: (partialNewAction as CreateActionType).on_error }
                             : {}),
                     } as HogFlowAction
+
+                    if (!isHogFlowActionNode && !ownSender && needsSandboxSender(newAction, values.canAdoptSandbox)) {
+                        newAction = toSandboxAction(newAction)
+                        if (values.sandboxStatus?.integration_id === null) {
+                            actions.provisionSandboxSender('inserted_step')
+                        }
+                    }
 
                     const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
 

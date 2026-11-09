@@ -2,12 +2,16 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { IntegrationType } from '~/types'
 
+import { sandboxSenderLogic } from '../../Channels/sandboxSenderLogic'
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
-import { computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { CreateActionType, computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -289,6 +293,57 @@ describe('hogFlowEditorLogic', () => {
             edge(step.id, duplicatedAction!.id, 'continue'),
             edge(duplicatedAction!.id, EXIT_NODE_ID, 'continue'),
         ])
+    })
+
+    describe('sender of an inserted email step', () => {
+        const emailNode = {
+            type: 'function_email',
+            name: 'Email',
+            description: 'Send an email to the user.',
+            config: { template_id: 'template-email', inputs: {} },
+        } as CreateActionType
+        const status = {
+            integration_id: 11,
+            from_address: 'sandbox@example.com',
+            display_name: 'Acme via PostHog',
+            organization_blocked: false,
+            adoption_enabled: true,
+        }
+        const ownSender = { id: 7, kind: 'email', config: { verified: true } } as unknown as IntegrationType
+
+        function insertEmail(): HogFlowAction | undefined {
+            logic.actions.setNodeToBeAdded(emailNode)
+            logic.actions.onDrop(undefined, edge(TRIGGER_NODE_ID, EXIT_NODE_ID, 'continue'))
+            return logic.values.workflow.actions.find((action) => action.name === 'Email')
+        }
+
+        it.each([
+            ['an own verified sender exists', [ownSender], status, 'function_email'],
+            ['adoption is off', [], { ...status, adoption_enabled: false }, 'function_email'],
+            ['the organization is blocked', [], { ...status, organization_blocked: true }, 'function_email'],
+            ['the project has no own sender', [], status, 'email_sandbox'],
+        ])('picks the step kind when %s', (_, integrations, sandboxStatus, expectedType) => {
+            integrationsLogic.actions.loadIntegrationsSuccess(integrations)
+            sandboxSenderLogic.actions.loadSandboxStatusSuccess(sandboxStatus)
+
+            expect(insertEmail()?.type).toEqual(expectedType)
+        })
+
+        it('keeps the sandbox step and shows a retry when setting up the sender fails', async () => {
+            useMocks({
+                post: { '/api/projects/:team_id/workflow_email_sandbox/provision/': () => [500, {}] },
+            })
+            integrationsLogic.actions.loadIntegrationsSuccess([])
+            sandboxSenderLogic.actions.loadSandboxStatusSuccess({ ...status, integration_id: null })
+
+            await expectLogic(sandboxSenderLogic, () => {
+                expect(insertEmail()?.type).toEqual('email_sandbox')
+            }).toDispatchActions(['provisionSandboxSender', 'provisionSandboxSenderFailed'])
+
+            expect(sandboxSenderLogic.values.provisionError).toEqual(
+                "Couldn't set up the sandbox sender. Try again, or choose your own sender."
+            )
+        })
     })
 
     describe('graph identity across rebuilds', () => {

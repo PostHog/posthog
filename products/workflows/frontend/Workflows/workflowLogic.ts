@@ -47,6 +47,7 @@ import {
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import { readySandboxSender } from '../Channels/sandboxSender'
 import {
     AiEmailDraftResult,
     aiEmailDraftFailureMessage,
@@ -66,6 +67,7 @@ import {
     stateToRRule,
 } from './hogflows/steps/components/rrule-helpers'
 import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
+import { needsSandboxSender } from './hogflows/steps/email/emailStepVariants'
 import { getTemplatingError } from './hogflows/steps/templatingError'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import {
@@ -84,6 +86,7 @@ import {
     prefilledWorkflow,
     withEmailBrand,
     withEmailSender,
+    withSandboxSender,
     withPrefilledEmail,
 } from './workflowEmailPrefill'
 import { workflowSceneLogic } from './workflowSceneLogic'
@@ -201,7 +204,11 @@ async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
             team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
         )
         if (!sender) {
-            return workflow
+            const needsSender = workflow.actions.some((action) => needsSandboxSender(action, true))
+            const projectId = ApiConfig.getCurrentProjectId()
+            return needsSender && (await readySandboxSender(String(projectId), 'first_run'))
+                ? withSandboxSender(workflow)
+                : workflow
         }
         const result = withEmailSender(workflow, sender.integrationId)
         if (result.filled) {
@@ -4172,8 +4179,8 @@ export const workflowLogic = kea<workflowLogicType>([
                         if (!schemaValidation.success) {
                             result.valid = false
                             result.schema = schemaValidation.error
-                        } else if (action.type === 'function_email') {
-                            // special case for function_email which has nested email inputs, so basic hog input validation is not enough
+                        } else if (action.type === 'function_email' || action.type === 'email_sandbox') {
+                            // special case for email steps which have nested email inputs, so basic hog input validation is not enough
                             // TODO: modify email/native_email input type to flatten email inputs so we don't need this special case
                             const emailValue = action.config.inputs?.email?.value as any | undefined
                             const emailTemplating = action.config.inputs?.email?.templating
@@ -4193,10 +4200,15 @@ export const workflowLogic = kea<workflowLogicType>([
                                 subject: !emailValue?.subject
                                     ? 'Add a subject line'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
-                                from: !emailValue?.from?.integrationId
-                                    ? 'Choose an email sender, or connect a new one'
-                                    : (getTemplatingError(emailValue?.from?.email, emailTemplating) ??
-                                      getTemplatingError(emailValue?.from?.name, emailTemplating)),
+                                // A sandbox step always sends from the sandbox sender, so it has no sender to check.
+                                ...(action.type === 'function_email'
+                                    ? {
+                                          from: !emailValue?.from?.integrationId
+                                              ? 'Choose an email sender, or connect a new one'
+                                              : (getTemplatingError(emailValue?.from?.email, emailTemplating) ??
+                                                getTemplatingError(emailValue?.from?.name, emailTemplating)),
+                                      }
+                                    : {}),
                                 to: !emailValue?.to?.email
                                     ? 'Add a recipient'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),

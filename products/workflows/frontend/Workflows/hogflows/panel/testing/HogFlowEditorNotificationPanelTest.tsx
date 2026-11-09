@@ -29,6 +29,7 @@ import { asDisplay } from 'products/persons/frontend/person-utils'
 import { renderWorkflowLogMessage } from '../../../logs/log-utils'
 import { TRIGGER_NODE_ID, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import { SandboxTestRecipientSelect } from '../../steps/email/SandboxTestRecipientSelect'
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
 import { reorderGlobalsForEmailAction } from './hogFlowEditorNotificationTestLogic'
 import { testResultBanner } from './testResultBanner'
@@ -327,13 +328,17 @@ export function EmailActionTestContent(): JSX.Element | null {
                             <div className="flex-1">
                                 <div className="font-semibold mb-2">{sampleGlobals.person.name || 'Sample Person'}</div>
                                 <LemonLabel>Email address</LemonLabel>
-                                <LemonInput
-                                    value={emailInput}
-                                    onChange={setEmailAddressOverride}
-                                    placeholder="Enter email address"
-                                    type="email"
-                                    className="mt-1"
-                                />
+                                {selectedNode.data?.type === 'email_sandbox' ? (
+                                    <SandboxTestRecipientSelect value={emailInput} onChange={setEmailAddressOverride} />
+                                ) : (
+                                    <LemonInput
+                                        value={emailInput}
+                                        onChange={setEmailAddressOverride}
+                                        placeholder="Enter email address"
+                                        type="email"
+                                        className="mt-1"
+                                    />
+                                )}
                             </div>
                         </div>
                     ) : null}
@@ -360,7 +365,7 @@ export function EmailActionTestContent(): JSX.Element | null {
                         <div className="text-muted text-sm">No tests run yet</div>
                     ) : (
                         <>
-                            <LemonBanner {...testResultBanner(testResult)} />
+                            <LemonBanner {...testResultBanner(testResult, selectedNode?.data?.type)} />
 
                             <div className="flex flex-col gap-2">
                                 <LemonLabel>Logs</LemonLabel>

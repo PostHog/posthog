@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -16,6 +17,7 @@ import { CyclotronJobInvocationGlobals, FilterLogicalOperator, PersonType, Prope
 
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import { sandboxTestOutcome } from '../../steps/email/sandboxTestResult'
 import { HogflowTestResult } from '../../steps/types'
 import { createExampleEvent } from '../../testEventFactory'
 import type { HogFlow } from '../../types'
@@ -389,6 +391,18 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                     }
 
                     actions.setTestResult(result)
+                    const testedAction = values.workflow.actions?.find((action) => action.id === values.selectedNodeId)
+                    const sandboxOutcome =
+                        testedAction?.type === 'email_sandbox' && !testInvocation.mock_async_functions
+                            ? sandboxTestOutcome(result)
+                            : null
+                    if (sandboxOutcome) {
+                        // pinned: analytics event name and properties, renaming breaks dashboards
+                        posthog.capture('workflows sandbox test sent', {
+                            status: sandboxOutcome.status,
+                            reason: sandboxOutcome.reason ?? null,
+                        })
+                    }
                     actions.setNextActionId(
                         result.nextActionId && result.nextActionId !== values.selectedNodeId
                             ? result.nextActionId

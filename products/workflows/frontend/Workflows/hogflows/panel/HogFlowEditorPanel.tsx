@@ -115,7 +115,8 @@ export function HogFlowEditorPanel({ onClose, view }: HogFlowEditorPanelProps = 
                         )}
                         {mode === 'variables' && <HogFlowEditorPanelVariables />}
                         {mode === 'test' &&
-                            (selectedNode?.data?.type === 'function_email' ? (
+                            (selectedNode?.data?.type === 'function_email' ||
+                            selectedNode?.data?.type === 'email_sandbox' ? (
                                 <EmailActionTestContent />
                             ) : (
                                 <HogFlowEditorPanelTest />

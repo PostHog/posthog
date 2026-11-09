@@ -38,4 +38,38 @@ describe('testResultBanner', () => {
     ])('describes %s', (_name, input, expected) => {
         expect(testResultBanner(input)).toEqual(expected)
     })
+
+    it.each([
+        ['a sent email', { status: 'accepted' }, 'success', 'Sent from the sandbox sender.'],
+        [
+            'a recipient who is not a member',
+            { status: 'skipped', reason: 'not_member' },
+            'warning',
+            'Not sent. The sandbox sender only delivers to verified members of your organization.',
+        ],
+        [
+            'a send that can be retried',
+            { status: 'pending', reason: 'pause_state_unavailable' },
+            'warning',
+            "Not sent yet. Couldn't check whether the sandbox sender is available. Try again in a few minutes.",
+        ],
+        [
+            'a failed send with an unknown reason',
+            { status: 'failed', reason: 'something_new' },
+            'error',
+            "Couldn't send. Reason: something_new.",
+        ],
+    ])('describes %s from the sandbox sender', (_name, execResult, type, children) => {
+        const failed = execResult.status === 'failed'
+        const testResult = result({ execResult, ...(failed ? { status: 'error', errors: ['not sent'] } : {}) })
+
+        expect(testResultBanner(testResult, 'email_sandbox')).toEqual({ type, children })
+    })
+
+    it('reads a sandbox-shaped answer from another step as an ordinary result', () => {
+        expect(testResultBanner(result({ execResult: { status: 'accepted' } }), 'function')).toEqual({
+            type: 'success',
+            children: 'Success',
+        })
+    })
 })

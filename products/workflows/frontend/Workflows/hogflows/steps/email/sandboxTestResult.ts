@@ -1,0 +1,63 @@
+import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
+
+import type { HogflowTestResult } from '../types'
+
+export type SandboxTestStatus = 'accepted' | 'skipped' | 'failed' | 'pending'
+
+export interface SandboxTestOutcome {
+    status: SandboxTestStatus
+    reason?: string
+}
+
+const STATUSES: readonly string[] = ['accepted', 'skipped', 'failed', 'pending']
+
+const REASONS: Record<string, string> = {
+    not_member: 'The sandbox sender only delivers to verified members of your organization.',
+    ambiguous_member: 'More than one member uses this address, so the sandbox sender skipped it.',
+    organization_blocked: 'Sandbox email is turned off for your organization.',
+    team_not_found: "This project couldn't be found.",
+    authorization_unavailable: "Couldn't check the recipient.",
+    pause_state_unavailable: "Couldn't check whether the sandbox sender is available.",
+    tenant_paused: 'Sandbox email is paused for this project.',
+    daily_cap_reached: "This project reached today's sandbox email limit.",
+    cap_storage_unavailable: "Couldn't check today's sandbox email limit.",
+    suppressed: 'This address bounced or marked an earlier email as spam.',
+    opted_out: 'The recipient opted out of this message category.',
+    frequency_capped: 'The recipient already received the most emails allowed for now.',
+    invalid_recipient: "The recipient address isn't a valid email address.",
+    sandbox_not_provisioned: "The sandbox sender isn't set up for this project yet.",
+    sending_disabled: 'Sandbox email sending is turned off.',
+    render_failed: "The email couldn't be rendered. Check the subject and content for template errors.",
+    retries_exhausted: 'Sending kept failing, so it stopped retrying.',
+    ses_throttled: 'The email service is busy.',
+    ses_transient: 'The email service had a temporary problem.',
+    ses_rejected: 'The email service rejected this email.',
+    sandbox_worker_unavailable: "The sandbox sender couldn't be reached.",
+}
+
+/** What the sandbox sender answered for a test of a sandbox email step, or null when the result carries no answer. */
+export function sandboxTestOutcome(result: HogflowTestResult | null): SandboxTestOutcome | null {
+    const execResult = result?.execResult as Record<string, unknown> | null | undefined
+    if (!execResult || typeof execResult.status !== 'string' || !STATUSES.includes(execResult.status)) {
+        return null
+    }
+    return {
+        status: execResult.status as SandboxTestStatus,
+        ...(typeof execResult.reason === 'string' ? { reason: execResult.reason } : {}),
+    }
+}
+
+export function sandboxTestBanner({ status, reason }: SandboxTestOutcome): LemonBannerProps {
+    const explanation = reason ? (REASONS[reason] ?? `Reason: ${reason}.`) : null
+    const sentence = (...parts: (string | null)[]): string => parts.filter(Boolean).join(' ')
+    switch (status) {
+        case 'accepted':
+            return { type: 'success', children: 'Sent from the sandbox sender.' }
+        case 'pending':
+            return { type: 'warning', children: sentence('Not sent yet.', explanation, 'Try again in a few minutes.') }
+        case 'skipped':
+            return { type: 'warning', children: sentence('Not sent.', explanation) }
+        case 'failed':
+            return { type: 'error', children: sentence("Couldn't send.", explanation ?? 'Try again later.') }
+    }
+}

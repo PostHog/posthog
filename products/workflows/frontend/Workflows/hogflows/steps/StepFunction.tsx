@@ -6,6 +6,7 @@ import { AiTaskInstructionsCompare } from './components/AiTaskInstructionsCompar
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { OptOutOfMessagesConfiguration } from './components/OptOutOfMessagesConfiguration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { EmailSenderControl } from './email/EmailSenderControl'
 import { StepFunctionNode } from './hogFunctionStepLogic'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
@@ -20,6 +21,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
     return (
         <>
             <StepSchemaErrors />
+            {node.data.type === 'function_email' && <EmailSenderControl actionId={node.id} />}
             {templateId === 'template-posthog-create-task' && <AiTaskInstructionsCompare actionId={node.id} />}
             {templateId === 'template-posthog-opt-out-of-messages' && (
                 <OptOutOfMessagesConfiguration
