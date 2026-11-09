@@ -343,7 +343,10 @@ export interface inboxSetupLogicMeta {
         completed: (savedState: InboxOnboardingStateApi | null) => boolean
         firstReportProgress: (savedState: InboxOnboardingStateApi | null) => FirstReportProgressState | null
         sourceCount: (draft: InboxOnboardingDraftApi) => number
-        hasGithubIntegration: (githubIntegrations: IntegrationType[]) => boolean
+        hasGithubIntegration: (
+            savedState: InboxOnboardingStateApi | null,
+            githubIntegrations: IntegrationType[]
+        ) => boolean
         isFinalStep: (draft: InboxOnboardingDraftApi) => boolean
         defaultScouts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
@@ -645,9 +648,11 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
         ],
         sourceCount: [(s) => [s.draft], (draft: InboxOnboardingDraftApi): number => selectedSourceCount(draft)],
         hasGithubIntegration: [
-            (s) => [s.githubIntegrations],
-            (integrations: IntegrationType[]): boolean =>
-                integrations.some((integration) => integration.installation_status !== 'unavailable'),
+            (s) => [s.savedState, s.githubIntegrations],
+            (state: InboxOnboardingStateApi | null, integrations: IntegrationType[]): boolean =>
+                state?.github_readiness !== undefined
+                    ? state.github_readiness === 'ready'
+                    : integrations.some((integration) => integration.installation_status !== 'unavailable'),
         ],
         isFinalStep: [(s) => [s.draft], (draft: InboxOnboardingDraftApi): boolean => draft.step === 'github'],
         defaultScouts: [
@@ -878,7 +883,23 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             [signalSourcesLogic.actionTypes.loadSourceConfigsSuccess]: sharedListeners.continueQuickActivation,
             [signalSourcesLogic.actionTypes.loadVisionScannersSuccess]: sharedListeners.continueQuickActivation,
             [signalSourcesLogic.actionTypes.loadProductDataEventsSuccess]: sharedListeners.continueQuickActivation,
-            [integrationsLogic.actionTypes.loadIntegrationsSuccess]: sharedListeners.continueQuickActivation,
+            [integrationsLogic.actionTypes.loadIntegrationsSuccess]: [
+                () => {
+                    // The saved readiness predates a connection made on this page, such as linking an
+                    // existing installation, so ask the server again before trusting it.
+                    if (
+                        values.savedState?.github_readiness !== undefined &&
+                        values.savedState.github_readiness !== 'ready' &&
+                        !values.savedStateLoading &&
+                        values.githubIntegrations.some(
+                            (integration) => integration.installation_status !== 'unavailable'
+                        )
+                    ) {
+                        actions.loadSetup()
+                    }
+                },
+                sharedListeners.continueQuickActivation,
+            ],
             [integrationsLogic.actionTypes.loadIntegrationsFailure]: sharedListeners.continueQuickActivation,
             [scoutFleetLogic.actionTypes.loadScoutConfigsSuccess]: sharedListeners.continueQuickActivation,
             [scoutFleetLogic.actionTypes.loadScoutConfigsFailure]: sharedListeners.continueQuickActivation,

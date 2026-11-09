@@ -1,20 +1,21 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconChevronRight, IconGithub } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
-export function ConnectionsSection(): JSX.Element {
-    const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 
-    const githubIntegrations = getIntegrationsByKind(['github'])
-    const hasGithubIntegration = githubIntegrations.length > 0
-    const isConnected = hasGithubIntegration && !integrationsLoading
+export function ConnectionsSection(): JSX.Element {
+    const { teamConfig, teamConfigLoading, teamConfigLoadFailed, githubConnectionPresentation } =
+        useValues(signalTeamConfigLogic)
+    const { loadTeamConfig } = useActions(signalTeamConfigLogic)
+    const isConnected = teamConfig?.github_readiness === 'ready' && !teamConfigLoading && !teamConfigLoadFailed
+    const retry = teamConfigLoadFailed || githubConnectionPresentation?.retry
 
     return (
-        <div className="flex items-center justify-between gap-4 rounded border bg-bg-light px-3 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded border bg-bg-light px-3 py-2.5">
             <div className="flex items-start gap-3 min-w-0">
                 <IconGithub className="size-5 shrink-0 mt-0.5 text-default" />
                 <div className="min-w-0">
@@ -28,7 +29,12 @@ export function ConnectionsSection(): JSX.Element {
                         )}
                     </div>
                     <p className="text-xs text-secondary mt-0.5 mb-0 max-w-xl">
-                        Foundational integration agents read from and write pull requests to.
+                        {teamConfigLoading
+                            ? 'Checking GitHub access…'
+                            : teamConfigLoadFailed
+                              ? 'Could not check GitHub access. Retry to check its status.'
+                              : (githubConnectionPresentation?.description ??
+                                'Agents can read your repositories and create pull requests with your permission.')}
                     </p>
                 </div>
             </div>
@@ -36,9 +42,12 @@ export function ConnectionsSection(): JSX.Element {
                 type="secondary"
                 size="small"
                 sideIcon={<IconChevronRight />}
-                to={urls.settings('environment-integrations', 'integration-github')}
+                loading={teamConfigLoading}
+                data-attr="self-driving-github-connection"
+                to={retry ? undefined : urls.settings('environment-integrations', 'integration-github')}
+                onClick={retry ? () => loadTeamConfig(true) : undefined}
             >
-                {hasGithubIntegration ? 'Manage' : 'Connect'}
+                {teamConfigLoadFailed ? 'Retry' : (githubConnectionPresentation?.action ?? 'Manage')}
             </LemonButton>
         </div>
     )
