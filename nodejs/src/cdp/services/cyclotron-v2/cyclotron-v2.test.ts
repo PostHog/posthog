@@ -2721,7 +2721,7 @@ describe('Cyclotron V2', () => {
             expect(stalled.status).toBe('available')
         })
 
-        it.each(['hogflow', 'email'])(
+        it.each(['hogflow', 'email', 'emailsandbox'])(
             'builds and produces a valid failed hog_flow result for a poisoned %s-queue job',
             async (queueName) => {
                 // Realistic parked-mid-flow state; the scheduled/created columns come

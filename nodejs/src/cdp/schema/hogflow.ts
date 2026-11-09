@@ -21,6 +21,17 @@ const HogFlowOutputVariableSchema = z.object({
 // type identical to the object schema's, so downstream field access still narrows.
 const legacyStringOutputVariable = z.string().transform((key): z.infer<typeof HogFlowOutputVariableSchema> => ({ key }))
 
+const SandboxEmailValueSchema = z
+    .object({
+        to: z.object({ email: z.string(), name: z.string().optional() }).strict(),
+        subject: z.string(),
+        preheader: z.string().optional(),
+        text: z.string().optional(),
+        html: z.string().optional(),
+        design: z.any().optional(),
+    })
+    .strict()
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -267,6 +278,22 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
+    }),
+
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('email_sandbox'),
+        config: z
+            .object({
+                message_category_id: z.string().optional(),
+                message_category_type: z.enum(['marketing', 'transactional']).optional(),
+                inputs: z
+                    .object({
+                        email: CyclotronInputSchema.extend({ value: SandboxEmailValueSchema }),
+                    })
+                    .strict(),
+            })
+            .strict(),
     }),
 
     // CDP functions

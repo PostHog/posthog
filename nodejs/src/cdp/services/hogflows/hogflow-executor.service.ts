@@ -37,6 +37,7 @@ import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler, counterHogflowCohortLookupFailure } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
+import { SandboxEmailActionHandler, SandboxEmailStep, SandboxEmailTestClient } from './actions/email_sandbox'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
@@ -153,7 +154,14 @@ export class HogFlowExecutorService {
         emailStatusService: EmailStatusService | null,
         duplicateObserver?: HogFlowDuplicateObserverService,
         usageReporter?: CdpUsageReporterService,
-        options: { awaitedStepsEnabled?: boolean } = {}
+        options: {
+            awaitedStepsEnabled?: boolean
+            sandboxEmail?: {
+                enabled: boolean
+                send?: SandboxEmailStep | null
+                testClient?: SandboxEmailTestClient | null
+            }
+        } = {}
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.cohortMembershipRepository = cohortMembershipRepository
@@ -204,6 +212,11 @@ export class HogFlowExecutorService {
             function_sms: hogFunctionSmsHandler,
             function_push: hogFunctionPushHandler,
             function_email: hogFunctionEmailHandler,
+            email_sandbox: new SandboxEmailActionHandler(
+                { enabled: options.sandboxEmail?.enabled ?? false },
+                options.sandboxEmail?.send ?? null,
+                options.sandboxEmail?.testClient ?? null
+            ),
             exit: new ExitHandler(),
         }
     }

@@ -70,6 +70,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
+    // Kill switch for sandbox email steps. While off, every worker skips them and the run continues.
+    WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
     // Comma-separated log sources, such as `hog_flow`, that also send their logs to the logs product. Empty sends none.
     CDP_INTERNAL_LOGS_SOURCES: string
     // Django produces cdp_internal_events to the cyclotron cluster; empty inherits the consumer default.
@@ -336,6 +338,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
+        WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
         CDP_INTERNAL_LOGS_SOURCES: '',
         CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: '',
         CDP_REDIS_HOST: '127.0.0.1',

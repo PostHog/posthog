@@ -171,6 +171,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
         | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
+        | 'WORKFLOWS_SANDBOX_SENDER_ENABLED'
         | 'CDP_INTERNAL_LOGS_SOURCES'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
@@ -584,7 +585,10 @@ export function createCdpCoreServices(
         emailStatusService,
         hogFlowDuplicateObserver,
         cdpUsageReporter,
-        { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
+        {
+            awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED,
+            sandboxEmail: { enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED },
+        }
     )
 
     const internalLogsSources = parseInternalLogsSources(config.CDP_INTERNAL_LOGS_SOURCES)

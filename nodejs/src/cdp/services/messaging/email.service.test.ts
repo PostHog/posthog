@@ -300,6 +300,11 @@ describe('EmailService', () => {
                     kind: 'slack',
                     config: {},
                 })
+                await insertIntegration(hub.postgres, team.id, {
+                    id: getIntegrationId(5),
+                    kind: 'email_sandbox',
+                    config: {},
+                })
             })
             it('should validate if the integration is not found', async () => {
                 invocation.queueParameters = createEmailParams({
@@ -310,9 +315,12 @@ describe('EmailService', () => {
                     `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
                 )
             })
-            it('should validate if the integration is not an email integration', async () => {
+            it.each([
+                ['slack', 3],
+                ['email_sandbox', 5],
+            ])('should validate if the integration is not an email integration (%s)', async (_kind, integrationId) => {
                 invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 3 },
+                    from: { integrationId },
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(
