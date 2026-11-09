@@ -14,6 +14,8 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2'
+import { v2JobToInvocation } from '../services/job-queue/job-queue-postgres-v2'
 import { settleBefore } from '../services/messaging/attachment-store'
 import {
     InFlightLimits,
@@ -372,27 +374,55 @@ describe('CdpCyclotronWorkerEmail', () => {
             expect(queue.deferInvocations).not.toHaveBeenCalled()
         })
 
-        it('runs a send larger than one email can carry in its batch, where it fails, instead of deferring it', async () => {
-            const { worker, queue } = workerWith(roomFor(1))
-            const oversized = withFiles({
-                state: {
-                    ...createHogFlowInvocationContext(),
-                    send: {
-                        attachments: [
-                            { filename: 'archive.zip', sha256: 'b'.repeat(64), sizeBytes: LARGEST_SEND_FILE_BYTES + 1 },
-                        ],
-                    },
-                } as any,
-            })
+        // Stored by the email queue before this worker admitted sends with files.
+        const PREVIOUS_VERSION_JOB_STATE =
+            '{"state":{"event":{"uuid":"uuid","event":"$pageview","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$lib_version":"1.2.3"},"timestamp":"2026-11-09T14:31:48.377Z"},"actionStepCount":0,"send":{"tracking":{"captureEngagement":false}}}}'
+
+        it.each([
+            [
+                'a send larger than one email can carry, where it fails,',
+                () =>
+                    withFiles({
+                        state: {
+                            ...createHogFlowInvocationContext(),
+                            send: {
+                                attachments: [
+                                    {
+                                        filename: 'archive.zip',
+                                        sha256: 'b'.repeat(64),
+                                        sizeBytes: LARGEST_SEND_FILE_BYTES + 1,
+                                    },
+                                ],
+                            },
+                        } as any,
+                    }),
+            ],
+            [
+                'a job that the previous version stored',
+                () =>
+                    v2JobToInvocation({
+                        id: new UUIDT().toString(),
+                        teamId: 1,
+                        functionId: new UUIDT().toString(),
+                        queueName: 'email',
+                        priority: 0,
+                        scheduled: DateTime.now(),
+                        created: DateTime.now(),
+                        state: Buffer.from(PREVIOUS_VERSION_JOB_STATE),
+                    } as unknown as CyclotronV2DequeuedJob),
+            ],
+        ])('runs %s in its batch on a worker that refuses files, instead of deferring it', async (_, invocation) => {
+            const { worker, queue } = workerWith(null)
+            const job = invocation()
             const ran = jest
                 .spyOn(worker, 'processInvocations')
                 .mockImplementation((invocations) => Promise.resolve(resultsOf(invocations)))
 
             await (
-                await worker.processBatch([oversized])
+                await worker.processBatch([job])
             ).backgroundTask
 
-            expect(ran).toHaveBeenCalledWith([oversized])
+            expect(ran).toHaveBeenCalledWith([job])
             expect(queue.deferInvocations).not.toHaveBeenCalled()
         })
 
