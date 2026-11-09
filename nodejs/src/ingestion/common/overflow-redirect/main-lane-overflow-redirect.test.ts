@@ -4,7 +4,7 @@ import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { HealthCheckResultOk } from '~/types'
 
 import { MainLaneOverflowRedirect, MainLaneOverflowRedirectConfig } from './main-lane-overflow-redirect'
-import { overflowRedirectRateLimiterBuckets } from './metrics'
+import { overflowRedirectCacheSize, overflowRedirectRateLimiterBuckets } from './metrics'
 import { OverflowEventGroup } from './overflow-redirect-service'
 import { OverflowRedisRepository } from './overflow-redis-repository'
 import { eventRateStrategy, mergeEventRateStrategy } from './overflow-strategy'
@@ -274,21 +274,27 @@ describe('MainLaneOverflowRedirect', () => {
             return values.find((v) => Object.entries(labels).every(([k, l]) => v.labels[k] === l))?.value
         }
 
+        // lru-cache keeps the `performance` object it found at import, which fake timers do not replace.
+        const importTimePerformance = performance
+
         beforeEach(() => {
             jest.useFakeTimers().setSystemTime(new Date('2025-01-01T01:00:00'))
+            jest.spyOn(importTimePerformance, 'now').mockImplementation(() => Date.now())
             service = createService()
         })
 
         afterEach(() => {
+            jest.restoreAllMocks()
             jest.useRealTimers()
         })
 
-        it('drops refilled buckets of keys that are not seen again', async () => {
+        it('drops expired cache entries and refilled buckets of keys that are not seen again', async () => {
             await service.handleEventBatch([createGroup('token1', 'user1', 5)])
 
             jest.advanceTimersByTime(61_000)
             await service.handleEventBatch([createGroup('token1', 'user2', 1)])
 
+            expect(await gaugeValue(overflowRedirectCacheSize)).toBe(1)
             expect(
                 await gaugeValue(overflowRedirectRateLimiterBuckets, { type: 'events', strategy: 'event_rate' })
             ).toBe(1)
