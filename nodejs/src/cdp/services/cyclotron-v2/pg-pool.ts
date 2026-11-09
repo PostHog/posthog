@@ -11,20 +11,18 @@ const pgClientErrorsCounter = new Counter({
     labelNames: ['pool'],
 })
 
-// An `error` event with no listener throws, and an uncaught exception stops the server.
-// pg emits one on the client when its connection drops, idle or checked out, and the pool
-// re-emits it for an idle client after discarding that client.
+function ignoreError(): void {}
+
 export function createCyclotronPool(name: CyclotronPoolName, config: PoolConfig): Pool {
     const pool = new Pool(config)
 
-    const onError = (error: Error): void => {
+    const reportDroppedClient = (error: Error): void => {
         pgClientErrorsCounter.labels({ pool: name }).inc()
         logger.warn('🔌', 'Cyclotron Postgres client dropped', { pool: name, error: String(error) })
     }
 
-    pool.on('connect', (client: PoolClient) => client.on('error', onError))
-    // The client listener above already counted it; this only stops the pool's re-emit from throwing.
-    pool.on('error', () => {})
+    pool.on('connect', (client: PoolClient) => client.once('error', reportDroppedClient).on('error', ignoreError))
+    pool.on('error', ignoreError)
 
     return pool
 }

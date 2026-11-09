@@ -121,7 +121,13 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 maxBatchSize: this.consumerBatchSize,
             })
 
-            await consumeBatch(invocations)
+            const { backgroundTask } = await consumeBatch(invocations)
+            void backgroundTask.catch((error) => {
+                logger.warn('CyclotronV2 failed to write batch results, leaving the jobs to the janitor', {
+                    queue,
+                    error: String(error),
+                })
+            })
 
             pendingJobsGauge.set(this.pendingJobs.size)
         })
