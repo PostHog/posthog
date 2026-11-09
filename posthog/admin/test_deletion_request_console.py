@@ -284,11 +284,12 @@ class TestDeletionRequestConsole(BaseTest):
         self.user.groups.clear()
 
         with patch(f"{PANELS}.count_remaining_for_request", return_value=0) as counted:
+            opened = self.client.get(self._url(obj, panel, operation))
             response = self.client.post(
                 self._url(obj, panel, operation), {"reason": "Ticket 123", "execution_mode": "deferred"}
             )
 
-        assert response.status_code == 403
+        assert (opened.status_code, response.status_code) == (403, 403)
         counted.assert_not_called()
         obj.refresh_from_db()
         assert obj.status == status
@@ -505,7 +506,7 @@ class TestDeletionRequestConsole(BaseTest):
         )
 
         assert response.status_code == 400
-        assert "Only the ClickHouse Team group can pick this type" in response.content.decode()
+        assert "Only members of the ClickHouse Team group can pick this type" in response.content.decode()
         obj.refresh_from_db()
         assert obj.request_type == RequestType.EVENT_REMOVAL
 
