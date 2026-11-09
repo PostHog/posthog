@@ -24,10 +24,7 @@ const codeEmail = (key: string, userAccessLevel: AccessControlLevel): CodeEmailA
 })
 
 describe('TransactionalEmailsTable', () => {
-    afterEach(() => {
-        cleanup()
-        delete window.POSTHOG_APP_CONTEXT?.resource_access_control
-    })
+    afterEach(cleanup)
 
     it.each([
         ['a workflow editor who can only view this email', AccessControlLevel.Editor, AccessControlLevel.Viewer, 0],
@@ -43,7 +40,14 @@ describe('TransactionalEmailsTable', () => {
                 },
             })
             initKeaTests()
-            window.POSTHOG_APP_CONTEXT!.resource_access_control = { [AccessControlResourceType.Workflow]: projectLevel }
+            const context = window.POSTHOG_APP_CONTEXT!
+            window.POSTHOG_APP_CONTEXT = {
+                ...context,
+                resource_access_control: {
+                    ...context.resource_access_control,
+                    [AccessControlResourceType.Workflow]: projectLevel,
+                },
+            }
             const { container } = render(
                 <Provider>
                     <TransactionalEmailsTable />
