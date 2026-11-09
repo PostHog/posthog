@@ -301,24 +301,22 @@ export function buildDiscussReportPrompt(
     return wrapWithPosthogContext(discussReportMessage(question), [...instructions, ...contextItems])
 }
 
-// The per-report cap 429 carries code `signal_report_task_cap` with its message under `error`
-// (TaskRunErrorResponseSerializer); the per-user creation throttle is DRF's `throttled` 429 with
-// `detail`; the free-trial refusal is a 402 with code `self_driving_free_trial` and `detail`. All
-// are user-facing copy the server owns. Matching on code, not status: other 429s (e.g. the
-// compute-quota gate) are not task limits and belong on the generic failure path.
+// TaskRunErrorResponseSerializer puts user-facing copy under `error`; DRF uses `detail`.
 function taskLimitMessage(error: any): string | null {
     if (
         error?.code === 'signal_report_task_cap' ||
         error?.code === 'throttled' ||
-        error?.code === 'self_driving_free_trial'
+        error?.code === 'self_driving_free_trial' ||
+        (error?.status === 429 &&
+            (error?.code === 'usage_limit_exceeded' ||
+                error?.code === 'posthog_code_billing_limit_exceeded' ||
+                error?.data?.type === 'billing_limit'))
     ) {
-        return error?.data?.error || error?.detail || 'Task limit reached for this report. Try again later.'
+        return error?.data?.error || error?.detail || 'Task limit reached. Try again later.'
     }
     return null
 }
 
-// Shared error tail of both kickoff listeners: a recognized task-limit 429 gets the server's copy
-// and a `limited` outcome; anything else is a plain failure.
 function handleKickoffError(
     error: any,
     report: SignalReport,
@@ -326,18 +324,15 @@ function handleKickoffError(
     fallbackMessage: string
 ): void {
     const limitMessage = taskLimitMessage(error)
-    if (limitMessage) {
-        lemonToast.error(limitMessage)
-        captureInboxReportActionCompleted({
-            report,
-            actionType,
-            outcome: 'limited',
-            limitCode: error?.code ?? null,
-        })
-        return
-    }
-    lemonToast.error(error?.detail || error?.message || fallbackMessage)
-    captureInboxReportActionCompleted({ report, actionType, outcome: 'failure' })
+    lemonToast.error(limitMessage || error?.detail || error?.message || fallbackMessage)
+    captureInboxReportActionCompleted({
+        report,
+        actionType,
+        outcome: limitMessage ? 'limited' : 'failure',
+        limitCode: limitMessage ? (error?.code ?? null) : null,
+        status: error?.status ?? null,
+        code: error?.code ?? null,
+    })
 }
 
 // Mirrors `signal_report_discussion_question`'s `max_length` in the tasks `TaskCreateSerializer`
