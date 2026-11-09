@@ -1192,7 +1192,7 @@ def _existing_email_values_by_action(
             email_input = ((stored_action.get("config") or {}).get("inputs") or {}).get("email")
             value = email_input.get("value") if isinstance(email_input, dict) else None
             from_value = value.get("from") if isinstance(value, dict) else None
-            if isinstance(value, dict) and isinstance(from_value, dict):
+            if isinstance(value, dict) and isinstance(from_value, dict | str):
                 template_id = (stored_action.get("config") or {}).get("template_id")
                 result.setdefault(stored_action["id"], []).append((stored_action.get("type"), template_id, value))
     return result
