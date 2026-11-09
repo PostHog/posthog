@@ -50,6 +50,9 @@ type GlobalCandidate = {
 
 // An active suppression. It blocks transactional email only when the address hard-bounced.
 type SuppressionEntry = { blocksTransactional: boolean; global?: 'shadow' | 'enforce' }
+// `globalUnread`: the global hard-bounce read failed, so only the team's own list decided `entry`.
+type LoadedSuppression = { entry: SuppressionEntry | false; globalUnread: boolean }
+type SuppressionRead = { key: string | null; suppressed: boolean; globalUnread: boolean }
 
 const HARD_BOUNCE_REASON = 'Auto-suppressed after a hard bounce'
 
@@ -94,8 +97,7 @@ const LEGACY_HARD_BOUNCE_REASONS = [
 export class EmailSuppressionService {
     private readonly threshold: number
     private readonly globalHardBounceEnforce: boolean
-    // A key's active suppression, or false when it has none.
-    private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
+    private readonly lazyLoader: LazyLoader<LoadedSuppression>
 
     constructor(
         private postgres: PostgresRouter,
@@ -103,7 +105,7 @@ export class EmailSuppressionService {
     ) {
         this.threshold = config.transientBounceThreshold
         this.globalHardBounceEnforce = config.globalHardBounceEnforce ?? false
-        this.lazyLoader = new LazyLoader<SuppressionEntry | false>({
+        this.lazyLoader = new LazyLoader<LoadedSuppression>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
         })
@@ -119,26 +121,48 @@ export class EmailSuppressionService {
         email: string,
         { transactional = false }: SuppressionCheckOptions = {}
     ): Promise<boolean> {
-        const identifier = normalizeIdentifier(email)
-        if (!identifier) {
-            return false
-        }
         try {
-            const entry = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
-            if (entry !== false && entry.global === 'shadow') {
-                cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_shadow_hit' })
-                return false
-            }
-            const suppressed = entry !== false && (!transactional || entry.blocksTransactional)
-            if (suppressed) {
-                cdpEmailSuppressionTotal.inc({ result: entry.global ? 'global_hard_bounce_hit' : 'suppressed_hit' })
-            }
-            return suppressed
+            return (await this.readSuppression(teamId, email, transactional)).suppressed
         } catch (error) {
             // Fail open: a lookup error must never block a legitimate send.
             logger.error('[EmailSuppression] Failed to check suppression', { teamId, error })
             return false
         }
+    }
+
+    /** Pre-send check that throws when a read fails, for callers that retry instead of sending. */
+    public async lookupSuppression(
+        teamId: number,
+        email: string,
+        { transactional = false }: SuppressionCheckOptions = {}
+    ): Promise<boolean> {
+        const { key, suppressed, globalUnread } = await this.readSuppression(teamId, email, transactional)
+        if (!suppressed && globalUnread && key) {
+            this.lazyLoader.markForRefresh(key)
+            throw new Error('[EmailSuppression] Could not read the global hard-bounce list')
+        }
+        return suppressed
+    }
+
+    private async readSuppression(teamId: number, email: string, transactional: boolean): Promise<SuppressionRead> {
+        const identifier = normalizeIdentifier(email)
+        if (!identifier) {
+            return { key: null, suppressed: false, globalUnread: false }
+        }
+        const key = toKey(teamId, identifier)
+        const { entry, globalUnread } = (await this.lazyLoader.get(key)) ?? {
+            entry: false,
+            globalUnread: false,
+        }
+        if (entry !== false && entry.global === 'shadow') {
+            cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_shadow_hit' })
+            return { key, suppressed: false, globalUnread }
+        }
+        const suppressed = entry !== false && (!transactional || entry.blocksTransactional)
+        if (suppressed) {
+            cdpEmailSuppressionTotal.inc({ result: entry.global ? 'global_hard_bounce_hit' : 'suppressed_hit' })
+        }
+        return { key, suppressed, globalUnread }
     }
 
     /**
@@ -481,7 +505,7 @@ export class EmailSuppressionService {
         }
     }
 
-    private async loadSuppressed(keys: string[]): Promise<Record<string, SuppressionEntry | false>> {
+    private async loadSuppressed(keys: string[]): Promise<Record<string, LoadedSuppression>> {
         // keys are `${teamId}:${identifier}`. Identifiers may contain ':' only in exotic cases; the
         // stored identifier is an email so split on the first ':' only.
         const parsed = keys.map((key) => {
@@ -551,18 +575,21 @@ export class EmailSuppressionService {
             }
         }
 
-        if (candidates.length > 0) {
-            await this.applyGlobalHardBounces(candidates, entries)
+        const globalUnread = new Set<string>()
+        if (candidates.length > 0 && !(await this.applyGlobalHardBounces(candidates, entries))) {
+            candidates.forEach((candidate) => globalUnread.add(candidate.key))
         }
 
         // Default every requested key to false so the LazyLoader caches negatives too.
-        return Object.fromEntries(parsed.map((p) => [p.key, entries.get(p.key) ?? false]))
+        return Object.fromEntries(
+            parsed.map((p) => [p.key, { entry: entries.get(p.key) ?? false, globalUnread: globalUnread.has(p.key) }])
+        )
     }
 
     private async applyGlobalHardBounces(
         candidates: GlobalCandidate[],
         entries: Map<string, SuppressionEntry>
-    ): Promise<void> {
+    ): Promise<boolean> {
         let bounced: Set<string>
         try {
             const result = await this.postgres.query<{ email: string }>(
@@ -575,7 +602,7 @@ export class EmailSuppressionService {
         } catch (error) {
             // Fail open, like the rest of the pre-send check, and keep the team's own list.
             logger.error('[EmailSuppression] Failed to check global hard bounces', { error })
-            return
+            return false
         }
 
         const hitsByTeam = new Map<number, string[]>()
@@ -642,5 +669,6 @@ export class EmailSuppressionService {
                 logger.error('[EmailSuppression] Failed to release copied global hard bounces', { teamId, error })
             }
         }
+        return true
     }
 }
