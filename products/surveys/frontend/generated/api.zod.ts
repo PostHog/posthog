@@ -173,6 +173,12 @@ export const SurveysDuplicateToProjectsCreateBody = /* @__PURE__ */ zod.object({
         .min(surveysDuplicateToProjectsCreateBodyIterationFrequencyDaysMin)
         .max(surveysDuplicateToProjectsCreateBodyIterationFrequencyDaysMax)
         .nullish(),
+    repeat_until_stopped: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.'
+        ),
     iteration_start_dates: zod.array(zod.iso.datetime({ offset: true }).nullable()).nullish(),
     current_iteration: zod
         .number()
@@ -305,6 +311,12 @@ export const SurveysResponsesArchiveCreateBody = /* @__PURE__ */ zod.object({
         .min(surveysResponsesArchiveCreateBodyIterationFrequencyDaysMin)
         .max(surveysResponsesArchiveCreateBodyIterationFrequencyDaysMax)
         .nullish(),
+    repeat_until_stopped: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.'
+        ),
     iteration_start_dates: zod.array(zod.iso.datetime({ offset: true }).nullable()).nullish(),
     current_iteration: zod
         .number()
@@ -410,6 +422,12 @@ export const SurveysResponsesUnarchiveCreateBody = /* @__PURE__ */ zod.object({
         .min(surveysResponsesUnarchiveCreateBodyIterationFrequencyDaysMin)
         .max(surveysResponsesUnarchiveCreateBodyIterationFrequencyDaysMax)
         .nullish(),
+    repeat_until_stopped: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.'
+        ),
     iteration_start_dates: zod.array(zod.iso.datetime({ offset: true }).nullable()).nullish(),
     current_iteration: zod
         .number()
@@ -531,6 +549,12 @@ export const SurveysSummaryHeadlineCreateBody = /* @__PURE__ */ zod.object({
         .min(surveysSummaryHeadlineCreateBodyIterationFrequencyDaysMin)
         .max(surveysSummaryHeadlineCreateBodyIterationFrequencyDaysMax)
         .nullish(),
+    repeat_until_stopped: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.'
+        ),
     iteration_start_dates: zod.array(zod.iso.datetime({ offset: true }).nullable()).nullish(),
     current_iteration: zod
         .number()

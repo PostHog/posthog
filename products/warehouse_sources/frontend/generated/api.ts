@@ -83,6 +83,9 @@ import type {
     WarehouseMigrationItemApi,
     WarehouseMigrationSkipItemsApi,
     WarehouseMigrationSkipItemsResponseApi,
+    WarehouseMigrationStartUploadApi,
+    WarehouseMigrationUploadConnectionsApi,
+    WarehouseMigrationUploadResponseApi,
     WarehouseMigrationsConnectLinkRetrieveParams,
     WarehouseMigrationsItemsListParams,
     WarehouseMigrationsListParams,
@@ -558,6 +561,24 @@ export const externalDataSchemasDestinationsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedDestinationLinkApi),
+    })
+}
+
+export const getExternalDataSchemasHistoryTableDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/history_table/`
+}
+
+/**
+ * Delete the history table of a CDC schema that no longer writes it, for example after `cdc_table_mode` moved to `consolidated` or the schema left CDC while keeping it. Deletes the table and every past row version in it, and cannot be undone. Refused while the schema still writes the history table, or while a sync of it is still running. Switching back to a mode that keeps history later starts a new history table.
+ */
+export const externalDataSchemasHistoryTableDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasHistoryTableDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -1834,6 +1855,27 @@ export const warehouseMigrationsDestroy = async (
     })
 }
 
+export const getWarehouseMigrationsConnectionsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/connections/`
+}
+
+/**
+ * Plan vendor connections an agent read, and add them to an uploaded migration.
+ */
+export const warehouseMigrationsConnectionsCreate = async (
+    projectId: string,
+    id: string,
+    warehouseMigrationUploadConnectionsApi?: WarehouseMigrationUploadConnectionsApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationUploadResponseApi> => {
+    return apiMutator<WarehouseMigrationUploadResponseApi>(getWarehouseMigrationsConnectionsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseMigrationUploadConnectionsApi),
+    })
+}
+
 export const getWarehouseMigrationsItemsListUrl = (
     projectId: string,
     id: string,
@@ -1986,4 +2028,24 @@ export const warehouseMigrationsConnectLinkRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getWarehouseMigrationsUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/upload/`
+}
+
+/**
+ * Start a migration that an agent fills with what it reads from the vendor, without a vendor key.
+ */
+export const warehouseMigrationsUploadCreate = async (
+    projectId: string,
+    warehouseMigrationStartUploadApi: WarehouseMigrationStartUploadApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationApi> => {
+    return apiMutator<WarehouseMigrationApi>(getWarehouseMigrationsUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseMigrationStartUploadApi),
+    })
 }

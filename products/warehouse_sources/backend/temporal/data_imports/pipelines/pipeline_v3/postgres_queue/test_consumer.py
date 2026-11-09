@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DestinationConfigurationError,
     DestinationDeliveryError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    INCOMPLETE_RUN_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
     GROUP_TABLE_HANDLES,
 )
@@ -346,6 +349,9 @@ class TestProcessSingle:
             ("ExternalDataSchema matching query does not exist.", False),
             # A destination the customer configured refuses the connection.
             (str(DestinationConfigurationError("Prod", "The host name does not exist.")), False),
+            # A batch aged out of its claim window (IncompleteRunError) — self-healing, and
+            # already tracked by its own metric, so it must not also hit error tracking.
+            (INCOMPLETE_RUN_ERROR, False),
             # A genuine non-retryable failure must still surface so real bugs aren't hidden.
             ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
             # Storage backend out of disk space is an operational condition operators need to

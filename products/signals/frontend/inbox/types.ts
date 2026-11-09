@@ -13,6 +13,7 @@ import {
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
+    type SignalReportListApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
     type SignalReportSuppressionSourceEnumApi,
@@ -168,8 +169,12 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     refund_ineligibility_reason?: string | null
     /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
-    /** Sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
+    /** Sort key from the list response's ranker, for the Recommended and Personalized sorts only. Lower keys rank first. */
     inbox_merge_key?: number | null
+    /** For the Personalized sort: the tier the user's personal ranking gave the report. Null when it did not rank the report. */
+    personal_tier?: SignalReportListApi['personal_tier']
+    /** For the Personalized sort: why the personal ranking put the report where it is. Null when it did not rank the report. */
+    personal_reason?: SignalReportListApi['personal_reason']
 }
 
 export enum SignalReportStatus {
@@ -243,6 +248,8 @@ export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
 export const SOURCE_STEERING_MAX_LENGTH = 2000
 /** Linear source only: the Linear team ids it reads issues from. Absent or empty means every team. */
 export const SOURCE_LINEAR_TEAM_IDS_KEY = 'linear_team_ids'
+/** Error tracking source only: the issue filter, compiled by the server, saved on every error tracking row. */
+export const SOURCE_ISSUE_FILTERS_KEY = 'issue_filters'
 
 // Anything that is not a list of ids reads as "every team", matching the backend's fallback.
 export function linearTeamIdsFromConfig(config: Record<string, any> | null | undefined): string[] {
@@ -265,6 +272,21 @@ export function alertScopeFromConfig(config: Record<string, any> | null | undefi
     return scope === SignalAlertScope.AllFiringAlerts || scope === SignalAlertScope.Off
         ? scope
         : SignalAlertScope.InvestigatedOnly
+}
+
+/** Product analytics source only: regex patterns matched against a firing alert's name and its insight's name. */
+export const SOURCE_ALERT_ALLOW_PATTERNS_KEY = 'alert_allow_patterns'
+export const SOURCE_ALERT_BLOCK_PATTERNS_KEY = 'alert_block_patterns'
+export const SOURCE_ALERT_PATTERNS_MAX_COUNT = 20
+export const SOURCE_ALERT_PATTERN_MAX_LENGTH = 200
+
+// Anything that is not a list of strings reads as no patterns. The API rejects such a value, so only a raw write can store one.
+export function alertPatternsFromConfig(
+    config: Record<string, any> | null | undefined,
+    key: typeof SOURCE_ALERT_ALLOW_PATTERNS_KEY | typeof SOURCE_ALERT_BLOCK_PATTERNS_KEY
+): string[] {
+    const raw = config?.[key]
+    return Array.isArray(raw) ? raw.filter((pattern): pattern is string => typeof pattern === 'string') : []
 }
 
 // ── Inbox IA: page tabs, report sections, scope ──────────────────────────────

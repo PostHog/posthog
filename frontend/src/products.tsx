@@ -1877,10 +1877,10 @@ export const productUrls = {
             }).url
         }
         if (isHogQLQuery(query)) {
-            return urls.sqlEditor({ query: query.query })
+            return urls.sqlEditor({ query: query.query, dashboard: dashboardId ?? undefined, tileGroupKey })
         }
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-            return urls.sqlEditor({ query })
+            return urls.sqlEditor({ query, dashboard: dashboardId ?? undefined, tileGroupKey })
         }
         return combineUrl(
             '/insights/new',
@@ -2183,6 +2183,7 @@ export const fileSystemTypes = {
         listHref: () => urls.productTours(),
         iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
         filterKey: 'product_tour',
+        flag: FEATURE_FLAGS.PRODUCT_TOURS,
     },
     session_recording_playlist: {
         name: 'Replay playlist',
@@ -2932,7 +2933,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Settings', href: urls.inbox('settings') },
         ],
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
-        tags: ['beta'],
         sceneKey: 'Inbox',
         sceneKeys: ['Inbox'],
     },

@@ -255,6 +255,12 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
             ),
+        copy_access_rules_to_history: zod
+            .boolean()
+            .optional()
+            .describe(
+                "When the table keeps history after this update, replace the history table's access rules with the table's own rules. If the history table doesn't exist yet, the rules are copied when its first snapshot loads. Requires the right to manage access to both tables."
+            ),
         enabled_columns: zod
             .array(zod.string())
             .nullish()
@@ -282,6 +288,12 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
+            ),
+        drop_history_table: zod
+            .boolean()
+            .optional()
+            .describe(
+                'For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table.'
             ),
         api_version: zod
             .string()
@@ -378,6 +390,12 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
             ),
+        copy_access_rules_to_history: zod
+            .boolean()
+            .optional()
+            .describe(
+                "When the table keeps history after this update, replace the history table's access rules with the table's own rules. If the history table doesn't exist yet, the rules are copied when its first snapshot loads. Requires the right to manage access to both tables."
+            ),
         enabled_columns: zod
             .array(zod.string())
             .nullish()
@@ -405,6 +423,12 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
+            ),
+        drop_history_table: zod
+            .boolean()
+            .optional()
+            .describe(
+                'For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table.'
             ),
         api_version: zod
             .string()
@@ -1682,6 +1706,48 @@ export const WarehouseMigrationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Plan vendor connections an agent read, and add them to an uploaded migration.
+ */
+export const warehouseMigrationsConnectionsCreateBodyDestinationsMax = 100
+
+export const warehouseMigrationsConnectionsCreateBodyConnectionsMax = 25
+
+export const WarehouseMigrationsConnectionsCreateBody = /* @__PURE__ */ zod.object({
+    account: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('The Fivetran account info response, unchanged. Send it once, with the first upload.'),
+    destinations: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .max(warehouseMigrationsConnectionsCreateBodyDestinationsMax)
+        .optional()
+        .describe(
+            "Fivetran destination details responses, unchanged. Send them before the connections that use them, so PostHog reads each connection's sync time in its destination's time zone."
+        ),
+    connections: zod
+        .array(
+            zod.object({
+                connection: zod
+                    .record(zod.string(), zod.unknown())
+                    .describe(
+                        'The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay.'
+                    ),
+                schema_config: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe(
+                        'The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.'
+                    ),
+            })
+        )
+        .max(warehouseMigrationsConnectionsCreateBodyConnectionsMax)
+        .optional()
+        .describe(
+            'At most 25 connections. A connection uploaded again replaces its plan, unless it is already created in PostHog or skipped.'
+        ),
+})
+
+/**
  * Skip many connections at once, or all but the ones to keep.
  */
 
@@ -1695,4 +1761,14 @@ export const WarehouseMigrationsItemsBulkSkipCreateBody = /* @__PURE__ */ zod.ob
         .array(zod.uuid())
         .optional()
         .describe('Items to keep. Every other item is skipped, for example to migrate only one connection.'),
+})
+
+/**
+ * Start a migration that an agent fills with what it reads from the vendor, without a vendor key.
+ */
+export const WarehouseMigrationsUploadCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .enum(['fivetran'])
+        .describe('\* `fivetran` - Fivetran')
+        .describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
 })

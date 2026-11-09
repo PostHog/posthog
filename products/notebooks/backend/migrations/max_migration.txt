@@ -1,1 +1,1 @@
-0027_notebook_unlisted_visibility
+0029_squash_2026_11_02_schema_addons

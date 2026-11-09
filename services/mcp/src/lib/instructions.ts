@@ -214,6 +214,7 @@ export class ToolDomainExtractor {
         'complete',
         'compose',
         'copy',
+        'describe',
         'disable',
         'discard',
         'dismiss',

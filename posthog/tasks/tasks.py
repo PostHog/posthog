@@ -141,6 +141,15 @@ def fail_stuck_video_exports() -> None:
 
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
 @skip_team_scope_audit
+def delete_scheduled_event_definitions() -> None:
+    """Delete event definitions whose ingestion was stopped, once nothing can recreate them."""
+    from posthog.tasks.event_definitions import delete_scheduled_event_definitions as run_sweep
+
+    run_sweep()
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+@skip_team_scope_audit
 def delete_expired_delegation_invites() -> None:
     """Delete delegation invites that have passed their expiry.
 
@@ -1075,6 +1084,20 @@ def sync_all_organization_available_product_features() -> None:
     )
 
     sync_all_organization_available_product_features()
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=30, retry_backoff_max=600, max_retries=5)
+def report_upcoming_events_deletions() -> None:
+    from posthog.models.events_plan_deletion import report_upcoming_deletions
+
+    report_upcoming_deletions()
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=30, retry_backoff_max=600, max_retries=5)
+def report_events_retention_shortened(organization_id: str, notice: dict[str, object]) -> None:
+    from posthog.models.events_plan_deletion import report_retention_shortened
+
+    report_retention_shortened(UUID(organization_id), notice)
 
 
 @shared_task(ignore_result=False, track_started=True, max_retries=0)

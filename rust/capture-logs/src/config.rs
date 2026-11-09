@@ -36,6 +36,9 @@ pub struct Config {
 
     #[envconfig(from = "MAX_BACKFILL_DAYS", default = "0")]
     pub max_backfill_days: u32,
+
+    // Tokens that may use the Vercel drain route, or "*" for all. Unset keeps the route closed.
+    pub vercel_drain_enabled_tokens: Option<String>, // "<token>,<token>..." or "*"
 }
 
 impl Config {

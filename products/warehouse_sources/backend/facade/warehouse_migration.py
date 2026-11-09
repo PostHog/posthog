@@ -57,6 +57,7 @@ def _to_migration(migration: _WarehouseMigration, counts: dict[str, int] | None 
         latest_error=migration.latest_error,
         created_at=migration.created_at,
         item_counts=contracts.WarehouseMigrationItemCounts(**counts),
+        has_vendor_key=bool(migration.credentials),
     )
 
 
@@ -115,12 +116,36 @@ def create_migration(
     )
 
 
+def start_migration_upload(*, team_id: int, user_id: int, provider: str) -> contracts.WarehouseMigration:
+    return _to_migration(service.start_upload(team_id=team_id, user_id=user_id, provider=provider))
+
+
+def upload_migration_connections(
+    team_id: int,
+    migration_id: UUID,
+    *,
+    account: Mapping[str, Any] | None,
+    destinations: Sequence[Mapping[str, Any]],
+    connections: Sequence[contracts.MigrationConnectionUpload],
+) -> contracts.WarehouseMigrationUpload | None:
+    """Raises `WarehouseMigrationHasVendorKeyError` when PostHog reads the account with a key instead, and
+    `WarehouseMigrationUploadTooLargeError` when the migration would grow too large."""
+    result = service.upload_connections(
+        team_id=team_id, migration_id=migration_id, account=account, destinations=destinations, connections=connections
+    )
+    if result is None:
+        return None
+    return contracts.WarehouseMigrationUpload(
+        items=[_to_item(item) for item in result.items], errors=list(result.errors)
+    )
+
+
 def delete_migration(team_id: int, migration_id: UUID) -> bool:
     return service.delete_migration(team_id=team_id, migration_id=migration_id)
 
 
 def refresh_migration(team_id: int, migration_id: UUID) -> contracts.WarehouseMigration | None:
-    """Raises `WarehouseMigrationBusyError` while a crawl runs."""
+    """Raises `WarehouseMigrationBusyError` while a crawl runs, and `WarehouseMigrationUploadedError` without a key."""
     migration = service.refresh_migration(team_id=team_id, migration_id=migration_id)
     return _to_migration(migration) if migration else None
 
@@ -400,4 +425,6 @@ __all__ = [
     "refresh_migration",
     "skip_migration_item",
     "skip_migration_items",
+    "start_migration_upload",
+    "upload_migration_connections",
 ]

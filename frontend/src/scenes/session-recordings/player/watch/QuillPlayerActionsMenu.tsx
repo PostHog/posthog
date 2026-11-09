@@ -131,7 +131,7 @@ export function QuillPlayerActionsMenu({ extraItems = [] }: { extraItems?: Lemon
         <>
             <DropdownMenu>
                 <DropdownMenuTrigger
-                    render={<Button size="icon-xs" aria-label="More actions" data-attr="player-meta-more-menu" />}
+                    render={<Button size="icon-sm" aria-label="More actions" data-attr="player-meta-more-menu" />}
                 >
                     <IconEllipsis />
                 </DropdownMenuTrigger>

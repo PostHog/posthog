@@ -674,9 +674,13 @@ def scale_products_to_junit(durations: dict[str, float], junit_dir: Path) -> dic
     """
     junit_work = product_junit_work(junit_dir)
     scaled = dict(durations)
+    keys_by_module: dict[str, list[str]] = defaultdict(list)
+    for key in scaled:
+        module = product_module(key)
+        if module is not None:
+            keys_by_module[module].append(key)
     for module, target in sorted(junit_work.items()):
-        prefix = f"products/{module}/"
-        keys = [k for k in scaled if k.startswith(prefix)]
+        keys = keys_by_module.get(module, [])
         current = sum(scaled[k] for k in keys)
         if current <= 0 or target <= 0:
             continue

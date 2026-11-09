@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -45,6 +46,7 @@ export function GroupsScene(): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const groupTitle = useTodayPeopleTitle('group')
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -80,9 +82,7 @@ export function GroupsScene(): JSX.Element {
             <SceneTitleSection
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
                 description={`A catalog of all ${groupTypeNamePlural} for this project`}
-                resourceType={{
-                    type: 'cohort',
-                }}
+                resourceType={groupTitle?.resourceType ?? { type: 'cohort' }}
                 actions={
                     <>
                         <FeedbackButton id="customer-analytics-groups-list-feedback-button" />

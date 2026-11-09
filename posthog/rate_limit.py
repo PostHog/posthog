@@ -536,6 +536,12 @@ class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThr
     rate = "30/day"
 
 
+# Each lookup calls the workload provider's API, often on a budget shared with the team's integration.
+class WorkloadSubjectLookupThrottle(UserRateThrottle):
+    scope = "workload_subject_lookup"
+    rate = "30/minute"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -1839,6 +1845,22 @@ class ContextSelectionSustainedThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
+class ContextSelectionTaskThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Caps prepare calls per sandbox task, whether or not the task is eligible for selection.
+
+    The project-wide selection limits count only eligible selections, so this per-task ceiling is
+    what stops one looping sandbox from holding the shared request slots or flooding outcome events.
+    """
+
+    scope = "context_selection_task"
+    rate = "30/minute"
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        access_token = getattr(getattr(request, "successful_authenticator", None), "access_token", None)
+        ident = getattr(access_token, "sandbox_task_id", None) or request.user.pk or self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class TaskRunChartRenderThrottle(PersonalApiKeyOrUserRateThrottle):
     # A chart render holds a worker for up to 90s, so it needs a far lower ceiling than the
     # ClickHouse throttles. Keyed per team so rotating API keys doesn't split the bucket.
@@ -2151,3 +2173,19 @@ class WarehouseMigrationCrawlThrottle(_TeamBucketRateThrottle):
 
     scope = "warehouse_migration_crawl"
     rate = "20/hour"
+
+
+class WarehouseMigrationUploadStartThrottle(_TeamBucketRateThrottle):
+    """Starting an uploaded warehouse migration creates a migration row. One project-wide bucket bounds how many
+    rows any caller can create."""
+
+    scope = "warehouse_migration_upload_start"
+    rate = "20/hour"
+
+
+class WarehouseMigrationUploadThrottle(_TeamBucketRateThrottle):
+    """Each upload of warehouse migration connections loads, plans again and rewrites the stored snapshot under the
+    migration row lock. The budget sits far above an agent that sends batches one after another."""
+
+    scope = "warehouse_migration_upload"
+    rate = "60/minute"

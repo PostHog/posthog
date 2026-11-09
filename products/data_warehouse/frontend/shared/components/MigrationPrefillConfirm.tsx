@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import React from 'react'
 
 import { LemonCheckbox, Link } from '@posthog/lemon-ui'
@@ -28,7 +29,8 @@ export function MigrationPrefillConfirm({
     className,
 }: MigrationPrefillConfirmProps): JSX.Element {
     return (
-        <LemonBanner type="warning" className={className}>
+        // The banner shows the vendor host and user, so replay and autocapture leave it out.
+        <LemonBanner type="warning" className={clsx('ph-no-capture', className)}>
             <p className="font-semibold mb-1">Check where your credentials go</p>
             <p className="m-0 mb-2 text-sm">
                 {creator

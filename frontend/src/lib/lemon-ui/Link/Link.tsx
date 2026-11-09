@@ -30,6 +30,8 @@ export type LinkPrimitiveProps = Pick<
     disableClientSideRouting?: boolean
     preventClick?: boolean
     onClick?: (event: React.MouseEvent<HTMLElement>) => void
+    /** Capture-phase click handler. Unlike `onClick`, it also fires for Cmd/Ctrl-clicks, which the routing handler swallows. */
+    onClickCapture?: (event: React.MouseEvent<HTMLElement>) => void
     onAuxClick?: (event: React.MouseEvent<HTMLElement>) => void
     onDoubleClick?: (event: React.MouseEvent<HTMLElement>) => void
     onMouseDown?: (event: React.MouseEvent<HTMLElement>) => void

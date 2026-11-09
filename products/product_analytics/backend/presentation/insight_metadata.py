@@ -18,6 +18,7 @@ from posthog.schema import (
 
 from posthog.event_usage import groups
 from posthog.llm.completions import hit_openai
+from posthog.llm.gateway_client import team_distinct_id
 from posthog.models import Team
 
 from products.product_analytics.backend.presentation.ai_billing import billable_ai_properties
@@ -553,6 +554,7 @@ def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Tea
                 posthog_groups=groups(),
                 timeout=_LLM_TIMEOUT_SECONDS,
                 response_format={"type": "json_object"},
+                distinct_id=team_distinct_id(team.id),
             )
         except openai.APITimeoutError as e:
             logger.warning("ai_metadata_generation_timeout", team_id=team.id)

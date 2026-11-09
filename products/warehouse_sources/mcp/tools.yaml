@@ -201,6 +201,8 @@ tools:
             refused once data has synced, because rows already merged under the old key would repeat; delete the synced
             data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That
             field reports the last run's failure, so it clears once a run succeeds rather than when the update lands."
+        exclude_params:
+            - drop_history_table
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true
@@ -650,6 +652,13 @@ tools:
         title: Skip a connection in a Fivetran migration
         description: Mark a Fivetran connection the user does not want to move. It stays out of later refreshes.
         feature_flag: warehouse-migration-import
+        response:
+            exclude:
+                - proposal.schemas.*.disabled_columns
+                - proposal.schemas.*.row_filters
+                - proposal.schemas.*.alternative_names
+                - proposal.prefill
+                - created_by
     warehouse-migration-items-list:
         operation: warehouse_migrations_items_list
         enabled: true
@@ -695,8 +704,44 @@ tools:
         title: Read a Fivetran account again
         description: >
             Read the Fivetran account again after the user changed it. Applied, skipped and in-progress connections keep
-            their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'.
+            their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'. A migration
+            with 'has_vendor_key' false was uploaded from the Fivetran MCP: read the changed connections again and send
+            them with 'warehouse-migration-upload-connections' instead.
         feature_flag: warehouse-migration-import
+    warehouse-migration-start-upload:
+        operation: warehouse_migrations_upload_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Start a Fivetran migration from the user's Fivetran MCP
+        description: >
+            Start a Fivetran migration that you fill with what you read through the user's Fivetran MCP server, so the
+            Fivetran key never reaches PostHog. Use it only after the user chose this over the API key link and you
+            warned them that every connection passes through the chat and uses their tokens. Then send the Fivetran
+            responses with 'warehouse-migration-upload-connections'.
+        feature_flag: warehouse-migration-import
+    warehouse-migration-upload-connections:
+        operation: warehouse_migrations_connections_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Upload Fivetran connections to a migration
+        description: >
+            Send what the Fivetran MCP returned to a migration from 'warehouse-migration-start-upload'. Pass every
+            Fivetran response unchanged: never summarize, trim or retype it, because PostHog removes the secrets and
+            plans from the raw response. Send the account info and every destination first, then the connections, each
+            with its connection details and its schema config. You write each call out in full, so keep it to a few
+            connections and under about 50 KB of JSON. Returns the planned items for the batch, without their full
+            plans; read those with 'warehouse-migration-items-list'. A 400 names the connections PostHog could not read;
+            the rest of the batch is saved.
+        feature_flag: warehouse-migration-import
+        response:
+            exclude:
+                - items.*.proposal
     warehouse-migrations-list:
         operation: warehouse_migrations_list
         enabled: true

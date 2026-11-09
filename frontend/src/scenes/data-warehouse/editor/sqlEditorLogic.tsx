@@ -28,6 +28,7 @@ import {
     LemonDialog,
     LemonInput,
     LemonSearchableSelect,
+    LemonTextArea,
     Spinner,
     lemonToast,
     Tooltip,
@@ -418,9 +419,8 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     }
 }
 
-// Raw Trino views run only on hosted Trino, so they have no lineage node and cannot be materialized.
-export function isRawTrinoView(view: DataWarehouseSavedQuery): boolean {
-    return view.query?.executionTarget === 'managed_trino' && !!view.query?.sendRawQuery
+export function viewHasLineage(view: DataWarehouseSavedQuery): boolean {
+    return view.engine?.capabilities.lineage.available ?? true
 }
 
 function hogQLEditorSourceQuery(source: Partial<HogQLQuery> = {}): DataVisualizationNode {
@@ -1115,8 +1115,10 @@ export interface sqlEditorLogicActions {
         folderId?: string | null,
         isTest?: any,
         queryOverride?: string,
-        incremental?: DataWarehouseSavedQueryIncremental
+        incremental?: DataWarehouseSavedQueryIncremental,
+        description?: string
     ) => {
+        description: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
         incremental: DataWarehouseSavedQueryIncremental | undefined
@@ -1466,8 +1468,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             folderId?: string | null,
             isTest = false,
             queryOverride?: string,
-            incremental?: DataWarehouseSavedQueryIncremental
+            incremental?: DataWarehouseSavedQueryIncremental,
+            description?: string
         ) => ({
+            description,
             name,
             materializeAfterSave,
             fromDraft,
@@ -2607,12 +2611,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
 
+                posthog.capture('save as view dialog opened')
                 LemonDialog.openForm({
                     title: 'Save as view',
                     showErrorsOnTouch: true,
                     initialValues: {
                         saveTarget: candidates.initialIndex,
                         viewName: values.activeTab?.name || '',
+                        description: '',
                         folderId: null,
                         isTest: false,
                         materializeAfterSave: isRawTrinoSave ? false : materializeAfterSave,
@@ -2646,6 +2652,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                         disabled={isLoading}
                                         placeholder="Please enter the name of the view"
                                         autoFocus
+                                    />
+                                </LemonField>
+                                <LemonField
+                                    name="description"
+                                    label="Description"
+                                    showOptional
+                                    help="Agents may use this description to work out how to use this data."
+                                    className="mt-2"
+                                >
+                                    <LemonTextArea
+                                        data-attr="sql-editor-input-save-view-description"
+                                        disabled={isLoading}
+                                        placeholder="For example: one row per paid order, without test orders or refunds. Use it for revenue reports."
+                                        minRows={2}
+                                        stopPropagation
                                     />
                                 </LemonField>
                                 <div className="flex gap-2 mt-2">
@@ -2732,6 +2753,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                     onSubmit: async ({
                         viewName,
+                        description,
                         folderId,
                         isTest,
                         materializeAfterSave: shouldMaterialize,
@@ -2756,7 +2778,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             folderId,
                             isTest ?? false,
                             selectedRef.current,
-                            incremental
+                            incremental,
+                            description?.trim() || undefined
                         )
                     },
                     shouldAwaitSubmit: true,
@@ -2770,6 +2793,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 isTest = false,
                 queryOverride,
                 incremental,
+                description,
             }) => {
                 const biEditorState = getActiveBIEditorState()
                 const query: HogQLQuery = values.sourceQuery.source
@@ -2803,12 +2827,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         name,
                         query: queryToSave,
                         types,
+                        ...(description ? { description } : {}),
                         ...(folderId ? { folder_id: folderId } : {}),
                         ...(isTest ? { is_test: true } : {}),
                         ...(incremental ? { incremental } : {}),
                         ...(materializeAfterSave ? { deferCreatedToast: true } : {}),
                     })
                     captureBIEditorQuerySaved(biEditorState, 'view', 'create')
+                    posthog.capture('save as view dialog submitted', {
+                        has_description: !!description,
+                        materialize_after_save: materializeAfterSave,
+                    })
 
                     // Saved queries are unique by team,name
                     const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find(
@@ -3628,7 +3657,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         editingView: (editingView) => {
-            if (editingView && !isRawTrinoView(editingView)) {
+            if (editingView && viewHasLineage(editingView)) {
                 actions.loadUpstream(editingView.id)
             }
         },
