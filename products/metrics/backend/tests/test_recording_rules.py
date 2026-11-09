@@ -280,6 +280,40 @@ class TestRecordingRuleEvaluation(APIBaseTest):
         assert error in (self.rule.last_error or "")
         assert self.rule.last_evaluated_at is None
 
+    def test_a_team_over_its_budget_serves_the_rule_that_waited_longest_first(self) -> None:
+        first_alphabetically = MetricRecordingRule.objects.unscoped().create(
+            team=self.team, metric_name="job:a_first:rate5m", query=_QUERY
+        )
+        clock = [0.0]
+
+        def slow_query(*args: Any, **kwargs: Any) -> requests.Response:
+            clock[0] += 39
+            return _response(200, _vector(({"route": "/a"}, "1")))
+
+        self.snuffle.side_effect = slow_query
+        with patch("products.metrics.backend.recording_rules.evaluation.time.monotonic", lambda: clock[0]):
+            assert self._evaluate() == 1
+            self.now += timedelta(minutes=1)
+            assert self._evaluate() == 1
+
+        self.rule.refresh_from_db()
+        first_alphabetically.refresh_from_db()
+        assert self.rule.last_evaluated_at is not None
+        assert first_alphabetically.last_evaluated_at is not None
+
+    def test_a_result_with_nothing_to_write_marks_the_minute_without_a_request(self) -> None:
+        self.snuffle.return_value = _response(200, _vector(({"route": "/a"}, "NaN")))
+
+        assert self._evaluate() == 1
+
+        assert self.ingest.call_count == 0
+        self.rule.refresh_from_db()
+        assert (self.rule.last_evaluated_at, self.rule.last_series_count, self.rule.last_error) == (
+            datetime(2026, 11, 6, 12, 0, 0, tzinfo=UTC),
+            1,
+            None,
+        )
+
     def test_a_failed_write_keeps_the_minute_due(self) -> None:
         self.ingest.return_value = _response(503, {})
 

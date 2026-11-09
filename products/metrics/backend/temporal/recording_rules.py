@@ -7,6 +7,8 @@ function a test can call without Temporal.
 import asyncio
 import datetime as dt
 import dataclasses
+from collections.abc import Callable
+from typing import Any
 
 from django.conf import settings
 
@@ -32,6 +34,8 @@ WORKFLOW_NAME = "metrics-recording-rules-evaluate"
 SCHEDULE_ID = "metrics-recording-rules-schedule"
 WORKFLOW_ID = "metrics-recording-rules-evaluate"
 INTERVAL = dt.timedelta(minutes=1)
+# Off the top of the minute, where every other schedule fires and the minute's samples are still arriving.
+OFFSET = dt.timedelta(seconds=7)
 # Each team's rules run one after another inside their own query budget, so the teams run side by side.
 MAX_CONCURRENT_TEAMS = 10
 # Above `TEAM_QUERY_BUDGET_SECONDS` and the freshness reads, so a team stops starting queries first.
@@ -122,7 +126,7 @@ async def create_metrics_recording_rules_schedule(client: Client) -> None:
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             execution_timeout=EXECUTION_TIMEOUT,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=INTERVAL)]),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=INTERVAL, offset=OFFSET)]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     if await a_schedule_exists(client, SCHEDULE_ID):
@@ -132,4 +136,7 @@ async def create_metrics_recording_rules_schedule(client: Client) -> None:
 
 
 METRICS_RECORDING_RULES_WORKFLOWS = [MetricsRecordingRulesWorkflow]
-METRICS_RECORDING_RULES_ACTIVITIES = [find_teams_with_recording_rules_activity, evaluate_team_recording_rules_activity]
+METRICS_RECORDING_RULES_ACTIVITIES: list[Callable[..., Any]] = [
+    find_teams_with_recording_rules_activity,
+    evaluate_team_recording_rules_activity,
+]

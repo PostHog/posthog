@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any, Final
 
 from django.conf import settings
+from django.db.models import F
 
 import structlog
 
@@ -54,7 +55,13 @@ def evaluate_team_recording_rules(team_id: int, now: datetime) -> int:
     """Evaluates the team's enabled rules for the minute ingestion has reached. Returns how many rules wrote."""
     if not settings.METRICS_RECORDING_RULES_INGEST_URL:
         return 0
-    rules = list(MetricRecordingRule.objects.filter(team_id=team_id, enabled=True).order_by("metric_name"))
+    # The rule that has waited longest goes first, so when the budget runs out the same rules do not lose
+    # their turn every minute.
+    rules = list(
+        MetricRecordingRule.objects.filter(team_id=team_id, enabled=True).order_by(
+            F("last_evaluated_at").asc(nulls_first=True), "metric_name"
+        )
+    )
     if not rules:
         return 0
     team = Team.objects.filter(id=team_id).first()
@@ -79,7 +86,9 @@ def evaluate_team_recording_rules(team_id: int, now: datetime) -> int:
             break
         try:
             samples = _query(team, rule.query, at=at, timeout_seconds=min(MAX_QUERY_SECONDS, remaining))
-            send(team.api_token, export_request(rule.metric_name, samples, at))
+            # A result with no number in it has nothing to write, and an empty request is not a valid export.
+            if any(sample.value is not None for sample in samples):
+                send(team.api_token, export_request(rule.metric_name, samples, at))
         except (PromQLQueryError, IngestError) as error:
             _record(rule, last_error=str(error))
             continue
