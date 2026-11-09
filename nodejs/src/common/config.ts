@@ -237,8 +237,8 @@ export type CommonConfig = BaseServerConfig & {
     EXTERNAL_REQUEST_H2_CONNECTIONS: number
     // Which teams send their third-party requests through the egress proxy. Only a deployment in the rollout sets
     // this. Left unset, a configured proxy carries every request, which is the behavior from before the rollout.
-    // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
-    // everyone else's requests, '*' for all.
+    // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2:0.5' for half of team 2's requests,
+    // '2,*:0.1' for team 2 plus a tenth of everyone else's requests, '*' for all.
     EXTERNAL_REQUEST_PROXY_TEAMS: string
 
     // PostHog analytics
