@@ -43,13 +43,8 @@ from posthog.models.oauth import (
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import OIDC_SCOPES, filter_self_registered_ceiling, filter_to_unprivileged_scopes
-from posthog.security.pinned_requests import PinnedIPAdapter, select_pinned_ip
-from posthog.security.url_validation import (
-    UNRESOLVED_HOST_REASON,
-    canonicalize_host,
-    is_url_allowed,
-    validate_url_and_pin_ips,
-)
+from posthog.security.pinned_requests import PinnedIPAdapter, canonical_host, select_pinned_ip
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allowed, validate_url_and_pin_ips
 
 from .client_name import sanitize_client_name, validate_cimd_client_name
 from .logo_uri import usable_logo_uri
@@ -337,9 +332,11 @@ _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_d
 
 def _url_host(url: str) -> str:
     try:
-        return canonicalize_host(urlparse(url).hostname or "")
+        host = urlparse(url).hostname or ""
     except ValueError:
         return ""
+    # The form requests connects to, so the checks judge the host PostHog actually fetches.
+    return canonical_host(host.rstrip("."))
 
 
 def registrable_domain(url: str) -> str:
