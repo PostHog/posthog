@@ -132,7 +132,6 @@ def _stats_window(day: date) -> dict[str, str]:
 
 
 def _parse_retry_after(value: str | None) -> float | None:
-    """Parse a delta-seconds `Retry-After` header. Anything else falls back to exponential backoff."""
     if not value:
         return None
     try:

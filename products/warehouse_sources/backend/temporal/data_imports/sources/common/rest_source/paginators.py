@@ -366,7 +366,6 @@ class PageNumberPaginator(BasePaginator):
         # The page size the request asks for. A page with fewer rows is the last page, so an API that
         # never returns an empty page (it repeats the last page, or ignores the page param) still stops.
         self.page_size = page_size
-        # An API that ignores the page param returns the same rows for every page and never ends.
         self.raise_on_repeated_page = raise_on_repeated_page
         self._previous_page_fingerprint: Optional[str] = None
 

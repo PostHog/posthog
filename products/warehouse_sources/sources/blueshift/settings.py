@@ -17,7 +17,6 @@ STATS_BACKFILL_DAYS = 365
 # Opens, clicks and purchases keep arriving for days after a campaign sends, so every incremental
 # stats sync reads this many days before its start position again.
 STATS_REREAD_DAYS = 7
-# The wait between two day requests of the stats walk. A full backfill then takes about three minutes.
 STATS_REQUEST_INTERVAL_SECONDS = 0.5
 
 STATS_DATE_INCREMENTAL_FIELD: IncrementalField = {
