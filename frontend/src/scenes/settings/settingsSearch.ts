@@ -20,10 +20,6 @@ export interface SearchIndexEntry {
     keywords: string
     sectionKeywords: string
     description: string
-    /**
-     * Where the result opens. A section that links to a page of its own, such as Billing, opens that
-     * page, because the settings page has nothing to show for it.
-     */
     to: string
 }
 
