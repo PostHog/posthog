@@ -131,6 +131,22 @@ export interface CatalogTableRow {
     detailUrl: string | null
 }
 
+export type ChecksSubject = Pick<
+    CatalogTableRow,
+    'key' | 'name' | 'detailUrl' | 'subject' | 'checkGroup' | 'checkCounts'
+>
+
+export function checksSubjectOf(group: SubjectGroup): ChecksSubject {
+    return {
+        key: group.subjectKey,
+        name: group.subjectName,
+        detailUrl: group.detailUrl,
+        subject: group.subjectUuid ? { subjectType: group.subjectType, subjectId: group.subjectUuid } : null,
+        checkGroup: group,
+        checkCounts: { total: group.checksTotal, failing: group.checksFailing },
+    }
+}
+
 export interface CatalogTableSources {
     posthogTables: DatabaseSchemaTable[]
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
@@ -468,7 +484,7 @@ export function displayedCheckCounts(
     return checkGroupCounts(group) ?? (rolledUp.total > 0 ? rolledUp : null)
 }
 
-export function passingChecks(row: CatalogTableRow): CheckCounts | null {
+export function passingChecks(row: Pick<CatalogTableRow, 'checkGroup' | 'checkCounts'>): CheckCounts | null {
     return displayedCheckCounts(row.checkGroup, row.checkCounts)
 }
 
@@ -501,9 +517,9 @@ export function proposalAcceptsAsDeprecation(certification: DataCatalogCertifica
 
 export type RowMenuAction = 'sync_now' | 'certify' | 'deprecate' | 'remove_trust'
 
-export function rowMenuActions(row: CatalogTableRow): RowMenuAction[] {
+export function rowMenuActions(row: CatalogTableRow, trustLoaded: boolean): RowMenuAction[] {
     const menuActions: RowMenuAction[] = row.savedQuery?.is_materialized ? ['sync_now'] : []
-    if (!row.certificationTarget || hasPendingProposal(row)) {
+    if (!trustLoaded || !row.certificationTarget || hasPendingProposal(row)) {
         return menuActions
     }
     menuActions.push(row.certification?.status === 'certified' ? 'deprecate' : 'certify')

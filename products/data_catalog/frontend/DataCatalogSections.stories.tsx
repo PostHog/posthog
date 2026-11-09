@@ -299,9 +299,8 @@ const meta: Meta<typeof DataCatalogScene> = {
         msw: {
             mocks: {
                 get: {
-                    '/api/environments/:team_id/data_modeling_nodes/': { results: nodes, count: nodes.length },
-                    '/api/environments/:team_id/data_modeling_edges/': { results: [], count: 0 },
-                    '/api/environments/:team_id/warehouse_saved_queries/': savedQueries,
+                    '/api/projects/:team_id/data_modeling_nodes/': { results: nodes, count: nodes.length },
+                    '/api/projects/:team_id/data_modeling_edges/': { results: [], count: 0 },
                     '/api/projects/:team_id/warehouse_saved_queries/': savedQueries,
                     '/api/projects/:team_id/data_quality_checks/': { results: checks, count: checks.length },
                     '/api/projects/:team_id/data_quality_checks/health/': [],
@@ -322,7 +321,7 @@ const meta: Meta<typeof DataCatalogScene> = {
                     },
                 },
                 post: {
-                    '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
+                    '/api/projects/:team_id/query/:query_kind/': async ({ request }) => {
                         const { query } = (await request.json()) as { query: { kind: string } }
                         return query.kind === NodeKind.DatabaseSchemaQuery
                             ? [200, { tables: databaseTables, joins: [] }]

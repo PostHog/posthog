@@ -38,16 +38,16 @@ function catalogMocks({
                 results: certifications,
                 count: certifications.length,
             },
-            '/api/environments/:team_id/data_modeling_nodes/': { results: [], count: 0 },
-            '/api/environments/:team_id/data_modeling_edges/': { results: [], count: 0 },
-            '/api/environments/:team_id/warehouse_saved_queries/': {
+            '/api/projects/:team_id/data_modeling_nodes/': { results: [], count: 0 },
+            '/api/projects/:team_id/data_modeling_edges/': { results: [], count: 0 },
+            '/api/projects/:team_id/warehouse_saved_queries/': {
                 results: savedQueries,
                 count: savedQueries.length,
             },
             ...extra.get,
         },
         post: {
-            '/api/environments/:team_id/query/:query_kind/': { tables, joins: [] },
+            '/api/projects/:team_id/query/:query_kind/': { tables, joins: [] },
             ...extra.post,
         },
         delete: { ...extra.delete },
@@ -125,7 +125,7 @@ describe('catalogTablesLogic', () => {
                     },
                     extra: {
                         get: {
-                            '/api/environments/:team_id/warehouse_saved_queries/:id/run_history/': ({ params }) => {
+                            '/api/projects/:team_id/warehouse_saved_queries/:id/run_history/': ({ params }) => {
                                 runHistoryRequests.push(params.id as string)
                                 return [200, { run_history: [] }]
                             },
@@ -200,8 +200,11 @@ describe('catalogTablesLogic', () => {
                         'stripe.customers': sourceTable('table-customers', 'stripe.customers'),
                     },
                     checks: {
-                        results: [check('charges-check', 'table-charges', 'stripe.charges', 'passed')],
-                        count: 1,
+                        results: [
+                            check('charges-check', 'table-charges', 'stripe.charges', 'passed'),
+                            { ...check('mrr-check', 'metric-mrr', 'mrr', 'failed'), subject_type: 'metric' },
+                        ],
+                        count: 2,
                     },
                     certifications: proposals,
                     extra: {
@@ -275,8 +278,9 @@ describe('catalogTablesLogic', () => {
         })
 
         it.each([
-            [undefined, ['stripe.charges']],
+            [undefined, ['stripe.charges', 'mrr']],
             ['stripe.customers', ['stripe.customers']],
+            ['mrr', ['mrr']],
         ])('the data quality section filtered to table %s lists %j', async (table, expectedNames) => {
             router.actions.push(urls.dataCatalog(), { tab: 'data-quality', table })
             const qualityLogic = catalogDataQualityLogic()

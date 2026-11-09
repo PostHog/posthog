@@ -4,11 +4,9 @@ import { Spinner } from '@posthog/quill'
 
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { CatalogTableRow, CheckCounts, passingChecks } from '../catalogTableRows'
+import { CheckCounts, ChecksSubject, passingChecks } from '../catalogTableRows'
 
-type CatalogChecksSummaryProps =
-    | { row: CatalogTableRow }
-    | { counts: CheckCounts | null; subjectKey: string | undefined }
+type CatalogChecksSummaryProps = { row: ChecksSubject } | { counts: CheckCounts | null; subjectKey: string | undefined }
 
 export function CatalogChecksSummary(props: CatalogChecksSummaryProps): JSX.Element | null {
     const { runningSubjectKey } = useValues(dataQualityOverviewLogic)
