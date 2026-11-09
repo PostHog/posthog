@@ -1,7 +1,8 @@
+from enum import IntEnum
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+from django.db.models import IntegerField, Q, QuerySet, Value
 
 import structlog
 
@@ -45,8 +46,120 @@ def _run_repository_filter(repository: str) -> Q:
     )
 
 
-def _indexed_candidate_ids(queryset: QuerySet[TaskRun]) -> list[UUID]:
-    return list(queryset.order_by().values_list("id", flat=True))
+class _TaskRunMatchRank(IntEnum):
+    VERIFIED_PR_URL = 0
+    SELF_DRIVING_HEAD_BRANCH = 1
+    SIGNED_HEAD_BRANCH = 2
+    WIZARD_HEAD_BRANCH = 3
+    REPORTED_PR_URL = 4
+
+
+def _indexed_candidate_matches(
+    pr_url: str | None,
+    branch: str | None,
+    repository: str | None,
+    *,
+    team_ids: list[int],
+) -> dict[_TaskRunMatchRank, set[UUID]]:
+    indexed_candidates = TaskRun.objects.filter(team_id__in=team_ids)
+    candidate_queries = []
+
+    def add_candidates(queryset: QuerySet[TaskRun], rank: _TaskRunMatchRank) -> None:
+        candidate_queries.append(
+            queryset.order_by()
+            .annotate(match_rank=Value(rank.value, output_field=IntegerField()))
+            .values_list("id", "match_rank")
+        )
+
+    if pr_url:
+        # A resumed wizard run inherits its predecessor's head branch, so a terminal original and
+        # its live resume can both claim the same PR URL. The live run must keep priority.
+        verified_url = canonical_github_pull_request_url(pr_url)
+        verified_filter = Q(state__verified_pr_urls__contains=[pr_url])
+        if verified_url is not None:
+            verified_filter |= Q(state__verified_pr_urls__contains=[verified_url])
+        add_candidates(indexed_candidates.filter(verified_filter), _TaskRunMatchRank.VERIFIED_PR_URL)
+
+    if branch and repository:
+        # The self-driving branch stamp is PATCH-protected and cannot be forged by a caller.
+        add_candidates(
+            indexed_candidates.filter(state__self_driving_head_branch=branch),
+            _TaskRunMatchRank.SELF_DRIVING_HEAD_BRANCH,
+        )
+        # Signed commits report every pushed repository and branch pair separately because the
+        # checkout branch cannot represent nested repositories or multiple PR branches.
+        add_candidates(
+            indexed_candidates.filter(
+                output__head_branches__contains=[{"repository": repository.lower(), "branch": branch}]
+            ),
+            _TaskRunMatchRank.SIGNED_HEAD_BRANCH,
+        )
+        if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
+            # The prefix keeps this sparse indexed leg off the hot path for ordinary branches.
+            add_candidates(
+                indexed_candidates.filter(state__wizard_head_branch=branch),
+                _TaskRunMatchRank.WIZARD_HEAD_BRANCH,
+            )
+        if pr_url:
+            # Desktop clients can attach a PR URL and branch without reporting head_branches.
+            reported_candidates = indexed_candidates.filter(
+                branch=branch,
+                state__wizard_head_branch__isnull=True,
+                state__self_driving_head_branch__isnull=True,
+            )
+            add_candidates(
+                reported_candidates.filter(output__pr_url=pr_url),
+                _TaskRunMatchRank.REPORTED_PR_URL,
+            )
+            add_candidates(
+                reported_candidates.filter(output__pr_urls__contains=[pr_url]),
+                _TaskRunMatchRank.REPORTED_PR_URL,
+            )
+
+    if not candidate_queries:
+        return {}
+
+    # Separate UNION arms keep each indexable predicate isolated from task joins.
+    matches: dict[_TaskRunMatchRank, set[UUID]] = {}
+    combined_candidates = candidate_queries[0].union(*candidate_queries[1:], all=True).order_by()
+    for candidate_id, match_rank in combined_candidates:
+        matches.setdefault(_TaskRunMatchRank(match_rank), set()).add(candidate_id)
+    return matches
+
+
+def _eligible_task_run_candidates(rank: _TaskRunMatchRank, runs: list[TaskRun]) -> list[TaskRun]:
+    if rank == _TaskRunMatchRank.SELF_DRIVING_HEAD_BRANCH:
+        # A successful run becomes COMPLETED after opening its PR, so only failed and cancelled runs are stale.
+        return [
+            run
+            for run in runs
+            if not run.task.deleted and run.status not in (TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+        ]
+    if rank == _TaskRunMatchRank.SIGNED_HEAD_BRANCH:
+        return [run for run in runs if not isinstance(run.state, dict) or "wizard_head_branch" not in run.state]
+    if rank == _TaskRunMatchRank.WIZARD_HEAD_BRANCH:
+        # Reopened wizard branches must not fire events on dead runs. Bound PRs use the verified URL rank above.
+        return [run for run in runs if not run.task.deleted and run.status not in _TERMINAL_RUN_STATUSES]
+    return runs
+
+
+def _select_task_run_candidate(
+    runs: dict[UUID, TaskRun], matches: dict[_TaskRunMatchRank, set[UUID]]
+) -> TaskRun | None:
+    for rank in _TaskRunMatchRank:
+        ranked_runs = [runs[run_id] for run_id in matches.get(rank, ()) if run_id in runs]
+        eligible_runs = _eligible_task_run_candidates(rank, ranked_runs)
+        if not eligible_runs:
+            continue
+        if rank == _TaskRunMatchRank.VERIFIED_PR_URL:
+            return max(
+                eligible_runs,
+                key=lambda run: (run.status not in _TERMINAL_RUN_STATUSES, run.created_at),
+            )
+        if rank == _TaskRunMatchRank.WIZARD_HEAD_BRANCH:
+            return max(eligible_runs, key=lambda run: run.created_at)
+        return max(eligible_runs, key=lambda run: (run.created_at, run.id))
+    return None
 
 
 def find_task_run(
@@ -71,7 +184,10 @@ def find_task_run(
         logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
         return None
 
-    indexed_candidates = TaskRun.objects.filter(team_id__in=team_ids)
+    matches = _indexed_candidate_matches(pr_url, branch, repository, team_ids=team_ids)
+    if not matches:
+        return None
+
     candidates = TaskRun.objects.filter(team_id__in=team_ids)
     # ReviewHog runs check out the PR head branch to review it, but they never author a PR, so no
     # leg below may return one. The exclusion belongs here rather than on each leg: a stale
@@ -80,116 +196,12 @@ def find_task_run(
     # through to the legs below, which resolve the run that authored the PR.
     candidates = candidates.exclude(task__origin_product=Task.OriginProduct.REVIEW_HOG)
 
-    if pr_url:
-        # A resumed wizard run inherits its predecessor's head branch, so a terminal
-        # original and its live resume can both claim the same PR URL. Scope to the
-        # webhook's repo and prefer non-terminal runs so merge handling lands on the
-        # run that can still act on it.
-        verified_url = canonical_github_pull_request_url(pr_url)
-        verified_filter = Q(state__verified_pr_urls__contains=[pr_url])
-        if verified_url is not None:
-            verified_filter |= Q(state__verified_pr_urls__contains=[verified_url])
-        runs = candidates.filter(id__in=_indexed_candidate_ids(indexed_candidates.filter(verified_filter)))
-        if repository:
-            runs = runs.filter(_run_repository_filter(repository))
-        # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
-        # variant that must not leak into the plain-queryset legs below.
-        task_run: TaskRun | None = (
-            runs.annotate(
-                terminal_rank=Case(
-                    When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
-                    default=Value(0),
-                    output_field=IntegerField(),
-                )
-            )
-            .order_by("terminal_rank", "-created_at")
-            .select_related(*TASK_RUN_SELECT_RELATED)
-            .first()
-        )
-        if task_run:
-            return task_run
-
-    # Branch-only lookups must be scoped to the repository the webhook came from.
-    # Without this, a PR opened on an unrelated repo with a colliding branch name
-    # (e.g. "main") gets attributed to whichever TaskRun shares that branch.
-    if branch and repository:
-        # A self-driving implementation run stamps its server-generated head branch into
-        # PATCH-protected state (signals' auto_start). That stamp is the run->PR link no
-        # caller can forge, so resolve it before the reported head branches below.
-        # FAILED and CANCELLED runs and soft-deleted tasks are dropped; a COMPLETED run
-        # stays eligible because success flips the run to COMPLETED right after it opens
-        # the PR. The task_run_sd_branch_idx index covers this filter.
-        task_run = (
-            candidates.filter(
-                _run_repository_filter(repository),
-                id__in=_indexed_candidate_ids(indexed_candidates.filter(state__self_driving_head_branch=branch)),
-                task__deleted=False,
-            )
-            .exclude(status__in=(TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
-            .order_by("-created_at", "-id")
-            .select_related(*TASK_RUN_SELECT_RELATED)
-            .first()
-        )
-        if task_run:
-            return task_run
-
-        # Signed commits report every pushed repository/branch pair separately
-        # from ``branch``. The latter controls provisioning's next checkout and
-        # cannot represent nested repositories or multiple PR branches.
-        head_branch = {"repository": repository.lower(), "branch": branch}
-        task_run = (
-            candidates.filter(
-                _run_repository_filter(repository),
-                id__in=_indexed_candidate_ids(indexed_candidates.filter(output__head_branches__contains=[head_branch])),
-                state__wizard_head_branch__isnull=True,
-            )
-            .order_by("-created_at", "-id")
-            .select_related(*TASK_RUN_SELECT_RELATED)
-            .first()
-        )
-        if task_run:
-            return task_run
-
-        # Wizard cloud runs push to a server-generated head branch stored in run state.
-        # The prefix check keeps this leg off the hot path for ordinary PR webhooks, and
-        # terminal runs are excluded so a reopened branch can't fire events on a dead run
-        # (post-merge events for bound runs resolve via the pr_url leg above).
-        if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
-            task_run = (
-                candidates.filter(
-                    _run_repository_filter(repository),
-                    id__in=_indexed_candidate_ids(indexed_candidates.filter(state__wizard_head_branch=branch)),
-                    task__deleted=False,
-                )
-                .exclude(status__in=_TERMINAL_RUN_STATUSES)
-                .select_related(*TASK_RUN_SELECT_RELATED)
-                .first()
-            )
-            if task_run:
-                return task_run
-
-        # Desktop clients can attach a PR URL and branch without reporting head_branches.
-        if pr_url:
-            reported_candidates = indexed_candidates.filter(
-                branch=branch,
-                state__wizard_head_branch__isnull=True,
-                state__self_driving_head_branch__isnull=True,
-            )
-            reported_candidate_ids = set(_indexed_candidate_ids(reported_candidates.filter(output__pr_url=pr_url)))
-            reported_candidate_ids.update(
-                _indexed_candidate_ids(reported_candidates.filter(output__pr_urls__contains=[pr_url]))
-            )
-            return (
-                candidates.filter(
-                    _run_repository_filter(repository),
-                    id__in=reported_candidate_ids,
-                )
-                .order_by("-created_at", "-id")
-                .select_related(*TASK_RUN_SELECT_RELATED)
-                .first()
-            )
-
-    return None
+    # A bare branch name does not prove PR ownership because branch names collide across repositories.
+    if repository:
+        candidates = candidates.filter(_run_repository_filter(repository))
+    candidate_ids = {candidate_id for candidate_ids in matches.values() for candidate_id in candidate_ids}
+    runs = {run.id: run for run in candidates.filter(id__in=candidate_ids).select_related(*TASK_RUN_SELECT_RELATED)}
+    return _select_task_run_candidate(runs, matches)
 
 
 def _capture_task_pr_event(payload: dict, task_run: TaskRun | None, event: GitHubWebhookAnalyticsEvent) -> None:
