@@ -149,6 +149,16 @@ oauth_clear_expired_oauth_tokens_schedule = dagster.ScheduleDefinition(
 )
 
 
+# A floor that the grace period setting cannot lower, so an application created in the last 30
+# days is never a candidate, whatever its tokens say.
+MIN_STALE_APPLICATION_AGE = timedelta(days=30)
+
+
+def stale_application_created_cutoff(now: datetime) -> datetime:
+    grace_period = timedelta(seconds=settings.OAUTH_STALE_APPLICATION_GRACE_PERIOD)
+    return now - max(grace_period, MIN_STALE_APPLICATION_AGE)
+
+
 def stale_oauth_applications(now: datetime) -> QuerySet:
     """Self-registered (DCR and CIMD) applications with no token that is valid now or was
     valid inside the grace period.
@@ -163,7 +173,7 @@ def stale_oauth_applications(now: datetime) -> QuerySet:
     return (
         OAuthApplication.objects.filter(
             Q(is_dcr_client=True) | Q(is_cimd_client=True),
-            created__lt=cutoff,
+            created__lt=stale_application_created_cutoff(now),
             organization__isnull=True,
             is_first_party=False,
             is_verified=False,
@@ -208,8 +218,10 @@ def clear_stale_oauth_applications(
     deleted = 0
     if not config.dry_run:
         while ids := list(stale_oauth_applications(now).values_list("id", flat=True)[:batch_size]):
-            # Re-check each batch, so an app that got a token after the count above is kept.
-            deleted += OAuthApplication.objects.filter(id__in=ids).delete()[1].get(OAuthApplication._meta.label, 0)
+            # Re-check each batch, so an app that got a token after the count above is kept. The
+            # delete applies the age floor again, so it can never remove a recently created app.
+            batch = OAuthApplication.objects.filter(id__in=ids, created__lt=stale_application_created_cutoff(now))
+            deleted += batch.delete()[1].get(OAuthApplication._meta.label, 0)
             context.log.debug(f"{deleted} stale OAuth applications deleted")
             time.sleep(batch_interval)
 
