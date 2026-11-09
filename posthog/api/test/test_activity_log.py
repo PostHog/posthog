@@ -470,19 +470,19 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("activity_log",),
-            ("advanced_activity_logs",),
-            ("advanced_activity_logs_csv", "?is_csv_export=1"),
+            ("activity_log", "activity_log/"),
+            ("advanced_activity_logs", "advanced_activity_logs/"),
+            ("advanced_activity_logs_csv", "advanced_activity_logs/?is_csv_export=1"),
         ]
     )
-    def test_group_property_values_match_rules_by_group_type_and_path(self, endpoint: str, query: str = "") -> None:
+    def test_group_property_values_match_rules_by_group_type_and_path(self, _name: str, path: str) -> None:
         self._log_group_changes_with_rules_per_group_type()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/{query}")
+        response = self.client.get(f"/api/projects/{self.team.id}/{path}")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         body = response.content.decode()
-        for label, _name, _group_type_index, visible in self._GROUP_TYPE_ENTRIES:
+        for label, _entry_name, _group_type_index, visible in self._GROUP_TYPE_ENTRIES:
             assert (f"example-{label}-before" in body) is visible, label
             assert (f"example-{label}-after" in body) is visible, label
 
