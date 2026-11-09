@@ -116,16 +116,23 @@ class StagedRow:
     properties: dict[str, Any]
     person_properties: dict[str, Any]
     original_properties: str
+    original_written_at: datetime
 
 
 def staged_rows(cluster: ClickhouseCluster, table: GeoipStagingTable) -> dict[UUID, StagedRow]:
     rows = cluster.any_host_by_role(
-        Query(f"SELECT uuid, properties, person_properties, original_properties FROM {table.qualified_name} FINAL"),
+        Query(
+            f"""SELECT uuid, properties, person_properties, original_properties, original_written_at
+            FROM {table.qualified_name} FINAL"""
+        ),
         NodeRole.DATA,
     ).result()
     return {
         row[0]: StagedRow(
-            properties=json.loads(row[1]), person_properties=json.loads(row[2]), original_properties=row[3]
+            properties=json.loads(row[1]),
+            person_properties=json.loads(row[2]),
+            original_properties=row[3],
+            original_written_at=row[4],
         )
         for row in rows
     }
@@ -443,6 +450,7 @@ def assert_damaged_events_staged(
     assert row.person_properties["$geoip_country_code"] == "US"
     assert row.person_properties["$initial_geoip_country_code"] == "FR"
     assert json.loads(row.original_properties) == damaged.properties
+    assert row.original_written_at == original["_timestamp"]
     assert staged[second_damaged.uuid].person_properties == {}
 
 
