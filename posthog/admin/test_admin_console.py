@@ -18,13 +18,14 @@ from django.test import Client, RequestFactory, SimpleTestCase, override_setting
 from django.utils.html import format_html
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
-from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
+from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Secret, Table, ToolOperation
 from posthog.csp_middleware import CSPMiddleware
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
@@ -68,6 +69,31 @@ class _Tool(ConsoleTool):
     title = "Some report"
     owner = Owner(name="Dev experience", crest="dev-experience")
     group = "Data"
+
+
+class _SecretTool(_Tool):
+    key = "issue-password"
+    runs = 0
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(blocks=())
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        return [
+            ToolOperation(
+                key="issue",
+                label="Issue a password",
+                handler=self.issue,
+                danger=True,
+                form_class=ReasonForm,
+                undo_hint="Rotate the password.",
+            )
+        ]
+
+    @classmethod
+    def issue(cls, request: HttpRequest, form: object) -> Page:
+        cls.runs += 1
+        return Page(blocks=(Secret(label="Root password", value="example-secret-value"),))
 
 
 def _register_twice() -> None:
@@ -195,6 +221,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "not a table, notice or output",
             ),
             (
+                "secret_on_a_page_that_renders_again",
+                lambda: Page(blocks=(Secret(label="Password", value="x"),)).refuse_secrets("tool page"),
+                "only from an operation's result page",
+            ),
+            (
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
@@ -286,6 +317,26 @@ class TestAdminConsoleViews(BaseTest):
         )
 
         assert response.status_code == 403
+
+    def test_a_secret_result_shows_once_and_a_reload_does_not_run_the_operation_again(self) -> None:
+        _SecretTool.runs = 0
+        with patch.object(console, "get_tool", return_value=_SecretTool()), capture_logs() as audit_log:
+            response = self.client.post("/admin/console/tools/issue-password/issue/", {"reason": "Customer onboarding"})
+            first = self.client.get(response["Location"])
+            reload = self.client.get(response["Location"])
+
+        assert response.status_code == 302
+        assert response["Location"].startswith("/admin/console/results/")
+        assert "example-secret-value" not in response["Location"]
+        assert first.status_code == 200
+        assert "example-secret-value" in first.content.decode()
+        assert reload.status_code == 410
+        assert "example-secret-value" not in reload.content.decode()
+        assert _SecretTool.runs == 1
+        for page in (response, first, reload):
+            assert "no-store" in page["Cache-Control"]
+        assert any(entry.get("reason") == "Customer onboarding" for entry in audit_log)
+        assert "example-secret-value" not in repr(audit_log)
 
     def test_team_page_shows_core_and_product_panels(self) -> None:
         response = self.client.get(f"/admin/console/teams/{self.team.pk}/")

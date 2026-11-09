@@ -87,6 +87,11 @@ urlpatterns = [
         )
     ],
     path(
+        "admin/console/results/<slug:result_id>/",
+        admin.site.admin_view(views.operation_result),
+        name="admin_console_result",
+    ),
+    path(
         "admin/console/tools/<slug:tool_key>/",
         admin.site.admin_view(views.tool_page),
         name="admin_console_tool",

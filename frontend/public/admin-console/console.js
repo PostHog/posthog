@@ -25,6 +25,29 @@ document.addEventListener('keydown', (event) => {
     }
 })
 
+// A Secret block on a result page: a click in the field selects the value, and the button copies it.
+document.addEventListener('click', (event) => {
+    const target = event.target
+    if (target instanceof HTMLInputElement && target.hasAttribute('data-console-secret')) {
+        target.select()
+        return
+    }
+    const button = target instanceof Element ? target.closest('button[data-console-copy]') : null
+    const field = button ? document.getElementById(button.dataset.consoleCopy) : null
+    if (!(field instanceof HTMLInputElement)) {
+        return
+    }
+    navigator.clipboard.writeText(field.value).then(
+        () => {
+            button.textContent = 'Copied'
+        },
+        () => {
+            field.select()
+            button.textContent = 'Selected. Copy with the keyboard'
+        }
+    )
+})
+
 document.querySelector('form[data-autofocus]')?.querySelector('input:not([type=hidden]), textarea, select')?.focus()
 
 // Live blocks ask the server for a fresh copy of themselves while their data-refresh-seconds is set, for
