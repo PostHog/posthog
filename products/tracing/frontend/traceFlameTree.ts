@@ -23,13 +23,7 @@ export function nodeKey(node: { serviceName: string; name: string }): string {
     return compareRowKey({ service_name: node.serviceName, name: node.name })
 }
 
-/**
- * Count-weighted median of per-edge percentile values. Each edge contributes its value
- * with its sample count as weight; we walk the sorted values and return the one where
- * cumulative weight crosses half the total. A weighted *average* of medians is dragged
- * far off by a single skewed call site (a rare slow edge pulls the whole node up); the
- * weighted median stays within the range of actually-observed per-edge values.
- */
+// A weighted average would let one rare, slow call site pull the whole node up.
 function weightedMedianByCount(samples: { value: number; count: number }[]): number {
     const sorted = samples.filter((s) => s.count > 0).sort((a, b) => a.value - b.value)
     if (sorted.length === 0) {
@@ -46,17 +40,7 @@ function weightedMedianByCount(samples: { value: number; count: number }[]): num
     return sorted[sorted.length - 1].value
 }
 
-/**
- * Merge multiple (parent → child) rows that describe the same span into a single node.
- * The backend's tree query emits one row per (parent_service, parent_name, service_name,
- * name) edge, so a span with multiple parents shows up multiple times. Summing across
- * rows is what makes the per-span totals here match the per-span totals in the
- * aggregation list.
- *
- * Percentiles can't be combined exactly without raw samples, so we take the count-weighted
- * median of the per-edge percentiles (see weightedMedianByCount). Means (avg, start offset)
- * combine exactly as a count-weighted average.
- */
+// The tree query returns one row per parent edge, so a span with several parents has several rows.
 export function mergeRows(rows: SpanTreeNode[]): SpanTreeNode {
     let totalCount = 0
     let totalDuration = 0
@@ -86,11 +70,6 @@ export function mergeRows(rows: SpanTreeNode[]): SpanTreeNode {
     }
 }
 
-/**
- * Build a tree from the flat (parent_service, parent_name) → (service_name, name) edges.
- * Both windows contribute nodes; previous-only nodes still appear so vanished call sites
- * are visible in the diff.
- */
 export function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): FlameTreeNode {
     const allNodes = new Map<string, { currentRows: SpanTreeNode[]; previousRows: SpanTreeNode[] }>()
     const childrenByParent = new Map<string, Set<string>>()
@@ -124,10 +103,7 @@ export function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | nu
         record(row, false)
     }
 
-    // Cycle guard: the backend's name-grouped edges can describe a cycle
-    // (e.g. <ROOT> → A → B → A when traces are crafted recursively). Without this,
-    // `build` would recurse indefinitely and freeze the browser tab. We skip any
-    // child key that already appears on the current build path.
+    // Edges grouped by name can form a cycle, so skip children already on the path.
     function build(key: string, serviceName: string, name: string, ancestors: Set<string>): FlameTreeNode {
         const entry = allNodes.get(key) ?? { currentRows: [], previousRows: [] }
         const nextAncestors = new Set(ancestors)
@@ -139,7 +115,6 @@ export function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | nu
                 const ref = childEntry.currentRows[0] ?? childEntry.previousRows[0]!
                 return build(childKey, ref.service_name, ref.name, nextAncestors)
             })
-            // Order children by typical start offset (left = earlier).
             .sort((a, b) => (a.node?.avg_start_offset_nano ?? 0) - (b.node?.avg_start_offset_nano ?? 0))
         return {
             serviceName,
