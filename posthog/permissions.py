@@ -159,7 +159,12 @@ def can_in_required_organization(request: Request, organization: Organization, a
     return can_in_organization(request, organization, action)
 
 
-def can_in_project(request: Request, team: Team, action: Action) -> bool:
+def can_in_project(request: Request, team: Team, action: Action, view: APIView | None = None) -> bool:
+    # The view already loaded the team and the user's memberships, so the check reuses them instead of
+    # loading them again.
+    access = getattr(view, "user_access_control", None)
+    if isinstance(access, UserAccessControl) and access.team is not None and access.team.pk == team.pk:
+        authorization.reuse_current_rules(access, getattr(view, "user_permissions", None))
     return authorization.check(
         resource=Resource(type=ResourceType.PROJECT, id=str(team.pk)), action=action, subject=request_subject(request)
     )
@@ -280,7 +285,7 @@ class TeamMemberAccessPermission(BasePermission):
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
 
-        return can_in_project(request, team, Action.VIEW)
+        return can_in_project(request, team, Action.VIEW, view)
 
 
 class VerifiedDomainEnforcementPermission(BasePermission):
@@ -498,7 +503,7 @@ class TeamMemberLightManagementPermission(BasePermission):
             team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
-        return can_in_project(request, team, Action.DELETE if request.method == "DELETE" else Action.VIEW)
+        return can_in_project(request, team, Action.DELETE if request.method == "DELETE" else Action.VIEW, view)
 
 
 class TeamMemberStrictManagementPermission(BasePermission):
@@ -510,7 +515,7 @@ class TeamMemberStrictManagementPermission(BasePermission):
     message = "You don't have sufficient permissions in the project."
 
     def has_permission(self, request, view) -> bool:
-        return can_in_project(request, view.team, Action.VIEW if request.method in SAFE_METHODS else Action.EDIT)
+        return can_in_project(request, view.team, Action.VIEW if request.method in SAFE_METHODS else Action.EDIT, view)
 
 
 class TeamMemberAdminManagementPermission(BasePermission):
@@ -522,7 +527,7 @@ class TeamMemberAdminManagementPermission(BasePermission):
 
     # EDIT is the action that needs project admin, so reads ask for it too.
     def has_permission(self, request, view) -> bool:
-        return can_in_project(request, view.team, Action.EDIT)
+        return can_in_project(request, view.team, Action.EDIT, view)
 
 
 class IsStaffUser(IsAdminUser):
@@ -1363,7 +1368,7 @@ class AccessControlPermission(ScopeBasePermission):
             # TODO: Does this means its okay because there is no team level thing?
             return True
 
-        if not can_in_project(request, team, Action.VIEW):
+        if not can_in_project(request, team, Action.VIEW, view):
             self.message = f"You don't have access to the project."
             return False
 

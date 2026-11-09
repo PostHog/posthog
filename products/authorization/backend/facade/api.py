@@ -20,6 +20,8 @@ from . import contracts
 from .enums import Action, Level, SubjectType
 
 if TYPE_CHECKING:
+    from posthog.user_permissions import UserPermissions
+
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
@@ -34,13 +36,15 @@ def authorization_session() -> Iterator[None]:
         yield
 
 
-def reuse_current_rules(user_access_control: UserAccessControl) -> None:
-    """Let the checks in the current session read the rules that a view already loaded.
+def reuse_current_rules(
+    user_access_control: UserAccessControl, user_permissions: UserPermissions | None = None
+) -> None:
+    """Let the checks in the current session read the rules and memberships that a view already loaded.
 
     The current access rules answer every check, so the checks then skip a second load of the same
     rules. It has no effect outside a session, or for rules that no project scopes.
     """
-    legacy.reuse(user_access_control)
+    legacy.reuse(user_access_control, user_permissions)
 
 
 def synchronize_organization(organization_id: UUID) -> None:

@@ -64,12 +64,14 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
     return [_check(session, request) for request in requests]
 
 
-def reuse(access: UserAccessControl) -> None:
-    """Let the checks in the current session read rules that a view already loaded."""
+def reuse(access: UserAccessControl, permissions: UserPermissions | None = None) -> None:
+    """Let the checks in the current session read rules and memberships that a view already loaded."""
     session = current()
     if session is None or access.team is None or not isinstance(access.user, User) or not session.can_cache():
         return
     session.access.setdefault(_principal_key(access.user), access)
+    if permissions is not None and permissions.user.pk == access.user.pk:
+        session.permissions.setdefault(access.user.pk, permissions)
 
 
 def permissions(resource: Resource, subject: Subject | None, context: Context | None) -> frozenset[Action]:
