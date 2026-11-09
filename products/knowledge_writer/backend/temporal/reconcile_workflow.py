@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from itertools import count
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -22,13 +23,8 @@ from .merge_workflow import GITHUB_READ_ERRORS
 
 RECONCILE_WORKFLOW_NAME = "knowledge-writer-merge-reconcile"
 RECONCILE_OVERLAP = timedelta(hours=3)
-RECONCILE_MAX_PAGES = 10
 PULL_REQUESTS_PER_PAGE = 100
 RECONCILED_AT_TTL = timedelta(days=1)
-
-
-class ReconcileWindowTruncated(Exception):
-    pass
 
 
 class RepositoryReconcileFailed(Exception):
@@ -58,7 +54,7 @@ def is_at_or_after(listed_time: object, look_back_start: datetime) -> bool:
 
 def merged_changes_since(github: GitHubReader, repository: str, look_back_start: datetime) -> list[LandedChange]:
     changes: list[LandedChange] = []
-    for page in range(1, RECONCILE_MAX_PAGES + 1):
+    for page in count(1):
         listed = read_closed_pull_requests(github, repository, page=page, per_page=PULL_REQUESTS_PER_PAGE)
         merged_in_look_back = (
             landed_change(repository, pull_request)
@@ -67,8 +63,7 @@ def merged_changes_since(github: GitHubReader, repository: str, look_back_start:
         )
         changes.extend(change for change in merged_in_look_back if change is not None)
         if len(listed) < PULL_REQUESTS_PER_PAGE or not is_at_or_after(listed[-1].get("updated_at"), look_back_start):
-            return changes
-    capture_exception(ReconcileWindowTruncated(f"more than {RECONCILE_MAX_PAGES} pages of {repository} pull requests"))
+            break
     return changes
 
 

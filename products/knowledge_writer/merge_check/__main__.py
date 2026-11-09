@@ -46,7 +46,10 @@ def replay_command(arguments: argparse.Namespace) -> int:
 
 
 def read_merges(merges_path: Path) -> list[dict]:
-    return [json.loads(line) for line in merges_path.read_text().splitlines() if line.strip()]
+    merges = [json.loads(line) for line in merges_path.read_text().splitlines() if line.strip()]
+    if any("pull_request_number" not in merge for merge in merges):
+        raise SystemExit(f"every row of {merges_path} needs commit_sha and pull_request_number")
+    return merges
 
 
 def recent_merges(github: GitHubReader, repository: str, count: int) -> list[dict]:
