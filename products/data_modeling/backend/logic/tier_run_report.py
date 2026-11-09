@@ -17,9 +17,11 @@ skipped for a reason the run did not record; distinguishing those needs the Temp
 import dataclasses
 from collections import defaultdict
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.db import models
 
+from products.data_modeling.backend.facade.contracts import DagTierReport, UntargetedNode
 from products.data_modeling.backend.logic.cohort_scheduling import (
     Tier,
     bucket_into_cadence_tiers,
@@ -144,6 +146,21 @@ def untargeted_nodes(dag: DAG) -> list[Node]:
     """Nodes in no cohort — nothing gives them an effective cadence, so no schedule fires them."""
     scheduled = {node_id for node_ids in _desired_tiers(dag).values() for node_id in node_ids}
     return [node for node in _reportable_nodes(dag) if str(node.id) not in scheduled]
+
+
+def get_dag_tier_report(dag_id: UUID) -> DagTierReport | None:
+    dag = DAG.objects.select_related("team").filter(pk=dag_id).first()
+    if dag is None:
+        return None
+    return DagTierReport(
+        dag_id=dag.pk,
+        dag_name=dag.name,
+        team_id=dag.team_id,
+        team_name=dag.team.name,
+        sync_frequency_interval=dag.sync_frequency_interval,
+        tiers=tuple(build_tier_runs(dag)),
+        untargeted=tuple(UntargetedNode(name=node.name, node_type=node.type) for node in untargeted_nodes(dag)),
+    )
 
 
 def _desired_tiers(dag: DAG) -> dict[Tier, set[str]]:

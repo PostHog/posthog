@@ -111,6 +111,14 @@ urlpatterns = [
         MovedToConsole.page_redirect("The cached config view", "/admin/console/tools/remote-config-cache/?team={pk}"),
     ),
     path(
+        "admin/data_modeling/dag/clear-suspensions/",
+        MovedToConsole.page_redirect("Clearing node suspensions", "/admin/console/tools/clear-node-suspensions/"),
+    ),
+    path(
+        "admin/data_modeling/dag/<str:dag_id>/tiers/",
+        MovedToConsole.page_redirect("DAG schedule tiers", "/admin/console/tools/dag-tiers/?dag={dag_id}"),
+    ),
+    path(
         "admin/posthog/organization/bulk-deactivate/",
         MovedToConsole.page_redirect("Bulk deactivation", "/admin/console/tools/bulk-deactivate-organizations/"),
     ),

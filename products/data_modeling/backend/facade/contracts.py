@@ -11,6 +11,7 @@ surface is intentionally small and grows as consumers migrate to data reads.
 """
 
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -19,6 +20,9 @@ from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
 from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
+
+if TYPE_CHECKING:
+    from products.data_modeling.backend.logic.tier_run_report import TierRun
 
 
 @dataclass(frozen=True)
@@ -158,3 +162,56 @@ class NodeDescriptionTarget:
 class NodeDescription:
     text: str = ""
     source: WarehouseColumnAnnotationDescriptionSource | None = None
+
+
+@frozen
+class SuspensionSelection:
+    """Which suspension markers staff picked to clear. Filters combine with AND."""
+
+    team_id: int | None
+    node_ids: tuple[UUID, ...]
+    saved_query_ids: tuple[UUID, ...]
+    engine: str | None
+    reason_contains: tuple[str, ...]
+    suspended_from: datetime | None
+    suspended_to: datetime | None
+
+
+@frozen
+class SuspensionMarkerSummary:
+    node_id: UUID
+    node_name: str
+    team_id: int
+    saved_query_id: UUID | None
+    engine: str
+    at: str
+    reason: str
+
+
+@frozen
+class SuspensionsCleared:
+    cleared: int
+    skipped: int
+
+
+class SuspensionSelectionTooBroadError(Exception):
+    pass
+
+
+@frozen
+class UntargetedNode:
+    name: str
+    node_type: str
+
+
+@frozen
+class DagTierReport:
+    """What each cadence tier of one DAG holds and what its last run did, for the staff console."""
+
+    dag_id: UUID
+    dag_name: str
+    team_id: int
+    team_name: str
+    sync_frequency_interval: timedelta | None
+    tiers: tuple["TierRun", ...]
+    untargeted: tuple[UntargetedNode, ...]
