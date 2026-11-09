@@ -57,6 +57,7 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
+from products.signals.backend.hybrid_search import SearchMode
 from products.signals.backend.report_check_monitoring_timing import (
     MonitoringCheckTiming,
     MonitoringCheckTimingState as MonitoringCheckTimingPhase,
@@ -79,6 +80,11 @@ from products.signals.backend.report_checks import (
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
+from products.signals.backend.report_search import (
+    DEFAULT_LIMIT as REPORT_SEARCH_DEFAULT_LIMIT,
+    MAX_LIMIT as REPORT_SEARCH_MAX_LIMIT,
+    ReportMatchKind,
+)
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.signals.backend.source_issues import source_issues_by_report
@@ -1667,6 +1673,89 @@ class PersonalRankingQuerySerializer(serializers.Serializer):
             "report, which can take some seconds, and starts a build if your inbox changed. Leave it out to get "
             "the stored list quickly. A new report then joins the list at the next scheduled build."
         ),
+    )
+
+
+class SignalReportSearchQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(
+        max_length=1000,
+        trim_whitespace=True,
+        help_text=(
+            "What to look for: natural language, such as a description of the issue, or an exact string, such as "
+            "an error message or an entity name."
+        ),
+    )
+    search_mode = serializers.ChoiceField(
+        choices=SearchMode.choices,
+        default=SearchMode.HYBRID,
+        help_text=(
+            "`hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 "
+            "when the semantic search fails. `keyword` requires every query word in the title or the summary. "
+            "Words such as `a` or `is` are too short to look up, so the keyword search leaves them out."
+        ),
+    )
+    status = serializers.CharField(
+        required=False,
+        help_text=(
+            "Comma-separated statuses to include. Valid values: potential, candidate, in_progress, pending_input, "
+            "ready, monitoring, resolved, failed, suppressed. Defaults to every status, dismissed reports included."
+        ),
+    )
+    include_unlisted = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include reports kept out of the shared inbox. A report is kept out when the scout that authored it "
+            "turned off its `inbox` output destination. Defaults to false."
+        ),
+    )
+    created_after = serializers.DateTimeField(
+        required=False, help_text="ISO 8601 datetime. Keeps reports created at or after this time."
+    )
+    limit = serializers.IntegerField(
+        min_value=1,
+        max_value=REPORT_SEARCH_MAX_LIMIT,
+        default=REPORT_SEARCH_DEFAULT_LIMIT,
+        help_text="The most results to return, best match first.",
+    )
+
+
+class SignalReportSearchHitSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The report id. Pass it to inbox-reports-retrieve for the full report.")
+    title = serializers.CharField(allow_null=True, help_text="The report title.")
+    status = serializers.ChoiceField(choices=SignalReport.Status.choices, help_text="The report status.")
+    priority = serializers.ChoiceField(
+        choices=AutonomyPriority.choices, allow_null=True, help_text="The report priority, P0 to P4, or null."
+    )
+    updated_at = serializers.DateTimeField(help_text="When the report last changed.")
+    summary_snippet = serializers.CharField(
+        help_text=(
+            "A short excerpt of the summary, around the first query word it holds, or the summary's opening when "
+            "it holds none."
+        )
+    )
+    dismissal_reason = serializers.CharField(
+        allow_null=True, help_text="The reason code from the latest dismissal of the report, or null."
+    )
+    dismissal_note = serializers.CharField(
+        allow_null=True, help_text="The note a person wrote with the latest dismissal, or null."
+    )
+    match_kinds = serializers.ListField(
+        child=serializers.ChoiceField(choices=ReportMatchKind.choices),
+        help_text="How the report matched: `keyword`, `semantic`, or both.",
+    )
+    score = serializers.FloatField(
+        help_text="The reciprocal rank fusion score. Higher is a better match. Compare it only within one response."
+    )
+
+
+class SignalReportSearchResponseSerializer(serializers.Serializer):
+    results = SignalReportSearchHitSerializer(many=True, help_text="The matching reports, best match first.")
+    semantic_available = serializers.BooleanField(
+        help_text=(
+            "False when the results come from keywords only: a `keyword` search, or a `hybrid` search whose "
+            "semantic search failed."
+        )
     )
 
 
