@@ -38,7 +38,7 @@ from products.warehouse_sources.sources.sdk import HostNotAllowedError
 from products.warehouse_sources.sources.sdk.testing import HostResolution
 
 _MODULE = "products.warehouse_sources.sources.kafka.kafka"
-_EOF = KafkaError._PARTITION_EOF  # type: ignore[attr-defined]
+_EOF = KafkaError._PARTITION_EOF
 
 
 class _FakeMessage:
@@ -256,7 +256,7 @@ class TestReadPartitions:
         assert (rows, cursor, consumer.assigned) == ([], {0: 7}, None)
 
     def test_a_message_error_fails_the_read(self) -> None:
-        broken = _FakeMessage(0, 0, error=KafkaError(KafkaError.TOPIC_AUTHORIZATION_FAILED))  # type: ignore[attr-defined]
+        broken = _FakeMessage(0, 0, error=KafkaError(KafkaError.TOPIC_AUTHORIZATION_FAILED))
         with pytest.raises(KafkaException):
             _read(_FakeConsumer([[broken]]), starts={0: 0}, ends={0: 5})
 
@@ -292,7 +292,7 @@ class TestKafkaSourceSetup:
     def test_topic_metadata_error_closes_the_consumer(self) -> None:
         consumer = MagicMock()
         consumer.list_topics.return_value = MagicMock(
-            topics={"orders": self._topic_metadata(KafkaError(KafkaError.UNKNOWN_TOPIC_OR_PART))}  # type: ignore[attr-defined]
+            topics={"orders": self._topic_metadata(KafkaError(KafkaError.UNKNOWN_TOPIC_OR_PART))}
         )
         with (
             patch(f"{_MODULE}.fetch_cluster", return_value=KafkaCluster(topics=["orders"])),
@@ -423,8 +423,8 @@ class TestFetchCluster:
 
     @parameterized.expand(
         [
-            ("authentication_failure", KafkaError._AUTHENTICATION, AUTHENTICATION_FAILED_MESSAGE),  # type: ignore[attr-defined]
-            ("unreachable_brokers", KafkaError._TRANSPORT, UNREACHABLE_MESSAGE),  # type: ignore[attr-defined]
+            ("authentication_failure", KafkaError._AUTHENTICATION, AUTHENTICATION_FAILED_MESSAGE),
+            ("unreachable_brokers", KafkaError._TRANSPORT, UNREACHABLE_MESSAGE),
         ]
     )
     def test_a_failed_metadata_request_is_named_by_the_client_errors(
@@ -433,7 +433,7 @@ class TestFetchCluster:
         def admin_client(client_config: dict[str, Any]) -> MagicMock:
             def list_topics(timeout: float) -> None:
                 client_config["error_cb"](KafkaError(reported_code))
-                raise KafkaException(KafkaError(KafkaError._TIMED_OUT))  # type: ignore[attr-defined]
+                raise KafkaException(KafkaError(KafkaError._TIMED_OUT))
 
             return MagicMock(list_topics=list_topics)
 

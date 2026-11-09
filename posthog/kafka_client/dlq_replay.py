@@ -68,11 +68,11 @@ REPLAY_COUNT_HEADER = "dlq_replay_count"
 # drain it did not achieve.
 REBALANCE_COMMIT_ERRORS = frozenset(
     {
-        KafkaError.REBALANCE_IN_PROGRESS,  # type: ignore[attr-defined]
-        KafkaError.UNKNOWN_MEMBER_ID,  # type: ignore[attr-defined]
-        KafkaError.ILLEGAL_GENERATION,  # type: ignore[attr-defined]
-        KafkaError._STATE,  # type: ignore[attr-defined]
-        KafkaError._NO_OFFSET,  # type: ignore[attr-defined]
+        KafkaError.REBALANCE_IN_PROGRESS,
+        KafkaError.UNKNOWN_MEMBER_ID,
+        KafkaError.ILLEGAL_GENERATION,
+        KafkaError._STATE,
+        KafkaError._NO_OFFSET,
     }
 )
 

@@ -119,7 +119,7 @@ def test_oversized_internal_event_retries_without_exception_properties(resolve_a
     resolve_assignee.return_value = ResolvedAssignee(property_value=ASSIGNEE, name="Jane Doe", email="jane@example.com")
     event_properties = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
     oversized_result = MagicMock()
-    oversized_result.get.side_effect = KafkaException(KafkaError(KafkaError.MSG_SIZE_TOO_LARGE))  # type: ignore[attr-defined]
+    oversized_result.get.side_effect = KafkaException(KafkaError(KafkaError.MSG_SIZE_TOO_LARGE))
     retry_result = MagicMock()
     results = iter([oversized_result, retry_result])
     sent_events: list[InternalEventEvent] = []
@@ -183,7 +183,7 @@ def test_oversized_internal_event_retries_without_exception_properties(resolve_a
 def test_internal_event_reraises_non_size_kafka_errors() -> None:
     inputs = _inputs()
     result = MagicMock()
-    result.get.side_effect = KafkaException(KafkaError(KafkaError._TRANSPORT))  # type: ignore[attr-defined]
+    result.get.side_effect = KafkaException(KafkaError(KafkaError._TRANSPORT))
     sent_events: list[InternalEventEvent] = []
 
     def capture_event(_team_id: int, event: InternalEventEvent) -> MagicMock:

@@ -83,14 +83,14 @@ _SASL_MECHANISMS: dict[str, str] = {
 }
 
 # The client's type stubs leave out librdkafka's error code constants.
-_PARTITION_EOF: int = KafkaError._PARTITION_EOF  # type: ignore[attr-defined]
+_PARTITION_EOF: int = KafkaError._PARTITION_EOF
 # librdkafka reports these through `error_cb` while `list_topics` only reports a timeout, so the
 # callback's errors are what name the cause.
 _AUTHENTICATION_ERROR_CODES: set[int] = {
-    KafkaError._AUTHENTICATION,  # type: ignore[attr-defined]
-    KafkaError.SASL_AUTHENTICATION_FAILED,  # type: ignore[attr-defined]
+    KafkaError._AUTHENTICATION,
+    KafkaError.SASL_AUTHENTICATION_FAILED,
 }
-_TLS_ERROR_CODES: set[int] = {KafkaError._SSL}  # type: ignore[attr-defined]
+_TLS_ERROR_CODES: set[int] = {KafkaError._SSL}
 
 
 class KafkaSourceError(Exception):
