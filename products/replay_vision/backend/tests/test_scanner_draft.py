@@ -3,6 +3,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -55,6 +56,8 @@ from products.replay_vision.backend.scanner_draft import (
     _MatchedExperiment,
     _MatchedSurvey,
     _measured_events,
+    _merged_recordings_query,
+    _pages_only,
     _run_concurrently,
     _solve_budget,
     _start_in_background,
@@ -1878,6 +1881,26 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
         assert draft.estimated_monthly_observations == 0
 
+    def test_the_fallback_keeps_the_filters_the_person_set(self):
+        # A refine merges the drafted events into a filter that can hold a hand-set duration. Dropping it
+        # while falling back to the pages would widen the scan past what the person asked for.
+        duration = {"type": "recording", "key": "duration", "value": 30, "operator": "gt"}
+        page = {"type": "recording", "key": "visited_page", "value": ["^/billing"], "operator": "regex"}
+        query = {
+            "kind": "RecordingsQuery",
+            "filter_test_accounts": False,
+            "date_from": "-30d",
+            "properties": [duration, page],
+            "events": [{"id": "billing_limit_set", "type": "events"}],
+        }
+
+        assert _pages_only(query) == {
+            "kind": "RecordingsQuery",
+            "filter_test_accounts": False,
+            "date_from": "-30d",
+            "properties": [duration, page],
+        }
+
     _CHOSEN = {
         "kind": "RecordingsQuery",
         "properties": [{"type": "recording", "key": "visited_page", "value": "/billing", "operator": "icontains"}],
@@ -2342,6 +2365,61 @@ class TestRefineScannerDraft(_VisionAPITestCase):
         assert query["properties"][1]["value"] != ["^/pricing"]
         assert (query["filter_test_accounts"], query["date_from"]) == (False, "-30d")
         assert "query" in refinement.changed_fields
+
+    def test_any_of_the_events_keeps_the_filters_the_person_set_required(self):
+        # The operand covers the whole query, so OR would make the kept country filter optional and admit
+        # sessions from every country.
+        country = {"type": "person", "key": "$geoip_country_code", "value": ["US"], "operator": "exact"}
+        drafted = {
+            "kind": "RecordingsQuery",
+            "operand": "OR",
+            "events": [{"id": "billing_upgraded", "type": "events"}, {"id": "billing_downgraded", "type": "events"}],
+        }
+
+        merged = _merged_recordings_query({"kind": "RecordingsQuery", "properties": [country]}, drafted)
+
+        assert merged is not None
+        assert "operand" not in merged
+        assert merged["properties"] == [country]
+        assert [e["id"] for e in merged["events"]] == ["billing_upgraded"]
+
+    def test_any_of_the_events_stays_when_the_events_are_the_whole_filter(self):
+        drafted = {
+            "kind": "RecordingsQuery",
+            "operand": "OR",
+            "events": [{"id": "billing_upgraded", "type": "events"}, {"id": "billing_downgraded", "type": "events"}],
+        }
+
+        merged = _merged_recordings_query({"kind": "RecordingsQuery", "filter_test_accounts": False}, drafted)
+
+        assert merged is not None
+        assert merged["operand"] == "OR"
+        assert len(merged["events"]) == 2
+        assert merged["filter_test_accounts"] is False
+
+    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
+    def test_a_refine_says_when_any_of_the_events_cannot_stay(self):
+        for name in ("billing_upgraded", "billing_downgraded"):
+            EventDefinition.objects.create(team=self.team, name=name, last_seen_at=timezone.now())
+        country = {"type": "person", "key": "$geoip_country_code", "value": ["US"], "operator": "exact"}
+
+        with patch(
+            f"{_MODULE}._measured_events",
+            side_effect=lambda team, names: [_CandidateEvent(name=n, sessions=100) for n in names],
+        ):
+            refinement, _, _ = self._refine(
+                _draft(
+                    revise_recordings=True,
+                    filter_events=["billing_upgraded", "billing_downgraded"],
+                    filter_events_match="any",
+                ),
+                current=self._current(query={"kind": "RecordingsQuery", "properties": [country]}),
+                instruction="watch people who upgrade or downgrade billing",
+            )
+
+        assert refinement.draft.query is not None
+        assert "operand" not in refinement.draft.query
+        assert refinement.could_not[0].startswith("Your other recording filters still apply")
 
     @parameterized.expand([("solved", False, "comprehensive", 1.0), ("costing_failed", True, "balanced", 0.5)])
     def test_a_named_budget_becomes_the_cap_and_solves_the_dials_again(

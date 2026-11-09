@@ -2199,10 +2199,13 @@ def refine_scanner_draft(
         or revised.model != current.model
         or revised.sampling_mode != current.sampling_mode
     )
-    revised = replace(
-        revised,
-        query=_merged_recordings_query(current.query, revised.query) if parsed.revise_recordings else current.query,
+    merged_query = _merged_recordings_query(current.query, revised.query) if parsed.revise_recordings else current.query
+    any_event_dropped = (
+        parsed.revise_recordings
+        and (revised.query or {}).get("operand") == "OR"
+        and (merged_query or {}).get("operand") != "OR"
     )
+    revised = replace(revised, query=merged_query)
     if resolve:
         revised = (
             _settled_and_costed(revised, team=team, user=user, monthly_credit_budget=budget, chosen_query=chosen_query)
@@ -2223,7 +2226,8 @@ def refine_scanner_draft(
             sampling_rate=current.sampling_rate,
             estimated_monthly_observations=None,
         )
-    could_not = [line.strip()[:_MAX_COULD_NOT_LENGTH] for line in parsed.could_not if line.strip()][:_MAX_COULD_NOT]
+    model_could_not = [line.strip()[:_MAX_COULD_NOT_LENGTH] for line in parsed.could_not if line.strip()]
+    could_not = [*([_KEPT_FILTERS_NOTE] if any_event_dropped else []), *model_could_not][:_MAX_COULD_NOT]
     return ScannerDraftRefinement(draft=revised, changed_fields=_changed_fields(current, revised), could_not=could_not)
 
 
@@ -2245,6 +2249,11 @@ def _undrafted_settings(current: CurrentDraft) -> dict[str, Any]:
 
 # The query keys `_draft_query` writes. A refine replaces these and keeps the rest of the current filter.
 _DRAFTED_QUERY_KEYS = frozenset({"events", "actions", "operand"})
+
+_KEPT_FILTERS_NOTE = (
+    "Your other recording filters still apply, so this watches recordings with the first event only, "
+    "not any of the events."
+)
 
 
 def _is_drafted_property(prop: Any) -> bool:
@@ -2274,6 +2283,11 @@ def _merged_recordings_query(current: dict[str, Any] | None, drafted: dict[str, 
         merged["properties"] = properties
     else:
         merged.pop("properties", None)
+    if merged.get("operand") == "OR" and (kept or merged.get("console_log_filters")):
+        # The operand covers the whole query, so OR would make the kept filters optional. Same rule as the
+        # drafter: "any" only survives when the events are the entire filter, otherwise one event stays.
+        merged.pop("operand")
+        merged["events"] = (merged.get("events") or [])[:1]
     return merged
 
 
@@ -2472,28 +2486,23 @@ def _costed(draft: ScannerDraft, solution: _BudgetSolution | None) -> ScannerDra
 
 
 def _pages_only(query: dict[str, Any] | None) -> dict[str, Any] | None:
-    """The draft's page and cohort filters, without its events and actions. None when the draft has
-    no page filter to fall back to.
+    """The draft's filter without its events and actions. None when the draft has no page filter to
+    fall back to.
 
     Cohorts stay because a cohort says who the goal is about, not what the product still emits.
     Dropping one would scan those pages for everybody, spending credits on sessions the goal never
     asked about. When the cohort is itself what matched nothing, the caller's re-estimate comes back
     zero again and the original draft is kept.
 
-    Keeps `filter_test_accounts`, because dropping it would widen the scan to internal traffic while
-    trying to make the filter match.
+    Keeps `filter_test_accounts`, and on a refine the filters the person set by hand, such as a
+    duration, because dropping them would widen the scan while trying to make the filter match.
     """
     if not query:
         return None
-    properties = query.get("properties") or []
-    pages = [p for p in properties if p.get("key") == "visited_page"]
-    if not pages:
+    if not any(p.get("key") == "visited_page" for p in query.get("properties") or []):
         return None
-    cohorts = [p for p in properties if p.get("type") == "cohort"]
-    return {
-        "kind": "RecordingsQuery",
-        "properties": [*pages, *cohorts],
-        "filter_test_accounts": query.get("filter_test_accounts", True),
+    return {"filter_test_accounts": True} | {
+        key: value for key, value in query.items() if key not in _DRAFTED_QUERY_KEYS
     }
 
 
