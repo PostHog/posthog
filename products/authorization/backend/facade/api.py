@@ -44,6 +44,7 @@ def reuse_current_rules(
     The current access rules answer every check, so the checks then skip a second load of the same
     rules. It has no effect outside a session, or for rules that no project scopes.
     """
+    # TODO: remove after the migration to the SDK. Only views that load UserAccessControl themselves need it.
     legacy.reuse(user_access_control, user_permissions)
 
 
