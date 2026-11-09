@@ -7,8 +7,8 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
 import { CyclotronV2DequeuedJob } from '../cyclotron-v2'
 import {
+    CONSUMER_STOP_DEADLINE_MS,
     CyclotronJobQueuePostgresV2,
-    RESULT_WRITE_DRAIN_TIMEOUT_MS,
     extractActionId,
     extractDistinctId,
     extractPersonId,
@@ -397,7 +397,16 @@ describe('CyclotronJobQueuePostgresV2', () => {
     })
 
     describe('stopConsumer', () => {
-        async function consumeOneBatch(backgroundTask: Promise<void>): Promise<{ queue: any; steps: string[] }> {
+        type BatchOptions = {
+            stopConsuming?: () => Promise<void>
+            disconnect?: () => Promise<void>
+            jobs?: CyclotronV2DequeuedJob[]
+        }
+
+        async function consumeOneBatch(
+            backgroundTask: (queue: any) => Promise<void>,
+            options: BatchOptions = {}
+        ): Promise<{ queue: any; steps: string[] }> {
             const { queue } = createQueue()
             const steps: string[] = []
             let consume: (jobs: CyclotronV2DequeuedJob[]) => Promise<void> = () => Promise.resolve()
@@ -406,34 +415,37 @@ describe('CyclotronJobQueuePostgresV2', () => {
                     consume = fn
                     return Promise.resolve()
                 },
-                stopConsuming: () => {
+                stopConsuming: async () => {
                     steps.push('stop dequeuing')
-                    return Promise.resolve()
+                    await options.stopConsuming?.()
                 },
-                disconnect: () => {
+                disconnect: async () => {
                     steps.push('close pool')
-                    return Promise.resolve()
+                    await options.disconnect?.()
                 },
             })
-            await queue.startAsConsumer('hog', () => Promise.resolve({ backgroundTask }))
-            await consume([
-                createDequeuedJob({
-                    scheduled: DateTime.now(),
-                    created: DateTime.now(),
-                }) as unknown as CyclotronV2DequeuedJob,
-            ])
+            await queue.startAsConsumer('hog', () => Promise.resolve({ backgroundTask: backgroundTask(queue) }))
+            await consume(
+                options.jobs ?? [
+                    createDequeuedJob({
+                        scheduled: DateTime.now(),
+                        created: DateTime.now(),
+                    }) as unknown as CyclotronV2DequeuedJob,
+                ]
+            )
             return { queue, steps }
         }
 
         it('stops dequeuing, waits for the result writes, then closes the pool', async () => {
             let finishWrite: () => void = () => {}
             const { queue, steps } = await consumeOneBatch(
-                new Promise<void>((resolve) => {
-                    finishWrite = () => {
-                        steps.push('results written')
-                        resolve()
-                    }
-                })
+                () =>
+                    new Promise<void>((resolve) => {
+                        finishWrite = () => {
+                            steps.push('results written')
+                            resolve()
+                        }
+                    })
             )
 
             const stopped = queue.stopConsumer()
@@ -444,19 +456,70 @@ describe('CyclotronJobQueuePostgresV2', () => {
             expect(steps).toEqual(['stop dequeuing', 'results written', 'close pool'])
         })
 
-        it('closes the pool at the drain limit when a result write never settles', async () => {
-            jest.useFakeTimers()
-            try {
-                const { queue, steps } = await consumeOneBatch(new Promise<void>(() => {}))
+        it.each<[string, () => Promise<void>, BatchOptions]>([
+            ['a result write never settles', () => new Promise<void>(() => {}), {}],
+            [
+                'the batch in progress takes most of it and its write never settles',
+                () => new Promise<void>(() => {}),
+                { stopConsuming: () => new Promise<void>((resolve) => setTimeout(resolve, 20_000)) },
+            ],
+            [
+                'closing the pool hangs on a blocked query',
+                () => Promise.resolve(),
+                { disconnect: () => new Promise<void>(() => {}) },
+            ],
+        ])(
+            'returns at the stop deadline, counted from the start of the stop, when %s',
+            async (_name, write, options) => {
+                jest.useFakeTimers()
+                try {
+                    const { queue, steps } = await consumeOneBatch(write, options)
+                    let returned = false
 
-                const stopped = queue.stopConsumer()
-                await jest.advanceTimersByTimeAsync(RESULT_WRITE_DRAIN_TIMEOUT_MS)
-                await stopped
+                    const stopped = queue.stopConsumer().then(() => (returned = true))
+                    await jest.advanceTimersByTimeAsync(CONSUMER_STOP_DEADLINE_MS - 1)
+                    expect(returned).toBe(false)
+                    await jest.advanceTimersByTimeAsync(1)
+                    await stopped
 
-                expect(steps).toEqual(['stop dequeuing', 'close pool'])
-            } finally {
-                jest.useRealTimers()
+                    expect(steps).toEqual(['stop dequeuing', 'close pool'])
+                } finally {
+                    jest.useRealTimers()
+                }
             }
+        )
+
+        it('waits for every result write of a batch when one of them fails', async () => {
+            let finishSecond: () => void = () => {}
+            const failing = createDequeuedJob({ ack: jest.fn().mockRejectedValue(new Error('connection reset')) })
+            const pending = createDequeuedJob({
+                ack: jest.fn(() => new Promise<void>((resolve) => (finishSecond = resolve))),
+            })
+            const jobs = [failing, pending].map(
+                (job) =>
+                    ({
+                        ...job,
+                        scheduled: DateTime.now(),
+                        created: DateTime.now(),
+                    }) as unknown as CyclotronV2DequeuedJob
+            )
+            const { queue, steps } = await consumeOneBatch(
+                (q) =>
+                    q.queueInvocationResults(
+                        jobs.map((job) =>
+                            createResult({ invocation: { ...baseInvocation, id: job.id }, finished: true })
+                        )
+                    ),
+                { jobs }
+            )
+
+            const stopped = queue.stopConsumer()
+            await new Promise((resolve) => setImmediate(resolve))
+            expect(steps).toEqual(['stop dequeuing'])
+            finishSecond()
+            await stopped
+
+            expect(steps).toEqual(['stop dequeuing', 'close pool'])
         })
     })
 
@@ -477,6 +540,25 @@ describe('CyclotronJobQueuePostgresV2', () => {
             await queue.heartbeatInvocations([invocation])
 
             expect(job.heartbeat).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps heartbeating a new claim of the same job once the earlier claim finishes writing', async () => {
+            const { queue } = createQueue()
+            let finishWrite: () => void = () => {}
+            const earlier = createDequeuedJob({
+                ack: jest.fn(() => new Promise<void>((resolve) => (finishWrite = resolve))),
+            })
+            const later = createDequeuedJob({ id: earlier.id })
+            ;(queue as any).pendingJobs.set(earlier.id, earlier)
+            const invocation = { ...baseInvocation, id: earlier.id }
+
+            const written = queue.queueInvocationResults([createResult({ invocation, finished: true })])
+            ;(queue as any).pendingJobs.set(later.id, later)
+            finishWrite()
+            await written
+            await queue.heartbeatInvocations([invocation])
+
+            expect(later.heartbeat).toHaveBeenCalledTimes(1)
         })
 
         it('proxies to heartbeat, skips unknown ids, and distinguishes released races from real failures', async () => {
