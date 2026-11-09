@@ -11,7 +11,6 @@ surface is intentionally small and grows as consumers migrate to data reads.
 """
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -20,9 +19,6 @@ from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
 from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
-
-if TYPE_CHECKING:
-    from products.data_modeling.backend.logic.tier_run_report import TierRun
 
 
 @dataclass(frozen=True)
@@ -175,6 +171,9 @@ class SuspensionSelection:
     reason_contains: tuple[str, ...]
     suspended_from: datetime | None
     suspended_to: datetime | None
+    # Leaves out markers recorded at or after this time. A marker whose time does not parse is kept, as it is
+    # without a window.
+    recorded_before: datetime | None = None
 
 
 @frozen
@@ -205,6 +204,31 @@ class UntargetedNode:
 
 
 @frozen
+class NodeRunSummary:
+    name: str
+    node_type: str
+    status: str
+    detail: str
+    workflow_id: str | None
+    workflow_run_id: str | None
+
+
+@frozen
+class TierSummary:
+    label: str
+    schedule_id: str
+    parent_workflow_id: str | None
+    started_at: datetime | None
+    # The run came from the DAG's pre-tier single schedule, not from this tier's own.
+    run_is_legacy: bool
+    declared: int
+    ran: int
+    # Node count per status, worst status first.
+    counts: tuple[tuple[str, int], ...]
+    nodes: tuple[NodeRunSummary, ...]
+
+
+@frozen
 class DagTierReport:
     """What each cadence tier of one DAG holds and what its last run did, for the staff console."""
 
@@ -213,5 +237,5 @@ class DagTierReport:
     team_id: int
     team_name: str
     sync_frequency_interval: timedelta | None
-    tiers: tuple["TierRun", ...]
+    tiers: tuple[TierSummary, ...]
     untargeted: tuple[UntargetedNode, ...]

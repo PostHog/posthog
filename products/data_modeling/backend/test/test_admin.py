@@ -101,6 +101,17 @@ class TestClearNodeSuspensionsConsole(BaseTest):
         assert is_node_suspended(node, "clickhouse")
         assert not LogEntry.objects.filter(object_id=str(node.pk)).exists()
 
+    def test_clears_a_marker_whose_time_does_not_parse(self) -> None:
+        node = self._node()
+        node.properties["system"]["suspended"]["clickhouse"]["at"] = "not a time"
+        node.save()
+        preview = self._preview({"engine": "clickhouse", "node_ids": str(node.pk)})
+
+        self.client.post(CLEAR_URL, {"confirm_token": preview.context["confirm_token"]})
+
+        node.refresh_from_db()
+        assert not is_node_suspended(node, "clickhouse")
+
     def test_failed_audit_entry_rolls_back_the_reset(self) -> None:
         node = self._node()
         preview = self._preview({"engine": "clickhouse", "node_ids": str(node.pk)})

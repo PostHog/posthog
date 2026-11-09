@@ -23,6 +23,7 @@ from products.data_modeling.backend.facade.contracts import (
     DagTierReport,
     SuspensionSelection,
     SuspensionSelectionTooBroadError,
+    TierSummary,
 )
 
 DATA_MODELING = Owner(name="Data modeling", crest="data-modeling")
@@ -95,9 +96,6 @@ class ClearNodeSuspensionsForm(forms.Form):
 
     def selection(self) -> SuspensionSelection:
         data = self.cleaned_data
-        suspended_to = data["suspended_to"]
-        if suspended_to is None or data["selected_before"] < suspended_to:
-            suspended_to = data["selected_before"]
         return SuspensionSelection(
             team_id=data["team_id"],
             node_ids=data["node_ids"],
@@ -105,7 +103,8 @@ class ClearNodeSuspensionsForm(forms.Form):
             engine=data["engine"] or None,
             reason_contains=data["reason_contains"],
             suspended_from=data["suspended_from"],
-            suspended_to=suspended_to,
+            suspended_to=data["suspended_to"],
+            recorded_before=data["selected_before"],
         )
 
     def resumed_by(self, request: HttpRequest) -> str:
@@ -223,7 +222,7 @@ def _link_cell(text: str, path: str | None) -> Cell:
 def _tier_summary(report: DagTierReport) -> Table:
     rows = []
     for tier in report.tiers:
-        counts = tier.counts
+        counts = dict(tier.counts)
         if tier.parent_workflow_id:
             last_run = f"{'legacy ' if tier.run_is_legacy else ''}{tier.started_at}"
         else:
@@ -272,7 +271,7 @@ def _tier_summary(report: DagTierReport) -> Table:
     )
 
 
-def _tier_run_notice(tier) -> Notice:
+def _tier_run_notice(tier: TierSummary) -> Notice:
     heading = f"{tier.label}: {tier.declared} materializing node(s)."
     if tier.run_is_legacy:
         return Notice(
@@ -289,7 +288,7 @@ def _tier_run_notice(tier) -> Notice:
     )
 
 
-def _tier_nodes(tier) -> Table:
+def _tier_nodes(tier: TierSummary) -> Table:
     return Table(
         columns=("Node", "Type", "Status", "Detail", "Run"),
         rows=tuple(

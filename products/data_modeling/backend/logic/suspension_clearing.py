@@ -1,5 +1,6 @@
 """Clear suspension markers that staff selected and reviewed in PostHog Admin."""
 
+import datetime as dt
 from itertools import islice
 
 from django.contrib.admin.models import CHANGE, LogEntry
@@ -26,19 +27,32 @@ def suspension_engine_choices() -> list[tuple[str, str]]:
     return [(engine.value, str(engine.label)) for engine in DataModelingJobEngine]
 
 
+def _recorded_before(marker: Marker, cutoff: dt.datetime | None) -> bool:
+    if cutoff is None:
+        return True
+    try:
+        return dt.datetime.fromisoformat(marker.at) < cutoff
+    except (TypeError, ValueError):
+        return True
+
+
 def _matching_markers(selection: SuspensionSelection) -> list[Marker]:
     markers = list(
         islice(
-            matching_suspension_markers(
-                team_id=selection.team_id,
-                node_ids=list(selection.node_ids),
-                saved_query_ids=list(selection.saved_query_ids),
-                selection=Selection(
-                    engine=selection.engine,
-                    reason_contains=selection.reason_contains,
-                    suspended_from=selection.suspended_from,
-                    suspended_to=selection.suspended_to,
-                ),
+            (
+                marker
+                for marker in matching_suspension_markers(
+                    team_id=selection.team_id,
+                    node_ids=list(selection.node_ids),
+                    saved_query_ids=list(selection.saved_query_ids),
+                    selection=Selection(
+                        engine=selection.engine,
+                        reason_contains=selection.reason_contains,
+                        suspended_from=selection.suspended_from,
+                        suspended_to=selection.suspended_to,
+                    ),
+                )
+                if _recorded_before(marker, selection.recorded_before)
             ),
             MAX_SUSPENSION_PREVIEW + 1,
         )
