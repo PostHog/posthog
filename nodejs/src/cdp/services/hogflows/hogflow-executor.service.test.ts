@@ -3597,7 +3597,7 @@ if (not res.success) { throw Error(res.error) }`,
         it.each([
             ['the team cap label', { teamCapped: true }],
             ['the suppression lookup tries', { suppressionLookupAttempts: 7 }],
-            ['the attachment load retry count', { attachmentLoadTries: 10 }],
+            ['the attachment load retry count', { attachmentLoadRetries: 10 }],
             ['the mark that the team budget is already charged', { teamBudgetClaimed: true }],
         ])('keeps %s on the email it belongs to, not on the email after it', async (_name, perSendMetadata) => {
             await insertEmailSetup('ses')
