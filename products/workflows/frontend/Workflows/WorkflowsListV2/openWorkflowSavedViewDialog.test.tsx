@@ -36,9 +36,11 @@ describe('saved workflow view dialog', () => {
         await userEvent.type(input, 'Shared draft')
         await userEvent.keyboard('{Enter}{Enter}')
         expect(submit).toHaveBeenCalledTimes(1)
+        expect(screen.getByText('Saving the view...')).toBeInTheDocument()
         await act(async () => {
             fail!(new ApiError('Name unavailable', 400))
         })
+        expect(screen.queryByText('Saving the view...')).not.toBeInTheDocument()
         expect(input).toBeInTheDocument()
         expect(input).toHaveValue('Shared draft')
         await userEvent.keyboard('{Enter}')

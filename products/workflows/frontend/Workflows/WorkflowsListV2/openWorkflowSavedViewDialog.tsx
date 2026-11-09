@@ -1,9 +1,40 @@
+import { useSyncExternalStore } from 'react'
+
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+type PendingSubmit = {
+    isPending: () => boolean
+    subscribe: (listener: () => void) => () => void
+}
+
+function ViewNameField({ isNew, pending }: { isNew: boolean; pending: PendingSubmit }): JSX.Element {
+    const isPending = useSyncExternalStore(pending.subscribe, pending.isPending)
+    return (
+        <LemonField name="name" help={isPending ? (isNew ? 'Saving the view...' : 'Renaming the view...') : undefined}>
+            <LemonInput
+                maxLength={128}
+                placeholder={isNew ? 'For example: Webinar emails' : undefined}
+                autoFocus
+                data-attr={isNew ? 'workflows-combined-view-name' : undefined}
+            />
+        </LemonField>
+    )
+}
+
 export function openWorkflowSavedViewDialog(onSubmit: (name: string) => Promise<void>, currentName?: string): void {
     let pendingSubmit: Promise<void> | null = null
+    const listeners = new Set<() => void>()
+    // Enter submits without the button's loading state, so the field shows that the submit is running.
+    const pending: PendingSubmit = {
+        isPending: () => pendingSubmit !== null,
+        subscribe: (listener) => {
+            listeners.add(listener)
+            return () => listeners.delete(listener)
+        },
+    }
+    const notify = (): void => listeners.forEach((listener) => listener())
     LemonDialog.openForm({
         title: currentName === undefined ? 'Save as new view' : 'Rename view',
         description:
@@ -13,21 +44,16 @@ export function openWorkflowSavedViewDialog(onSubmit: (name: string) => Promise<
         initialValues: { name: currentName ?? '' },
         shouldAwaitSubmit: true,
         primaryButtonProps: { children: currentName === undefined ? 'Save view' : 'Rename view' },
-        content: (
-            <LemonField name="name">
-                <LemonInput
-                    maxLength={128}
-                    placeholder={currentName === undefined ? 'For example: Webinar emails' : undefined}
-                    autoFocus
-                    data-attr={currentName === undefined ? 'workflows-combined-view-name' : undefined}
-                />
-            </LemonField>
-        ),
+        content: <ViewNameField isNew={currentName === undefined} pending={pending} />,
         errors: { name: (name: string) => (!name?.trim() ? 'Give the view a name' : undefined) },
         onSubmit: ({ name }) => {
-            pendingSubmit ??= onSubmit(String(name).trim()).finally(() => {
-                pendingSubmit = null
-            })
+            if (!pendingSubmit) {
+                pendingSubmit = onSubmit(String(name).trim()).finally(() => {
+                    pendingSubmit = null
+                    notify()
+                })
+                notify()
+            }
             return pendingSubmit
         },
     })
