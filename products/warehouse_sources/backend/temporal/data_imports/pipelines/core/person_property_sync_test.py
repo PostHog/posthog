@@ -6,7 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from django.db import close_old_connections, connection
 from django.db.models import Q
@@ -426,45 +426,61 @@ class TestRunOrchestration:
         reconcile.assert_called_once_with(1, 7, _SCHEMA, source, ["plan_tier"])
         existing.assert_not_called()
         produce.assert_not_called()
-        compact.assert_awaited_once_with(1, _SCHEMA, "source-1", "job-1", {})
+        compact.assert_awaited_once_with(1, _SCHEMA, "source-1", "job-1", {}, current_chunk_prefix=ANY)
         assert result.changed == 0 and result.produced == 0
 
 
 class TestBackfillOrchestration:
     """One backfill reads the table once and upserts every enabled person source on the schema."""
 
+    @pytest.mark.parametrize("rebatch_key_pass", [False, True], ids=["same_batches", "key_pass_split_differently"])
     @pytest.mark.asyncio
-    async def test_reads_once_and_produces_per_source_batch_by_batch(self):
+    async def test_sends_each_distinct_ids_final_value_once_and_an_unchanged_rerun_sends_nothing(
+        self, rebatch_key_pass
+    ):
         sources = [
             PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"}),
             PersonPropertySyncSource("s2", "d2", "distinct_id", {"plan": "tier"}),
         ]
+        # a and b repeat across batches, a also inside a batch, b's last row maps nothing, and ghost is no
+        # person at all.
         batches = [
             [
                 {"distinct_id": "a", "plan": "free"},
                 {"distinct_id": "a", "plan": "pro"},
                 {"distinct_id": "b", "plan": "team"},
+                {"distinct_id": "ghost", "plan": "x"},
             ],
-            # b repeats unchanged and is skipped; a changes again and is re-sent.
-            [{"distinct_id": "b", "plan": "team"}, {"distinct_id": "a", "plan": "enterprise"}],
+            [
+                {"distinct_id": "b", "plan": "team"},
+                {"distinct_id": "a", "plan": "enterprise"},
+                {"distinct_id": "ghost", "plan": "x"},
+                {"distinct_id": "b", "plan": None},
+            ],
         ]
+        sent: list[tuple[str, list]] = []
+
+        def _produce(_team_id, _token, source, items, **_kwargs):
+            sent.append((source.source_id, sorted(items)))
+            return {key for key, _ in items}
+
         fake = _FakeS3()
         with (
             _fake_s3_patch(fake),
-            _delta_table_patch(batches) as dt_cls,
+            _delta_table_patch(batches, key_pass_batches=[batches[0] + batches[1]] if rebatch_key_pass else None),
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
             patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
             patch(f"{_MODULE}.delta_storage_options", return_value={}),
             patch(f"{_MODULE}.Team") as team_cls,
-            patch(f"{_MODULE}._filter_existing_ids", side_effect=lambda _team_id, _source, ids: set(ids)),
-            patch(
-                f"{_MODULE}._produce_intents",
-                side_effect=lambda _team_id, _token, _source, items, **_kwargs: {key for key, _ in items},
-            ) as produce,
+            patch(f"{_MODULE}._filter_existing_ids", side_effect=lambda _t, _s, ids: set(ids) - {"ghost"}),
+            patch(f"{_MODULE}._produce_intents", side_effect=_produce),
             patch(f"{_MODULE}._reconcile_property_definitions"),
         ):
             team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7)
-            result = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="manual")
+            first = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="manual")
+            first_sent = list(sent)
+            sent.clear()
+            rerun = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="manual")
             snapshots = {
                 source_id: (
                     await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, _SCHEMA, source_id)),
@@ -473,22 +489,59 @@ class TestBackfillOrchestration:
                 for source_id in ("s1", "s2")
             }
 
-        # The table is read exactly once, though two sources map it.
-        dt_cls.return_value.to_pyarrow_dataset.return_value.to_batches.assert_called_once()
-        assert [(call.args[2].source_id, call.args[3]) for call in produce.call_args_list] == [
-            ("s1", [("a", {"plan_tier": "pro"}), ("b", {"plan_tier": "team"})]),
-            ("s2", [("a", {"tier": "pro"}), ("b", {"tier": "team"})]),
-            ("s1", [("a", {"plan_tier": "enterprise"})]),
-            ("s2", [("a", {"tier": "enterprise"})]),
+        assert first_sent == [
+            ("s1", [("a", {"plan_tier": "enterprise"}), ("b", {"plan_tier": "team"})]),
+            ("s2", [("a", {"tier": "enterprise"}), ("b", {"tier": "team"})]),
         ]
-        assert (result.sources, result.rows_read, result.changed, result.produced) == (2, 5, 6, 6)
-        assert [(ps.source_id, ps.rows_read) for ps in result.per_source] == [("s1", 5), ("s2", 5)]
-        # Each source's chunk files compact into the shared backfill file, holding the last value sent.
+        assert (first.sources, first.rows_read, first.changed, first.produced, first.skipped_missing_person) == (
+            2,
+            8,
+            6,
+            4,
+            2,
+        )
+        assert [(ps.source_id, ps.rows_read) for ps in first.per_source] == [("s1", 8), ("s2", 8)]
+        assert sent == []
+        assert (rerun.changed, rerun.produced) == (2, 0)
         for source_id, prop in (("s1", "plan_tier"), ("s2", "tier")):
             files, hashes = snapshots[source_id]
             prefix = pps._snapshot_prefix(1, _SCHEMA, source_id)
             assert [pps._s3_key(key) for key in files] == [f"{prefix}/{pps.BACKFILL_RUN_TOKEN}.parquet"]
             assert hashes == {"a": pps.bundle_hash({prop: "enterprise"}), "b": pps.bundle_hash({prop: "team"})}
+
+    @pytest.mark.asyncio
+    async def test_compaction_keeps_this_runs_delivery_over_an_older_file_with_the_same_timestamp(self):
+        source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})
+        fake = _FakeS3()
+        prefix = pps._snapshot_prefix(1, _SCHEMA, "s1")
+        await pps._put_snapshot_file(
+            fake, f"{prefix}/{pps.BACKFILL_RUN_TOKEN}.parquet", {"a": pps.bundle_hash({"plan_tier": "free"})}
+        )
+        tied_pipe = fake._pipe_file
+
+        async def _pipe_at_the_same_second(path, data):
+            await tied_pipe(path, data)
+            fake.times[pps._s3_key(path)] = 0
+
+        fake.times[f"{prefix}/{pps.BACKFILL_RUN_TOKEN}.parquet"] = 0
+        with (
+            patch.object(fake, "_pipe_file", side_effect=_pipe_at_the_same_second),
+            _fake_s3_patch(fake),
+            _delta_table_patch([[{"distinct_id": "a", "plan": "pro"}]]),
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+            patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
+            patch(f"{_MODULE}.delta_storage_options", return_value={}),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._filter_existing_ids", side_effect=lambda _t, _s, ids: set(ids)),
+            patch(f"{_MODULE}._produce_intents", side_effect=lambda _t, _tok, _s, items, **_k: {k for k, _ in items}),
+            patch(f"{_MODULE}._reconcile_property_definitions"),
+        ):
+            team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7)
+            result = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="manual")
+            hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "s1")
+
+        assert result.produced == 1
+        assert hashes == {"a": pps.bundle_hash({"plan_tier": "pro"})}
 
     @pytest.mark.asyncio
     async def test_a_backfill_killed_mid_table_keeps_what_it_delivered_and_the_next_one_resumes(self):
@@ -500,10 +553,15 @@ class TestBackfillOrchestration:
         ]
         sent: list[str] = []
         kill_at_batch: int | None = 2
+        reads = 0
 
-        def _to_batches(**_kwargs):
+        def _to_batches(columns, **_kwargs):
+            nonlocal reads
+            reads += 1
+            # The first pass holds ids, not rows, so the OOM hits the second pass that sends them.
+            is_sending_pass = reads % 2 == 0
             for index, rows in enumerate(batches):
-                if index == kill_at_batch:
+                if index == kill_at_batch and is_sending_pass:
                     raise MemoryError("worker OOM-killed")
                 yield pa.RecordBatch.from_pylist(rows)
 
@@ -692,13 +750,19 @@ def _fake_s3_patch(fake):
 
 
 @contextlib.contextmanager
-def _delta_table_patch(batches, columns=("distinct_id", "plan")):
-    """Patch ``deltalake.DeltaTable`` with a table that yields ``batches`` (lists of row dicts)."""
+def _delta_table_patch(batches, columns=("distinct_id", "plan"), key_pass_batches=None):
+    """Patch ``deltalake.DeltaTable`` with a table that yields ``batches`` (lists of row dicts).
+    ``key_pass_batches`` splits the same rows differently for a read of only the key column."""
+
+    def _to_batches(columns=None, **_kwargs):
+        chosen = key_pass_batches if key_pass_batches is not None and columns == ["distinct_id"] else batches
+        return (pa.RecordBatch.from_pylist(rows) for rows in chosen)
+
     with patch("deltalake.DeltaTable") as dt_cls:
         dt_cls.is_deltatable.return_value = True
         dataset = dt_cls.return_value.to_pyarrow_dataset.return_value
         dataset.schema.names = list(columns)
-        dataset.to_batches.side_effect = lambda **_kwargs: (pa.RecordBatch.from_pylist(rows) for rows in batches)
+        dataset.to_batches.side_effect = _to_batches
         yield dt_cls
 
 

@@ -222,12 +222,13 @@ def select_changed(
     bundles: list[tuple[str, dict]], prior_hashes: dict[str, str]
 ) -> tuple[list[tuple[str, dict]], dict[str, str]]:
     """Keep only bundles whose hash differs from the snapshot. Returns (changed, hashes-for-changed).
-    Last write wins when a distinct_id appears twice in one run."""
+    Last write wins when a distinct_id appears twice in ``bundles``, and only that last value is diffed,
+    so an earlier value it overrides is never sent."""
     changed: dict[str, dict] = {}
     new_hashes: dict[str, str] = {}
-    for distinct_id, bundle in bundles:
+    for distinct_id, bundle in dict(bundles).items():
         current = bundle_hash(bundle)
-        if prior_hashes.get(distinct_id) == current and distinct_id not in new_hashes:
+        if prior_hashes.get(distinct_id) == current:
             continue
         changed[distinct_id] = bundle
         new_hashes[distinct_id] = current
@@ -351,16 +352,26 @@ def _s3_key(key: str) -> str:
     return key.removeprefix("s3://").lstrip("/")
 
 
-async def _list_snapshot_files(s3_client, prefix: str) -> list[str]:
-    """S3 keys of the source's snapshot files, oldest first (see ``_snapshot_file_order``). Empty when
-    the folder doesn't exist yet."""
+async def _list_snapshot_files(s3_client, prefix: str, current_chunk_prefix: str | None = None) -> list[str]:
+    """S3 keys of the source's snapshot files, oldest first (see ``_snapshot_file_order``). Files whose
+    name starts with ``current_chunk_prefix`` come last, in name order. Empty when the folder doesn't
+    exist yet."""
     try:
         listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
     except FileNotFoundError:
         return []
     values = listing.values() if isinstance(listing, dict) else listing
-    files = sorted((f for f in values if f.get("type") != "directory"), key=_snapshot_file_order)
-    return [f["Key"] for f in files]
+    files = [f for f in values if f.get("type") != "directory"]
+    current: list[str] = []
+    if current_chunk_prefix is not None:
+        current = sorted(f["Key"] for f in files if _is_chunk_of(f["Key"], current_chunk_prefix))
+        files = [f for f in files if not _is_chunk_of(f["Key"], current_chunk_prefix)]
+    # A timestamp tie with an older file must not let that file override what this attempt delivered.
+    return [f["Key"] for f in sorted(files, key=_snapshot_file_order)] + current
+
+
+def _is_chunk_of(key: str, chunk_prefix: str) -> bool:
+    return _s3_key(key).rsplit("/", 1)[-1].startswith(chunk_prefix)
 
 
 async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> _SnapshotMerge:
@@ -415,7 +426,12 @@ async def _write_snapshot_chunk(
 
 
 async def _write_snapshot_hashes(
-    team_id: int, binding: WarehouseBinding, source_id: str, run_token: str, hashes: dict[str, str]
+    team_id: int,
+    binding: WarehouseBinding,
+    source_id: str,
+    run_token: str,
+    hashes: dict[str, str],
+    current_chunk_prefix: str | None = None,
 ) -> None:
     """Persist this run's produced ``hashes`` and compact the source's snapshot folder in one pass.
     Writes the union of every existing snapshot file and ``hashes`` into ``{run_token}.parquet`` (this
@@ -426,12 +442,17 @@ async def _write_snapshot_hashes(
     requests, memory, or its timeout. Concurrency-safe: a file a concurrent writer adds after this
     listing isn't in the merge set, so it's neither merged-away nor deleted, and its rows still surface
     through the reader's union; the two files collapse on the next run. Write-then-delete keeps a crash
-    between the two harmless — the reader unions both the new file and the not-yet-deleted old ones."""
+    between the two harmless — the reader unions both the new file and the not-yet-deleted old ones.
+    Chunk files named with ``current_chunk_prefix`` hold this attempt's deliveries, so they merge last."""
     prefix = _snapshot_prefix(team_id, binding, source_id)
     write_path = f"{prefix}/{run_token}.parquet"
     async with aget_s3_client() as s3_client:
-        existing_keys = await _list_snapshot_files(s3_client, prefix)
-        if not hashes and len(existing_keys) <= 1:
+        existing_keys = await _list_snapshot_files(s3_client, prefix, current_chunk_prefix)
+        # A lone chunk of this attempt still folds into ``{run_token}.parquet``, as its hashes would have.
+        holds_current_chunk = current_chunk_prefix is not None and any(
+            _is_chunk_of(key, current_chunk_prefix) for key in existing_keys
+        )
+        if not hashes and len(existing_keys) <= 1 and not holds_current_chunk:
             return
         merge = await _merge_snapshot_files(s3_client, existing_keys)
         if not hashes and not merge.complete:
@@ -651,6 +672,10 @@ async def _open_source(run: _RunContext, source: PersonPropertySyncSource) -> _S
     return state
 
 
+def _chunk_prefix(run: _RunContext, state: _SourceState) -> str:
+    return f"{run.run_token}-{state.attempt}-"
+
+
 async def _sync_bundles(run: _RunContext, state: _SourceState, bundles: list[tuple[str, dict]]) -> None:
     """Diff ``bundles`` against the source's snapshot, drop entities that don't exist, produce update
     intents (person `$set` or group `$groupidentify`), and snapshot what Kafka confirmed. Works in
@@ -695,7 +720,7 @@ async def _sync_bundles(run: _RunContext, state: _SourceState, bundles: list[tup
                 run.team_id,
                 run.binding,
                 ps.source_id,
-                f"{run.run_token}-{state.attempt}-{state.chunks_written:05d}",
+                f"{_chunk_prefix(run, state)}{state.chunks_written:05d}",
                 delivered_hashes,
             )
             state.prior.update(delivered_hashes)
@@ -722,7 +747,9 @@ async def _close_source(run: _RunContext, state: _SourceState) -> PerSourceResul
         state.prior = {}
         # Fold this run's chunk files, and any left by an earlier run that was stopped part way, into
         # one ``{run_token}.parquet`` so the folder stays at about one file per source.
-        await _write_snapshot_hashes(run.team_id, run.binding, ps.source_id, run.run_token, {})
+        await _write_snapshot_hashes(
+            run.team_id, run.binding, ps.source_id, run.run_token, {}, current_chunk_prefix=_chunk_prefix(run, state)
+        )
 
     logger.info(
         "person-property sync: source processed"
@@ -815,6 +842,7 @@ async def run_person_property_sync(
         for source in pass_sources:
             bundles = list(read.bundles_by_source.pop(str(source.source_id)).items())
             _accumulate(result, await _process_source_bundles(run, source, bundles, read.rows_read))
+            del bundles
 
     # Raise before the staged rows are cleared, so the retry can read them again.
     _raise_if_undelivered(result)
@@ -831,14 +859,15 @@ BACKFILL_RUN_TOKEN = "backfill"
 
 @frozen
 class _DeltaBatches:
-    batches: Iterator["pa.RecordBatch"]
+    open_batches: Callable[[list[str]], Iterator["pa.RecordBatch"]]
+    columns: list[str]
     sources_missing_key_column: frozenset[str]
 
 
 def _open_delta_batches(
     uri: str, storage_options: dict[str, str], sources: list[PersonPropertySyncSource]
 ) -> _DeltaBatches:
-    """A lazy iterator over the table's record batches, projected to the columns the sources map."""
+    """The table's record batches, openable more than once, plus the mapped columns it has."""
     import deltalake  # noqa: PLC0415 — keeps the heavy delta-rs/pandas stack off the import path
 
     if not deltalake.DeltaTable.is_deltatable(uri, storage_options=storage_options):
@@ -846,7 +875,7 @@ def _open_delta_batches(
         # as an empty read rather than erroring, but log it since a persistent empty backfill is a
         # likely "why didn't anything happen" answer.
         logger.warning("person-property backfill: no Delta table at URI, reading 0 rows", uri=uri)
-        return _DeltaBatches(batches=iter(()), sources_missing_key_column=frozenset())
+        return _DeltaBatches(open_batches=lambda _columns: iter(()), columns=[], sources_missing_key_column=frozenset())
 
     dataset = deltalake.DeltaTable(uri, storage_options=storage_options).to_pyarrow_dataset()
     available = set(dataset.schema.names)
@@ -867,15 +896,67 @@ def _open_delta_batches(
                 key_column=source.key_column,
             )
     return _DeltaBatches(
-        batches=iter(dataset.to_batches(columns=project, batch_size=ROW_BATCH_SIZE)),
+        open_batches=lambda columns: iter(dataset.to_batches(columns=columns, batch_size=ROW_BATCH_SIZE)),
+        columns=project,
         sources_missing_key_column=frozenset(missing_key_column),
     )
 
 
-def _batch_bundles(batch: "pa.RecordBatch", sources: list[PersonPropertySyncSource]) -> list[list[tuple[str, dict]]]:
-    """Each source's bundles for one batch, in ``sources`` order."""
+def _bundle_key(row: dict, source: PersonPropertySyncSource) -> str | None:
+    """The distinct_id ``build_bundles`` would emit for ``row``, or None when it emits nothing."""
+    key = row.get(source.key_column)
+    if key is None or not any(row.get(column) is not None for column in (source.column_property_map or {})):
+        return None
+    return str(key)
+
+
+def _last_row_of_repeated_keys(
+    delta: _DeltaBatches, sources: list[PersonPropertySyncSource]
+) -> dict[str, dict[str, int]]:
+    """Per source, {distinct_id: table position of its last row that maps a value}, for the ids with more
+    than one such row. Holds the table's distinct ids, not its rows. Positions, not batch numbers, so
+    the match doesn't depend on where the reader splits batches."""
+    last_row: dict[str, dict[str, int]] = {str(source.source_id): {} for source in sources}
+    repeated: dict[str, set[str]] = {str(source.source_id): set() for source in sources}
+    offset = 0
+    for batch in delta.open_batches(delta.columns):
+        rows = batch.to_pylist()
+        for source in sources:
+            seen = last_row[str(source.source_id)]
+            for position, row in enumerate(rows, start=offset):
+                distinct_id = _bundle_key(row, source)
+                if distinct_id is None:
+                    continue
+                if distinct_id in seen:
+                    repeated[str(source.source_id)].add(distinct_id)
+                seen[distinct_id] = position
+        offset += batch.num_rows
+    return {
+        source_id: {distinct_id: last_row[source_id][distinct_id] for distinct_id in ids}
+        for source_id, ids in repeated.items()
+    }
+
+
+def _batch_bundles(
+    batch: "pa.RecordBatch",
+    sources: list[PersonPropertySyncSource],
+    offset: int,
+    repeated: dict[str, dict[str, int]],
+) -> list[list[tuple[str, dict]]]:
+    """Each source's bundles for the batch whose first row is at table position ``offset``, in
+    ``sources`` order. A row of a repeated id that isn't the id's last row is dropped, so only each
+    id's final value is diffed."""
     rows = batch.to_pylist()
-    return [build_bundles(rows, source.key_column, source.column_property_map or {}) for source in sources]
+    bundles_per_source = []
+    for source in sources:
+        last_row = repeated[str(source.source_id)]
+        kept = [
+            row
+            for position, row in enumerate(rows, start=offset)
+            if (key := _bundle_key(row, source)) is None or last_row.get(key, position) == position
+        ]
+        bundles_per_source.append(build_bundles(kept, source.key_column, source.column_property_map or {}))
+    return bundles_per_source
 
 
 def _schema_delta_uri(team_id: int, schema_id: str) -> str | None:
@@ -907,7 +988,8 @@ async def run_person_property_backfill(
 ) -> SyncResult:
     """Populate person properties from a warehouse table's full Delta data (rather than the
     incrementally staged rows) — for a new/changed mapping that never saw historical rows. Reads the
-    table once and upserts every enabled person source on the binding; the snapshot diff still skips
+    table twice: first to find each repeated distinct_id's last row that maps a value, then again to
+    upsert every enabled person source on the binding batch by batch. The snapshot diff still skips
     unchanged values, so re-running is cheap."""
     result = SyncResult()
     sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, binding)
@@ -938,14 +1020,21 @@ async def run_person_property_backfill(
     result.sources = len(sources)
 
     active = [source for source in sources if str(source.source_id) not in delta.sources_missing_key_column]
+    # A distinct_id on several rows must only send its final value. Find each one's last row before the
+    # snapshots load, so the pass's id map is freed before they take memory.
+    repeated: dict[str, dict[str, int]] = {}
+    if active:
+        repeated = await asyncio.to_thread(_last_row_of_repeated_keys, delta, active)
     states = [await _open_source(run, source) for source in active]
     # Each batch is diffed, produced and snapshotted before the next is read, so memory holds one batch
     # rather than the table, and a run stopped part way keeps what it delivered.
-    while (batch := await asyncio.to_thread(next, delta.batches, None)) is not None:
+    batches = await asyncio.to_thread(delta.open_batches, delta.columns)
+    while (batch := await asyncio.to_thread(next, batches, None)) is not None:
+        offset = result.rows_read
         result.rows_read += batch.num_rows
         if not states:
             continue
-        bundles_per_source = await asyncio.to_thread(_batch_bundles, batch, active)
+        bundles_per_source = await asyncio.to_thread(_batch_bundles, batch, active, offset, repeated)
         del batch
         for state, bundles in zip(states, bundles_per_source):
             state.result.rows_read = result.rows_read
