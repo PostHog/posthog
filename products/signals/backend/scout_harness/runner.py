@@ -26,7 +26,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, scout_mcp_scopes, scout_scope_posture
 
 from products.business_knowledge.backend.logic import is_maintained_for_team
@@ -45,7 +45,11 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_content_gates import team_research_reviewer_selection_enabled
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
-from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    canonical_scouts_preserving_trial_model,
+    canonical_skill_names,
+    sync_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import (
     DEFAULT_MAX_RUNTIME_S,
     FAILURE_STREAK_MAX_RUNS,
@@ -91,11 +95,14 @@ from products.signals.backend.scout_harness.trial_result import export_trial_res
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
 from products.signals.backend.scout_report import scout_report_tags_in_use
 from products.signals.backend.spend import record_task_spend
+from products.signals.backend.spend_billing import scout_skill_spend_exempt
 from products.signals.backend.task_profiles import scout_profile
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
 )
+from products.signals.backend.trial.funding import without_trial_funding
+from products.signals.backend.trial.scouts import trial_scout_runtime
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import (
     AgentTurnFailed,
@@ -496,6 +503,10 @@ async def _arun_signals_scout(
                 skip_reason="first-report experiment disabled" if experiment is None else "first-report control arm",
             )
         agent_runtime = experiment.agent_runtime
+    preserve_trial_model = skill.origin == "canonical" and skill.name in canonical_scouts_preserving_trial_model()
+    if trial is None and experiment is None and not preserve_trial_model:
+        free_trial_runtime = await database_sync_to_async_pool(trial_scout_runtime)(team)
+        agent_runtime = free_trial_runtime or agent_runtime
     runtime = agent_runtime.runtime if agent_runtime is not None else "acp"
     if agent_runtime is not None:
         runtime_adapter: str | None = agent_runtime.runtime_adapter
@@ -1243,54 +1254,60 @@ async def _spawn_and_run(
         )
 
     summary_model = FirstReportScoutRunSummary if skill.name == FIRST_REPORT_SCOUT else SignalScoutRunSummary
-    session, result = await MultiTurnSession.start(
-        prompt=prompt,
-        context=context,
-        model=summary_model,
-        step_name=_step_name(skill),
-        verbose=verbose,
-        profile=profile,
-        # No credential owner on purpose: a scout is a team resource, so its runs mount only
-        # connections members shared to the whole team, never anyone's personal grants. That
-        # keeps runs identical no matter who created or edits the scout, and covers ownerless
-        # coordinator-discovered scouts. The per-scout selection below picks which of those
-        # team-shared servers this scout's runs mount. Empty selects none.
-        mcp_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
-        mcp_tool_allowlist=mcp_tool_allowlist,
-        # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
-        # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
-        # and attributable to one scout. Team attribution rides along as `team_id`.
-        ai_stage=_ai_stage(skill),
-        # `ai_stage` collapses team-authored scouts to `scout:custom` to bound a fleet-wide tag's
-        # cardinality, so it cannot name one. `ai_agent_name` is read per team and carries the
-        # full skill name for canonical and custom scouts alike.
-        ai_agent_name=skill.name,
-        before_task_dispatch=_create_bridge_row,
-        origin_key=(
-            "first-report"
-            if skill.name == FIRST_REPORT_SCOUT
-            else f"scout-trial:{trial.id}"
-            if trial is not None
-            else None
-        ),
-        # Leave the activity's cleanup allowance after the scout's own timeout.
-        max_poll_seconds=(
-            FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
-            if skill.name == FIRST_REPORT_SCOUT
-            else TRIAL_MAX_RUNTIME_S
-            if trial is not None
-            else DEFAULT_MAX_RUNTIME_S
-        ),
-        # The close-out is free-text markdown — if the agent ends with prose or malformed JSON
-        # instead of a SignalScoutRunSummary object, keep the raw text as the summary rather than
-        # failing the whole run. A failed run never finalizes, so its scan-position close-out is
-        # lost and the next run inherits a doubled scan delta.
-        fallback_from_text=lambda text: (
-            FirstReportScoutRunSummary(summary=text, first_report_result=FirstReportScoutResult(outcome="incomplete"))
-            if skill.name == FIRST_REPORT_SCOUT
-            else SignalScoutRunSummary(summary=text)
-        ),
+    exempt = trial is not None or await database_sync_to_async(scout_skill_spend_exempt)(
+        team.id, skill.name, skill.version
     )
+    with without_trial_funding(team.id) if exempt else nullcontext():
+        session, result = await MultiTurnSession.start(
+            prompt=prompt,
+            context=context,
+            model=summary_model,
+            step_name=_step_name(skill),
+            verbose=verbose,
+            profile=profile,
+            # No credential owner on purpose: a scout is a team resource, so its runs mount only
+            # connections members shared to the whole team, never anyone's personal grants. That
+            # keeps runs identical no matter who created or edits the scout, and covers ownerless
+            # coordinator-discovered scouts. The per-scout selection below picks which of those
+            # team-shared servers this scout's runs mount. Empty selects none.
+            mcp_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
+            mcp_tool_allowlist=mcp_tool_allowlist,
+            # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
+            # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
+            # and attributable to one scout. Team attribution rides along as `team_id`.
+            ai_stage=_ai_stage(skill),
+            # `ai_stage` collapses team-authored scouts to `scout:custom` to bound a fleet-wide tag's
+            # cardinality, so it cannot name one. `ai_agent_name` is read per team and carries the
+            # full skill name for canonical and custom scouts alike.
+            ai_agent_name=skill.name,
+            before_task_dispatch=_create_bridge_row,
+            origin_key=(
+                "first-report"
+                if skill.name == FIRST_REPORT_SCOUT
+                else f"scout-trial:{trial.id}"
+                if trial is not None
+                else None
+            ),
+            # Leave the activity's cleanup allowance after the scout's own timeout.
+            max_poll_seconds=(
+                FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+                if skill.name == FIRST_REPORT_SCOUT
+                else TRIAL_MAX_RUNTIME_S
+                if trial is not None
+                else DEFAULT_MAX_RUNTIME_S
+            ),
+            # The close-out is free-text markdown — if the agent ends with prose or malformed JSON
+            # instead of a SignalScoutRunSummary object, keep the raw text as the summary rather than
+            # failing the whole run. A failed run never finalizes, so its scan-position close-out is
+            # lost and the next run inherits a doubled scan delta.
+            fallback_from_text=lambda text: (
+                FirstReportScoutRunSummary(
+                    summary=text, first_report_result=FirstReportScoutResult(outcome="incomplete")
+                )
+                if skill.name == FIRST_REPORT_SCOUT
+                else SignalScoutRunSummary(summary=text)
+            ),
+        )
     end_status = "completed"
     end_error: str | None = None
     try:

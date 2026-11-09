@@ -41,7 +41,6 @@ from products.warehouse_sources.backend.logic.source_credentials_rollout import 
     connection_fields_equal,
     in_use_oauth_slot,
     is_stripped,
-    read_enabled,
     stripped_at_now,
 )
 from products.warehouse_sources.backend.logic.source_credentials_sync import next_source_batch, stored_connection_fields
@@ -58,7 +57,6 @@ logger = structlog.get_logger(__name__)
 
 STRIPPED = "stripped"
 ALREADY_STRIPPED = "already_stripped"
-SKIPPED_READ_FLAG_OFF = "skipped_read_flag_off"
 SKIPPED_NO_ROW_NEEDED = "skipped_no_row_needed"
 SKIPPED_NO_REFERENCE = "skipped_no_reference"
 SKIPPED_MISSING_ROW = "skipped_missing_row"
@@ -97,11 +95,11 @@ def strip_connection_fields(
 ) -> OutcomeCounts:
     """Strip each non-deleted source that passes all checks. With ``execute`` false, only count.
 
-    The checks, in order: the read flag is on for the team, and `job_inputs` decodes and is not stripped. For an
-    OAuth source, `job_inputs` holds an in-use pointer and the column holds the same row. For a source with
-    typed-in connection fields, the column holds a reference, and the row it points at exists, is readable and
-    holds the same connection fields as `job_inputs`. Then the backup is written (a strip after a restore
-    replaces it), and then `job_inputs` loses its connection fields and its OAuth pointers.
+    The checks, in order: `job_inputs` decodes and is not stripped. For an OAuth source, `job_inputs` holds an
+    in-use pointer and the column holds the same row. For a source with typed-in connection fields, the column
+    holds a reference, and the row it points at exists, is readable and holds the same connection fields as
+    `job_inputs`. Then the backup is written (a strip after a restore replaces it), and then `job_inputs` loses
+    its connection fields and its OAuth pointers.
     """
     counts: OutcomeCounts = Counter()
     last_id: UUID | None = None
@@ -176,8 +174,6 @@ def prune_backups(*, execute: bool, older_than_days: int, batch_size: int = 1000
 
 
 def _strip_one(source: ExternalDataSource, execute: bool) -> str:
-    if not read_enabled(source.team_id):
-        return SKIPPED_READ_FLAG_OFF
     if not execute:
         outcome, _ = _check(source)
         return outcome
