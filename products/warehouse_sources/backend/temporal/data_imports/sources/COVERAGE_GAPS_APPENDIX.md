@@ -11932,14 +11932,14 @@ Note: Enumerated from the vendor's full single-page reference; GET availability 
 
 ## SurveySparrow — **thin**
 
-Today (5): `contact_lists`, `contacts`, `questions`, `responses`, `surveys`
+Today (8): `channels`, `contact_lists`, `contacts`, `questions`, `responses`, `surveys`, `tickets`, `users`
 
 Diffed against: <https://developers.surveysparrow.com/rest-apis>
 
-- [ ] `GET /v3/tickets` — Support tickets raised from survey responses - a core analytical object with status, assignee and SLA fields (high)
-- [ ] `GET /v3/metrics and /v3/metrics/responses` — NPS/CSAT/CES score metrics - the vendor's headline number, currently only derivable by re-aggregating raw responses (high)
-- [ ] `GET /v3/users` — Lookup table resolving the user IDs already carried on surveys, tickets and responses (high)
-- [ ] `GET /v3/channels` — Lookup table for the distribution channel ID on every response (email/link/SMS/embed), needed for per-channel response-rate analysis (high)
+- [x] `GET /v3/tickets` — Support tickets raised from survey responses - a core analytical object with status, assignee and SLA fields (high). Added as `tickets`, incremental on `updated_at` via `updated_date.gte`.
+- ~~`GET /v3/metrics and /v3/metrics/responses` — NPS/CSAT/CES score metrics - the vendor's headline number, currently only derivable by re-aggregating raw responses (high)~~ — skipped: `/v3/metrics` returns one computed score per type and date range with an undocumented response schema, not a list of records, and `/v3/metrics/responses` returns the rows of the `responses` table filtered by one NPS/CES/CSAT category per survey
+- [x] `GET /v3/users` — Lookup table resolving the user IDs already carried on surveys, tickets and responses (high). Added as `users`.
+- [x] `GET /v3/channels` — Lookup table for the distribution channel ID on every response (email/link/SMS/embed), needed for per-channel response-rate analysis (high). Added as `channels` (fan-out over `surveys`, because the call requires `survey_id`).
 - [ ] `GET /v3/reputation_reviews` — Online review records from the Reputation Management product - a whole analytical dataset with no coverage (high)
 - [ ] `GET /v3/tickets/{id}/comments` — Ticket conversation history for resolution-time and agent-activity analysis (medium)
 - [ ] `GET /v3/contact_properties` — Lookup table defining the custom contact fields whose values appear on synced contacts (medium)
