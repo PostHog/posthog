@@ -19,7 +19,9 @@ import {
 
 import api, { ApiConfig } from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -68,6 +70,7 @@ import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from '
 import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
 import { columnAnnotationsLogic } from './columnAnnotationsLogic'
+import { confirmHistoryAccessRules, turnsHistoryOn } from './confirmHistoryAccessRules'
 import { DestinationsSection } from './DestinationsSection'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
@@ -439,6 +442,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     const formRef = useRef<SyncMethodFormHandle>(null)
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
     const [saving, setSaving] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentProjectId } = useValues(teamLogic)
 
     const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
 
@@ -477,7 +482,10 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     ): void => {
         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
 
-        const applyUpdate = async (dropHistoryTable = false): Promise<void> => {
+        const applyUpdate = async ({
+            dropHistoryTable = false,
+            copyAccessRulesToHistory = false,
+        }: { dropHistoryTable?: boolean; copyAccessRulesToHistory?: boolean } = {}): Promise<void> => {
             setSaving(true)
             try {
                 const saved = await externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), schema.id, {
@@ -493,6 +501,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                     primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
                     ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
                     ...(dropHistoryTable ? { drop_history_table: true } : {}),
+                    ...(copyAccessRulesToHistory ? { copy_access_rules_to_history: true } : {}),
                 })
                 if (dropHistoryTable && saved.registered_history_table_name) {
                     lemonToast.warning(
@@ -513,6 +522,23 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
 
         // Asked after the xmin and self-managed confirmations, right before the save.
         const askAboutHistoryThenApply = (): void => {
+            const table = schema.table
+            if (
+                table &&
+                currentProjectId &&
+                featureFlags[FEATURE_FLAGS.WAREHOUSE_HISTORY_ACCESS_RULES] &&
+                turnsHistoryOn(schema, syncType, cdcTableMode)
+            ) {
+                // Disables Save through the lookup and the dialog, so a second click can't send another update.
+                setSaving(true)
+                void confirmHistoryAccessRules(
+                    currentProjectId,
+                    table.id,
+                    (copy) => void applyUpdate({ copyAccessRulesToHistory: copy }),
+                    () => setSaving(false)
+                )
+                return
+            }
             const historyTableName = schema.registered_history_table_name
             const stopsWritingHistory =
                 writesHistoryTable(schema.sync_type, schema.cdc_table_mode) &&
@@ -539,7 +565,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                 primaryButton: {
                     children: 'Delete history table',
                     status: 'danger',
-                    onClick: () => void applyUpdate(true),
+                    onClick: () => void applyUpdate({ dropHistoryTable: true }),
                     'data-attr': 'schema-sync-method-delete-history-table',
                 },
                 secondaryButton: {
