@@ -33,7 +33,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 
 from products.data_warehouse.backend.facade.api import get_s3_client
-from products.managed_warehouse.backend.backfill_trino import data_imports_through_trino
+from products.managed_warehouse.backend.backfill_trino import data_imports_through_trino, data_imports_trino_flag
 from products.managed_warehouse.backend.client import make_duckgres_conninfo
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
@@ -311,11 +311,12 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
     if not flag_enabled:
         return False
 
+    trino_flag: bool | None
     if inputs.register_through_trino is not None:
-        through_trino = inputs.register_through_trino
+        trino_flag = inputs.register_through_trino
     else:
-        through_trino = await asyncio.to_thread(data_imports_through_trino, organization_id)
-    if through_trino:
+        trino_flag = await asyncio.to_thread(data_imports_trino_flag, organization_id)
+    if trino_flag is True:
         # A warehouse on the Trino path may have no duckgres, so a Trino target that is not ready skips the run
         # instead of falling back to duckgres. The next completed sync starts registration again.
         if await asyncio.to_thread(get_ready_trino_catalog_name, organization_id) is None:
@@ -334,6 +335,14 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
 
     server = await database_sync_to_async(get_duckgres_server_by_team_org)(inputs.team_id)
     if server is None:
+        if trino_flag is None:
+            # Trino is the only engine this organization can use, and the flag may enable it, so the gate retries
+            # instead of skipping a run the flag would allow.
+            raise ApplicationError(
+                f"The Trino registration flag gave no answer for team {inputs.team_id}, "
+                "and its organization has no duckgres server",
+                non_retryable=False,
+            )
         await logger.ainfo(
             "No DuckgresServer provisioned for team's organization; skipping DuckLake data imports registration"
         )
@@ -1142,6 +1151,7 @@ def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanu
     no finalizer could reach; the age guard keeps concurrent attempts' young
     tables safe.
     """
+    activity_started_monotonic = time.monotonic()
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(schema_name=inputs.schema_name)
     if not settings.TEST:
@@ -1155,6 +1165,7 @@ def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanu
             table_names=inputs.table_names,
             sweep_min_age=_SWEEP_MIN_AGE,
             sweep_limit=_SWEEP_BATCH_LIMIT,
+            cancel_after_seconds=_duckgres_cancel_delay(activity_started_monotonic),
             canary=inputs.trino_canary,
         )
         return
@@ -1217,7 +1228,9 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id, register_through_trino=inputs.register_through_trino
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3, initial_interval=dt.timedelta(seconds=10), backoff_coefficient=2.0
+            ),
         )
         if not should_register:
             logger.info(

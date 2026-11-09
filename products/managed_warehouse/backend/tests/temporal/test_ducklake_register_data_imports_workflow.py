@@ -9,7 +9,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -68,6 +68,7 @@ def _cp_no_rows():
 @pytest.fixture(autouse=True)
 def _trino_engine_off(monkeypatch):
     monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: False)
+    monkeypatch.setattr(registration_module, "data_imports_trino_flag", lambda organization_id: False)
 
 
 @pytest.mark.asyncio
@@ -113,9 +114,15 @@ async def test_registration_gate_accepts_either_managed_warehouse_flag(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("server_provisioned", [True, False])
-async def test_registration_gate_requires_provisioned_duckgres_server(monkeypatch, ateam, server_provisioned):
+@pytest.mark.parametrize(
+    "server_provisioned, trino_flag, expected",
+    [(True, False, True), (True, None, True), (False, False, False), (False, None, None)],
+)
+async def test_registration_gate_requires_provisioned_duckgres_server_and_retries_an_unanswered_flag(
+    monkeypatch, ateam, server_provisioned, trino_flag, expected
+):
     monkeypatch.setattr(registration_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(registration_module, "data_imports_trino_flag", lambda organization_id: trino_flag)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
     monkeypatch.setattr(
         registration_module,
@@ -123,9 +130,14 @@ async def test_registration_gate_requires_provisioned_duckgres_server(monkeypatc
         lambda team_id: MagicMock() if server_provisioned else None,
     )
 
-    result = await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
+    gate = ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
 
-    assert result is server_provisioned
+    if expected is None:
+        with pytest.raises(ApplicationError, match="gave no answer") as error:
+            await gate
+        assert error.value.non_retryable is False
+    else:
+        assert await gate is expected
 
 
 @pytest.mark.asyncio
@@ -1556,7 +1568,7 @@ def test_trino_registration_runs_the_expected_statements(
     )
 
     assert result == trino_module.TrinoRegistrationResult(published=True, row_count=4)
-    assert trino_module.connect_managed_warehouse_trino.call_args.kwargs["canary"] is canary
+    assert cast(MagicMock, trino_module.connect_managed_warehouse_trino).call_args.kwargs["canary"] is canary
     create = fake.statements_matching("CREATE TABLE")[0]
     columns = '"id" BIGINT, "amount" DECIMAL(10, 2), "created" TIMESTAMP(6) WITH TIME ZONE, "note" VARCHAR' + (
         ', "_ph_partition_key" VARCHAR' if hive_partition_columns else ""
@@ -1826,6 +1838,7 @@ def test_trino_cleanup_drops_given_tables_and_sweeps_only_old_staging_tables(can
         table_names=["__ph_register_abc"],
         sweep_min_age=registration_module._SWEEP_MIN_AGE,
         sweep_limit=registration_module._SWEEP_BATCH_LIMIT,
+        cancel_after_seconds=None,
         canary=canary,
     )
 
@@ -1836,6 +1849,28 @@ def test_trino_cleanup_drops_given_tables_and_sweeps_only_old_staging_tables(can
         "AND starts_with(table_name, '__ph_register_')",
         f'DROP TABLE IF EXISTS "lake"."schema_a"."{old}"',
     ]
+
+
+def test_trino_cleanup_runs_no_statement_after_the_activity_deadline(fake_timer, monkeypatch) -> None:
+    fake = _FakeTrino(on_statement=lambda statement: fake_timer.instances[0].function())
+    monkeypatch.setattr(
+        trino_module, "connect_managed_warehouse_trino", MagicMock(return_value=contextlib.nullcontext(fake))
+    )
+
+    with pytest.raises(TimeoutError):
+        trino_module.cleanup_trino_registration_tables(
+            organization_id="org",
+            team_id=7,
+            schema_name="schema_a",
+            table_names=["__ph_register_abc", "__ph_previous_abc"],
+            sweep_min_age=registration_module._SWEEP_MIN_AGE,
+            sweep_limit=registration_module._SWEEP_BATCH_LIMIT,
+            cancel_after_seconds=60.0,
+        )
+
+    assert fake_timer.instances[0].interval == 60.0
+    assert fake_timer.instances[0].cancelled is True
+    assert fake.statements == ['DROP TABLE IF EXISTS "lake"."schema_a"."__ph_register_abc"']
 
 
 @pytest.fixture
@@ -1929,6 +1964,7 @@ def test_trino_cleanup_activity_dispatches_on_the_engine(trino_canary: bool, mon
     monkeypatch.setattr(registration_module, "cleanup_trino_registration_tables", cleanup)
     monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
     monkeypatch.setattr(registration_module, "_connect_to_duckgres_for_team", MagicMock(side_effect=AssertionError))
+    monkeypatch.setattr(registration_module, "_duckgres_cancel_delay", lambda started: 42.0)
 
     registration_module.cleanup_ducklake_registration_tables_activity(
         registration_module.DuckLakeRegisterCleanupInputs(
@@ -1943,6 +1979,7 @@ def test_trino_cleanup_activity_dispatches_on_the_engine(trino_canary: bool, mon
     assert cleanup.call_args.kwargs["table_names"] == ["__ph_register_abc"]
     assert cleanup.call_args.kwargs["organization_id"] == "org"
     assert cleanup.call_args.kwargs["canary"] is trino_canary
+    assert cleanup.call_args.kwargs["cancel_after_seconds"] == 42.0
 
 
 @pytest.mark.asyncio
@@ -1958,7 +1995,7 @@ async def test_registration_gate_requires_a_ready_trino_target_and_ignores_the_d
     monkeypatch.setattr(
         "products.managed_warehouse.backend.facade.access.background_loading_configured", lambda organization_id: False
     )
-    monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: flag_enabled)
+    monkeypatch.setattr(registration_module, "data_imports_trino_flag", lambda organization_id: flag_enabled)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
     monkeypatch.setattr(
         registration_module,

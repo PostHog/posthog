@@ -416,13 +416,16 @@ def cleanup_trino_registration_tables(
     table_names: Sequence[str],
     sweep_min_age: dt.timedelta,
     sweep_limit: int,
+    cancel_after_seconds: float | None,
     canary: bool = False,
 ) -> None:
     """Drop the given tables, then drop up to `sweep_limit` registration tables older than `sweep_min_age`."""
-    with connect_managed_warehouse_trino(
-        organization_id, principal=_principal(team_id, "cleanup"), canary=canary
-    ) as connection:
-        statements = _TrinoStatements(connection)
+    with _registration_statements(
+        organization_id,
+        principal=_principal(team_id, "cleanup"),
+        cancel_after_seconds=cancel_after_seconds,
+        canary=canary,
+    ) as statements:
         for table_name in table_names:
             statements.run(f"DROP TABLE IF EXISTS {statements.qualified(schema_name, table_name)}")
         LOGGER.info("Cleaned up DuckLake registration tables", table_names=list(table_names))

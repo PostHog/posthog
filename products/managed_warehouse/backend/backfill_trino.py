@@ -20,7 +20,7 @@ from trino.exceptions import Http502Error, Http503Error, Http504Error, TrinoConn
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import feature_enabled_or_false
+from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeDayReplacement,
@@ -82,6 +82,18 @@ def backfills_through_trino(organization_id: str) -> bool:
 
 def data_imports_through_trino(organization_id: str) -> bool:
     return _organization_flag_enabled(DATA_IMPORTS_TRINO_REGISTRATION_FLAG, organization_id)
+
+
+def data_imports_trino_flag(organization_id: str) -> bool | None:
+    """Return None when the flags client gives no answer: the lookup failed, or the flag is not defined."""
+    value = get_feature_flag_or_none(
+        DATA_IMPORTS_TRINO_REGISTRATION_FLAG,
+        organization_id,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        send_feature_flag_events=False,
+    )
+    return None if value is None else value is True
 
 
 def _timestamp_bound(day: date) -> str:

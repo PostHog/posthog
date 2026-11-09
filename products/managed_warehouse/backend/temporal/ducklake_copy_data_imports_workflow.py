@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
 from urllib.parse import urlparse
@@ -292,7 +293,7 @@ class DuckLakeCopyDataImportsVerificationResult:
 async def _organization_registers_through_trino(organization_id: object) -> bool:
     # This workflow runs DuckDB statements on duckgres, which an organization whose data imports register through
     # Trino does not have.
-    return await database_sync_to_async(data_imports_through_trino)(str(organization_id))
+    return await asyncio.to_thread(data_imports_through_trino, str(organization_id))
 
 
 @activity.defn
