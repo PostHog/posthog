@@ -1,5 +1,7 @@
 import clsx from 'clsx'
 
+import { resolveReportRunVariant } from '@posthog/agent-contracts/signal-report-state'
+
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { SignalReportStatus, SignalScoutRunStatus } from '../../types'
@@ -7,22 +9,29 @@ import { SignalReportStatus, SignalScoutRunStatus } from '../../types'
 export type RunVariant = 'queued' | 'live' | 'completed' | 'failed'
 
 export function resolveRunVariant(
-    status: SignalScoutRunStatus | SignalReportStatus | TaskRunStatus | null | undefined
+    status: `${SignalScoutRunStatus | SignalReportStatus | TaskRunStatus}` | null | undefined
 ): RunVariant {
     switch (status) {
+        case 'potential':
+        case 'candidate':
         case 'in_progress':
         case 'pending_input':
-            return 'live'
-        case 'completed':
         case 'ready':
+        case 'monitoring':
+        case 'closed':
         case 'resolved':
         case 'deleted':
         case 'suppressed':
-            return 'completed'
         case 'failed':
+            return resolveReportRunVariant(status)
+        case 'completed':
+            return 'completed'
         case 'cancelled':
             return 'failed'
-        default:
+        case 'not_started':
+        case 'queued':
+        case null:
+        case undefined:
             return 'queued'
     }
 }
