@@ -335,8 +335,9 @@ So `hog_flow` reads stay exactly as they are, and `hog_flow_version` is always `
 `/metrics` and `/metrics/totals` read the versioned series when you pass `?version=<n>`, and the version-agnostic one otherwise.
 Because batch and broadcast runs key the version-agnostic rows on the run, a version's numbers are not a subset of the unversioned read: compare versions with each other.
 Any other metrics endpoint answers `?version=` with a 400, since nothing mirrors hog function metrics per version.
-`/metrics/global` reads the run-level rows (empty `instance_id`) of the versioned series and sums them per flow, so batch runs count toward their workflow and steps never count as runs.
-Runs written before the versioned mirror shipped are missing from that series, so a window that reaches back before it undercounts until those rows age out of the 90-day retention.
+`/metrics/global` reads only run-level rows (empty `instance_id`), so steps never count as runs, and sums them per flow.
+Both series record the same runs, so summing them would count each run twice, and each misses runs the other has: the version-agnostic series keys batch and broadcast runs by run id, and the versioned one holds nothing from before its mirror shipped.
+So for each hour of a flow it counts whichever series recorded more of that outcome.
 To query the series directly, HogQL exposes the table as `app_metrics` (the HogQL name maps to the `app_metrics2` table; raw ClickHouse separately has a deprecated v1 table literally named `app_metrics`):
 
 ```sql

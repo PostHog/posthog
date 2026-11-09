@@ -14,6 +14,7 @@ import { initKeaTests } from '~/test/init'
 
 import { toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
 
+import { newWorkflowFolderParam } from './newWorkflowFolder'
 import { findCreatedWorkflowId, workflowHandoffInFolder } from './newWorkflowHandoff'
 
 const WORKFLOW_ID = '2f1e9c3a-5b7d-4e8f-9a0b-1c2d3e4f5a6b'
@@ -90,7 +91,7 @@ describe('AI workflow folder handoff', () => {
             false,
             1
         )
-        router.actions.push(urls.workflowNew(), { _create_in_folder: '007' })
+        router.actions.push(urls.workflowNew(), newWorkflowFolderParam('007'))
         const logic = aiFirstHandoffLogic(workflowHandoffInFolder('007'))
         logic.mount()
         runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'folder-create' })

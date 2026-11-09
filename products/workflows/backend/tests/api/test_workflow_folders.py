@@ -108,6 +108,14 @@ class TestWorkflowFolders(APIBaseTest):
         removed = self.client.delete(f"/api/projects/{self.team.id}/file_system_shortcut/{stale.id}/")
         self.assertEqual(removed.status_code, 204, removed.content)
 
+        alias = self.client.post(
+            files_url, {"path": "Private renewal copy", "type": "hog_flow", "ref": workflow.id.hex}, format="json"
+        )
+        self.assertEqual(alias.status_code, 201, alias.content)
+        alias_deleted = self.client.delete(f"{files_url}{alias.json()['id']}/")
+        self.assertEqual(alias_deleted.status_code, 404, alias_deleted.content)
+        self.assertTrue(HogFlow.objects.filter(pk=workflow.id).exists())
+
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_disabled_files_do_not_leave_an_empty_unfiled_tree(self, _flag: MagicMock) -> None:
         create_message_template_for_test(team_id=self.team.id, name="Synthetic email", content={})

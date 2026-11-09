@@ -5,6 +5,7 @@ import {
     FacetDefinition,
     FacetFilter,
     FacetSearchValue,
+    FacetValueCount,
     MatchesText,
     createFacetCounter,
     facetFilterKey,
@@ -215,7 +216,16 @@ function buildSuggestions(
             facets,
             matchesText
         )(facet.key)
-        const matching = counts.filter(({ value: v }) => {
+        const pinnedValues = facet.pinnedValues ?? []
+        const isPinned = (v: string): boolean => pinnedValues.some((pinned) => pinned.toLowerCase() === v.toLowerCase())
+        const pinned = pinnedValues.map((pinnedValue): FacetValueCount => {
+            const resolved = (facet.resolveValue?.(pinnedValue) ?? pinnedValue).toLowerCase()
+            return {
+                value: pinnedValue,
+                count: counts.find(({ value: v }) => v.toLowerCase() === resolved)?.count ?? 0,
+            }
+        })
+        const matching = [...pinned, ...counts.filter(({ value: v }) => !isPinned(v))].filter(({ value: v }) => {
             const label = formatFacetValue(facet, v).toLowerCase()
             return !partial || label.includes(partial) || v.toLowerCase().includes(partial)
         })

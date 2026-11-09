@@ -74,6 +74,7 @@ import {
     type HogFlowEdge,
     type HogFlowSchedule,
 } from './hogflows/types'
+import { newWorkflowFolder } from './newWorkflowFolder'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
 import { workflowStartPath } from './workflowBuilderProgress'
@@ -3603,7 +3604,7 @@ export const workflowLogic = kea<workflowLogicType>([
                             const folder =
                                 posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES) &&
                                 posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_LIST_V2)
-                                    ? new URLSearchParams(router.values.location.search).get('_create_in_folder')
+                                    ? newWorkflowFolder()
                                     : null
                             // The editor's HogFlow schema and the generated HogFlowApi describe the same payload.
                             // The selected environment, as the legacy client used, not its parent project.

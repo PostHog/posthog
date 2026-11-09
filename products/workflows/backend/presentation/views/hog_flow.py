@@ -45,7 +45,6 @@ from posthog.api.app_metrics2 import (
     AppMetricsMixin,
     AppMetricsRequestSerializer,
     AppMetricsTotalsResponseSerializer,
-    fetch_app_metric_totals_by_source,
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
@@ -325,6 +324,7 @@ from products.workflows.backend.facade.workflows import (
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     WORKFLOW_TYPES,
     exit_condition_that_runs,
+    fetch_run_totals_by_workflow,
     get_team_workflow_edit_state,
     get_workflow,
     get_workflow_edit_state,
@@ -1402,23 +1402,6 @@ class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
         required=False,
         help_text="End of the window. Same format as 'after'. Defaults to now.",
     )
-
-
-RUN_LEVEL_INSTANCE_ID = ""
-
-
-def _run_totals_by_workflow(totals_by_version: dict[str, dict[str, int]]) -> dict[str, dict[str, int]]:
-    """Sums `<flow id>/<version>` run totals per flow.
-
-    The versioned series keys batch runs by flow, where the version-agnostic one keys them by run, and
-    its run-level rows (empty instance_id) count runs where step rows would count steps.
-    """
-    totals: dict[str, dict[str, int]] = {}
-    for versioned_id, counts in totals_by_version.items():
-        workflow_totals = totals.setdefault(versioned_id.split("/", 1)[0], {})
-        for metric_name, count in counts.items():
-            workflow_totals[metric_name] = workflow_totals.get(metric_name, 0) + count
-    return totals
 
 
 class WorkflowStatsRowSerializer(serializers.Serializer):
@@ -7242,15 +7225,7 @@ class HogFlowViewSet(
         if params.get("before"):
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
 
-        totals = _run_totals_by_workflow(
-            fetch_app_metric_totals_by_source(
-                team_id=self.team_id,
-                app_source=HOG_FLOW_VERSION_APP_SOURCE,
-                after=after_date,
-                before=before_date,
-                instance_id=RUN_LEVEL_INSTANCE_ID,
-            )
-        )
+        totals = fetch_run_totals_by_workflow(team_id=self.team_id, after=after_date, before=before_date)
         # The ClickHouse query is only team-scoped, so intersect with the workflows the caller can
         # actually see. Keeps the aggregate consistent with workflows-list/-get access control (hog
         # flows aren't an access-control resource today, so this is a no-op now but won't silently

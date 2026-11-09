@@ -6,6 +6,7 @@ import { LemonButton, LemonInput, LemonMenu } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TreeNodeDroppable } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { pluralize } from 'lib/utils/strings'
 
 import { splitPath, joinPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -46,7 +47,7 @@ export function WorkflowFolderToolbar(): JSX.Element {
                     className="flex flex-wrap gap-2 items-center border rounded px-2 py-1 mb-2 bg-surface-secondary"
                     data-attr="workflows-folder-bulk-move"
                 >
-                    <span translate="no">{`${selectedFiles.length} ${selectedFiles.length === 1 ? 'item' : 'items'} selected`}</span>
+                    <span translate="no">{`${pluralize(selectedFiles.length, 'item')} selected`}</span>
                     <LemonButton size="small" type="secondary" onClick={moveSelectedFiles}>
                         Move to…
                     </LemonButton>
@@ -132,8 +133,10 @@ export function WorkflowFolderToolbar(): JSX.Element {
                     {browserReady && (
                         <span className="text-secondary text-xs ml-1" translate="no">
                             {!hasActiveQuery && count === 0 && childFolders.length > 0
-                                ? `${childFolders.length} folders`
-                                : `${count} items${hasActiveQuery && currentFolder ? ' match, subfolders included' : ''}`}
+                                ? pluralize(childFolders.length, 'folder')
+                                : hasActiveQuery && currentFolder
+                                  ? `${pluralize(count, 'item')} ${count === 1 ? 'matches' : 'match'}, subfolders included`
+                                  : pluralize(count, 'item')}
                         </span>
                     )}
                     <WorkflowNewFolderButton parent={currentFolder ?? ''} />

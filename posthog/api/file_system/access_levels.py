@@ -124,6 +124,19 @@ def _coerce_refs_for_lookup(model: Any, lookup_field: str, refs: list[str]) -> l
     return coerced
 
 
+def _canonical_ref(registration: ModelRegistration, ref: str) -> str:
+    """The ref spelled the way the database returns its lookup field.
+
+    The lookup field coerces other spellings of the same key, such as a UUID without hyphens, so
+    the delete and restore paths reach the same object through any of them. Translated rows and
+    AccessControl rows use the database spelling, so a ref has to be matched in that spelling.
+    Otherwise it misses its object's rules and resolves at the resource-level default.
+    """
+    model = apps.get_model(registration.app_label, registration.model_name)
+    coerced = _coerce_refs_for_lookup(model, registration.lookup_field, [ref])
+    return str(coerced[0]) if coerced else ref
+
+
 def _ref_translation_queryset(
     entry_type: str, registration: ModelRegistration, refs: list[str], project_id: int
 ) -> QuerySet:
@@ -248,7 +261,7 @@ def bulk_file_system_access_levels(
         if not pk_keyed and not needs_creator:
             cached_pks = _get_cached_ref_pks(project_id, entry_type, refs)
             for ref, pk in cached_pks.items():
-                translated[(entry_type, ref, team_id)] = (pk, None)
+                translated[(entry_type, _canonical_ref(registration, ref), team_id)] = (pk, None)
             refs = [ref for ref in refs if ref not in cached_pks]
             if not refs:
                 continue
@@ -288,22 +301,29 @@ def bulk_file_system_access_levels(
                 results[(entry_type, ref, team_id)] = None
             continue
 
-        objects: list[tuple[str, Optional[int]]] = []
-        ref_by_pk: dict[str, str] = {}
+        registration = registrations_by_type.get(entry_type)
+        creator_by_pk: dict[str, Optional[int]] = {}
+        refs_by_pk: dict[str, list[str]] = {}
         for ref, provided_creator in creator_by_provided_ref.items():
-            row = translated.get((entry_type, ref, team_id))
+            lookup_ref = _canonical_ref(registration, ref) if registration else ref
+            row = translated.get((entry_type, lookup_ref, team_id))
             # Unresolved refs keep the ref as a pk stand-in: it matches no AccessControl rows,
             # so they resolve at resource level exactly like an existing object without object
             # rows, making guessed refs indistinguishable from real-but-ungranted ones
-            pk = row[0] if row else ref
-            ref_by_pk[pk] = ref
-            objects.append((pk, provided_creator if provided_creator is not None else (row[1] if row else None)))
+            pk = row[0] if row else lookup_ref
+            creator = provided_creator if provided_creator is not None else (row[1] if row else None)
+            # Several spellings of one object share its pk, so the same precedence as above applies
+            # and the result does not depend on the order of the rows
+            if creator_by_pk.get(pk) is None or creator == user_id:
+                creator_by_pk[pk] = creator
+            refs_by_pk.setdefault(pk, []).append(ref)
 
         # Resolved against the entry's own team - resolves from that team's in-memory access
         # control preload, no extra query beyond the one bulk fetch per distinct team
-        levels = access_controls_by_team[team_id].bulk_object_access_levels(resource, objects)
+        levels = access_controls_by_team[team_id].bulk_object_access_levels(resource, list(creator_by_pk.items()))
         for pk, level in levels.items():
-            results[(entry_type, ref_by_pk[pk], team_id)] = level
+            for ref in refs_by_pk[pk]:
+                results[(entry_type, ref, team_id)] = level
 
     return results
 

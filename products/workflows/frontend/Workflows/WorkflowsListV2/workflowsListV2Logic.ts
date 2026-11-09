@@ -616,27 +616,12 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 value: FacetSearchValue,
                 user: UserType | null
             ): FacetDefinition<WorkflowListRow>[] =>
-                buildWorkflowListFacets(
-                    rows,
+                buildWorkflowListFacets(rows, {
+                    viewer: user,
                     itemsByRef,
-                    !!value.text.trim() || value.filters.some((filter) => filter.facet !== 'in' || filter.negated)
-                )
-                    .filter((facet) => enabled || facet.key !== 'in')
-                    .map((facet) =>
-                        facet.key === 'createdBy'
-                            ? {
-                                  ...facet,
-                                  resolveValue: (value: string): string =>
-                                      value.toLowerCase() === 'me'
-                                          ? (user?.uuid ?? '__signed_out__')
-                                          : (facet.resolveValue?.(value) ?? value),
-                                  formatValue: (value: string): string =>
-                                      value === 'me'
-                                          ? user?.first_name || user?.email || 'Me'
-                                          : (facet.formatValue?.(value) ?? value),
-                              }
-                            : facet
-                    ),
+                    includeDescendants:
+                        !!value.text.trim() || value.filters.some((filter) => filter.facet !== 'in' || filter.negated),
+                }).filter((facet) => enabled || facet.key !== 'in'),
         ],
         matchesText: [
             (s) => [s.serverSearch],

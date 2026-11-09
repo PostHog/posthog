@@ -15,7 +15,7 @@ import { serializeFacetQuery } from './FacetSearchBar/facetQuery'
 import { WorkflowFolderActions } from './WorkflowFolderActions'
 import { WORKFLOW_FOLDER_CONTENTS_DROP_SCOPE } from './workflowFolderDragScopes'
 import { WorkflowFolderPath } from './WorkflowFolderPath'
-import { WorkflowFolderRowIcon } from './WorkflowFolderRowIcon'
+import { WorkflowFolderRow } from './WorkflowFolderRow'
 import { workflowFoldersLogic, type WorkflowFolderFileRow } from './workflowFoldersLogic'
 import { buildWorkflowsListV2Columns } from './workflowsListV2Columns'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
@@ -139,10 +139,7 @@ export function WorkflowFolderContents(): JSX.Element {
                                     scope={WORKFLOW_FOLDER_CONTENTS_DROP_SCOPE}
                                     isDroppable
                                 >
-                                    <div className="flex gap-2 items-center min-w-0">
-                                        <WorkflowFolderRowIcon
-                                            icon={item.kind === 'up' ? <IconArrowLeft /> : <IconFolder />}
-                                        />
+                                    <WorkflowFolderRow icon={item.kind === 'up' ? <IconArrowLeft /> : <IconFolder />}>
                                         <LemonButton
                                             size="small"
                                             noPadding
@@ -158,15 +155,14 @@ export function WorkflowFolderContents(): JSX.Element {
                                                 >{`(${item.count})`}</span>
                                             )}
                                         </LemonButton>
-                                    </div>
+                                    </WorkflowFolderRow>
                                 </TreeNodeDroppable>
                             )
                         }
                         if (item.kind === 'draft') {
                             const showError = !!folderDraft?.name.trim() && !!folderDraftError
                             return (
-                                <div className="flex gap-2 items-center min-w-0">
-                                    <WorkflowFolderRowIcon icon={<IconFolder />} />
+                                <WorkflowFolderRow icon={<IconFolder />}>
                                     <LemonInput
                                         size="small"
                                         autoFocus
@@ -192,29 +188,28 @@ export function WorkflowFolderContents(): JSX.Element {
                                     {showError && (
                                         <span className="text-danger text-xs truncate">{folderDraftError}</span>
                                     )}
-                                </div>
+                                </WorkflowFolderRow>
                             )
                         }
                         if (item.kind !== 'email_template') {
                             return null
                         }
                         return (
-                            <div className="flex items-center gap-2 min-w-0">
-                                <WorkflowFolderRowIcon
-                                    icon={<IconLetter />}
-                                    drag={
-                                        ['viewer', 'none'].includes(item.entry.user_access_level ?? '')
-                                            ? undefined
-                                            : { id: getItemId(item.entry), label: `Drag email template ${item.name}` }
-                                    }
-                                />
+                            <WorkflowFolderRow
+                                icon={<IconLetter />}
+                                drag={
+                                    ['viewer', 'none'].includes(item.entry.user_access_level ?? '')
+                                        ? undefined
+                                        : { id: getItemId(item.entry), label: `Drag email template ${item.name}` }
+                                }
+                            >
                                 <WorkflowFolderPath path={item.entry.path} />
                                 <LemonTableLink
                                     to={urls.workflowsLibraryTemplate(item.entry.ref ?? '')}
                                     title={item.name}
                                     truncateTitle
                                 />
-                            </div>
+                            </WorkflowFolderRow>
                         )
                     }
                     if (item.kind === 'email_template' && column.key === 'status') {
