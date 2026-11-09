@@ -29,6 +29,12 @@ x-hypercache-s3: &hypercache-s3
 x-single-temporal-queue: &single-temporal-queue
     TEMPORAL_USE_SINGLE_TASK_QUEUE: 'true'
 
+# The Node consumers default to a short fetch.wait.max.ms, so on an idle install Redpanda spends its
+# CPU answering empty fetches. A fetch still returns as soon as data arrives, because fetch.min.bytes
+# stays at 1, so a longer wait only cuts the polling while there is nothing to read.
+x-slow-idle-kafka-fetch: &slow-idle-kafka-fetch
+    KAFKA_CONSUMER_FETCH_WAIT_MAX_MS: '1000'
+
 # The PersonHog services default to shadow-mode validation tables. Hobby has no shadow
 # mode, so identity and the publisher name the real tables.
 x-personhog-tables: &personhog-tables
@@ -248,6 +254,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             # Django's TEMPORAL_SECRET_KEY defaults to SECRET_KEY, so the evaluation scheduler must encrypt with the same value.
@@ -290,6 +297,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
@@ -312,6 +320,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             SESSION_RECORDING_V2_S3_TIMEOUT_MS: 120000
@@ -330,6 +339,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             # Read side of the session recording V2 blob store. Must point at the same
             # SeaweedFS the ingestion-sessionreplay writer uses — without these the
             # service falls back to its localhost:8333 default, so every playback
@@ -357,6 +367,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             ERROR_TRACKING_CYMBAL_BASE_URL: 'http://cymbal:3302'
         depends_on:
@@ -371,6 +382,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             LOGS_REDIS_TLS: 'false'
         depends_on:
             - db
@@ -384,6 +396,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             TRACES_REDIS_TLS: 'false'
         depends_on:
             - db

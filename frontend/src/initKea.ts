@@ -152,15 +152,6 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
-    // Each MCP analytics dashboard card shows its own error with a retry. The model and protocol
-    // version cards hide when they have no rows, so their loaders keep the toast.
-    loadKPIs: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadUsers: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadToolRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadSessionRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadHarnessRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadActivityRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadToolDailyRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
@@ -226,6 +217,9 @@ Every other failure on these actions still toasts and reports.
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
     setEnabled: 'scenes.subscriptions.subscriptionSceneLogic', // Toasts the refusal, or offers to take ownership
+    // Shows the rejected field under its input, or toasts the rejection
+    createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
 }
 
 /*

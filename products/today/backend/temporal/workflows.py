@@ -65,6 +65,7 @@ async def _run_source(inputs: ComputeHighlightsInputs, source_name: str) -> High
                 scopes=inputs.scopes,
                 source_name=source_name,
                 pinned=[pin.key for pin in inputs.pins],
+                hidden=inputs.hidden,
                 highlights_id=inputs.highlights_id,
             ),
             start_to_close_timeout=HIGHLIGHT_SOURCE_TIMEOUT,
