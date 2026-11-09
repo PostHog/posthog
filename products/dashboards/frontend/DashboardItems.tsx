@@ -958,17 +958,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         <TileGroupTakeOutDropZone isDropTarget={dropTargetKey === TAKE_OUT_DROP_ZONE_KEY} />
                     )}
                     {onAddTileGroup && (
-                        <div>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconPlusSmall />}
-                                onClick={onAddTileGroup}
-                                data-attr="dashboard-tile-group-sections-add"
-                            >
-                                Add group
-                            </LemonButton>
-                        </div>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            className="self-start"
+                            icon={<IconPlusSmall />}
+                            onClick={onAddTileGroup}
+                            data-attr="dashboard-tile-group-sections-add"
+                        >
+                            Add group
+                        </LemonButton>
                     )}
                 </div>
             )}

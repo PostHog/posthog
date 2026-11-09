@@ -120,7 +120,7 @@ export function DashboardTileGroupTabs({
                         <LemonButton
                             size="xsmall"
                             icon={<IconPlusSmall />}
-                            tooltip="New tab"
+                            tooltip="Add tab"
                             onClick={onAddGroup}
                             data-attr="dashboard-tile-group-tabs-add"
                         />
