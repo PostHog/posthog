@@ -71,7 +71,7 @@ function createStaffSelect(select: string[]): string[] {
 export interface accountUsersTableLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
-    exportQuery: DataTableNode
+    exportQuery: DataTableNode | undefined
     query: DataTableNode
     savedQuery: DataTableNode | null
 }
@@ -92,7 +92,7 @@ export interface accountUsersTableLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             user: UserType | null
         ) => DataTableNode
-        exportQuery: (query: DataTableNode) => DataTableNode
+        exportQuery: (query: DataTableNode) => DataTableNode | undefined
     }
 }
 
@@ -141,7 +141,14 @@ export const accountUsersTableLogic = kea<accountUsersTableLogicType>([
                 }
             },
         ],
-        exportQuery: [(s) => [s.query], (query: DataTableNode): DataTableNode => filterImpersonateColumn(query)],
+        // A separate download query turns off downloads in the selected-columns dialog, so override only when needed.
+        exportQuery: [
+            (s) => [s.query],
+            (query: DataTableNode): DataTableNode | undefined =>
+                (query.source as ActorsQuery).select?.includes(IMPERSONATE_COLUMN)
+                    ? filterImpersonateColumn(query)
+                    : undefined,
+        ],
     })),
     listeners(({ props, values }) => ({
         setQuery: () => {

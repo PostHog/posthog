@@ -21,10 +21,12 @@ function ImpersonateButton({
     distinctIds: string[]
 }): JSX.Element | null {
     const { memberByDistinctId } = useValues(accountMemberAdminLinksLogic({ externalId }))
-    const member = distinctIds.map((distinctId) => memberByDistinctId[distinctId]).find(Boolean)
-    if (!member) {
+    // Distinct IDs come from SDK events, so a value like `__proto__` must not resolve to an inherited property.
+    const distinctId = distinctIds.find((id) => Object.hasOwn(memberByDistinctId, id))
+    if (!distinctId) {
         return null
     }
+    const member = memberByDistinctId[distinctId]
     return (
         <LemonButton
             type="secondary"
