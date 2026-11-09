@@ -146,6 +146,11 @@ class TestExperimentsConsole(BaseTest):
             query_to=query_to,
         )
 
+        confirm_page = self.client.get(f"/admin/console/tools/experiment-recalculations/{operation_key}/?run={run.pk}")
+        assert f"recalculation {run.pk} of experiment {self.experiment.pk}, team {self.team.pk}" in (
+            confirm_page.content.decode()
+        )
+
         response = self.client.post(
             f"/admin/console/tools/experiment-recalculations/{operation_key}/?run={run.pk}",
             {"reason": "Workflow stuck after a deploy"},

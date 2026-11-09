@@ -466,7 +466,8 @@ class ExperimentsTool(ConsoleTool):
                     handler=MigrateSavedMetric(saved_metric_id),
                     danger=True,
                     form_class=ReasonForm,
-                    description="Creates a new-engine copy of the shared metric. The original stays as it is.",
+                    description=f"Creates a new-engine copy of shared metric '{saved_metric.name}' ({saved_metric.id}) "
+                    f"of team '{saved_metric.team_name}'. The original stays as it is.",
                     undo_hint="To undo, delete the copy in the project.",
                 )
             ]
@@ -486,7 +487,8 @@ class ExperimentsTool(ConsoleTool):
                     handler=FixMalformedProperties(experiment_id),
                     danger=True,
                     form_class=ReasonForm,
-                    description="Rewrites the metric properties from the old dict format to the list format.",
+                    description=f"Rewrites the metric properties of experiment '{experiment.name}' ({experiment.id}) "
+                    f"of team '{experiment.team_name}' from the old dict format to the list format.",
                     undo_hint="This cannot be undone. The old metric values are not kept.",
                 )
             )
@@ -501,7 +503,8 @@ class ExperimentsTool(ConsoleTool):
                     handler=MigrateExperiment(experiment_id),
                     danger=True,
                     form_class=ReasonForm,
-                    description="Creates a new-engine copy of the experiment. The original stays as it is.",
+                    description=f"Creates a new-engine copy of experiment '{experiment.name}' ({experiment.id}) "
+                    f"of team '{experiment.team_name}'. The original stays as it is.",
                     undo_hint="To undo, delete the copy in the project.",
                 )
             )
@@ -586,7 +589,8 @@ class ExperimentRecalculationsTool(ConsoleTool):
                     handler=MarkRecalculationTerminal(run.id, failed=True),
                     danger=True,
                     form_class=ReasonForm,
-                    description="Stops the run's workflow and marks the run failed.",
+                    description=f"Stops the workflow of recalculation {run.id} of experiment {run.experiment_id}, "
+                    f"team {run.team_id}, and marks the run failed.",
                     undo_hint="This cannot be undone. Start a new recalculation to compute the metrics again.",
                 ),
                 ToolOperation(
@@ -595,7 +599,8 @@ class ExperimentRecalculationsTool(ConsoleTool):
                     handler=MarkRecalculationTerminal(run.id, failed=False),
                     danger=True,
                     form_class=ReasonForm,
-                    description="Stops the run's workflow and marks the run completed. "
+                    description=f"Stops the workflow of recalculation {run.id} of experiment {run.experiment_id}, "
+                    f"team {run.team_id}, and marks the run completed. "
                     "The experiment shows the results the run saved so far.",
                     undo_hint="This cannot be undone. Start a new recalculation to compute the metrics again.",
                 ),
