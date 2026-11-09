@@ -203,11 +203,11 @@ function isGeneratedOrVendored(filename, resolution) {
     )
 }
 
-// computeOwnerFootprints applies the test-file rule from `find_candidates` in
-// products/stamphog/backend/logic/routing/candidates.py. A test file there also joins an
-// owner that only a pin brought in, which needs nothing here because classifyOwnersWithPinned
-// requests pinned owners apart from the footprints.
-// Keep in step with runner_for_path in packages/owners-yaml/owners_yaml/census.py.
+// Keep the test-file rule in computeOwnerFootprints in step with `find_candidates` in
+// products/stamphog/backend/logic/routing/candidates.py. There, a test file can also join an
+// owner that only a pin brought in. This file needs no code for that, because
+// classifyOwnersWithPinned requests pinned owners separately from the footprints.
+// TEST_FILE must match runner_for_path in packages/owners-yaml/owners_yaml/census.py.
 const TEST_FILE = /(^|\/)test_[^/]*\.py$|_test\.py$|\.(test|spec)\.[jt]sx?$/
 
 // Build a footprint per owner from the resolver's per-file result: which

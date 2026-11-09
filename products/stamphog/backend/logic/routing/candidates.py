@@ -234,19 +234,19 @@ def find_candidates(files: Sequence[ChangedFile], resolutions: Mapping[str, Reso
 
     `resolutions` maps each path from `paths_to_resolve` to its resolution against the base tree.
 
-    A team owns a test so that the test's failures and flakes reach the team. The team does not review
-    every change to the test, so a test file only adds to the part of an owner that a non-test file
-    already made a candidate, also through a sensitive path or an additions declaration. If no non-test
-    file has an owner of its own, for example in a change of only tests, the owners of the test files
-    become candidates, so the change still gets a reviewer. A sensitive test and a test that an
-    additions declaration covers pin their owners in both cases.
+    A team owns a test so that the test's failures and flakes reach the team. The team does not need to
+    review every change to the test. A test file therefore only adds lines to owners that a non-test file
+    already made candidates, through owners.yaml, a sensitive path, or an additions declaration.
+    When no non-test file has an owners.yaml owner, as in a change of only tests, the owners of the
+    test files become candidates so that the change still gets a reviewer. A sensitive test, or a test
+    that an additions declaration covers, always pins its owners.
     """
     collector = _CandidateCollector()
     tests = [file for file in files if runner_for_path(file.path) is not None]
     non_tests = [file for file in files if runner_for_path(file.path) is None]
     for file in non_tests:
         _collect_owned(collector, file, resolutions.get(file.path))
-    # Decided before the pins so that assign-reviewers.js, which keeps pinned owners apart, agrees.
+    # Read before the pins are collected, to match assign-reviewers.js, which requests pinned owners separately.
     has_owned_non_test = bool(collector.owners())
     for file in non_tests:
         _collect_pinned(collector, file, resolutions)
