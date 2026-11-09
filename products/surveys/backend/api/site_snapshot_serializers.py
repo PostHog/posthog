@@ -30,3 +30,7 @@ class SiteSnapshotSerializer(serializers.Serializer):
         allow_null=True,
         help_text="URL of the page the snapshot shows. Null when the status is `unavailable`.",
     )
+    viewport_width = serializers.IntegerField(
+        allow_null=True,
+        help_text="Width in CSS pixels of the browser window the snapshot was recorded in, to draw it at its real scale.",
+    )
