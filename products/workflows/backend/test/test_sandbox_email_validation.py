@@ -42,12 +42,14 @@ def _validate(
     stored: set[str] | None = None,
     adoption_enabled: bool = True,
     require_complete: bool = True,
+    is_dwh_source: bool = False,
 ) -> dict[str, Any]:
     return validate_sandbox_email_action(
         action,
         stored_sandbox_action_ids=stored or set(),
         adoption_enabled=adoption_enabled,
         require_complete=require_complete,
+        is_dwh_source=is_dwh_source,
     )
 
 
@@ -81,6 +83,18 @@ class TestSandboxEmailActionValidation(SimpleTestCase):
         assert email["input_deps"] == []
         assert email["bytecode_contract"]
         assert email["value"]["design"] == {"body": "{not a template"}
+
+    @parameterized.expand([("warehouse_trigger", True), ("event_trigger", False)])
+    def test_the_record_alias_needs_a_warehouse_trigger(self, _name: str, is_dwh_source: bool) -> None:
+        action = _action(to={"email": "{record.email}"})
+        action["config"]["inputs"]["email"]["templating"] = "hog"
+
+        if is_dwh_source:
+            assert _validate(action, is_dwh_source=True)["config"]["inputs"]["email"]["bytecode"]["to"]["email"]
+        else:
+            with pytest.raises(ValidationError) as error:
+                _validate(action)
+            assert "Invalid template" in _detail(error)
 
     def test_rejects_an_invalid_hog_template(self) -> None:
         action = _action(subject="Hi {person.properties.")

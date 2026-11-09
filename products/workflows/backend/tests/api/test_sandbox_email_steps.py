@@ -147,9 +147,16 @@ class TestSandboxEmailSteps(APIBaseTest):
         assert "Only workflows can use the sandbox sender" in response.json()["detail"]
         assert not HogFlow.objects.exists()
 
-    @parameterized.expand([("new_value", False, 400), ("stored_value", True, 200)])
+    @parameterized.expand(
+        [
+            ("new_value", None, 400),
+            ("stored_value", "live", 200),
+            # A web draft saves leniently, so a value only in the draft was never checked.
+            ("value_only_in_the_draft", "draft", 400),
+        ]
+    )
     def test_an_email_step_cannot_newly_send_from_the_sandbox_row(
-        self, _name: str, already_stored: bool, expected: int
+        self, _name: str, stored_in: str | None, expected: int
     ) -> None:
         sync_template_to_db(_email_function_template())
         sandbox_row = Integration.objects.create(
@@ -159,7 +166,8 @@ class TestSandboxEmailSteps(APIBaseTest):
             team=self.team,
             name="Own email flow",
             status="draft",
-            actions=[_trigger(), _own_email_step(sandbox_row.id)] if already_stored else [_trigger()],
+            actions=[_trigger(), _own_email_step(sandbox_row.id)] if stored_in == "live" else [_trigger()],
+            draft={"actions": [_trigger(), _own_email_step(sandbox_row.id)]} if stored_in == "draft" else None,
         )
 
         # Publishing validates every step strictly, the way an API or MCP save does.

@@ -765,10 +765,10 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             config={"email": f"sender@{domain}", "name": "Sender", "domain": domain, "verified": True},
         )
 
-    def _validate_email_from(self, from_value, existing_from=None, get_team=True, cache=None):
+    def _validate_email_from(self, from_value, existing_from=None, get_team=True, cache=None, live_from=None):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         value = {"from": from_value, "to": "a@b.com", "subject": "hi", "text": "hi"}
-        context_extra = {"existing_email_from": existing_from}
+        context_extra = {"existing_email_from": existing_from, "live_email_from": live_from}
         if get_team:
             context_extra["get_team"] = lambda: self.team
         if cache is not None:
@@ -939,7 +939,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         )
 
         validated = self._validate_email_from(
-            {"integrationId": sandbox_sender.id}, existing_from=[{"integrationId": sandbox_sender.id}]
+            {"integrationId": sandbox_sender.id}, live_from=[{"integrationId": sandbox_sender.id}]
         )
 
         assert validated["email"]["value"]["from"] == {"integrationId": sandbox_sender.id}

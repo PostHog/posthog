@@ -6,8 +6,6 @@ from rest_framework.exceptions import ValidationError
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.validation import generate_template_bytecode
 
-SANDBOX_EMAIL_ACTION_TYPE = "email_sandbox"
-
 # The action ID travels to the email provider as a message tag, which only takes this alphabet.
 _ACTION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
@@ -35,11 +33,13 @@ def validate_sandbox_email_action(
     stored_sandbox_action_ids: set[str],
     adoption_enabled: bool,
     require_complete: bool = True,
+    is_dwh_source: bool = False,
 ) -> dict[str, Any]:
     """Validate a sandbox email step and return it with its email input compiled.
 
     `require_complete` is False for a draft the editor saves mid-edit, which may still be missing its
-    recipient, subject or content. Every other check runs on every save.
+    recipient, subject or content. Every other check runs on every save. `is_dwh_source` is True when
+    a warehouse table triggers the workflow, so the email may read the synced row as `record`.
     """
     action_id = action.get("id")
     if not isinstance(action_id, str) or not _ACTION_ID.match(action_id):
@@ -78,7 +78,7 @@ def validate_sandbox_email_action(
     _validate_email_value(value, require_complete=require_complete)
 
     if templating == "hog":
-        envelope.update(_compile(value))
+        envelope.update(_compile(value, is_dwh_source=is_dwh_source))
     inputs["email"] = envelope
     return action
 
@@ -130,12 +130,14 @@ def _lookup(value: dict[str, Any], dotted: str) -> Any:
     return found
 
 
-def _compile(value: dict[str, Any]) -> dict[str, Any]:
+def _compile(value: dict[str, Any], *, is_dwh_source: bool) -> dict[str, Any]:
     # The design is the editor's own state. It never reaches the email provider.
     sendable = {key: field for key, field in value.items() if key != "design"}
     input_deps: set[str] = set()
     try:
-        bytecode = generate_template_bytecode(sendable, input_deps, function_type="destination")
+        bytecode = generate_template_bytecode(
+            sendable, input_deps, function_type="destination", is_dwh_source=is_dwh_source
+        )
     except Exception as error:
         raise ValidationError({"config": f"Invalid template: {error}"})
     return {"bytecode": bytecode, "input_deps": sorted(input_deps), "bytecode_contract": RUNTIME_CONTRACT}

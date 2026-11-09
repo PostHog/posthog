@@ -137,13 +137,14 @@ def _load_senders(integration_ids: set[int], context: dict, *, team_id: int) -> 
 def _validate_email_sender_kind(from_value: dict, context: dict) -> None:
     """Reject a newly chosen sender row that is not an email sender, such as the sandbox sender.
 
-    The send path only resolves `email` rows, so another kind fails at send time. Ids already stored
-    on the step (live or draft) are grandfathered, and ids with no row are left to the send path.
+    The send path only resolves `email` rows, so another kind fails at send time. Ids on the live step
+    are grandfathered, and ids with no row are left to the send path. A draft's ids are not: a web
+    draft saves leniently without raising this, so grandfathering them would let publish skip it.
     """
     get_team = context.get("get_team")
     if get_team is None:
         return
-    existing = context.get("existing_email_from") or []
+    existing = context.get("live_email_from") or []
     stored_ids: set[int] = set()
     for stored in existing if isinstance(existing, list) else [existing]:
         if isinstance(stored, dict):

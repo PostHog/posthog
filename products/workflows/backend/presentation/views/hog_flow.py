@@ -1178,7 +1178,7 @@ def _has_exact_string_filter(filters: dict, key: str) -> bool:
     return False
 
 
-def _existing_email_from_by_action(instance: WorkflowEditState) -> dict[str, list[dict]]:
+def _existing_email_from_by_action(instance: WorkflowEditState, *, include_draft: bool = True) -> dict[str, list[dict]]:
     """Stored email sender overrides keyed by action id, live and draft variants both kept.
 
     Which variant a save should be compared against depends on how the request routes (a
@@ -1186,7 +1186,7 @@ def _existing_email_from_by_action(instance: WorkflowEditState) -> dict[str, lis
     a value matching either - both are values already stored on the workflow.
     """
     result: dict[str, list[dict]] = {}
-    draft = instance.draft if isinstance(instance.draft, dict) else {}
+    draft = instance.draft if isinstance(instance.draft, dict) and include_draft else {}
     for actions in (instance.actions, draft.get("actions")):
         for stored_action in actions or []:
             if not isinstance(stored_action, dict) or not stored_action.get("id"):
@@ -2012,6 +2012,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             stored_sandbox_action_ids=stored,
             adoption_enabled=data.get("id") in stored or self._sandbox_adoption_enabled(),
             require_complete=strict,
+            is_dwh_source=self.context.get("is_dwh_source", False),
         )
 
     def _sandbox_adoption_enabled(self) -> bool:
@@ -2287,6 +2288,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
                             data.get("id")
                         ),
+                        "live_email_from": (self.context.get("live_action_email_from") or {}).get(data.get("id")),
                         # Request-scoped: a drip sequence's steps share senders, and the actions
                         # list validates one action at a time (mirrors _message_template_cache).
                         "email_integration_domain_cache": self.context.setdefault(
@@ -3711,6 +3713,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
             self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
+            self.context["live_action_email_from"] = _existing_email_from_by_action(instance, include_draft=False)
             # Live "Run scout" notes, so only a new or changed note needs skill editor access.
             self.context["live_run_scout_notes"] = _live_run_scout_notes_by_action(instance)
 
