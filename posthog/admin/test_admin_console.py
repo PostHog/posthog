@@ -37,6 +37,7 @@ from posthog.csp_middleware import CSPMiddleware
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
@@ -1141,3 +1142,45 @@ class TestAdminConsoleApiKeys(BaseTest):
 
         assert response.status_code == 302
         assert response["Location"] == expected
+
+
+class TestAdminConsoleOAuthSessions(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_revoking_sessions_previews_the_applications_then_revokes_their_tokens(self) -> None:
+        app = OAuthApplication.objects.create(
+            name="Revoke console app",
+            client_id="revoke_console_client_id",
+            client_secret="revoke_console_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="at_revoke_console", expires=timezone.now() + timedelta(minutes=5)
+        )
+        OAuthRefreshToken.objects.create(
+            application=app, user=self.user, token="rt_revoke_console", access_token=access_token
+        )
+        url = "/admin/console/tools/oauth-sessions/revoke/"
+
+        form = self.client.get(url, {"application": str(app.id)})
+        preview = self.client.post(url, {"applications": str(app.id), "reason": "Scopes narrowed"})
+
+        assert form.context["form"].initial["applications"] == str(app.id)
+        assert preview.status_code == 200
+        assert "Revoke console app" in preview.content.decode()
+        assert OAuthAccessToken.objects.filter(application=app).count() == 1
+
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert OAuthAccessToken.objects.filter(application=app).count() == 0
+        assert OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count() == 0
