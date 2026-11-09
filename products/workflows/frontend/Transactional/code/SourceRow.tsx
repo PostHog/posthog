@@ -6,7 +6,7 @@ import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { codeEmailLogic } from './codeEmailLogic'
-import { displayRef, parseSourceFile, repoUrl } from './sourceFile'
+import { parseSourceFile, repoUrl } from './sourceFile'
 import { SourceFileForm } from './SourceFileForm'
 
 /** The file in your repository that sends this email, or a way to link it. */
@@ -43,21 +43,15 @@ export function SourceRow(): JSX.Element | null {
                     </>
                 ) : repo ? (
                     <>
-                        <Link to={file.url} target="_blank" className="font-mono truncate max-w-full">
-                            {file.path}
+                        <Link to={file.url} target="_blank" className="font-mono truncate max-w-full" title={file.url}>
+                            {file.path.split('/').pop()}
                         </Link>
                         <span className="whitespace-nowrap">
                             in{' '}
                             <Link to={repo} target="_blank">
                                 {file.repo}
                             </Link>
-                            {file.ref ? ',' : ''}
                         </span>
-                        {file.ref ? (
-                            <span className="whitespace-nowrap">
-                                on <span className="font-mono">{displayRef(file.ref)}</span>
-                            </span>
-                        ) : null}
                     </>
                 ) : (
                     <span className="flex items-center gap-1 min-w-0">
