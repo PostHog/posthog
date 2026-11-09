@@ -543,8 +543,9 @@ class ExperimentRecalculationsTool(ConsoleTool):
         run = staff.get_recalculation(run_id)
         if run is None:
             return Page(blocks=(Notice(text=f"No recalculation has the ID {run_id}."),))
-        live = self.live(request, "run")
-        assert live is not None
+        summary = self.live(request, "run")
+        failures = self.live(request, "run-failures")
+        assert summary is not None and failures is not None
         return Page(
             blocks=(
                 Notice(
@@ -552,20 +553,21 @@ class ExperimentRecalculationsTool(ConsoleTool):
                     link_text="Open the experiment to retry its latest failures",
                     href=_experiments_url(experiment=run.experiment_id),
                 ),
-                live,
-                _failures_table(run),
+                summary,
+                failures,
             )
         )
 
     def live(self, request: HttpRequest, key: str) -> Live | None:
         run_id = _uuid_param(request, "run")
-        if key == "run" and run_id is not None:
+        # A live block holds one table, so the failures refresh as their own block on the same schedule.
+        if key in ("run", "run-failures") and run_id is not None:
             run = staff.get_recalculation(run_id)
             if run is None:
                 return None
             return Live(
-                key="run",
-                block=_recalculation_summary(run),
+                key=key,
+                block=_recalculation_summary(run) if key == "run" else _failures_table(run),
                 refresh_seconds=None if run.is_terminal else REFRESH_SECONDS_WHILE_RUNNING,
             )
         if key == "runs" and run_id is None:

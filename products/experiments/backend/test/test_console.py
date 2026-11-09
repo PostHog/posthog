@@ -65,6 +65,7 @@ class TestExperimentsConsole(BaseTest):
             f"/admin/console/tools/experiments/?saved_metric={saved_metric.pk}": "legacy engine and can be migrated",
             "/admin/console/tools/experiment-recalculations/": str(run.pk),
             f"/admin/console/tools/experiment-recalculations/?run={run.pk}": "timeout in ClickHouse",
+            f"/admin/console/tools/experiment-recalculations/live/run-failures/?run={run.pk}": "timeout in ClickHouse",
         }
         for url, expected in pages.items():
             response = self.client.get(url)
