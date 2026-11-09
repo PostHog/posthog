@@ -166,10 +166,12 @@ def reject_new_non_email_senders(inputs_schema: list[dict] | None, inputs: dict 
     A wrong-kind sender is never an unfinished edit, so even a lenient save refuses it. Otherwise
     the stored id would be grandfathered once the workflow publishes.
     """
+    if not isinstance(inputs, dict):
+        return
     for schema in inputs_schema or []:
         if not isinstance(schema, dict) or schema.get("type") not in ("email", "native_email"):
             continue
-        email_input = (inputs or {}).get(schema.get("key"))
+        email_input = inputs.get(schema.get("key"))
         value = email_input.get("value") if isinstance(email_input, dict) else None
         from_value = value.get("from") if isinstance(value, dict) else None
         if isinstance(from_value, dict):

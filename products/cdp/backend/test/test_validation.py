@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
@@ -22,6 +23,7 @@ from products.cdp.backend.validation import (
     build_html_wrap_design,
     compile_hog,
     generate_template_bytecode,
+    reject_new_non_email_senders,
     reserved_functions_used,
 )
 from products.messaging.backend.facade.api import validate_design
@@ -943,6 +945,12 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         )
 
         assert validated["email"]["value"]["from"] == {"integrationId": sandbox_sender.id}
+
+    @parameterized.expand([("inputs_list", ["unfinished"]), ("email_input_string", {"email": "unfinished"})])
+    def test_draft_sender_check_leaves_malformed_inputs_to_the_serializer(self, _name: str, inputs: Any) -> None:
+        schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+
+        reject_new_non_email_senders(schema, inputs, {"get_team": lambda: self.team})
 
     @parameterized.expand(
         [
