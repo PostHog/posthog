@@ -118,7 +118,8 @@ export function EmailBlockHandle({
             const rect = blockDom.getBoundingClientRect()
             event.dataTransfer.setDragImage(blockDom, 0, Math.min(Math.max(event.clientY - rect.top, 0), rect.height))
         }
-        view.dragging = { slice, move: true, node }
+        // The editor's drop reads `node`, though its type leaves it out.
+        view.dragging = { slice, move: true, node } as typeof view.dragging
         trackDrag(editor, slice, block.pos)
     }
 
