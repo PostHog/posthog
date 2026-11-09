@@ -262,52 +262,59 @@ describe('accountNotebooksLogic', () => {
         expect(mockList).toHaveBeenLastCalledWith(TEAM, 'acc-1', defaultListParams)
     })
 
-    it('applyViewState replaces search, tags, author and sort at once, loads once and echoes the rest back', async () => {
-        const onConfigChange = jest.fn()
-        await mount(onConfigChange)
-        const callsBefore = mockList.mock.calls.length
-        const viewState = {
-            filters: {
+    it.each([null, 'acc-2'])(
+        'persists and restores all view filters with account filter %s without account identity keys',
+        async (accountId) => {
+            const onConfigChange = jest.fn()
+            await mount(onConfigChange)
+            const callsBefore = mockList.mock.calls.length
+            const viewState = {
+                filters: {
+                    search: 'renewal',
+                    tags: ['risk'],
+                    created_by: [7],
+                    assigned_to: [9],
+                    account_id: accountId,
+                    account_name: accountId ? 'Example account' : null,
+                },
+                ordering: '-last_modified_at' as const,
+            }
+
+            logic.actions.applyViewState(viewState)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockList).toHaveBeenCalledTimes(callsBefore + 1)
+            expect(mockList).toHaveBeenLastCalledWith(TEAM, 'acc-1', {
+                ...defaultListParams,
                 search: 'renewal',
-                tags: ['risk'],
+                tags: JSON.stringify(['risk']),
                 created_by: [7],
-                assigned_to: [9],
-                account_id: 'acc-2',
-                account_name: 'Example account',
-            },
-            ordering: '-last_modified_at' as const,
+                ordering: '-last_modified_at',
+            })
+            expect(logic.values.sorting).toEqual({ columnKey: 'last_modified_at', order: -1 })
+            expect(onConfigChange).toHaveBeenLastCalledWith({
+                searchTerm: 'renewal',
+                sorting: { columnKey: 'last_modified_at', order: -1 },
+                tagsFilter: ['risk'],
+                createdByFilter: [7],
+                currentViewId: null,
+                passthroughViewFilters: {
+                    assigned_to: [9],
+                    accountFilter: { id: accountId, name: accountId ? 'Example account' : null },
+                },
+                passthroughViewOrdering: null,
+            })
+            expect(logic.values.viewState).toEqual(viewState)
+
+            const initialConfig = onConfigChange.mock.lastCall?.[0]
+            expect(initialConfig.passthroughViewFilters).not.toHaveProperty('account_id')
+            logic.unmount()
+            logic = accountNotebooksLogic({ accountId: 'acc-1', initialConfig })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.viewState).toEqual(viewState)
         }
-
-        logic.actions.applyViewState(viewState)
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(mockList).toHaveBeenCalledTimes(callsBefore + 1)
-        expect(mockList).toHaveBeenLastCalledWith(TEAM, 'acc-1', {
-            ...defaultListParams,
-            search: 'renewal',
-            tags: JSON.stringify(['risk']),
-            created_by: [7],
-            ordering: '-last_modified_at',
-        })
-        expect(logic.values.sorting).toEqual({ columnKey: 'last_modified_at', order: -1 })
-        expect(onConfigChange).toHaveBeenLastCalledWith({
-            searchTerm: 'renewal',
-            sorting: { columnKey: 'last_modified_at', order: -1 },
-            tagsFilter: ['risk'],
-            createdByFilter: [7],
-            currentViewId: null,
-            passthroughViewFilters: { assigned_to: [9], account_id: 'acc-2', account_name: 'Example account' },
-            passthroughViewOrdering: null,
-        })
-        expect(logic.values.viewState).toEqual(viewState)
-
-        const initialConfig = onConfigChange.mock.lastCall?.[0]
-        logic.unmount()
-        logic = accountNotebooksLogic({ accountId: 'acc-1', initialConfig })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.viewState).toEqual(viewState)
-    })
+    )
 
     it('applying a view ordered by a column this list cannot sort falls back to the default sort', async () => {
         await mount()

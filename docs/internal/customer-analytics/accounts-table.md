@@ -113,6 +113,7 @@ The parent scene preserves the selected view ID when changing date or test-accou
 Accounts and Notes use the same saved-view picker and management dialogs.
 The Notes toolbar starts with search. View tooltips describe the saved filters and sorting.
 Edit and Delete remain in each view's Manage menu.
+Select "All notes" to clear the selected view and restore that Notes list's default filters and sorting.
 
 A Notes tile saves search, tags, authors, sorting, and the selected view ID in its configuration.
 Switching account tabs keeps the selected Notes view with its filters.

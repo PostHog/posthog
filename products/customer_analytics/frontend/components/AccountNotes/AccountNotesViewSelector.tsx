@@ -34,6 +34,7 @@ export function AccountNotesViewSelector({ logicProps = {} }: AccountNotesViewSe
     } = useValues(logic)
     const {
         selectView,
+        clearView,
         updateView,
         setViewToDelete,
         setViewToEdit,
@@ -62,6 +63,7 @@ export function AccountNotesViewSelector({ logicProps = {} }: AccountNotesViewSe
                 viewsLoaded={viewsLoaded}
                 viewsLoadError={viewsLoadError}
                 onSelect={selectView}
+                resetOption={{ label: 'All notes', onClick: clearView }}
                 onUpdate={(id) => updateView({ id, updates: {} })}
                 onEdit={setViewToEdit}
                 onDelete={setViewToDelete}

@@ -6,6 +6,8 @@ import { LemonInput } from '@posthog/lemon-ui'
 
 import type { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
+import { expect, fn } from 'storybook/test'
+
 import { SavedViewSelector } from './SavedViewSelector'
 
 const view: ColumnConfigurationApi = {
@@ -68,6 +70,15 @@ export const Menu: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByText('Renewal notes'))
         await within(document.body).findByText('Save as new view...')
+    },
+}
+export const ResetView: Story = {
+    args: { resetOption: { label: 'All notes', onClick: fn() } },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    play: async ({ canvasElement, args }) => {
+        await userEvent.click(await within(canvasElement).findByText('Renewal notes'))
+        await userEvent.click(await within(document.body).findByText('All notes'))
+        await expect(args.resetOption?.onClick).toHaveBeenCalledTimes(1)
     },
 }
 export const Narrow: Story = {

@@ -22,6 +22,7 @@ export interface SavedViewSelectorProps {
     onCreate: () => void
     onRetry: () => void
     onVisibilityChange?: (open: boolean) => void
+    resetOption?: { label: string; onClick: () => void }
     renderViewTooltip?: (view: ColumnConfigurationApi) => ReactNode
     dataAttrPrefix: string
 }
@@ -57,10 +58,22 @@ export function SavedViewSelector({
     onCreate,
     onRetry,
     onVisibilityChange,
+    resetOption,
     renderViewTooltip,
     dataAttrPrefix,
 }: SavedViewSelectorProps): JSX.Element {
     const menuItems: LemonMenuItems = [
+        resetOption
+            ? {
+                  items: [
+                      {
+                          ...resetOption,
+                          active: currentViewId === null,
+                          'data-attr': `${dataAttrPrefix}-clear-view`,
+                      },
+                  ],
+              }
+            : null,
         {
             items: views.map(
                 (view): LemonMenuItem => ({

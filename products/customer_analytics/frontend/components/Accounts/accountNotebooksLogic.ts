@@ -77,6 +77,21 @@ function getInitialSorting(config: AccountViewTileConfig | undefined): Sorting |
         : DEFAULT_NOTES_SORTING
 }
 
+function getInitialPassthroughFilters(config: AccountViewTileConfig | undefined): PassthroughViewFilters {
+    const filters = getTileRecord(config, 'passthroughViewFilters')
+    if (!filters) {
+        return EMPTY_PASSTHROUGH_FILTERS
+    }
+    const accountFilter = getTileRecord(filters, 'accountFilter')
+    return {
+        assigned_to: Array.isArray(filters.assigned_to)
+            ? filters.assigned_to.filter((id): id is number => typeof id === 'number')
+            : [],
+        account_id: typeof accountFilter?.id === 'string' ? accountFilter.id : null,
+        account_name: typeof accountFilter?.name === 'string' ? accountFilter.name : null,
+    }
+}
+
 // Maps the table's sorting state onto the backend's whitelisted `ordering` param.
 function sortingToOrdering(sorting: Sorting | null): string | undefined {
     if (!sorting) {
@@ -449,10 +464,7 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             },
         ],
         passthroughViewFilters: [
-            {
-                ...EMPTY_PASSTHROUGH_FILTERS,
-                ...getTileRecord(props.initialConfig, 'passthroughViewFilters'),
-            } as PassthroughViewFilters,
+            getInitialPassthroughFilters(props.initialConfig),
             {
                 applyViewState: (_, { viewState }) => ({
                     assigned_to: viewState.filters.assigned_to,
@@ -578,7 +590,14 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
                 tagsFilter,
                 createdByFilter,
                 currentViewId,
-                passthroughViewFilters,
+                passthroughViewFilters: {
+                    assigned_to: passthroughViewFilters.assigned_to,
+                    // Tile configs reject identity keys even when the filter only applies to the team list.
+                    accountFilter: {
+                        id: passthroughViewFilters.account_id,
+                        name: passthroughViewFilters.account_name,
+                    },
+                },
                 passthroughViewOrdering,
             }),
         ],
