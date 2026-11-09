@@ -1242,7 +1242,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(actions|autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|review_hog|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(actions|annotations|autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|review_hog|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # signals is not isolated, so it gets its own blocks instead of a place in the shared one above.
@@ -1711,7 +1711,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.annotations"
-depends_on = ["posthog", "products.product_analytics", "products.dashboards", "products.error_tracking"]
+depends_on = ["posthog", "products.product_analytics", "products.dashboards", "products.error_tracking", "products.access_control"]
 layer = "modules"
 
 [[modules]]

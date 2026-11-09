@@ -267,6 +267,29 @@ export const KeyMetricsLoading: Story = {
     ),
 }
 
+export const KeyMetricsEmptyRange: Story = {
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={{
+                    sessions: metric(0, 0, [], 'up'),
+                    toolCalls: metric(0, 0, [], 'up'),
+                    errorRatePct: metric(0, 0, [], 'down'),
+                    p95LatencyMs: metric(0, 0, [], 'down'),
+                }}
+                users={metric(0, 0, [], 'up')}
+                intentClusterCount={metric(0, 0, [], 'up')}
+                kpisLoading={false}
+                usersLoading={false}
+                showIntentClusters
+                theme={buildTheme()}
+                interval="day"
+                incompleteTail={false}
+            />
+        </div>
+    ),
+}
+
 export const KeyMetricsLoadError: Story = {
     render: () => (
         <div className="w-[960px]">
@@ -515,6 +538,15 @@ export const FlaggedSessions: Story = {
     render: () => (
         <div className="w-[680px]">
             <NotableSessionsTable sessions={NOTABLE_SESSIONS} loading={false} />
+        </div>
+    ),
+}
+
+export const FlaggedSessionsLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: () => (
+        <div className="w-[680px]">
+            <NotableSessionsTable sessions={[]} loading />
         </div>
     ),
 }
