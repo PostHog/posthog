@@ -3199,9 +3199,10 @@ describe('CDP API', () => {
                         const lookup = jest
                             .spyOn(templates, 'getHogFunctionTemplate')
                             .mockImplementation(async (templateId: string) => {
+                                const template = await loadTemplate(templateId)
                                 expireTheVerificationDeadline()
                                 await held
-                                return loadTemplate(templateId)
+                                return template
                             })
                         return {
                             options,
