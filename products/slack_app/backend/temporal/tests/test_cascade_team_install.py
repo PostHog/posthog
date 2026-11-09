@@ -179,11 +179,9 @@ class TestCascadeTeamInstall(TestCase):
             for c in mock_capture_factory.return_value.call_args_list
             if c.kwargs["event"] == "slack app repository resolved"
         ]
-        if expected_mode == "agent_needed":
-            assert captured == []
-        else:
-            assert len(captured) == 1
-            assert captured[0]["resolution"] == expected_reason
-            assert captured[0]["has_repository"] is True
-            assert captured[0]["connected_repo_count"] == 2
-            assert captured[0]["slack_session_id"] == "T_SLACK:C123:1234.5678"
+        assert len(captured) == 1
+        assert captured[0]["resolution"] == expected_reason
+        assert captured[0]["has_repository"] is (expected_repository is not None)
+        assert captured[0]["is_final"] is (expected_mode != "agent_needed")
+        assert captured[0]["connected_repo_count"] == 2
+        assert captured[0]["slack_session_id"] == "T_SLACK:C123:1234.5678"

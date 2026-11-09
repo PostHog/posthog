@@ -36,10 +36,12 @@ def capture_repository_resolved(
     resolution: str,
     *,
     has_repository: bool,
+    is_final: bool = True,
     **props: object,
 ) -> None:
-    """Record how a mention's repository was chosen, so the cost of each path can be measured.
+    """Record each step of choosing a mention's repository, so the cost of each path can be measured.
 
+    A mention emits one event per step it passes; ``is_final`` marks the step that decided.
     ``slack_session_id`` joins this event to the run's ``task_run_created`` and startup timing events.
     """
     try:
@@ -57,6 +59,7 @@ def capture_repository_resolved(
         posthog_user=posthog_user,
         resolution=resolution,
         has_repository=has_repository,
+        is_final=is_final,
         slack_session_id=slack_session_id(inputs.slack_team_id, channel, thread_ts) if channel and thread_ts else None,
         **props,
     )
@@ -116,15 +119,14 @@ def cascade_posthog_code_repository_activity(
             integration_id=inputs.integration_id,
         )
 
-    # `agent_needed` is not a decision yet; the classifier or the discovery agent records the outcome.
-    if outcome.mode != "agent_needed":
-        capture_repository_resolved(
-            integration,
-            inputs,
-            outcome.reason,
-            has_repository=outcome.repository is not None,
-            connected_repo_count=len(all_repos),
-        )
+    capture_repository_resolved(
+        integration,
+        inputs,
+        outcome.reason,
+        has_repository=outcome.repository is not None,
+        is_final=outcome.mode != "agent_needed",
+        connected_repo_count=len(all_repos),
+    )
     return outcome
 
 
@@ -187,6 +189,8 @@ async def discover_posthog_code_repository_via_agent_activity(
             inputs,
             f"discovery_{outcome.status}",
             has_repository=outcome.repository is not None,
+            # A failed discovery falls back to the repo picker, whose choice is not recorded here.
+            is_final=outcome.status != "failed",
             selection_duration_ms=duration_ms,
             usage_limited=outcome.usage_limited,
             repo_research_task_id=outcome.repo_research_task_id,

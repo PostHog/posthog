@@ -316,14 +316,14 @@ def classify_posthog_code_task_needs_repo_activity(
         team_id=integration.team_id,
     )
     # A positive answer hands off to the discovery agent, which records the final outcome.
-    if not needs_repo:
-        capture_repository_resolved(
-            integration,
-            inputs,
-            "classifier_no_repo",
-            has_repository=False,
-            connected_repo_count=len(connected),
-        )
+    capture_repository_resolved(
+        integration,
+        inputs,
+        "classifier_needs_repo" if needs_repo else "classifier_no_repo",
+        has_repository=False,
+        is_final=not needs_repo,
+        connected_repo_count=len(connected),
+    )
     return needs_repo
 
 
