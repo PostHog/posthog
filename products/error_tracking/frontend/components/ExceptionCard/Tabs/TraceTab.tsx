@@ -1,12 +1,17 @@
 import { useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TabsContent } from 'lib/ui/quill'
-
-import { TraceEmbed } from 'products/tracing/frontend/components/TraceEmbed/TraceEmbed'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { exceptionCardLogic } from '../exceptionCardLogic'
 import { TabSpinner } from './TabSpinner'
+
+// The trace view is large, and most cards never open this tab.
+const TraceEmbed = lazyWithRetry(() =>
+    import('products/tracing/frontend/components/TraceEmbed/TraceEmbed').then((m) => ({ default: m.TraceEmbed }))
+)
 
 export interface TraceTabProps {
     eventId?: string
@@ -29,12 +34,14 @@ export function TraceTab({ eventId, traceId, spanId, timestamp }: TraceTabProps)
                     size="small"
                 />
             ) : (
-                <TraceEmbed
-                    viewId={`exception-${eventId ?? traceId}`}
-                    trace={{ traceId, spanId, ts: timestamp }}
-                    surface="exception_card"
-                    data-attr="error-tracking-trace-tab"
-                />
+                <Suspense fallback={<TabSpinner />}>
+                    <TraceEmbed
+                        viewId={`exception-${eventId ?? traceId}`}
+                        trace={{ traceId, spanId, ts: timestamp }}
+                        surface="exception_card"
+                        data-attr="error-tracking-trace-tab"
+                    />
+                </Suspense>
             )}
         </TabsContent>
     )
