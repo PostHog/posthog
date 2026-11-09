@@ -195,7 +195,6 @@ def _finding(
             "unserved_exposed_count": count,
             "unserved_exposed_percentage": round(unserved.percentage, 2),
             "unserved_variants": ",".join(variant for variant, _ in ranked),
-            **{f"unserved_exposed_{variant}": exposed_count for variant, exposed_count in ranked},
         },
         actions=(),
         diagnostic_ref="A9",
