@@ -49,6 +49,7 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.query import INTERACTIVE_QUERY_TIME_LIMIT_S
+from products.autoresearch.backend.task_profiles import REPORT_NOTEBOOK_MCP_SCOPES, TRAINING, TRAINING_MCP_SCOPES
 from products.autoresearch.backend.training.agent_model import agent_run_config_for
 from products.autoresearch.backend.training.artifacts import MAX_ARTIFACT_BYTES
 from products.autoresearch.backend.training.explanation import MAX_TOP_FEATURES
@@ -62,6 +63,7 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     cancellation as tasks_cancellation,
 )
+from products.tasks.backend.facade.profiles import TaskRunOptions
 from products.tasks.backend.facade.sandbox import SandboxTemplate
 
 logger = structlog.get_logger(__name__)
@@ -86,17 +88,6 @@ MAX_SUGGESTION_PROMPT_CHARS = 1500
 # Bounds the whole suggestion section, so a pipeline with a long queue cannot fill the
 # agent's context before research begins. The oldest TRY_NEXT suggestions go first.
 MAX_PENDING_SUGGESTIONS = 10
-
-# The agent explores with execute-sql (query:read, insight:read) and writes only through
-# the autoresearch tools. The PostHog MCP server reads /api/users/@me/ to start a session,
-# so without user:read it refuses the connection and the agent gets none of those tools.
-# The brief carries user-authored text, so the token grants nothing beyond that.
-TRAINING_MCP_SCOPES = ["query:read", "insight:read", "user:read", "autoresearch:read", "autoresearch:write"]
-
-# Added only when the report notebook flag is on for the user who starts the run.
-# notebook:write also exposes notebooks-partial-update and notebooks-destroy, so the brief
-# limits the agent to the notebook it creates in this run.
-REPORT_NOTEBOOK_MCP_SCOPES = ["notebook:read", "notebook:write"]
 
 # Task.title is a 255-character column, and a pipeline name and target event can each
 # take all of it.
@@ -1037,18 +1028,18 @@ def run_training(
             team=pipeline.team,
             title=title[:_TASK_TITLE_MAX_CHARS],
             description=description,
-            origin_product=tasks_facade.TaskOriginProduct.AUTORESEARCH,
+            profile=TRAINING,
             user_id=user_id,
-            repository=None,
-            create_pr=False,
-            mode="background",
-            internal=True,
             # Internal tasks skip team and user run preferences, so without these the run would
             # take whatever the Tasks default is.
-            runtime_adapter=agent_config.runtime_adapter,
-            model=agent_config.model,
-            reasoning_effort=agent_config.reasoning_effort,
-            posthog_mcp_scopes=mcp_scopes,
+            options=TaskRunOptions(
+                adapter=agent_config.runtime_adapter,
+                model=agent_config.model,
+                reasoning_effort=agent_config.reasoning_effort,
+                mcp_scopes=mcp_scopes,
+            ),
+            create_pr=False,
+            mode="background",
             # The autoresearch image is the agent-capable base plus pandas/numpy/
             # scikit-learn/pyarrow at system site. The base image lacks the ML libs; the
             # notebook image has the libs but cannot host the agent server — only this

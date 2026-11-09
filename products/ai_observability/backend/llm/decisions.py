@@ -30,6 +30,7 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     RetryableRateLimitError,
     StructuredOutputParseError,
+    error_field_for_message,
     is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
@@ -69,6 +70,18 @@ class DecisionRateLimitError(RetryableRateLimitError):
         super().__init__(
             "The decision endpoint is temporarily unavailable. Try again later.", retry_after, status=status
         )
+
+
+MODEL_NOT_FOUND_MESSAGE = (
+    "The endpoint returned 404 for this model ID. Check the model ID, and that the base URL ends before /systemone."
+)
+
+_ERROR_FIELD_BY_PREFIX: tuple[tuple[str, str], ...] = ((MODEL_NOT_FOUND_MESSAGE, "system_one_model"),)
+
+
+def error_field_for_validation_message(error_message: str | None) -> str | None:
+    """Map a `validate_key` error message to the UI form field that should be highlighted."""
+    return error_field_for_message(_ERROR_FIELD_BY_PREFIX, error_message)
 
 
 class DecisionClient:
@@ -178,9 +191,10 @@ class DecisionClient:
             )
         except (AuthenticationError, ModelPermissionError) as error:
             return "invalid", str(error)
+        except ModelNotFoundError:
+            return "error", MODEL_NOT_FOUND_MESSAGE
         except (
             ValueError,
-            ModelNotFoundError,
             ProviderConnectionError,
             QuotaExceededError,
             RateLimitError,

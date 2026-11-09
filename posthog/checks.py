@@ -21,7 +21,9 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from django.conf import settings
-from django.core.checks import CheckMessage, Error, Warning, register
+from django.contrib.auth.models import Group as AuthGroup
+from django.core.checks import CheckMessage, Error, Tags, Warning, register
+from django.db import DEFAULT_DB_ALIAS, DatabaseError
 
 from posthog.models.oauth import oidc_signing_key_configured
 from posthog.product_db_router import get_product_db_routes
@@ -253,4 +255,38 @@ def check_temporal_client_tls(app_configs: Any, **kwargs: Any) -> list[CheckMess
             hint=f"Set {missing} too, or unset {present} if the Temporal server does not use mutual TLS.",
             id=TEMPORAL_CLIENT_TLS_PAIR_INCOMPLETE,
         )
+    ]
+
+
+# Admin console
+
+ADMIN_CONSOLE_STAFF_GROUP_MISSING = "posthog.admin_console.W001"
+
+
+@register_check(ADMIN_CONSOLE_STAFF_GROUP_MISSING, tags=[Tags.database])
+def check_admin_console_staff_groups(
+    app_configs: Any, databases: Sequence[str] | None = None, **kwargs: Any
+) -> list[CheckMessage]:
+    # Gate.owner() lets in only the members of the owner's staff group, so a group that does not exist keeps every
+    # staff member out of that team's gated operations. The database tag makes Django run this check only for
+    # `manage.py check --database default` and `migrate`, never at startup.
+    if not databases or DEFAULT_DB_ALIAS not in databases:
+        return []
+    # The console registry imports every console panel and tool, which the lazy admin keeps off django.setup().
+    from posthog.admin.console.registry import console  # noqa: PLC0415
+
+    staff_groups = console.staff_groups()
+    try:
+        existing = set(AuthGroup.objects.filter(name__in=staff_groups).values_list("name", flat=True))
+    except DatabaseError:
+        # `migrate` runs the checks before it creates the tables, so the groups table can be missing.
+        return []
+    return [
+        Warning(
+            f"The admin console gates operations on the {name!r} group, which does not exist. "
+            "Nobody can run those operations.",
+            hint=f"Create the {name!r} group in Django admin and add the staff who run them.",
+            id=ADMIN_CONSOLE_STAFF_GROUP_MISSING,
+        )
+        for name in sorted(staff_groups - existing)
     ]

@@ -60,6 +60,8 @@ describe("PostHogAPIClient", () => {
     { provenance: "posthog_web", action: "creates" },
     { provenance: "posthog_mobile", action: "warms" },
     { provenance: "posthog_web", action: "warms" },
+    { provenance: "posthog_desktop", action: "sends a turn to" },
+    { provenance: "posthog_web", action: "sends a turn to" },
   ] as const)(
     "sends $provenance provenance when it $action a task",
     async ({ provenance, action }) => {
@@ -83,6 +85,10 @@ describe("PostHogAPIClient", () => {
 
       if (action === "creates") {
         await client.createTask({ description: "Create a task" });
+      } else if (action === "sends a turn to") {
+        await client.sendCloudRunCommand("task-1", "run-1", "user_message", {
+          content: "Continue",
+        });
       } else {
         await client.warmTask({ repository: null, github_integration: null });
       }

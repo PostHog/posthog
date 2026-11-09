@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import type { ReactNode } from 'react'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -24,6 +25,7 @@ export interface FeatureFlagRowProps {
     onPayloadDraftChange: (draft: string) => void
     onSavePayload: () => void
     onClosePayloadEditor: () => void
+    actions?: ReactNode
     /** pinned: each form's `data-attr` values start with its own prefix */
     dataAttrPrefix: string
 }
@@ -40,6 +42,7 @@ export function FeatureFlagRow({
     onPayloadDraftChange,
     onSavePayload,
     onClosePayloadEditor,
+    actions,
     dataAttrPrefix,
 }: FeatureFlagRowProps): JSX.Element {
     const { key, value, currentValue, hasOverride, variants, payloadOverride } = flag
@@ -71,6 +74,7 @@ export function FeatureFlagRow({
                 >
                     Edit payload
                 </LemonButton>
+                {actions}
                 <LemonSwitch
                     checked={!!currentValue}
                     disabledReason={disabledReason}

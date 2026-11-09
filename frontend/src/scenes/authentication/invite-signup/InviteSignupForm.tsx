@@ -36,6 +36,8 @@ import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
 
 const HedgehogJudge = pngHoggie(judgePng)
 
+const PASSWORD_RULES = 'At least 8 characters. Avoid common words and patterns.'
+
 /**
  * Invite-signup alternatives row: social/SSO icons plus an optional passkey signup icon.
  * The passkey button is assembled here (not in SocialLoginButtons) because a passkey isn't a social login.
@@ -196,6 +198,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                                             <PasswordStrength validatedPassword={validatedPassword} />
                                         </div>
                                     }
+                                    help={validatedPassword.feedback || PASSWORD_RULES}
                                 >
                                     {({ value, onChange, error, id }) => (
                                         <LemonInput

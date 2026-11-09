@@ -115,6 +115,7 @@ from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
     GitLabIntegration,
+    GitLabIntegrationError,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -720,6 +721,15 @@ SLACK_CHANNELS_CACHE_SECONDS = 60 * 60
 # quota. A re-check spends one per channel it warned about, well inside the cap.
 SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE = 30
 
+
+def take_slack_channels_info_budget(integration_id: int) -> None:
+    _take_slack_lookup_budget(
+        f"slack/{integration_id}/channels_info_budget",
+        SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE,
+        "Too many Slack channel lookups. Try again in a minute.",
+    )
+
+
 # Server-side floor between forced member-list refreshes, matching the picker's visible cooldown.
 SLACK_USERS_MIN_REFRESH_SECONDS = 30
 
@@ -966,7 +976,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         ):
             raise PermissionDenied("Changing push identity verification requires project admin access.")
 
-        # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
+        # `create` is a POST with upsert semantics: each kind's helper except email's does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project
         # member. A Google account's creator can also reconnect it because its credentials are
@@ -1077,9 +1087,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             project_id = config.get("project_id")
             project_access_token = config.get("project_access_token")
 
-            instance = GitLabIntegration.create_integration(
-                hostname, project_id, project_access_token, team_id, request.user
-            )
+            try:
+                instance = GitLabIntegration.create_integration(
+                    hostname, project_id, project_access_token, team_id, request.user
+                )
+            except GitLabIntegrationError as e:
+                raise ValidationError(str(e))
             return instance
 
         elif validated_data["kind"] == "anthropic":
@@ -2032,11 +2045,7 @@ class IntegrationViewSet(
                             return Response({"channels": [channel], "next": None, "previous": None})
             # Past the cached list every lookup reaches Slack, and a forced one skips the list
             # altogether, so the same per-minute budget the member lookup uses applies here.
-            _take_slack_lookup_budget(
-                f"slack/{instance.id}/channels_info_budget",
-                SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE,
-                "Too many Slack channel lookups. Try again in a minute.",
-            )
+            take_slack_channels_info_budget(instance.id)
             try:
                 channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
             except SlackApiError as e:

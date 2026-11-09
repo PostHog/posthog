@@ -22,6 +22,7 @@ from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 from posthog.query_cache.single_flight import query_single_flight_skipped
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
@@ -244,6 +245,21 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
         self.deliveries = evaluation.deliveries if evaluation is not None else ()
         return (evaluation.outcomes[0] if evaluation is not None else None), query
+
+    @parameterized.expand([("owner_taken_over_since_the_copy", True), ("not_yet_backfilled", False)])
+    def test_the_check_runs_as_the_alerts_current_owner_and_the_copy_follows(
+        self, _name: str, stale_creator: bool
+    ) -> None:
+        previous_owner = User.objects.create_and_join(self.organization, "previous-owner@example.com", None)
+        configuration = self._copy(self._alert(), created_by_id=previous_owner.id if stale_creator else None)
+
+        _, query = self._evaluate(configuration, result=AlertEvaluationResult(value=1.0, breaches=[]))
+
+        with team_scope(self.team.id):
+            (copy,) = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], limit=10, offset=0
+            ).configurations
+        assert (query.call_args.args[0].created_by, copy.created_by_id) == (self.user, self.user.id)
 
     @parameterized.expand(
         [
@@ -973,6 +989,44 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert (outcome.held_delivery is not None) is held
         if owner == PlatformAlertOwner.PLATFORM:
             assert len(self.deliveries) == (0 if held else 1)
+
+    @parameterized.expand(
+        [
+            ("a statistical detector renotifies", {"type": "zscore", "threshold": 0.95, "window": 30}, True),
+            ("the ai detector announces the firing once", {"type": "llm"}, False),
+        ]
+    )
+    def test_a_firing_that_stays_breached_renotifies_only_for_a_statistical_detector(
+        self, _name: str, detector_config: dict[str, Any], renotifies: bool
+    ) -> None:
+        alert = self._alert(
+            detector_config=detector_config,
+            investigation_agent_enabled=True,
+            investigation_gates_notifications=True,
+        )
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        uses_llm_detector = detector_config["type"] == "llm"
+        result = AlertEvaluationResult(value=150.0, breaches=["above 100"])
+
+        with patch(f"{_MODULE}.render_alert_insight_chart"):
+            first, _ = self._evaluate(configuration, result=result, uses_llm_detector=uses_llm_detector)
+            assert first is not None
+            assert first.groups[0].kind == AlertEventKind.FIRING
+            assert requested_investigation(first) is not None
+            assert first.held_delivery is not None
+            record_outcomes(self.team.id, (first,), CUTOFF)
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
+
+            second, _ = self._evaluate(configuration, result=result, uses_llm_detector=uses_llm_detector)
+
+        assert second is not None
+        assert second.groups[0].new_state == "firing"
+        assert (second.groups[0].kind == AlertEventKind.FIRING) is renotifies
+        assert (requested_investigation(second) is not None) is renotifies
+        if not renotifies:
+            assert second.held_delivery is None
+            assert self.deliveries == ()
 
     def test_a_firing_past_its_budget_is_muted_by_the_firing_last_verdict(self) -> None:
         alert, configuration = self._investigated_alert(investigation_gates_notifications=True)

@@ -640,6 +640,10 @@ def validate_credentials(api_key: str, region: str = DEFAULT_REGION) -> tuple[bo
             False,
             "Cal.com rejected this API key. Check the key, and check that the selected region matches your Cal.com account.",
         )
-    if status is None:
-        return False, "Could not connect to Cal.com"
-    return False, f"Cal.com returned HTTP {status}"
+    # The tracked session retries 429 and 5xx, so one that survives the retries means an outage.
+    if status is None or status == 429 or status >= 500:
+        return (
+            False,
+            "Couldn't reach Cal.com to validate your API key. This is usually temporary, so try again in a few minutes.",
+        )
+    return False, "Cal.com returned an unexpected response. Check the API key and the selected region, then try again."

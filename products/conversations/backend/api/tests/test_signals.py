@@ -112,10 +112,11 @@ class TestTicketMessageSignals(BaseTest):
 
         assert mock_capture.call_args.kwargs["properties"]["customer_email_verified"] is expected
 
+    @patch("products.conversations.backend.signals.report_team_action")
     @patch("products.conversations.backend.signals.capture_message_received")
     @patch("products.conversations.backend.signals.capture_message_sent")
     def test_public_workflow_message_counts_without_emitting_a_trigger_event(
-        self, mock_sent, mock_received, mock_on_commit
+        self, mock_sent, mock_received, mock_report_team, mock_on_commit
     ):
         Comment.objects.create(
             team=self.team,
@@ -131,6 +132,11 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.unread_customer_count == 1
         mock_sent.assert_not_called()
         mock_received.assert_not_called()
+        mock_report_team.assert_called_once_with(
+            self.team,
+            "support message sent",
+            {"channel_source": self.ticket.channel_source},
+        )
 
     def test_team_message_updates_stats_and_unread(self, mock_on_commit):
         comment = self._create_team_message("Response from team")

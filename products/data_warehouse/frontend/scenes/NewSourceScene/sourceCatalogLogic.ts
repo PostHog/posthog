@@ -35,7 +35,6 @@ import {
 import {
     ALL_SOURCES_CATEGORY,
     CATEGORY_SEARCH_PARAM,
-    SELF_MANAGED_CATEGORY,
     SourceCategoryFilter,
     isSourceCategoryFilter,
 } from './sourceCategories'
@@ -69,7 +68,7 @@ export interface SourceCatalogLogicProps {
 }
 
 export interface CatalogItem {
-    /** The source kind passed to the new-source URL (e.g. "Stripe", or "aws" for self-managed). */
+    /** The source kind passed to the new-source URL (e.g. "Stripe"). */
     name: string
     label: string
     /** One line under the label, for entries whose name alone doesn't say what they do. */
@@ -83,8 +82,6 @@ export interface CatalogItem {
     url: string
     disabledReason?: string | null
     existingSource?: boolean
-    /** Self-managed: the user keeps the data in their own bucket, PostHog only links to it. */
-    selfManaged?: boolean
     /** The sources most people connect (Stripe, Postgres, the ad platforms, ...). Led with when browsing. */
     featured?: boolean
 }
@@ -230,16 +227,8 @@ function searchCatalog(catalogFuse: Fuse, term: string): CatalogItem[] {
     return [...matchCounts.keys()].sort((a, b) => (matchCounts.get(b) ?? 0) - (matchCounts.get(a) ?? 0))
 }
 
-// `self-managed` filters on the connection model rather than on `item.category`, so every place
-// that narrows the catalog to a category has to ask through here.
 function matchesCategory(item: CatalogItem, category: SourceCategoryFilter): boolean {
-    if (category === ALL_SOURCES_CATEGORY) {
-        return true
-    }
-    if (category === SELF_MANAGED_CATEGORY) {
-        return !!item.selfManaged
-    }
-    return item.category === category
+    return category === ALL_SOURCES_CATEGORY || item.category === category
 }
 
 export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
@@ -415,25 +404,15 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     )
                     // Most-populated categories first; fall back to taxonomy order on a tie.
                     .sort((a, b) => b.count - a.count)
-                const selfManagedCount = catalogItems.filter((item) => item.selfManaged).length
                 return [
                     { category: ALL_SOURCES_CATEGORY, label: 'All sources', count: catalogItems.length },
-                    ...(selfManagedCount
-                        ? [
-                              {
-                                  category: SELF_MANAGED_CATEGORY as SourceCategoryFilter,
-                                  label: 'Self-managed',
-                                  count: selfManagedCount,
-                              },
-                          ]
-                        : []),
                     ...present,
                 ]
             },
         ],
 
         // The empty state names the active filter. A real category's value is already its label
-        // ("File storage"), but `self-managed` is a slug, so read the label off the sidebar.
+        // ("File storage"), but `all` is a slug, so read the label off the sidebar.
         selectedCategoryLabel: [
             (s) => [s.categoriesWithCounts, s.selectedCategory],
             (categoriesWithCounts: CatalogCategory[], selectedCategory: SourceCategoryFilter): string =>
@@ -552,15 +531,11 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
             lemonToast.success('Thanks! Your source request has been submitted.')
         },
     })),
-    // The sources list links here with the category already chosen, so "New self-managed source"
-    // opens on the self-managed tiles rather than on the whole catalog.
+    // A link can open the catalog with a category already chosen.
     urlToAction(({ actions, values }) => ({
         '*': (_, searchParams) => {
             const category = searchParams[CATEGORY_SEARCH_PARAM]
             if (!isSourceCategoryFilter(category) || category === values.selectedCategory) {
-                return
-            }
-            if (category === SELF_MANAGED_CATEGORY) {
                 return
             }
             actions.setSelectedCategory(category)

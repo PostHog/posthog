@@ -17,7 +17,7 @@ from prometheus_client import REGISTRY
 from redis.exceptions import RedisError
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition, User
+from posthog.models import User
 from posthog.redis import TEST_clear_clients
 from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.token_bucket import BucketUnavailable, Budget, TEST_reset_scripts, consume
@@ -57,6 +57,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueCreatedSnapshot,
     IssueCreatedWorkflowInputs,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 
 SUMMARY_REPLY = {
     "what_happened": "Checkout throws when the cart is empty.",

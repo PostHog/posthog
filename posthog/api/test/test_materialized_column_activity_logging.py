@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import ActivityLog, MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import ActivityLog, MaterializedColumnSlot, MaterializedColumnSlotState
 from posthog.temporal.backfill_materialized_property.activities import (
     ActivateSlotsInputs,
     FailSlotsInputs,
@@ -13,6 +13,7 @@ from posthog.temporal.backfill_materialized_property.activities import (
     fail_slots,
 )
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 

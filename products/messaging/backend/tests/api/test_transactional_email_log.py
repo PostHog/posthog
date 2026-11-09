@@ -1,9 +1,12 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -18,9 +21,11 @@ from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.messaging.backend.facade.contracts import EmailStatsInterval
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.services.transactional_email_log import _bucket_starts
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.writes import destroy_workflow
 
@@ -151,6 +156,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         [
             ("list", ""),
             ("stats", "stats/?group_by=template"),
+            ("stats_over_time", "stats_over_time/"),
             ("results", "results/?event=purchase&workflow_id={workflow_id}"),
         ]
     )
@@ -204,6 +210,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         [
             ("list", "", ["hog_flow:read"], "person:read"),
             ("retrieve", "{message_id}/", ["hog_flow:read"], "person:read"),
+            ("stats_over_time", "stats_over_time/", ["query:read"], "hog_flow:read"),
             (
                 "results",
                 "results/?event=purchase&workflow_id={workflow_id}",
@@ -255,6 +262,52 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("mail.example.com", 1, 0),
             ("other.example.com", 1, 1),
         ]
+
+    def test_counts_sends_over_time_in_the_project_timezone_with_the_period_before(self, _flag):
+        self.team.timezone = "Europe/Prague"
+        self.team.save()
+        # 22:30 UTC on June 12 is already June 13 in Prague.
+        self._send(60 * 61 + 30, "late@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+        self._send(60 * 26, "a@example.com", [("sent", 1, ""), ("bounced", 2, "hard")])
+        self._send(60 * 26, "b@example.com", [("failed", 1, "provider_error")])
+        self._send(60 * 24 * 5, "before@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+
+        body = self.client.get(
+            self._url("stats_over_time/"), {"date_from": (NOW - timedelta(days=4)).isoformat()}
+        ).json()
+
+        assert body["interval"] == "day"
+        assert body["timezone"] == "Europe/Prague"
+        by_day = {
+            bucket["start"]: (bucket["counts"]["sent"], bucket["counts"]["bounced"], bucket["counts"]["failed"])
+            for bucket in body["buckets"]
+        }
+        assert by_day == {
+            "2026-06-10T22:00:00Z": (0, 0, 0),
+            "2026-06-11T22:00:00Z": (0, 0, 0),
+            "2026-06-12T22:00:00Z": (1, 0, 0),
+            "2026-06-13T22:00:00Z": (1, 1, 1),
+            "2026-06-14T22:00:00Z": (0, 0, 0),
+        }
+        assert body["previous"]["sent"] == 1
+
+    def test_compares_the_same_length_of_time_when_the_period_ends_now(self, _flag):
+        self._send(61, "in@example.com", [("sent", 1, "")])
+        self._send(64, "out@example.com", [("sent", 1, "")])
+
+        body = self.client.get(
+            self._url("stats_over_time/"), {"date_from": (NOW - timedelta(hours=1)).isoformat()}
+        ).json()
+
+        assert body["previous"]["sent"] == 2
+        assert sum(bucket["counts"]["sent"] for bucket in body["buckets"]) == 0
+
+    def test_has_no_earlier_period_when_retention_does_not_cover_it(self, _flag):
+        body = self.client.get(
+            self._url("stats_over_time/"), {"date_from": (NOW - timedelta(days=30)).isoformat()}
+        ).json()
+
+        assert body["previous"] is None
 
     def test_counts_who_converted_within_the_window_after_their_first_send(self, _flag):
         for distinct_id, sent_minutes_ago in [
@@ -380,8 +433,10 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         results = self.client.get(self._url("results/"), {"workflow_id": restricted, "event": "purchase"})
 
         stats = self.client.get(self._url("stats/"), {"group_by": "sending_domain"}).json()["results"]
+        over_time = self.client.get(self._url("stats_over_time/")).json()["buckets"]
 
         assert [r["message_id"] for r in listed] == [deleted_id, visible_id]
+        assert sum(bucket["counts"]["sent"] for bucket in over_time) == 2
         assert detail.status_code == status.HTTP_404_NOT_FOUND
         assert results.status_code == status.HTTP_404_NOT_FOUND
         assert {row["label"] for row in stats} == {"mail.example.com", "old.example.com"}
@@ -433,3 +488,28 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert [r["message_id"] for r in listed.json()["results"]] == [granted_id]
         assert self.client.get(self._url(f"{deleted_id}/")).status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestStatsBuckets(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "keeps_the_repeated_hour_when_clocks_go_back",
+                datetime(2026, 10, 25, 0, 10, tzinfo=UTC),
+                datetime(2026, 10, 25, 2, 0, tzinfo=UTC),
+                EmailStatsInterval.HOUR,
+                [(10, 25, 0), (10, 25, 1)],
+            ),
+            (
+                "starts_each_day_on_local_midnight_across_a_clock_change",
+                datetime(2026, 10, 24, 12, 0, tzinfo=UTC),
+                datetime(2026, 10, 26, 12, 0, tzinfo=UTC),
+                EmailStatsInterval.DAY,
+                [(10, 23, 22), (10, 24, 22), (10, 25, 23)],
+            ),
+        ]
+    )
+    def test_bucket_starts(self, _name, start, end, interval, expected):
+        starts = _bucket_starts(start, end, interval, ZoneInfo("Europe/Prague"))
+
+        assert [(moment.month, moment.day, moment.hour) for moment in starts] == expected
