@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from django.core.cache import cache
@@ -13,7 +13,7 @@ import posthoganalytics
 from rest_framework.exceptions import APIException, PermissionDenied
 
 from posthog.dataclasses import frozen
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -78,6 +78,18 @@ def pricing_flag_distinct_id(organization_id: UUID) -> str:
     return distinct_id or str(organization_id)
 
 
+def spend_billing_starts_later(organization_id: UUID) -> bool:
+    cutoff = (
+        Organization.objects.filter(id=organization_id)
+        .values_list("usage__signals_spend_credits__billing_start_date", flat=True)
+        .first()
+    )
+    try:
+        return isinstance(cutoff, str) and date.fromisoformat(cutoff) > timezone.now().date()
+    except ValueError:
+        return False
+
+
 def lock_organization_trial(organization_id: UUID) -> None:
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"signals-trial:{organization_id}"])
@@ -91,6 +103,10 @@ class TrialPolicy:
 
     def flag_decision(self) -> TrialFlagDecision:
         org_id = str(self.organization_id)
+        # Billing has not moved this organization to usage-based pricing yet, so the trial does not apply.
+        # The flag cannot exclude an organization that is evaluated as the org id, which no cohort matches.
+        if spend_billing_starts_later(self.organization_id):
+            return TrialFlagDecision(enabled=False, confirmed=True)
         try:
             # Remote evaluation is required because the SDK cannot evaluate a static cohort locally.
             decision = posthoganalytics.feature_enabled(
