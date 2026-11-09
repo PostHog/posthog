@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -10,7 +12,7 @@ from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.cdp.backend.api.hog_function import HogFunctionViewSet
+from products.cdp.backend.api.hog_function import HogFunctionViewSet, supplied_input_keys
 from products.cdp.backend.api.test.secret_sender import (
     MOVED_SENDER_HOG,
     MOVED_URL,
@@ -23,6 +25,7 @@ from products.cdp.backend.api.test.secret_sender import (
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.cdp.backend.templates.helpers import mock_transpile
+from products.cdp.backend.validation import MASKED_SECRET_VALUE
 
 RELOAD_PATH = "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"
 
@@ -40,6 +43,23 @@ BASE_FUNCTION: dict[str, Any] = {
     ],
     "inputs": {"url": {"value": "https://example.com/live"}, "token": {"value": "live-token"}},
 }
+
+
+class TestSuppliedInputKeys(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("masked_string", {"secret": True, "value": MASKED_SECRET_VALUE}, False),
+            ("masked_dictionary", {"secret": True, "value": {"Authorization": MASKED_SECRET_VALUE}}, False),
+            (
+                "partly_masked_dictionary",
+                {"secret": True, "value": {"Authorization": MASKED_SECRET_VALUE, "X-New": "typed"}},
+                True,
+            ),
+            ("typed_string", {"value": "typed"}, True),
+        ]
+    )
+    def test_an_echoed_mask_does_not_replace_a_stored_secret(self, _name: str, item: dict, supplied: bool) -> None:
+        assert supplied_input_keys({"token": item}) == ({"token"} if supplied else set())
 
 
 class DraftTestCase(APIBaseTest):
@@ -608,45 +628,114 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
     @parameterized.expand(
-        [("templating_turned_on", True, status.HTTP_400_BAD_REQUEST), ("unchanged", False, status.HTTP_200_OK)]
+        [
+            ("templating_turned_on", True, status.HTTP_400_BAD_REQUEST, False),
+            ("unchanged", False, status.HTTP_200_OK, False),
+            ("templating_turned_on_in_a_mapping", True, status.HTTP_400_BAD_REQUEST, True),
+            ("unchanged_in_a_mapping", False, status.HTTP_200_OK, True),
+        ]
     )
-    def test_url_templating_change_asks_for_an_unbound_secret(self, _name: str, templating: bool, expected_status: int):
+    def test_url_templating_change_asks_for_an_unbound_secret(
+        self, _name: str, templating: bool, expected_status: int, in_mapping: bool
+    ):
         url_schema, token_schema = BASE_FUNCTION["inputs_schema"]
         url = {"value": "https://{event.properties.host}/a"}
+
+        def config(url_templating: bool) -> dict:
+            url_config = {"inputs_schema": [{**url_schema, "templating": url_templating}], "inputs": {"url": url}}
+            if in_mapping:
+                return {"inputs_schema": [token_schema], "mappings": [{"name": "Page view", **url_config}]}
+            return {"inputs_schema": [*url_config["inputs_schema"], token_schema], "inputs": url_config["inputs"]}
+
+        stored = config(False)
         function_id = self._create(
-            hog=SENDER_HOG,
-            inputs_schema=[{**url_schema, "templating": False}, token_schema],
-            inputs={"url": url, "token": {"value": "live"}},
+            hog=SENDER_HOG, **{**stored, "inputs": {**stored.get("inputs", {}), "token": {"value": "live"}}}
+        )
+
+        with secret_host_binding_flag(True):
+            changed = config(templating)
+            response = self.client.patch(
+                self._url(function_id),
+                {**changed, "inputs": {**changed.get("inputs", {}), "token": {"secret": True}}},
+            )
+
+        assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("boolean_to_number", "json", True, "json", 1, status.HTTP_400_BAD_REQUEST),
+            ("unchanged", "json", True, "json", True, status.HTTP_200_OK),
+            ("string_turned_into_a_boolean", "string", "1", "boolean", "1", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_target_change_asks_for_the_secret(
+        self, _name: str, stored_type: str, stored: Any, new_type: str, new: Any, expected_status: int
+    ):
+        target_schema = {"key": "target", "type": stored_type, "label": "Target", "required": True}
+        schemas = [*BASE_FUNCTION["inputs_schema"], target_schema]
+        function_id = self._create(
+            hog="fetch(concat('https://', inputs.target, '.example.com/'), {'headers': {'Authorization': inputs.token}});",
+            inputs_schema=schemas,
+            inputs={**sender_inputs(SENDER_URL, {"value": "live"}), "target": {"value": stored}},
         )
 
         with secret_host_binding_flag(True):
             response = self.client.patch(
                 self._url(function_id),
                 {
-                    "inputs_schema": [{**url_schema, "templating": templating}, token_schema],
-                    "inputs": {"url": url, "token": {"secret": True}},
+                    "inputs_schema": [*BASE_FUNCTION["inputs_schema"], {**target_schema, "type": new_type}],
+                    "inputs": {**sender_inputs(SENDER_URL), "target": {"value": new}},
                 },
             )
 
         assert response.status_code == expected_status, response.json()
 
-    @parameterized.expand(
-        [("boolean_to_number", 1, status.HTTP_400_BAD_REQUEST), ("unchanged", True, status.HTTP_200_OK)]
-    )
-    def test_json_value_change_asks_for_an_unbound_secret(self, _name: str, target: Any, expected_status: int):
-        target_schema = {"key": "target", "type": "json", "label": "Target", "required": True}
-        schemas = [*BASE_FUNCTION["inputs_schema"], target_schema]
+    def test_untemplated_url_is_bound_to_the_host_it_names(self):
+        url_schema, token_schema = BASE_FUNCTION["inputs_schema"]
+        prefix_schema = {"key": "prefix", "type": "string", "label": "Prefix"}
+        schemas = [{**url_schema, "templating": False}, token_schema, prefix_schema]
         function_id = self._create(
-            hog="fetch(concat('https://', inputs.target, '.example.com/'), {'headers': {'Authorization': inputs.token}});",
+            hog=SENDER_HOG,
             inputs_schema=schemas,
-            inputs={**sender_inputs(SENDER_URL, {"value": "live"}), "target": {"value": True}},
+            inputs={
+                **sender_inputs("https://trusted.example.com/a", {"value": "live"}),
+                "prefix": {"value": "trusted.example.com/#"},
+            },
         )
 
         with secret_host_binding_flag(True):
             response = self.client.patch(
                 self._url(function_id),
-                {"inputs_schema": schemas, "inputs": {**sender_inputs(SENDER_URL), "target": {"value": target}}},
+                {
+                    "inputs_schema": schemas,
+                    "inputs": {
+                        **sender_inputs("https://{inputs.prefix}@evil.example.com/"),
+                        "prefix": {"value": "trusted.example.com/#"},
+                    },
+                },
             )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    @parameterized.expand(
+        [
+            ("declared_public", True, None, status.HTTP_400_BAD_REQUEST),
+            ("dropped_from_the_schema", False, None, status.HTTP_400_BAD_REQUEST),
+            ("declared_public_with_a_typed_value", True, {"value": "typed"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_live_edit_that_unsecrets_a_stored_secret_cannot_move_it(
+        self, _name: str, keep_schema_entry: bool, token: dict | None, expected_status: int
+    ):
+        url_schema, token_schema = BASE_FUNCTION["inputs_schema"]
+        function_id = self._create(hog=SENDER_HOG, inputs=sender_inputs(SENDER_URL, {"value": "live"}))
+        schemas = [url_schema, *([{**token_schema, "secret": False}] if keep_schema_entry else [])]
+        change: dict[str, Any] = {"hog": MOVED_SENDER_HOG, "inputs_schema": schemas}
+        if token is not None:
+            change["inputs"] = {"url": {"value": SENDER_URL}, "token": token}
+
+        with secret_host_binding_flag(True):
+            response = self.client.patch(self._url(function_id), change)
 
         assert response.status_code == expected_status, response.json()
 

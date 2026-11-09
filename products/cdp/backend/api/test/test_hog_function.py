@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import time_machine
@@ -25,6 +26,7 @@ from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
+    HogFunctionSerializer,
     comparable_content,
 )
 from products.cdp.backend.api.test.secret_sender import (
@@ -1603,6 +1605,23 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=change)
 
         assert res.status_code == expected_status, res.json()
+
+    def test_internal_save_that_moves_a_secret_is_counted_but_not_refused(self) -> None:
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        function = HogFunction.objects.get(id=res.json()["id"])
+        # Provisioning code saves through the serializer with no view and no person to enter a secret.
+        serializer = HogFunctionSerializer(
+            function,
+            data={"hog": MOVED_SENDER_HOG},
+            partial=True,
+            context={"request": SimpleNamespace(user=self.user), "get_team": lambda: self.team},
+        )
+
+        with secret_host_binding_flag(True), counted_bindings("internal") as counted:
+            assert serializer.is_valid(), serializer.errors
+
+        assert counted == {"would_refuse": 1.0}
 
     def test_code_it_cannot_analyze_is_counted_and_logged_without_the_code(self) -> None:
         res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)

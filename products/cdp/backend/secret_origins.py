@@ -188,8 +188,28 @@ def secret_origins(
     return analyze_secret_origins(hog, inputs, mapping_input_sets, secret_keys).origins
 
 
+def resolved_inputs(inputs: Any, inputs_schema: Any) -> dict[str, Any]:
+    """The inputs with what their schema changes in how the worker resolves them. A schema can turn hog
+    templating off, which leaves the value as written, and the worker turns the text of a boolean input
+    into a boolean."""
+    schemas = {schema.get("key"): schema for schema in inputs_schema or [] if isinstance(schema, dict)}
+    resolved: dict[str, Any] = {}
+    for key, item in (inputs or {}).items():
+        schema = schemas.get(key) or {}
+        if isinstance(item, dict) and schema.get("templating") is False and item.get("templating") != "liquid":
+            item = {**item, "templating": False}
+        if isinstance(item, dict) and schema.get("type") == "boolean":
+            item = {**item, "schema_type": "boolean"}
+        resolved[key] = item
+    return resolved
+
+
 def mapping_inputs(mappings: Any) -> list[dict[str, Any]]:
-    return [mapping.get("inputs") or {} for mapping in mappings or [] if isinstance(mapping, dict)]
+    return [
+        resolved_inputs(mapping.get("inputs"), mapping.get("inputs_schema"))
+        for mapping in mappings or []
+        if isinstance(mapping, dict)
+    ]
 
 
 def stored_origins(origins: SecretOrigins) -> str | list[str]:
@@ -371,6 +391,11 @@ class _Analysis:
         self.lambda_feeds: dict[int, list[ast.Expr]] = {}
         # Lambdas a declaration binds to a name, and the parameters of each with that name.
         self.lambda_names: dict[int, str] = {}
+        # Each name a `fun` or a declared lambda binds, with whether a statement of the program itself
+        # declares it and where.
+        self.callee_declarations: dict[str, list[tuple[bool, int]]] = {}
+        # Names declared without a value, which the VM sets to null.
+        self.unset_names: list[str] = []
         self.named_lambda_args: list[tuple[str, str]] = []
         self.lambdas_only: set[str] = set()
         # Expressions whose value can leave the function other than through `fetch`.
@@ -385,7 +410,9 @@ class _Analysis:
         for key in self.definitions:
             self._input(key, set())
 
-        self._collect(parse_program(hog), None)
+        program = parse_program(hog)
+        self.top_level = {id(statement) for statement in program.declarations}
+        self._collect(program, None)
         feeds: dict[str, list[ast.Expr] | None] = {}
         for arg, name in self.named_lambda_args:
             self._spend_evaluation()
@@ -410,6 +437,8 @@ class _Analysis:
 
         local = self.declarations | bound_elsewhere | set(self.functions)
         self.lambdas_only = self._lambda_only_names() - bound_elsewhere - set(self.functions)
+        if self._calls_past_a_declaration():
+            raise _CannotAnalyze("unsupported_code")
         self.exits += [expr for base, _, expr in self.member_assignments if base not in local]
         self.exits += [expr for name, expr in self.assignments if name not in local]
         self.assigned_only = self.declarations - bound_elsewhere - {base for base, _, _ in self.member_assignments}
@@ -423,6 +452,22 @@ class _Analysis:
     def _rebinds_an_interpreted_name(self, variables: set[str]) -> bool:
         functions = set(self.functions)
         return bool((variables | functions) & _INTERPRETED_NAMES or variables & functions)
+
+    def _declare_callee(self, node: ast.Function | ast.VariableDeclaration) -> None:
+        self.callee_declarations.setdefault(node.name, []).append((id(node) in self.top_level, node.start or 0))
+
+    def _calls_past_a_declaration(self) -> bool:
+        """Whether a call to the code's own function can reach a built-in of the same name. The analysis
+        resolves the name wherever the function is declared, but the VM resolves it to the function only
+        after a declaration that is a statement of the program itself. Elsewhere the call reaches the
+        built-in, such as a `print` that writes the secret to the logs."""
+        own = set(self.functions) | self.lambdas_only
+        return any(
+            not top_level or start > (call.start or 0)
+            for call in self.calls
+            if call.name in own
+            for top_level, start in self.callee_declarations.get(call.name, [])
+        )
 
     def _hands_on_a_callee(self) -> bool:
         """Whether code passes `fetch` or one of its own functions as a value, to be called where the
@@ -467,6 +512,9 @@ class _Analysis:
         for item in self.definitions.get(key, []):
             item_values, item_taint = self._template(item["value"], item.get("templating"), resolving)
             values, taint = _normalize(values | item_values), taint | item_taint
+            if item.get("schema_type") == "boolean":
+                # The worker turns the text into true or false, which keeps a bit of any secret it read.
+                values, taint = _UNKNOWN, _pieces(taint)
         self.inputs[key] = (values, taint)
         return self.inputs[key]
 
@@ -478,6 +526,9 @@ class _Analysis:
             return _UNKNOWN, taint
         if not isinstance(value, str):
             return _UNKNOWN, frozenset()
+        if templating is False:
+            # The worker sends the value as written, so a template in it never runs.
+            return frozenset({(value, True)}), frozenset()
         mentioned = frozenset(key for key in self.secret_keys if key in value)
         if templating == "liquid":
             dynamic = [index for index in (value.find("{{"), value.find("{%")) if index >= 0]
@@ -578,7 +629,7 @@ class _Analysis:
             value = item["value"]
             if isinstance(value, dict | list):
                 return False
-            if not isinstance(value, str) or item.get("templating") == "liquid":
+            if not isinstance(value, str) or item.get("templating") == "liquid" or item.get("templating") is False:
                 continue
             try:
                 expr = parse_string_template(value)
@@ -592,10 +643,13 @@ class _Analysis:
         """`function` is the enclosing `fun`, or empty inside a lambda and None at the top level."""
         if isinstance(node, ast.VariableDeclaration):
             self.declarations.add(node.name)
-            if node.expr is not None:
+            if node.expr is None:
+                self.unset_names.append(node.name)
+            else:
                 self.assignments.append((node.name, node.expr))
             if isinstance(node.expr, ast.Lambda):
                 self.lambda_names[id(node.expr)] = node.name
+                self._declare_callee(node)
         elif isinstance(node, ast.VariableAssignment):
             self.sending_reads.add(id(_assignment_target(node.left)))
             base, depth = _assignment_base(node.left)
@@ -611,6 +665,7 @@ class _Analysis:
             if node.name in self.functions:
                 raise _CannotAnalyze("unsupported_code")
             self.functions[node.name] = node.params
+            self._declare_callee(node)
             function = node.name
         elif isinstance(node, ast.Lambda) and id(node) in self.lambda_names:
             self.named_lambda_args += [(name, self.lambda_names[id(node)]) for name in node.args]
@@ -669,6 +724,7 @@ class _Analysis:
             self.values.update(dict.fromkeys(params, frozenset()))
         for name, _ in self.fed_names:
             self.values[name] = _UNKNOWN
+        self.values.update(dict.fromkeys(self.unset_names, _UNKNOWN))
         for _ in range(_MAX_ITERATIONS):
             if not self._step():
                 break
@@ -841,6 +897,8 @@ class _Analysis:
             add(name, _UNKNOWN, self._taint(expr))
         for name, feed in self.fed_names:
             add(name, _UNKNOWN, self.secret_keys if feed is None else self._union_taint(feed))
+        for name in self.unset_names:
+            add(name, _UNKNOWN, frozenset())
         for call in self.calls:
             for index, param in enumerate(self.functions.get(call.name, [])):
                 arg = call.args[index] if index < len(call.args) else None
@@ -907,8 +965,12 @@ class _Analysis:
         if (isinstance(node, ast.Call) and node.name in _PIECE_CALLS) or isinstance(node, _PIECE_EXPRS):
             return _pieces(taint)
         if isinstance(node, ast.Call):
-            taint |= self.taints.get(node.name, frozenset())
-        return taint
+            return taint | self.taints.get(node.name, frozenset())
+        if isinstance(node, ast.Array | ast.Tuple):
+            return taint
+        # Arithmetic, indexing and every other operator can keep only part of a value, such as one digit or
+        # one character, and a digest of that part can be reversed by trying each value it can have.
+        return _pieces(taint)
 
 
 def _is_unmodeled(node: ast.AST) -> bool:

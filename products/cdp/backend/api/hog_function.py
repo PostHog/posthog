@@ -78,6 +78,7 @@ from products.cdp.backend.secret_origins import (
     analyze_secret_origins,
     mapping_inputs,
     parse_stored_origins,
+    resolved_inputs,
     secret_origins,
     stored_origins,
 )
@@ -336,14 +337,17 @@ def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
 
 
 def _comparable_inputs(items: Any, inputs_schema: Any = None) -> dict:
-    # The worker runs an input as a template unless its schema turns templating off, and an item saved
-    # without templating carries no flag of its own. Values compare as JSON text because Python equates
-    # `True` with `1`, which the worker prints differently.
-    untemplated = {schema.get("key") for schema in inputs_schema or [] if schema.get("templating") is False}
+    # The worker renders a liquid input, runs any other input as hog unless its schema turns templating
+    # off, and turns the text of a boolean input into a boolean, so the schema type counts too. Values
+    # compare as JSON text because Python equates `True` with `1`, which the worker prints differently.
+    schemas = {schema.get("key"): schema for schema in inputs_schema or [] if isinstance(schema, dict)}
     return {
         key: (
             json.dumps(item.get("value"), sort_keys=True, default=str),
-            item.get("templating") or (None if key in untemplated else "hog"),
+            "liquid"
+            if item.get("templating") == "liquid"
+            else (None if (schemas.get(key) or {}).get("templating") is False else "hog"),
+            (schemas.get(key) or {}).get("type"),
         )
         for key, item in (items or {}).items()
         if isinstance(item, dict)
@@ -357,7 +361,11 @@ def _analyzed_config(
     return (
         hog or "",
         _comparable_inputs(public_inputs, inputs_schema),
-        [_comparable_inputs(items) for items in mapping_inputs(mappings)],
+        [
+            _comparable_inputs(mapping.get("inputs"), mapping.get("inputs_schema"))
+            for mapping in mappings or []
+            if isinstance(mapping, dict)
+        ],
     )
 
 
@@ -387,7 +395,7 @@ def _unchanged_secrets(
         return kept
     with_stored = {key: item for key, item in inputs.items() if key not in moved}
     with_stored.update({key: stored_inputs[key] for key in moved if key in stored_inputs})
-    restored = secret_origins(hog, with_stored, mapping_inputs(mappings), kept)
+    restored = secret_origins(hog, resolved_inputs(with_stored, inputs_schema), mapping_inputs(mappings), kept)
     return {key for key in kept if restored[key] == derived[key]}
 
 
@@ -442,7 +450,12 @@ def _secret_baselines(
     }
     unrecorded = {key for key, entry in stored.items() if isinstance(entry, dict) and recorded[key] is None}
     stored_derived = (
-        secret_origins(instance.hog or "", stored_inputs, mapping_inputs(instance.mappings), secret_keys)
+        secret_origins(
+            instance.hog or "",
+            resolved_inputs(stored_inputs, instance.inputs_schema),
+            mapping_inputs(instance.mappings),
+            secret_keys,
+        )
         if unrecorded - unchanged
         else {}
     )
@@ -1085,10 +1098,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         stored_secrets = (self.context.get("encrypted_inputs") or {}) if instance else {}
         declared = {schema["key"] for schema in attrs.get("inputs_schema") or [] if schema.get("secret")}
         secret_keys = {key for key in declared if key in inputs or isinstance(stored_secrets.get(key), dict)}
-        # A worker can resolve a stored secret by name in a test run even when the tested schema leaves it
-        # out or declares it public, so every stored secret is checked here, whatever the worker version.
-        # A secret saved before inputs were encrypted is still in plaintext `inputs`, and the serializer
-        # copies it into a test run that leaves `inputs` out.
+        # The worker resolves a stored secret by name whatever the schema says, so a save or test run that
+        # drops the secret's schema entry or declares it public still sends the stored value. Every stored
+        # secret is checked here unless the request types a value that replaces it. A secret saved before
+        # inputs were encrypted is still in plaintext `inputs`, and the serializer copies it into a request
+        # that leaves `inputs` out.
         plaintext_inputs = (instance.inputs or {}) if instance else {}
         stored_plaintext = {
             schema["key"]: plaintext_inputs[schema["key"]]
@@ -1103,11 +1117,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             },
             **{key: value for key, value in stored_secrets.items() if isinstance(value, dict)},
         }
-        undeclared = (
-            {key for key in undeclared_secrets if key not in declared}
-            if getattr(self.context.get("view"), "action", None) == "invocations"
-            else set()
-        )
+        undeclared = undeclared_secrets.keys() - declared - supplied_input_keys(self.requested_inputs)
         if not secret_keys and not undeclared:
             return
         # `move_secret_inputs` keeps a stored secret the request leaves out, so it is checked as kept.
@@ -1119,7 +1129,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         hog = attrs.get("hog", instance.hog if instance else "") or ""
         mappings = attrs.get("mappings", instance.mappings if instance else None)
-        analysis = analyze_secret_origins(hog, checked_inputs, mapping_inputs(mappings), checked_keys)
+        inputs_schema = attrs.get("inputs_schema", instance.inputs_schema if instance else None)
+        analysis = analyze_secret_origins(
+            hog, resolved_inputs(checked_inputs, inputs_schema), mapping_inputs(mappings), checked_keys
+        )
         if analysis.unanalyzable:
             logger.warning(
                 "secret_origins_unanalyzable",
@@ -1132,7 +1145,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         derived = analysis.origins
         live_secrets = self.context.get("live_encrypted_inputs", stored_secrets)
         stored_inputs = {**((instance.inputs or {}) if instance else {}), **live_secrets}
-        inputs_schema = attrs.get("inputs_schema", instance.inputs_schema if instance else None)
         unchanged = _unchanged_secrets(instance, hog, checked_inputs, inputs_schema, mappings, stored_inputs, derived)
         baselines = _secret_baselines(instance, checked_keys, stored_secrets, stored_inputs, derived, unchanged)
         entered = entered_secret_input_keys(self.requested_inputs) - undeclared
@@ -1955,7 +1967,10 @@ class HogFunctionViewSet(
             if entered:
                 draft_inputs = {**(draft.get("inputs") or {}), **(locked.encrypted_inputs or {}), **draft_secrets}
                 origins = secret_origins(
-                    draft.get("hog") or "", draft_inputs, mapping_inputs(draft.get("mappings")), set(draft_secrets)
+                    draft.get("hog") or "",
+                    resolved_inputs(draft_inputs, draft.get("inputs_schema")),
+                    mapping_inputs(draft.get("mappings")),
+                    set(draft_secrets),
                 )
                 for key in entered:
                     draft_secrets[key] = {**draft_secrets[key], "allowed_origins": stored_origins(origins[key])}
