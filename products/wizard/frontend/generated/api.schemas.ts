@@ -886,6 +886,7 @@ export const WizardRunPullRequestArtifactArtifactTypeEnumApi = {
 export type WizardRegistryListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -899,6 +900,10 @@ export type WizardRunsListParams = {
      * Only return runs created after this timestamp.
      */
     created_after?: string
+    /**
+     * Only return runs created by this user.
+     */
+    created_by_id?: number
     /**
      * Number of results to return per page.
      * @maximum 100
@@ -927,6 +932,7 @@ export const WizardRunsListStatusItem = {
 export type WizardRunsArtifactsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**

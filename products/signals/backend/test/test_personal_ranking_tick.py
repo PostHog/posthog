@@ -2,6 +2,8 @@ import json
 import uuid
 import asyncio
 import datetime
+import contextlib
+from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -14,9 +16,9 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
-from temporalio import activity
+from temporalio import activity, workflow
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team, User
 from posthog.redis import TEST_clear_clients
@@ -37,6 +39,7 @@ from products.signals.backend.personal_ranking.config import parse_config
 from products.signals.backend.personal_ranking.tick import (
     STOP_ERROR_RATE,
     STOP_MAX_BUILDS_PER_DAY,
+    STOP_MAX_PAIRS_PER_TICK,
     STOP_MAX_TICK_BUILDS_PER_DAY,
     STOP_TIME_BUDGET,
     PersonalRankingPairResult,
@@ -171,7 +174,7 @@ class TestTickSelection(_TickTest):
                 "recent_no_list": self._pair(free, "a@example.com", active_hours_ago=1),
                 "recent_old_list": self._pair(free, "b@example.com", active_hours_ago=1, list_hours_ago=3),
                 # Past this organization's share of the tick.
-                "older": self._pair(free, "c@example.com", active_hours_ago=2),
+                "older": self._pair(free, "c@example.com", active_hours_ago=2, list_hours_ago=4),
                 "oldest_activity": self._pair(self.team, "d@example.com", active_hours_ago=3, list_hours_ago=5),
                 "fresh_list": self._pair(self.team, "e@example.com", active_hours_ago=1, list_hours_ago=0.2),
                 "checked_recently": self._pair(
@@ -189,8 +192,14 @@ class TestTickSelection(_TickTest):
         assert [pair.user_id for pair in selection.pairs] == [
             users[name].id for name in ("paying", "recent_no_list", "recent_old_list", "oldest_activity")
         ]
-        assert (selection.due_pairs, selection.due_without_list, selection.oldest_due_hours) == (5, 3, 5.0)
+        assert (selection.due_pairs, selection.due_without_list, selection.oldest_due_hours) == (5, 2, 5.0)
+        assert (selection.oldest_due_activity_hours, selection.oldest_due_summary_hours) == (3.0, 0.0)
         assert selection.fresh_share == 2 / 7
+        assert (selection.pair_list_hours, selection.unpicked_without_list, selection.unpicked_oldest_hours) == (
+            [None, None, 3.0, 5.0],
+            0,
+            4.0,
+        )
 
 
 class TestTickPair(_TickTest):
@@ -212,7 +221,6 @@ class TestTickPair(_TickTest):
         for target, value in (
             ("products.signals.backend.personal_ranking.logic.build_openai_client", MagicMock(return_value=self.llm)),
             ("products.signals.backend.personal_ranking.logic.get_summary", MagicMock(return_value=summary)),
-            ("products.signals.backend.personal_ranking.serve.get_summary", MagicMock(return_value=summary)),
             ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", scoped_capture),
             (
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
@@ -264,7 +272,11 @@ class TestTickPair(_TickTest):
         self, _name: str, malformed_answers: int, first: str, second: str, model_calls: int
     ) -> None:
         self.malformed_answers = malformed_answers
-        assert self._run() == PersonalRankingPairResult(status=first, model_called=True)  # type: ignore[arg-type]
+        assert self._run() == PersonalRankingPairResult(
+            status=first,  # type: ignore[arg-type]
+            model_called=True,
+            changed_parts=["no_previous_list"],
+        )
         assert self.capture.call_args.kwargs["properties"]["trigger"] == "tick"
         self._rows().update(created_at=timezone.now() - datetime.timedelta(hours=2))
         assert len(select_pairs(self._config(), timezone.now(), 10, [self.team.id]).pairs) == 1
@@ -273,6 +285,9 @@ class TestTickPair(_TickTest):
             status=second,  # type: ignore[arg-type]
             model_called=second == "built",
         )
+        if second == "built":
+            # The retried build has the inputs of the failed one, so it reads the stored parts and finds no change.
+            assert self.capture.call_args.kwargs["properties"]["changed_parts"] == []
 
         assert self.create.call_count == model_calls
         assert select_pairs(self._config(), timezone.now(), 10, [self.team.id]).pairs == []
@@ -302,6 +317,8 @@ def _plan(pairs: int, **overrides: Any) -> PersonalRankingTickPlan:
     fields: dict[str, Any] = {
         "enabled": True,
         "pairs": [TickPair(team_id=1, user_id=user_id) for user_id in range(pairs)],
+        # The first pair has no list, and pair `n` has a list `n` hours old.
+        "pair_list_hours": [None, *(float(hours) for hours in range(1, pairs))],
         "max_concurrency": 2,
         "max_error_rate": 0.5,
         "time_budget_seconds": 600.0,
@@ -313,7 +330,10 @@ def _plan(pairs: int, **overrides: Any) -> PersonalRankingTickPlan:
 
 
 async def _run_tick(
-    plan: PersonalRankingTickPlan, pair_status: str
+    plan: PersonalRankingTickPlan,
+    pair_status: str | Callable[[TickPair], Awaitable[str]],
+    *,
+    sliding_window: bool = True,
 ) -> tuple[PersonalRankingTickResult, int, list[PersonalRankingTickResult]]:
     running = peak = 0
     captured: list[PersonalRankingTickResult] = []
@@ -327,16 +347,26 @@ async def _run_tick(
         nonlocal running, peak
         running += 1
         peak = max(peak, running)
-        await asyncio.sleep(0.01)
+        if isinstance(pair_status, str):
+            status = pair_status
+            await asyncio.sleep(0.01)
+        else:
+            status = await pair_status(pair)
         running -= 1
         return PersonalRankingPairResult(
-            status=pair_status,  # type: ignore[arg-type]
-            model_called=pair_status in ("built", "failed"),
+            status=status,  # type: ignore[arg-type]
+            model_called=status in ("built", "failed"),
+            changed_parts=["scores", "needs_you"] if status == "built" else [],
         )
 
     @activity.defn(name="capture_personal_ranking_tick_activity")
     async def fake_capture(result: PersonalRankingTickResult) -> None:
         captured.append(result)
+
+    original_patched = workflow.patched
+
+    def patched(patch_id: str) -> bool:
+        return sliding_window and original_patched(patch_id)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -346,33 +376,62 @@ async def _run_tick(
             activities=[fake_plan, fake_pair, fake_capture],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            result = await env.client.execute_workflow(
-                PersonalRankingTickWorkflow.run,
-                PersonalRankingTickInput(),
-                id=f"personal-ranking-tick-{uuid.uuid4()}",
-                task_queue="personal-ranking-tick-test",
-            )
+            with patch.object(workflow, "patched", patched):
+                handle = await env.client.start_workflow(
+                    PersonalRankingTickWorkflow.run,
+                    PersonalRankingTickInput(),
+                    id=f"personal-ranking-tick-{uuid.uuid4()}",
+                    task_queue="personal-ranking-tick-test",
+                )
+                result = await handle.result()
+            history = await handle.fetch_history()
+    # A tick that runs during a deploy replays its history on the new code.
+    await Replayer(
+        workflows=[PersonalRankingTickWorkflow], workflow_runner=UnsandboxedWorkflowRunner()
+    ).replay_workflow(history)
     return result, peak, captured
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("sliding_window", [True, False])
 @pytest.mark.parametrize(
-    "plan,pair_status,picked,stop_reason",
+    "plan,pair_status,picked,stop_reason,remaining",
     [
-        (_plan(5), "built", 5, None),
-        (_plan(5), "unchanged", 5, None),
-        # The wave that met the limit finishes, and no later wave starts.
-        (_plan(5), "tick_limited", 2, STOP_MAX_TICK_BUILDS_PER_DAY),
-        (_plan(5), "shared_limited", 2, STOP_MAX_BUILDS_PER_DAY),
-        # The breaker waits for a sample of 10 model calls, which is five waves.
-        (_plan(20), "failed", 10, STOP_ERROR_RATE),
-        (_plan(5, time_budget_seconds=0.0), "built", 0, STOP_TIME_BUDGET),
+        (_plan(5), "built", 5, None, (0, 0, None)),
+        (_plan(5), "unchanged", 5, None, (0, 0, None)),
+        # The pairs running when the limit refused a build finish, and no later pair starts.
+        (_plan(5), "tick_limited", 2, STOP_MAX_TICK_BUILDS_PER_DAY, (5, 1, 4.0)),
+        (_plan(5), "shared_limited", 2, STOP_MAX_BUILDS_PER_DAY, (5, 1, 4.0)),
+        # The breaker waits for a sample of 10 model calls.
+        (_plan(20, max_concurrency=1), "failed", 10, STOP_ERROR_RATE, (20, 1, 19.0)),
+        (_plan(5, time_budget_seconds=0.0), "built", 0, STOP_TIME_BUDGET, (5, 1, 4.0)),
+        # The due pairs past the per-tick cap stay in the backlog after every picked pair is built.
+        (
+            _plan(
+                5,
+                due_pairs=8,
+                stop_reason=STOP_MAX_PAIRS_PER_TICK,
+                unpicked_without_list=2,
+                unpicked_oldest_hours=30.0,
+            ),
+            "built",
+            5,
+            STOP_MAX_PAIRS_PER_TICK,
+            (3, 2, 30.0),
+        ),
+        # A tick planned before a deploy replays with a plan that has no list ages.
+        (_plan(5, pair_list_hours=[]), "built", 5, None, None),
     ],
 )
 async def test_the_tick_bounds_concurrency_and_stops_at_each_limit(
-    plan: PersonalRankingTickPlan, pair_status: str, picked: int, stop_reason: str | None
+    plan: PersonalRankingTickPlan,
+    pair_status: str,
+    picked: int,
+    stop_reason: str | None,
+    remaining: tuple[int, int, float | None] | None,
+    sliding_window: bool,
 ) -> None:
-    result, peak, captured = await _run_tick(plan, pair_status)
+    result, peak, captured = await _run_tick(plan, pair_status, sliding_window=sliding_window)
 
     assert peak <= plan.max_concurrency
     assert (result.picked, result.statuses, result.stop_reason) == (
@@ -381,7 +440,55 @@ async def test_the_tick_bounds_concurrency_and_stops_at_each_limit(
         stop_reason,
     )
     assert (result.due_pairs, result.enrolled_teams) == (plan.due_pairs, plan.enrolled_teams)
+    backlog = result.remaining
+    # The tick takes a few milliseconds, which adds to the age of the oldest remaining list.
+    assert (
+        None
+        if backlog is None
+        else (
+            backlog.due_pairs,
+            backlog.due_without_list,
+            None if backlog.oldest_due_hours is None else round(backlog.oldest_due_hours, 2),
+        )
+    ) == remaining
+    assert result.changed_parts == (
+        {"scores": picked, "needs_you": picked} if pair_status == "built" and picked else {}
+    )
+    timed = sliding_window and picked and pair_status in ("built", "unchanged")
+    assert (set(result.pair_seconds_p50), set(result.pair_seconds_p95)) == (
+        {pair_status} if timed else set(),
+        {pair_status} if timed else set(),
+    )
     assert captured == [result]
+
+
+@pytest.mark.asyncio
+async def test_fast_pairs_start_while_a_slow_pair_runs() -> None:
+    fast_done = asyncio.Event()
+    finished: list[int] = []
+
+    async def pair_status(pair: TickPair) -> str:
+        if pair.user_id == 0:
+            # A wave loop never starts the fast pairs behind this one, so the wait times out.
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(fast_done.wait(), timeout=5)
+            finished.append(pair.user_id)
+            return "built"
+        await asyncio.sleep(0.01)
+        finished.append(pair.user_id)
+        if len(finished) == 4:
+            fast_done.set()
+        return "unchanged"
+
+    result, peak, _ = await _run_tick(_plan(5), pair_status)
+
+    assert finished[-1] == 0
+    assert (result.picked, result.statuses, result.stop_reason, peak) == (
+        5,
+        {"built": 1, "unchanged": 4},
+        None,
+        2,
+    )
 
 
 @pytest.mark.asyncio

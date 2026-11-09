@@ -6,7 +6,6 @@ import { IconFilter, IconRefresh } from '@posthog/icons'
 import { Badge, Button, Toggle, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { useMaxTool } from 'scenes/max/useMaxTool'
-import { SaveFiltersModal } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { useRecordingFiltersAssist } from 'scenes/session-recordings/filters/useRecordingFiltersAssist'
 
@@ -15,6 +14,7 @@ import { RecordingUniversalFilters } from '~/types'
 import { FilterChips } from './FilterChips'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { comparableRecordingFilters } from './playlistUtils'
+import { QuillSaveFiltersModal } from './QuillSaveFiltersModal'
 import { SavedFilterChips } from './SavedFilterChips'
 import { SavedFilterEditedBar } from './SavedFilterEditedBar'
 import { SavedFilterSelect } from './SavedFilterSelect'
@@ -107,7 +107,7 @@ export function ReplayFilterBar({
                 </Button>
             </div>
             {edited && <SavedFilterEditedBar filters={filters} onSaveAsCopy={() => setSaveModalOpen(true)} />}
-            <SaveFiltersModal isOpen={saveModalOpen} setIsOpen={setSaveModalOpen} filters={filters} />
+            <QuillSaveFiltersModal isOpen={saveModalOpen} setIsOpen={setSaveModalOpen} filters={filters} />
         </div>
     )
 }

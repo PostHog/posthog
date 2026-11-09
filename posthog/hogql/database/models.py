@@ -17,7 +17,7 @@ from posthog.hogql.errors import NotImplementedError, ResolutionError
 from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
-    from posthog.hogql.ast import JoinExpr, LazyJoinType, SelectQuery
+    from posthog.hogql.ast import JoinExpr, LazyJoinType, SelectQuery, Type
     from posthog.hogql.base import ConstantType
     from posthog.hogql.context import HogQLContext
 
@@ -296,6 +296,16 @@ class Table(FieldOrTable):
         return asterisk
 
 
+class EventsRetentionTable(Table):
+    """A table of events or of rows derived from events, which the team's events retention applies to.
+
+    The ClickHouse printer floors every scan of a subclass at `events_retention_field > now() - retention`, so
+    derived rows cannot outlive the events they came from.
+    """
+
+    events_retention_field: str
+
+
 _CI_INDEX_CACHE_KEY = "_case_insensitive_index_cache"
 
 
@@ -534,19 +544,36 @@ class LazyTable(Table):
         raise NotImplementedError("LazyTable.lazy_select not overridden")
 
 
-@dataclass
+@dataclass(frozen=False)
 class LazyTableToAdd:
     lazy_table: LazyTable
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
+    # The names in `fields_accessed` whose column holds what `toJSONString` of the chain returns, so that the outer
+    # read does not serialize it again. Lazy table resolution adds them only for `EventsWithFlagCallsTable`.
+    json_text_fields: set[str] = field(default_factory=set)
 
 
-@dataclass
+@dataclass(frozen=True)
+class UnexpandedScan:
+    """The FROM entry of a lazy table before lazy table resolution replaced it with a subquery.
+
+    A join that hangs off the table copies the query's filters into a subquery that reads the table again, and this
+    holds what that subquery needs. `types` are the table types that the query's fields name for the scan.
+    """
+
+    join: "JoinExpr"
+    types: tuple["Type", ...]
+
+
+@dataclass(frozen=False)
 class LazyJoinToAdd:
     from_table: str
     to_table: str
     lazy_join: LazyJoin
     lazy_join_type: "LazyJoinType"
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
+    # Set when the table that the join starts from is a lazy table whose scan the join can read again.
+    from_scan: Optional[UnexpandedScan] = None
 
 
 class VirtualTable(Table):

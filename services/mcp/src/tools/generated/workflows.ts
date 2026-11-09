@@ -505,6 +505,7 @@ const workflowsList = (): ToolBase<
                     id: params.id,
                     latest_send_first: params.latest_send_first,
                     limit: params.limit,
+                    name: params.name,
                     offset: params.offset,
                     optimization_enabled: params.optimization_enabled,
                     origin_product: params.origin_product,

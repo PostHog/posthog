@@ -73,6 +73,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.AIObservabilityOfflineExperiments]: sceneImport,
     [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
+    [Scene.OAuthAuthorize]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
     [Scene.OrganizationDeactivated]: sceneImport,
     [Scene.OrganizationPendingDeletion]: sceneImport,
@@ -342,11 +343,21 @@ describe('sceneLogic', () => {
         ['/organization/projects/new', urls.projectCreateFirst(), Scene.ProjectCreateFirst],
         ['/organization/create', urls.organizationCreateFirst(), Scene.OrganizationCreateFirst],
         ['/organization/new', urls.organizationCreateFirst(), Scene.OrganizationCreateFirst],
+        ['/project/settings/environment-replay', urls.settings('environment-replay'), Scene.Settings],
+        // Bookmarks of the doubled path an id-less settings link once turned into must reach settings too
+        ['/project/123/project/settings/project-details', urls.settings('project-details'), Scene.Settings],
     ])('sends the unrouted %s to %s instead of the 404 scene', async (path, expected, expectedScene) => {
         router.actions.push(path)
         await expectLogic(logic).delay(1)
         expect(logic.values.activeSceneId).toEqual(expectedScene)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expected)
+    })
+
+    it('keeps the setting anchor when redirecting an id-less settings section link', async () => {
+        router.actions.push('/project/settings/environment-replay#replay-triggers')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.settings('environment-replay'))
+        expect(router.values.location.hash).toEqual('#replay-triggers')
     })
 
     // The redirect table is keyed on exact paths, so a later `/organization/*` prefix entry would
@@ -485,33 +496,56 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(resetLink)
     })
 
+    const setUpUserWithoutOrganization = (): void => organizationLogic.actions.loadCurrentOrganizationSuccess(null)
+    const setUpUserWithoutProjects = (): void => {
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            organization: { ...MOCK_DEFAULT_ORGANIZATION, teams: [] },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+    }
+
     it.each([
-        ['without an organization', (): void => organizationLogic.actions.loadCurrentOrganizationSuccess(null)],
+        [
+            'without an organization',
+            'agentic',
+            setUpUserWithoutOrganization,
+            urls.agenticAuthorize(),
+            Scene.AgenticAuthorize,
+        ],
         [
             'whose organization has no projects',
-            (): void => {
-                userLogic.actions.loadUserSuccess({
-                    ...MOCK_DEFAULT_USER,
-                    organization: { ...MOCK_DEFAULT_ORGANIZATION, teams: [] },
-                })
-                teamLogic.actions.loadCurrentTeamSuccess(null)
-            },
+            'agentic',
+            setUpUserWithoutProjects,
+            urls.agenticAuthorize(),
+            Scene.AgenticAuthorize,
         ],
-    ])('keeps a signed-in user %s on the agentic consent page', async (_label, setUpUser) => {
-        setUpUser()
-        const originalPath = window.location.pathname
-        // openScene reads window.location, which the test router's memory history never moves.
-        window.history.replaceState(null, '', urls.agenticAuthorize())
-        try {
-            router.actions.push(urls.agenticAuthorize())
-            await expectLogic(logic).delay(1)
+        ['without an organization', 'OAuth', setUpUserWithoutOrganization, urls.oauthAuthorize(), Scene.OAuthAuthorize],
+        [
+            'whose organization has no projects',
+            'OAuth',
+            setUpUserWithoutProjects,
+            urls.oauthAuthorize(),
+            Scene.OAuthAuthorize,
+        ],
+    ])(
+        'keeps a signed-in user %s on the %s consent page',
+        async (_label, _page, setUpUser, consentPath, consentScene) => {
+            setUpUser()
+            const originalPath = window.location.pathname
+            // openScene reads window.location, which the test router's memory history never moves.
+            window.history.replaceState(null, '', consentPath)
+            try {
+                router.actions.push(consentPath)
+                await expectLogic(logic).delay(1)
 
-            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.agenticAuthorize())
-            expect(logic.values.sceneId).toEqual(Scene.AgenticAuthorize)
-        } finally {
-            window.history.replaceState(null, '', originalPath)
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(consentPath)
+                expect(logic.values.sceneId).toEqual(consentScene)
+            } finally {
+                window.history.replaceState(null, '', originalPath)
+            }
         }
-    })
+    )
 
     it('persists the loaded scenes', async () => {
         const expectedAnnotation = partial({
@@ -611,6 +645,27 @@ describe('sceneLogic', () => {
             }
         }
     )
+
+    it('renders the project access denied scene for project pages, not account settings, once the server refuses the current project', async () => {
+        router.actions.push(urls.eventDefinitions())
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+        const projectScene = logic.values.activeExportedScene
+        const projectSceneLogic = projectScene?.logic?.(projectScene.paramsToProps?.(logic.values.sceneParams) ?? {})
+        expect(projectSceneLogic?.isMounted()).toBe(true)
+
+        teamLogic.actions.currentProjectAccessDenied()
+        expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+        expect(projectSceneLogic?.isMounted()).toBe(false)
+
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+
+        router.actions.push(urls.settings('project'))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+    })
 
     it("shows the project access denied scene, not onboarding, when the user's own project is not onboarded", async () => {
         const priorAppContext = window.POSTHOG_APP_CONTEXT

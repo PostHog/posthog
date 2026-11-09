@@ -4,7 +4,11 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
-import { businessKnowledgeSettingsPartialUpdate, businessKnowledgeSettingsRetrieve } from '../../generated/api'
+import {
+    businessKnowledgeLearningBackfillCreate,
+    businessKnowledgeSettingsPartialUpdate,
+    businessKnowledgeSettingsRetrieve,
+} from '../../generated/api'
 import { businessKnowledgeSettingsLogic } from './businessKnowledgeSettingsLogic'
 
 jest.mock('lib/api', () => {
@@ -32,6 +36,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 jest.mock('../../generated/api', () => ({
     businessKnowledgeSettingsRetrieve: jest.fn(),
     businessKnowledgeSettingsPartialUpdate: jest.fn(),
+    businessKnowledgeLearningBackfillCreate: jest.fn(),
 }))
 
 describe('businessKnowledgeSettingsLogic', () => {
@@ -124,5 +129,85 @@ describe('businessKnowledgeSettingsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.settings?.learn_from_support_enabled).toBe(false)
+    })
+
+    it('unlocks the past tickets button and says why when the backfill is refused', async () => {
+        const { ApiError } = jest.requireMock('lib/api')
+        ;(businessKnowledgeLearningBackfillCreate as jest.Mock).mockRejectedValue(
+            new ApiError('Bad Request', 400, undefined, {
+                detail: 'Turn on Learn from support to learn from past tickets.',
+            })
+        )
+        await mountLogic()
+
+        logic.actions.startLearningBackfill()
+        expect(logic.values.learningBackfillStarting).toBe(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.learningBackfillStarting).toBe(false)
+        expect(lemonToast.error).toHaveBeenCalledWith('Turn on Learn from support to learn from past tickets.')
+    })
+
+    it.each([
+        { status: 'running', expectedLoads: 2 },
+        { status: 'completed', expectedLoads: 1 },
+    ])('reloads progress only while past tickets are being read ($status)', async ({ status, expectedLoads }) => {
+        jest.useFakeTimers()
+        try {
+            ;(businessKnowledgeSettingsRetrieve as jest.Mock).mockResolvedValue({
+                learn_from_support_enabled: true,
+                support_enabled: true,
+                learning_backfill: {
+                    status,
+                    started_at: '2026-11-01T00:00:00Z',
+                    finished_at: status === 'completed' ? '2026-11-02T00:00:00Z' : null,
+                    tickets_read: 1,
+                    tickets_in_progress: 0,
+                    knowledge_created: 0,
+                },
+            })
+            initKeaTests()
+            logic = businessKnowledgeSettingsLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+
+            await jest.advanceTimersByTimeAsync(30_000)
+
+            expect(businessKnowledgeSettingsRetrieve).toHaveBeenCalledTimes(expectedLoads)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('keeps reloading progress after a failed reload', async () => {
+        jest.useFakeTimers()
+        try {
+            const { ApiError } = jest.requireMock('lib/api')
+            ;(businessKnowledgeSettingsRetrieve as jest.Mock)
+                .mockResolvedValueOnce({
+                    learn_from_support_enabled: true,
+                    support_enabled: true,
+                    learning_backfill: {
+                        status: 'running',
+                        started_at: '2026-11-01T00:00:00Z',
+                        finished_at: null,
+                        tickets_read: 1,
+                        tickets_in_progress: 0,
+                        knowledge_created: 0,
+                    },
+                })
+                .mockRejectedValueOnce(new ApiError('Server Error', 500, undefined, { detail: 'unavailable' }))
+            initKeaTests()
+            logic = businessKnowledgeSettingsLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+
+            await jest.advanceTimersByTimeAsync(30_000)
+            await jest.advanceTimersByTimeAsync(30_000)
+
+            expect(businessKnowledgeSettingsRetrieve).toHaveBeenCalledTimes(3)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

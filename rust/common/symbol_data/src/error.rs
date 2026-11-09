@@ -23,6 +23,8 @@ pub enum Error {
     CompressionError(String),
     #[error("Unknown compression type: {0}")]
     UnknownCompression(u8),
+    #[error("Decompressed data exceeds the {0} byte limit")]
+    DecompressedTooLarge(u64),
 }
 
 impl From<FromUtf8Error> for Error {

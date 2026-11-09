@@ -1545,10 +1545,7 @@ interface ComposeDrawHoverOptions {
 }
 
 // Crosshair drawn first so the chart-type's highlight rings render on top.
-export function composeDrawHoverWithCrosshair(
-    getDrawHover: () => DrawHoverFn,
-    options: ComposeDrawHoverOptions
-): DrawHoverFn {
+export function composeDrawHoverWithCrosshair(drawHover: DrawHoverFn, options: ComposeDrawHoverOptions): DrawHoverFn {
     const { crosshairColor, crosshairDash, showCrosshair, axisOrientation = 'vertical', labelToCoord } = options
     return (args) => {
         if (showCrosshair && crosshairColor && args.hoverIndex >= 0) {
@@ -1558,7 +1555,7 @@ export function composeDrawHoverWithCrosshair(
                 drawCrosshair(args.ctx, args.dimensions, coord, crosshairColor, axisOrientation, crosshairDash)
             }
         }
-        return getDrawHover()(args)
+        return drawHover(args)
     }
 }
 

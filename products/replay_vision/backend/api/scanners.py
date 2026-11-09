@@ -307,11 +307,7 @@ def query_reference_error(
     for kind, ids in (("action", refs.actions), ("cohort", refs.cohorts)):
         if ids and kind not in kinds:
             return f"This recording filter uses {kind}s, which your access doesn't cover."
-    missing = unresolved_references(
-        query,
-        team,
-        can_read_action=lambda action: bool(user_access_control.check_access_level_for_object(action, "viewer")),
-    )
+    missing = unresolved_references(query, team, access_control=user_access_control)
     if missing:
         return f"This recording filter uses {', '.join(missing)}, which this project doesn't have."
     return None

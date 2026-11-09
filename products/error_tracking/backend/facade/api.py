@@ -212,6 +212,7 @@ def resolve_fingerprints(team_id: int, issue_ids: list[str]) -> list[str]:
 
 def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSettings:
     return contracts.ErrorTrackingSettings(
+        adaptive_ingestion_enabled=settings.adaptive_ingestion_enabled,
         project_rate_limit_value=settings.project_rate_limit_value,
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,

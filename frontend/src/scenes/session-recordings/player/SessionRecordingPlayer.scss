@@ -38,7 +38,7 @@
     // The watch layout stacks the player over a scrolling panel. The player's share is of the wrapper, not the viewport.
     &--watch {
         flex-direction: column;
-        overflow-y: auto;
+        overflow: hidden;
         container-type: size;
 
         .SessionRecordingPlayerWrapper__column {
@@ -46,21 +46,14 @@
             flex: 1;
             flex-direction: column;
             min-width: 0;
+            min-height: 0;
         }
 
         &-right-dock {
             flex-direction: row;
-            overflow-y: hidden;
-
-            .SessionRecordingPlayerWrapper__column {
-                min-height: 0;
-                overflow-y: auto;
-            }
         }
 
         .SessionRecordingPlayerWrapper__player {
-            position: sticky;
-            top: 0;
             z-index: 2;
             display: flex;
             flex: 0 0 clamp(16rem, 70cqh, 60rem);

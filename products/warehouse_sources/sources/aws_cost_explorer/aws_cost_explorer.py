@@ -360,6 +360,7 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "InvalidClientTokenId": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
     "SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
     "InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
+    "IncompleteSignatureException": "AWS rejected the request signature. The access key ID or secret access key may have extra whitespace, such as a copied trailing space or newline. Please re-enter the credentials.",
     "ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
     "AccessDeniedException": "These AWS credentials are missing Cost Explorer permissions. Grant ce:GetCostAndUsage, ce:GetCostAndUsageWithResources, ce:GetDimensionValues, ce:GetReservationUtilization, ce:GetReservationCoverage, ce:GetSavingsPlansUtilization and ce:GetSavingsPlansCoverage to the IAM user or role.",
     "DataUnavailableException": "AWS has no Cost Explorer data for the requested dates. Cost Explorer has to be enabled on the account, and it can take up to 24 hours to prepare data.",

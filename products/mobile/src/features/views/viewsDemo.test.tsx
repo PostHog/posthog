@@ -57,8 +57,6 @@ describe('views in demo mode', () => {
         expect(result.current.pins.data?.map((pin) => [pin.kind, pin.ref, pin.display.mode])).toEqual([
             ['dashboard', 'demo-dash-kpis', 'number'],
             ['insight', 'demo-ins-signups', 'chart'],
-            ['web_analytics', null, 'row'],
-            ['notebook', 'demo-nb-launch', 'row'],
         ])
         expect(result.current.refresh.status.text).toBe('Updating…')
 

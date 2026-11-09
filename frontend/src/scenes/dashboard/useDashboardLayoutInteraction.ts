@@ -3,16 +3,15 @@ import type { MutableRefObject } from 'react'
 import { cloneLayoutItem } from 'react-grid-layout'
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 
+import type { DashboardLayoutSize } from '~/types'
+
+import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
 import {
     getResizeNeighbors,
     resizeNeighborToFitRow,
     restoreUnmovedItemPositions,
-} from 'scenes/dashboard/dashboardResizeCompactor'
-import type { ResizeNeighbors } from 'scenes/dashboard/dashboardResizeCompactor'
-
-import type { DashboardLayoutSize } from '~/types'
-
-import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
+} from 'products/dashboards/frontend/dashboardResizeCompactor'
+import type { ResizeNeighbors } from 'products/dashboards/frontend/dashboardResizeCompactor'
 
 type InteractionKind = 'drag' | 'resize'
 

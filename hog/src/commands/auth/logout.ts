@@ -1,14 +1,16 @@
-import { clearPending } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
 import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
-import { LOGIN_COMMAND } from '@/posthog/login/flow'
+import { clearPendingLogins } from '@/posthog/login/flow'
 import { logout, logoutAll, type LoggedOutHost } from '@/posthog/login/stored'
 import { readSettings } from '@/posthog/settings'
 
 interface LogoutResult {
     status: 'logged_out' | 'not_logged_in'
     host: string | null
+    // Whether PostHog revoked the OAuth login. Null for a personal API key, which hog can't revoke.
+    revoked: boolean | null
+    // Where to delete a personal API key, which keeps working after logout.
     revokeUrl: string | null
     // Why hog couldn't remove the keychain item a file login left behind. Null when there was none.
     keychainLeftover: string | null
@@ -19,9 +21,12 @@ interface LogoutResult {
 }
 
 export default defineCommand({
-    description: 'Remove the personal API key hog stored on this machine',
+    description: 'Log out of PostHog and remove the login hog stored on this machine',
     writes: true,
-    notes: 'The key itself stays valid until you delete it in PostHog under Settings > Personal API keys.',
+    notes: [
+        'hog revokes the login on this machine in PostHog. Your hog logins on other machines keep working.',
+        'A personal API key you pasted stays valid until you delete it in PostHog under Settings > Personal API keys.',
+    ].join('\n'),
     options: {
         all: { type: 'boolean', description: 'Log out of every PostHog host hog has a login for' },
     },
@@ -32,9 +37,9 @@ export default defineCommand({
         const stillSet = runtime.env[PERSONAL_API_KEY_ENV_VAR] ? [PERSONAL_API_KEY_ENV_VAR] : []
         if (options.all) {
             const hosts = await logoutAll(runtime)
-            await clearPending(runtime, LOGIN_COMMAND)
+            await clearPendingLogins(runtime)
             const status = hosts.length > 0 ? 'logged_out' : 'not_logged_in'
-            return { status, host: null, revokeUrl: null, keychainLeftover: null, hosts, stillSet }
+            return { status, host: null, revoked: null, revokeUrl: null, keychainLeftover: null, hosts, stillSet }
         }
         const settings = await readSettings(runtime)
         // The same host order commands use, so logout removes the login they would send. A broken
@@ -42,10 +47,11 @@ export default defineCommand({
         const configHost = (await ctx.config().catch(() => undefined))?.config.host
         const host = ctx.globals.host ?? configHost ?? settings.host
         const outcome = host ? await logout(runtime, host) : undefined
-        await clearPending(runtime, LOGIN_COMMAND)
+        await clearPendingLogins(runtime)
         return {
             status: outcome ? 'logged_out' : 'not_logged_in',
             host: host ?? null,
+            revoked: outcome?.revoked ?? null,
             revokeUrl: outcome?.revokeUrl ?? null,
             keychainLeftover: outcome?.keychainLeftover ?? null,
             hosts: null,
@@ -56,10 +62,18 @@ export default defineCommand({
     human({ result, out }) {
         const loggedOut = result.hosts ?? (result.host && result.status === 'logged_out' ? [result] : [])
         if (loggedOut.length === 0) {
-            out.line('hog had no stored key to remove.')
+            out.line('hog had no stored login to remove.')
         }
-        for (const { host, revokeUrl, keychainLeftover } of loggedOut) {
+        for (const { host, revoked, revokeUrl, keychainLeftover } of loggedOut) {
             out.line(`${out.style('Logged out', 'green', 'bold')} of ${escapeControls(host ?? '')}.`)
+            if (revoked === false) {
+                out.line(
+                    out.style(
+                        "hog couldn't reach PostHog to revoke the login, so it keeps working in PostHog. Revoke it under Settings > Connected applications.",
+                        'yellow'
+                    )
+                )
+            }
             if (keychainLeftover) {
                 out.line(
                     out.style(

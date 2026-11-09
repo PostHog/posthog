@@ -27,6 +27,8 @@ from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
+
 from posthog.api.cohort import (
     COHORT_USED_IN_PAGE_SIZE,
     AddPersonsToStaticCohortRequestSerializer,
@@ -55,7 +57,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
@@ -136,7 +138,7 @@ _FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION = {
 }
 _HIDDEN_EVENT_REFUSAL = "its data is moving"
 _FLAG_CALL_TYPE_REFUSAL = "can use this event"
-_FLAG_CALL_WINDOW_REFUSAL = "88 days or less"
+_FLAG_CALL_WINDOW_REFUSAL = "90 days or less"
 _FLAG_CALL_KEY_REFUSAL = '"Feature flag" equals'
 _FLAG_CALL_COMPILE_REFUSAL = "can't calculate this criterion"
 _FLAG_CALL_FILTER_REFUSAL = "instead of a SQL expression"
@@ -409,7 +411,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             distinct_id="person_1",
             timestamp=datetime.now() - timedelta(hours=12),
         )
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             steps_json=[
                 {
@@ -432,7 +434,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                                 "type": "AND",
                                 "values": [
                                     {
-                                        "key": action.pk,
+                                        "key": action.id,
                                         "type": "behavioral",
                                         "value": "performed_event",
                                         "negation": False,
@@ -485,7 +487,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(8):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -500,7 +502,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(8):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
@@ -5359,7 +5361,7 @@ email@example.org,
         self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         self.team.timezone = timezone
         self.team.save()
-        criterion = {**_FLAG_CALLED_CRITERION, "time_value": 88}
+        criterion = {**_FLAG_CALLED_CRITERION, "time_value": FLAG_EVALUATIONS_COMPLETE_DAYS - 1}
 
         with time_machine.travel(datetime(2026, 10, 27, 0, 30, tzinfo=UTC), tick=False):
             response = self.client.post(
@@ -8938,8 +8940,8 @@ class TestAddPersonsToStaticCohortRequestSerializer(SimpleTestCase):
 class TestFlagCallCriterionShapeProblem(SimpleTestCase):
     @parameterized.expand(
         [
-            ("last_88_days", {"time_value": 88, "time_interval": "day"}, False),
-            ("last_89_days", {"time_value": 89, "time_interval": "day"}, True),
+            ("last_90_days", {"time_value": 90, "time_interval": "day"}, False),
+            ("last_91_days", {"time_value": 91, "time_interval": "day"}, True),
             ("relative_12_weeks", {"explicit_datetime": "-12w"}, False),
             ("relative_13_weeks", {"explicit_datetime": "-13w"}, True),
             ("relative_2_months", {"explicit_datetime": "-2m"}, False),

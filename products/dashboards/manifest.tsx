@@ -12,7 +12,7 @@ export const manifest: ProductManifest = {
     name: 'Dashboards',
     activityDescribers: {
         [ActivityScope.DASHBOARD]: () =>
-            import('scenes/dashboard/dashboardActivityDescriber').then((module) => module.dashboardActivityDescriber),
+            import('./frontend/dashboardActivityDescriber').then((module) => module.dashboardActivityDescriber),
     },
     urls: {
         dashboards: (tab?: `${DashboardsTab}`): string => (tab ? `/dashboard?tab=${tab}` : '/dashboard'),

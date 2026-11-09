@@ -8,7 +8,6 @@ import {
 } from 'scenes/onboarding/sdks/workflows/WorkflowsSDKInstructions'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
-import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
@@ -73,5 +72,4 @@ export const workflowsOnboarding: ProductOnboardingProvider = {
             ),
         },
     ],
-    completeRedirectUrl: () => urls.workflows(),
 }

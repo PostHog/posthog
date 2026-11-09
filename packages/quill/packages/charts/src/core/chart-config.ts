@@ -16,6 +16,9 @@ export const DEFAULT_CHART_CONFIG = {
     tooltip: { placement: 'cursor' },
 } as const satisfies ChartConfig & { barCornerRadius: number }
 
+/** Default y-tick formatter for percent layouts, whose values are 0..1 fractions. */
+export const PERCENT_TICK_FORMATTER = (v: number): string => `${Math.round(v * 100)}%`
+
 function definedFields(config: object): Record<string, unknown> {
     return Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined))
 }

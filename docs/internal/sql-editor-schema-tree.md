@@ -7,7 +7,7 @@ Search includes both categories, and table actions use the name shown in the tre
 
 The PostHog catalog includes `posthog.ai_events` for AI observability, `posthog.session_replay_events` for recordings, and `posthog.trace_spans` for tracing.
 `posthog.metrics` contains metric data points; join `posthog.metric_series` for their labels.
-`posthog.flag_evaluations` appears when enabled for the organization.
+`posthog.flag_evaluations` appears for every organization on PostHog Cloud. On a self-hosted instance it appears only when the organization's flag_evaluations mode reads that table.
 These tables come from the backend catalog without a separate sidebar allowlist.
 Namespace-only tables retain their `posthog.` prefix when requesting fields.
 

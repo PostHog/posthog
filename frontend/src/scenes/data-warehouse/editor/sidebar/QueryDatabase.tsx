@@ -147,7 +147,7 @@ export const QueryDatabase = ({
         searchText,
         joinsByFieldName,
         editingDraftId,
-        displayedTreeData,
+        visibleTreeData,
         expandedItemIds,
         connectionId,
         activeDraggedViewId,
@@ -415,8 +415,8 @@ export const QueryDatabase = ({
         // searching, so an unfiltered section would sit above the results still listing
         // everything — and keeping the search term on this side means an embedder doesn't have to
         // mount this logic just to read it.
-        return getQueryDatabaseTreeData(displayedTreeData, extraTreeSections, searchText)
-    }, [extraTreeSections, displayedTreeData, searchText])
+        return getQueryDatabaseTreeData(visibleTreeData, extraTreeSections, searchText)
+    }, [extraTreeSections, visibleTreeData, searchText])
 
     const tree = (
         <LemonTree
@@ -461,6 +461,9 @@ export const QueryDatabase = ({
                 setEditingDraft('')
             }}
             onItemClick={(item) => {
+                if (item?.record?.type === 'show-all-tables') {
+                    posthog.capture('sql-editor-show-all-tables-clicked')
+                }
                 // Handle draft clicks - focus existing tab or create new one
                 if (item && item.record?.type === 'draft') {
                     router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))
@@ -519,9 +522,9 @@ export const QueryDatabase = ({
                             previewItem(item)
                         }}
                     >
-                        <div className="flex flex-row gap-1 justify-between">
-                            <div className="shrink-0 flex min-w-0 items-center gap-2">
-                                <span className="shrink-0 flex items-center gap-1">
+                        <div className="@container/database-tree-row flex flex-row gap-1 justify-between">
+                            <div className="flex min-w-0 items-center gap-2">
+                                <span className="flex min-w-0 items-center gap-1">
                                     {item.record?.type === 'view' && item.record.isSavedQuery ? (
                                         <MaterializationStatusIcon view={item.record.view} />
                                     ) : null}
@@ -545,7 +548,7 @@ export const QueryDatabase = ({
                                                     item.record?.folderType === 'view-folder' &&
                                                     'font-semibold',
                                                 isColumn && 'font-mono text-xs',
-                                                'truncate shrink-0'
+                                                'truncate'
                                             )}
                                         >
                                             {item.displayName ?? item.name}
@@ -566,7 +569,9 @@ export const QueryDatabase = ({
                                             : columnType}
                                     </span>
                                 ) : tableKindLabel ? (
-                                    <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
+                                    // Below 14rem the badge squeezes a long name to a few characters, so it hides.
+                                    // A row at DATABASE_TREE_DEFAULT_WIDTH is wider than 14rem and keeps the badge.
+                                    <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt @max-[14rem]/database-tree-row:hidden">
                                         {tableKindLabel}
                                     </span>
                                 ) : showDropTargetBadge ? (

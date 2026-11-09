@@ -1898,6 +1898,21 @@ export interface TraceSummaryRequestApi {
     regenerate?: boolean
 }
 
+export interface TraceAvailabilityRequestApi {
+    /**
+     * Application and evaluator trace IDs to check without loading trace contents.
+     * @minItems 1
+     * @maxItems 2
+     * @items.maxLength 255
+     */
+    trace_ids: string[]
+}
+
+export interface TraceAvailabilityApi {
+    /** Requested trace IDs readable from AI events or the shared events table. */
+    available_trace_ids: string[]
+}
+
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
 
 /**
@@ -2112,6 +2127,13 @@ export interface DatasetReadApi {
     readonly tags: readonly string[]
     readonly archived: boolean
     /**
+     * Earliest cleanup time if the dataset remains unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether the dataset is within seven days of expiry. */
+    readonly expiring_soon: boolean
+    /**
      * Latest dataset revision, or null before the first item is added.
      * @nullable
      */
@@ -2228,6 +2250,33 @@ export interface DatasetExportErrorApi {
     detail: string
 }
 
+export interface DatasetExtendRetentionApi {
+    /**
+     * Revision to extend along with its dataset. Omit to extend only the dataset.
+     * @minimum 1
+     */
+    revision?: number
+}
+
+export interface DatasetRetentionEntryApi {
+    /** Dataset to open or extend. */
+    readonly dataset_id: string
+    /** Name of the dataset. */
+    readonly dataset_name: string
+    /** Whether the dataset is archived. */
+    readonly dataset_archived: boolean
+    /**
+     * Historical revision number, or null for a dataset.
+     * @nullable
+     */
+    readonly revision: number | null
+    /**
+     * Earliest cleanup time if this dataset or revision remains unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+}
+
 export interface DatasetRevisionReadApi {
     readonly id: string
     /** Dataset this revision belongs to. */
@@ -2237,6 +2286,13 @@ export interface DatasetRevisionReadApi {
     readonly created_by: UserBasicApi | null
     /** Project that owns the revision. */
     readonly team_id: number
+    /**
+     * Earliest expiry time of this dataset snapshot if unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether this snapshot is within seven days of expiry. */
+    readonly expiring_soon: boolean
 }
 
 export interface PaginatedDatasetRevisionReadListApi {
@@ -2246,6 +2302,17 @@ export interface PaginatedDatasetRevisionReadListApi {
     /** @nullable */
     previous?: string | null
     results: DatasetRevisionReadApi[]
+}
+
+export interface DatasetRetentionReadApi {
+    /** Accessible active and archived datasets within seven days of expiry. */
+    readonly datasets_count: number
+    /** Accessible older revisions within seven days of expiry, excluding the latest revision. */
+    readonly revisions_count: number
+    /** Total expiring entries of the requested kind. */
+    readonly count: number
+    /** Expiring entries, ordered by earliest cleanup time. */
+    readonly results: readonly DatasetRetentionEntryApi[]
 }
 
 export interface EvaluationDirectoryApi {
@@ -4374,6 +4441,59 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+export interface ProviderKeyDependentEvaluationApi {
+    /** Evaluation ID. */
+    id: string
+    /** Evaluation name. */
+    name: string
+    /** Model configuration that pins this key. Absent for evaluations on the active key. */
+    model_configuration_id?: string
+    /** Whether the evaluation is running. */
+    enabled: boolean
+    /**
+     * Why the system turned the evaluation off, such as provider_key_quota_exceeded.
+     * @nullable
+     */
+    status_reason: string | null
+}
+
+export interface ProviderKeyAlternativeApi {
+    /** Provider key ID. */
+    id: string
+    /** Provider key name. */
+    name: string
+    /** Provider of the key. */
+    provider: string
+}
+
+export interface ProviderKeyDependentConfigsApi {
+    /** Evaluations whose model configuration pins this key. */
+    evaluations: ProviderKeyDependentEvaluationApi[]
+    /** Working keys for the same provider that could replace this one. */
+    alternative_keys: ProviderKeyAlternativeApi[]
+    /** Errored evaluations with no pinned key, which run on this key while it is the project's active key. */
+    active_key_evaluations: ProviderKeyDependentEvaluationApi[]
+}
+
+export interface LLMProxyModelInfoApi {
+    /** Provider-specific model identifier. */
+    id: string
+    /** Model display name. */
+    name: string
+    /** Provider display name. */
+    provider: string
+    /** Description of the model. */
+    description: string
+    /** Whether the provider recommends this model. */
+    is_recommended: boolean
+    /** Whether this model supports decision questions. */
+    supports_decisions?: boolean
+    /** Whether this model supports chat completions with written reasoning. */
+    supports_chat?: boolean
+    /** Whether an evaluation judge can set a reasoning level for this model. */
+    supports_reasoning?: boolean
+}
+
 export interface ReviewQueueItemApi {
     readonly id: string
     /** Review queue ID that currently owns this pending trace. */
@@ -5979,6 +6099,7 @@ export type DatasetItemsListParams = {
     dataset: string
     /**
      * Number of results to return per page.
+     * @maximum 25
      */
     limit?: number
     /**
@@ -6038,6 +6159,7 @@ export type DatasetItemsPartialUpdateBody = {
 export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -6059,6 +6181,7 @@ export type DatasetsListParams = {
     id__in?: string[]
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -6104,6 +6227,7 @@ export const DatasetsListTagMatch = {
 export type DatasetsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -6111,6 +6235,36 @@ export type DatasetsRevisionsListParams = {
      */
     offset?: number
 }
+
+export type DatasetsRetentionRetrieveParams = {
+    /**
+     * Whether to return expiring datasets or older revisions. Counts always include both.
+     *
+     * * `datasets` - Datasets
+     * * `revisions` - Older revisions
+     * @minLength 1
+     */
+    kind?: DatasetsRetentionRetrieveKind
+    /**
+     * Maximum entries to return, up to 50.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Number of expiring entries to skip.
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type DatasetsRetentionRetrieveKind =
+    (typeof DatasetsRetentionRetrieveKind)[keyof typeof DatasetsRetentionRetrieveKind]
+
+export const DatasetsRetentionRetrieveKind = {
+    Datasets: 'datasets',
+    Revisions: 'revisions',
+} as const
 
 export type EvaluationsListParams = {
     /**

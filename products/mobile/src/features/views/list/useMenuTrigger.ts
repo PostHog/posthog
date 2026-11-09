@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import type { AccessibilityActionInfo, View } from 'react-native'
+import type { AccessibilityActionInfo, ViewInstance } from 'react-native'
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import type { RowMenuTrigger } from '@/features/inbox/useRowMenuTrigger'
@@ -12,7 +12,7 @@ const ACTIONS: AccessibilityActionInfo[] = [{ name: 'longpress', label: 'Show ac
 
 /** Opens a row's context menu from a long press or the screen reader's "Show actions", anchored to the row. */
 export function useMenuTrigger<T>(item: T, onOpen: (item: T, anchor: RowAnchor) => void): RowMenuTrigger {
-    const ref = useRef<View>(null)
+    const ref = useRef<ViewInstance>(null)
     const open = (): void => {
         ref.current?.measureInWindow((x, y, width, height) => onOpen(item, { x, y, width, height }))
     }

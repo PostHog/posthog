@@ -28,7 +28,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
 from posthog.dataclasses import frozen
-from posthog.models import EventProperty, Team
+from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import resolved_group_key_expr
@@ -46,6 +46,8 @@ from posthog.session_recordings.queries.utils import (
 )
 from posthog.types import AnyPropertyFilter
 from posthog.utils import get_instance_region
+
+from products.event_definitions.backend.models import EventProperty
 
 ENTITY_TYPES_WITH_NODES = frozenset(
     {TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS}

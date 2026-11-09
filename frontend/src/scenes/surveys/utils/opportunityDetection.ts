@@ -1,3 +1,4 @@
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import {
     AnyEntityNode,
     EventsNode,
@@ -21,9 +22,34 @@ interface FunnelStepResult {
 
 export interface SurveyableFunnelInsight {
     id?: number
+    short_id?: InsightModel['short_id']
     name?: string
     query: InsightVizNode<FunnelsQuery>
     result: FunnelStepResult[]
+}
+
+export function surveyOpportunityContextItems(
+    insight: Pick<SurveyableFunnelInsight, 'id' | 'short_id'>,
+    funnelContext: FunnelContext | null
+): AttachedContextItem[] | null {
+    return funnelContext
+        ? [
+              {
+                  type: 'insight',
+                  key: insight.id,
+                  pageId: insight.short_id ?? null,
+                  label: funnelContext.insightName,
+              },
+              {
+                  type: 'survey_opportunity_funnel_context',
+                  value: JSON.stringify({
+                      conversionRate: funnelContext.conversionRate,
+                      steps: funnelContext.steps,
+                  }),
+                  label: 'Funnel conversion context',
+              },
+          ]
+        : null
 }
 
 /**

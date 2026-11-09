@@ -18,6 +18,7 @@ import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'
 import { shareNudgeLogic } from './shareNudgeLogic'
 import { downloadTableDataAsCsv, getExportAdapter } from './webAnalyticsExportUtils'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
+import { withoutWebQueryModifiers } from './webQueryModifiers'
 
 const NO_ACTIVE_TAB_INSIGHT_PROPS: InsightLogicProps = {
     dashboardItemId: 'new-AdHoc.web-analytics-no-active-tab-fallback',
@@ -103,7 +104,7 @@ export function useWebTileOverflowMenuItems({
                     if (!query) {
                         return
                     }
-                    void copyToClipboard(JSON.stringify(query, null, 2), 'query JSON')
+                    void copyToClipboard(JSON.stringify(withoutWebQueryModifiers(query), null, 2), 'query JSON')
                 },
             },
         ]

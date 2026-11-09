@@ -99,6 +99,7 @@ import {
     type NodeApiSuspended,
     type NodeEndpointApi,
     NodeTypeEnumApi,
+    type WarehouseColumnAnnotationDescriptionSourceEnumApi,
 } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
@@ -112,6 +113,8 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
+    ExternalDataSchemaApiAvailableColumnsItem,
+    ExternalDataSchemaApiAvailableColumnsItemSensitivity,
     IncrementalSyncBlockedReasonEnumApi,
     RowFilterColumnApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -217,6 +220,7 @@ export enum AvailableFeature {
     SECONDARY_METRICS = 'secondary_metrics',
     STATISTICAL_ANALYSIS = 'statistical_analysis',
     PRODUCT_ANALYTICS_DATA_RETENTION = 'product_analytics_data_retention',
+    PRODUCT_ANALYTICS_STANDARD_DATA_RETENTION = 'product_analytics_standard_data_retention',
     DASHBOARDS = 'dashboards',
     FUNNELS = 'funnels',
     GRAPHS_TRENDS = 'graphs_trends',
@@ -251,9 +255,12 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    IP_RESTRICTIONS = 'ip_restrictions',
     MEMBER_GOVERNANCE = 'member_governance',
     SSF = 'ssf',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
+    SELF_DRIVING_TRIAL_ALLOWANCE_MICROUSD = 'self_driving_trial_allowance_microusd',
+    SELF_DRIVING_TRIAL_REPORTS = 'self_driving_trial_reports',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -645,6 +652,9 @@ export interface OrganizationType extends OrganizationBasicType {
     read_only_mcp_access?: boolean
     member_notice?: OrganizationMemberNoticeApi | null
     allow_publicly_shared_resources: boolean
+    ip_restrictions?: string[]
+    ip_restrictions_enabled?: boolean
+    ip_restrictions_warning?: string | null
     metadata?: OrganizationMetadata
     member_count: number
     default_anonymize_ips?: boolean
@@ -1768,7 +1778,7 @@ export type SearchableEntity =
     | 'survey'
 
 export type SearchListParams = {
-    q: string
+    q?: string
     entities?: SearchableEntity[]
     include_counts?: boolean
 }
@@ -2452,7 +2462,15 @@ export interface BillingType {
     projected_total_amount_usd_with_limit?: string
     projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
-    usage_summary?: Record<string, { usage?: number | null; limit?: number | null; todays_usage?: number | null }>
+    usage_summary?: Record<
+        string,
+        {
+            usage?: number | null
+            limit?: number | null
+            todays_usage?: number | null
+            billing_start_date?: string
+        }
+    >
 
     custom_limits_usd?: {
         [key: string]: number | null
@@ -2574,6 +2592,11 @@ export interface Tileable {
 }
 
 export type DashboardTileIdOrNew = number | null
+
+/** A tile before the API creates it, so it has no id or server-set fields yet. */
+export type NewDashboardTile = Omit<Partial<DashboardTile>, 'text'> & {
+    text?: Partial<NonNullable<DashboardTile['text']>>
+}
 
 export interface DashboardTile extends Tileable {
     id: number
@@ -3668,6 +3691,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
+    /** render a static picture of the insight, hiding interactive controls such as filter bars (e.g. in exports) */
+    presentationOnly?: boolean
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
     /** Reuse recent completed responses when this embedded insight remounts. */
@@ -4043,16 +4068,6 @@ export interface ProductTourAppearance {
 export type ProductTourType = 'tour' | 'announcement'
 
 export type ProductTourDisplayFrequency = 'show_once' | 'until_interacted' | 'always'
-
-export interface ProductTourGeneratedStepContent {
-    step_id: string
-    title: string
-    description: string
-}
-
-export interface ProductTourAIGenerationResponse {
-    steps: ProductTourGeneratedStepContent[]
-}
 
 export interface ProductTourContent {
     type?: ProductTourType
@@ -4920,6 +4935,8 @@ export interface EventDefinition {
     is_action?: boolean
     is_data_warehouse?: boolean
     hidden?: boolean
+    /** Set after ingestion of the event is stopped. The definition is deleted after this time. */
+    scheduled_deletion_at?: string | null
     default_columns?: string[]
     enforcement_mode?: SchemaEnforcementMode
     media_preview_urls?: string[]
@@ -6143,8 +6160,10 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    ORGANIZATION_IP_RESTRICTIONS = 'OrganizationIPRestrictions',
     OAUTH_APPLICATION = 'OAuthApplication',
     WORKLOAD_TRUST_POLICY = 'WorkloadTrustPolicy',
+    WORKLOAD_TRUST_POLICY_REQUEST = 'WorkloadTrustPolicyRequest',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
@@ -6177,6 +6196,7 @@ export enum ActivityScope {
     KNOWLEDGE_LIBRARY = 'KnowledgeLibrary',
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
+    SIGNAL_SOURCE_CONFIG = 'SignalSourceConfig',
     SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
     STAMPHOG_REPO_CONFIG = 'StamphogRepoConfig',
     REVIEW_REPOSITORY = 'ReviewRepository',
@@ -6254,6 +6274,7 @@ export interface DataModelingNode {
     name: string
     type: DataModelingNodeType
     description?: string
+    description_source?: WarehouseColumnAnnotationDescriptionSourceEnumApi | null
     saved_query_id?: string
     /** UUID of the data catalog metric a metric node stands for */
     metric_id?: string | null
@@ -6269,6 +6290,7 @@ export interface DataModelingNode {
     last_run_status?: DataModelingJobStatus
     last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
+    effective_sync_interval?: DataModelingSyncInterval | null
     pinned?: boolean
     suspended?: NodeApiSuspended
     /** Set on endpoint nodes stamped at materialization enable; older nodes carry only the name */
@@ -6288,6 +6310,7 @@ export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
     name: string
+    description?: string | null
     /** Only included when fetching a single saved query, not in list responses */
     query?: HogQLQuery
     columns: DatabaseSchemaField[]
@@ -6305,8 +6328,8 @@ export interface DataWarehouseSavedQuery {
     /** Whether the view is set up to update incrementally. A run can still rebuild the whole table,
      * for example on its first run or after the query changes. */
     is_incremental?: boolean
-    /** The view stores raw Trino SQL. Only hosted Trino can run it, and HogQL cannot reference it. */
-    is_raw_managed_trino?: boolean
+    /** The engine that runs this view, and what the product can do with it */
+    engine?: DataWarehouseSavedQueryApi['engine']
     /** Engine → suspension details */
     suspended?: DataWarehouseSavedQueryApiSuspended
     created_by?: UserBasicType | null
@@ -6470,6 +6493,8 @@ export interface ExternalDataSource {
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
     user_access_level: AccessControlLevel
     supports_webhooks?: boolean
+    /** Whether a table of this source uses webhook sync, but the source has no enabled webhook. */
+    webhook_not_registered?: boolean
     supports_column_selection?: boolean
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
@@ -6547,11 +6572,18 @@ export interface SimpleExternalDataSourceSchema {
     sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
 }
 
+/** The kind of personal or secret data a column's name and type suggest. */
+export type ColumnSensitivity = NonNullable<ExternalDataSchemaApiAvailableColumnsItemSensitivity>
+
+/** A column offered by the column picker. */
+export type SchemaAvailableColumn = ExternalDataSchemaApiAvailableColumnsItem
+
 export interface AvailableColumn {
     label: string
     field: string
     type: string
     nullable: boolean
+    sensitivity?: ColumnSensitivity | null
 }
 
 /** The comparison operators a row filter may use. Mirrors the backend allowlist. */
@@ -6637,6 +6669,8 @@ export interface ExternalDataSourceSyncSchema {
      * PK columns and the active incremental field are always retained server-side.
      */
     enabled_columns?: string[] | null
+    /** Source columns whose values are replaced with a one-way hash at sync time. */
+    masked_columns?: string[] | null
     /**
      * Predicates ANDed onto the source query so only matching rows sync.
      * `null`/undefined/empty = sync all rows.
@@ -6670,17 +6704,23 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     /** The history table's name, or `null` when the table keeps no history. Older history tables end in `_cdc`. */
     history_table_name?: string | null
+    /** The history table registered for the schema, whether or not its mode still writes it. Set on retrieve only. */
+    registered_history_table_name?: string | null
     /**
      * Why the last sync run could not merge rows on this table's primary key, or `null` when no such
      * failure is current. A later run that succeeds, or fails for another reason, clears it.
      */
     incremental_sync_blocked?: IncrementalSyncBlockedReason | null
+    /** Whether this table uses webhook sync, but its source has no enabled webhook. */
+    webhook_not_registered?: boolean
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.
      */
     enabled_columns?: string[] | null
-    available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /** Source columns whose values are replaced with a one-way hash at sync time. */
+    masked_columns?: string[] | null
+    available_columns?: SchemaAvailableColumn[]
     /** Exact source identifiers are available for sources that project columns upstream. */
     source_column_metadata_available?: boolean
     /**
@@ -6878,7 +6918,7 @@ export type BatchExportServiceRedshift = {
         properties_data_type: 'varchar' | 'super'
         mode: 'COPY' | 'INSERT'
         // Form-only: derived from the shape of copy_inputs.authorization, never sent to the API.
-        authorization_mode: 'SameConnection' | 'DifferentConnection' | 'IAMRole' | 'Credentials'
+        authorization_mode: 'SameConnection' | 'DifferentConnection' | 'IAMRole'
         copy_inputs: BatchExportServiceRedshiftCopyInputs | null
         exclude_events: string[]
         include_events: string[]
@@ -8106,7 +8146,6 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     PATH_CLEANING = 'path_cleaning',
-    MCP = 'mcp',
 }
 
 // Managed viewset

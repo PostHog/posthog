@@ -22,12 +22,6 @@ class DrivePolicy(StrEnum):
     NONE = "none"
 
 
-class AccessGate(StrEnum):
-    DESKTOP_CODE = "desktop_code"
-    INBOX = "inbox"
-    NONE = "none"
-
-
 class GithubResolution(StrEnum):
     ALWAYS = "always"
     WITH_REPOSITORY = "with_repository"
@@ -48,6 +42,7 @@ class PrAuthorship(StrEnum):
 class WarmQuota(StrEnum):
     NONE = "none"
     AI_CREDITS = "ai_credits"
+    POSTHOG_AI = "posthog_ai"
 
 
 class GithubAccess(StrEnum):
@@ -62,9 +57,25 @@ class NetworkAccess(StrEnum):
     CUSTOM = "custom"
 
 
+class RunOptionsCaller(StrEnum):
+    SERVER = "server"
+    PUBLIC = "public"
+
+
+class ContractCheck(StrEnum):
+    PUBLIC_OPTIONS = "public_options"
+    RUNTIMES = "runtimes"
+    SANDBOX_TEMPLATES = "sandbox_templates"
+    MCP_SCOPES = "mcp_scopes"
+    GITHUB_ACCESS = "github_access"
+    IDLE_MINUTES = "idle_minutes"
+    DRIVE = "drive"
+
+
 class SourceKind(StrEnum):
     SIGNAL_REPORT = "signal_report"
     HOG_FLOW = "hog_flow"
+    LOOP = "loop"
 
 
 @frozen
@@ -137,9 +148,6 @@ class TaskProfile:
     # AUDIENCE means anyone who can read the task, such as the people in a Slack thread.
     # NONE means nobody, for tasks that finish on their own.
     drive: DrivePolicy
-    # A check on the person that runs at create and again on every wake. DESKTOP_CODE requires
-    # PostHog Code access in the organization. INBOX requires inbox access. NONE runs no check.
-    access_gate: AccessGate
     # The most queued or running tasks one person may have on this profile at once. Create and
     # wake refuse at the cap. None means no cap.
     max_live_per_user: int | None
@@ -167,6 +175,7 @@ class TaskProfile:
     # True installs the team's MCP store servers in the sandbox. False installs none, personal
     # servers included.
     mcp_store_servers: bool
+    mcp_exclude_tools: tuple[str, ...]
     # The OAuth application that mints the sandbox's PostHog tokens. The LLM gateway pins billing
     # products per application, so a token from a shared application is valid for every product on
     # it. A product with its own billing needs its own application.
@@ -175,6 +184,7 @@ class TaskProfile:
     # attaches it only when the task has a repository. NEVER attaches none. Use NEVER for tasks
     # that read text members wrote, because a token there turns planted text into repository access.
     github_resolution: GithubResolution
+    github_access: GithubAccess
     # True lets runs open pull requests as the creator through their personal GitHub installation.
     # A creator without a usable installation falls back to the bot. False always uses the bot.
     user_authorable_prs: bool
@@ -215,6 +225,8 @@ class TaskProfile:
     # True lets a running wake finish when the organization runs out of credit. False stops the
     # wake and snapshots the task.
     finish_in_flight: bool
+
+    enforced_checks: frozenset[ContractCheck] = frozenset()
 
 
 @frozen
@@ -296,22 +308,33 @@ _ORIGIN_SCOPED_FIELDS = (
     "read_without_channel",
     "drive",
     "api_visible",
-    "access_gate",
     "idle_minutes",
     "max_wake_minutes",
     "warm",
 )
 
+MAX_MCP_EXCLUDE_TOOLS = 32
+
 _profiles: dict[str, TaskProfile] = {}
 
 
 def register_task_profile(profile: TaskProfile) -> None:
+    if len(profile.mcp_exclude_tools) > MAX_MCP_EXCLUDE_TOOLS:
+        raise TaskProfileError(f"Task profile {profile.key!r} hides more than {MAX_MCP_EXCLUDE_TOOLS} MCP tools")
     existing = _profiles.get(profile.key)
     if existing is not None and existing != profile:
         raise TaskProfileError(f"Task profile {profile.key!r} is already registered with different values")
+    if (profile.github_access == GithubAccess.NONE) != (profile.github_resolution == GithubResolution.NEVER):
+        raise TaskProfileError(
+            f"Task profile {profile.key!r} must set github_access to none exactly when github_resolution is never"
+        )
     for other in _profiles.values():
         if other.key == profile.key or other.origin_product != profile.origin_product:
             continue
+        if other.public and profile.public:
+            raise TaskProfileError(
+                f"Task profiles {other.key!r} and {profile.key!r} are both public on origin {profile.origin_product!r}"
+            )
         for name in _ORIGIN_SCOPED_FIELDS:
             if getattr(other, name) != getattr(profile, name):
                 raise TaskProfileError(
@@ -333,27 +356,26 @@ def get_task_profile(key: str) -> TaskProfile:
         raise TaskProfileError(f"Unknown task profile {key!r}") from None
 
 
+def find_task_profile(key: str | None) -> TaskProfile | None:
+    return _profiles.get(key) if key else None
+
+
+def public_profile_for_origin(origin_product: str) -> TaskProfile | None:
+    return next(
+        (profile for profile in _profiles.values() if profile.public and profile.origin_product == origin_product),
+        None,
+    )
+
+
 def task_profiles() -> tuple[TaskProfile, ...]:
     return tuple(_profiles.values())
 
 
-def resolve_task_origin(
-    *, profile: TaskProfile | None, origin_product: str | None, internal: bool | None
-) -> TaskOrigin:
-    if profile is None:
-        if not origin_product:
-            raise TaskProfileError("Pass a task profile or an origin product")
-        return TaskOrigin(origin_product=origin_product, internal=bool(internal), profile_key=None)
-    if origin_product is not None and origin_product != profile.origin_product:
-        raise TaskProfileError(f"Origin {origin_product!r} does not match task profile {profile.key!r}")
-    if internal is not None and internal == profile.listed:
-        raise TaskProfileError(f"internal={internal} does not match task profile {profile.key!r}")
+def resolve_task_origin(profile: TaskProfile) -> TaskOrigin:
     return TaskOrigin(origin_product=profile.origin_product, internal=not profile.listed, profile_key=profile.key)
 
 
-def check_task_source(*, profile: TaskProfile | None, source: TaskSource | None) -> None:
-    if profile is None:
-        return
+def check_task_source(*, profile: TaskProfile, source: TaskSource | None) -> None:
     kind = source.kind if source is not None else None
     if kind != profile.source_kind:
         raise TaskSourceError(f"Task profile {profile.key!r} takes source {profile.source_kind}, got {kind}")

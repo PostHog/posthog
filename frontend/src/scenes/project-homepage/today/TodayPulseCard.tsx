@@ -1,19 +1,7 @@
 import './Today.scss'
 
-import { useState } from 'react'
-
-import { IconArrowRight, IconHide, IconInfo } from '@posthog/icons'
-import {
-    Button,
-    Collapsible,
-    CollapsibleContent,
-    CollapsibleTrigger,
-    Heading,
-    Text,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { IconArrowRight, IconHide, IconSparkles } from '@posthog/icons'
+import { Button, Heading, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
@@ -22,9 +10,10 @@ import type { HighlightMetricApi } from 'products/today/frontend/generated/api.s
 
 import { TodayChange } from './TodayChange'
 import { todayNumber } from './todayNumbers'
-import { pulseChange, pulsePeriodCaption, pulsePriorLabel, pulseWhy } from './todayPulseFacts'
+import { pulseChange, pulsePeriodCaption, pulsePriorLabel } from './todayPulseFacts'
 import { TodayPulseMovers } from './TodayPulseMovers'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
+import { TodayPulsePinButton } from './TodayPulsePinButton'
 import type { TodayTone } from './todayTone'
 
 function openLabel(metric: HighlightMetricApi): string {
@@ -36,16 +25,22 @@ export function TodayPulseCard({
     tone,
     formatValue,
     onOpen,
+    pinned,
+    pinDisabledReason,
+    onTogglePin,
+    hideDisabledReason,
     onHide,
 }: {
     metric: HighlightMetricApi
     tone: TodayTone
     formatValue: (value: number) => string
     onOpen: () => void
+    pinned: boolean
+    pinDisabledReason?: string
+    onTogglePin: () => void
+    hideDisabledReason: string | null
     onHide: () => void
 }): JSX.Element {
-    const [whyOpen, setWhyOpen] = useState(false)
-    const why = pulseWhy(metric)
     const change = pulseChange(metric)
     return (
         <div className="TodayPulseCard flex flex-col" data-attr="today-pulse-card">
@@ -82,65 +77,49 @@ export function TodayPulseCard({
                         />
                     </div>
                 )}
+                {!pinned && (
+                    <Text size="xs" variant="muted" render={<span />} className="inline-flex items-center gap-1">
+                        <IconSparkles className="size-3 shrink-0" />
+                        Suggested based on your usage
+                    </Text>
+                )}
             </div>
-            <Collapsible
-                variant="folder"
-                open={whyOpen}
-                onOpenChange={setWhyOpen}
-                className={cn('flex flex-col px-3 py-1', metric.url ? 'border-t border-border' : '-mt-2')}
+            <div
+                className={cn(
+                    'flex min-h-6 items-center justify-between gap-2 px-3 py-1',
+                    metric.url ? 'border-t border-border' : '-mt-2'
+                )}
             >
-                <div className="flex min-h-6 items-center justify-between gap-2">
-                    {metric.url ? (
-                        <LinkPrimitive
-                            to={metric.url}
-                            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                            {...pulseOpenHandlers(onOpen)}
-                            data-attr="today-pulse-card-open"
-                        >
-                            {openLabel(metric)}
-                            <IconArrowRight />
-                        </LinkPrimitive>
-                    ) : (
-                        <span />
-                    )}
-                    <div className="-me-1.5 flex items-center">
+                {metric.url ? (
+                    <LinkPrimitive
+                        to={metric.url}
+                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        {...pulseOpenHandlers(onOpen)}
+                        data-attr="today-pulse-card-open"
+                    >
+                        {openLabel(metric)}
+                        <IconArrowRight />
+                    </LinkPrimitive>
+                ) : (
+                    <span />
+                )}
+                <div className="-me-1.5 flex items-center">
+                    <TodayPulsePinButton pinned={pinned} disabledReason={pinDisabledReason} onToggle={onTogglePin} />
+                    {!pinned && (
                         <Button
                             size="icon-xs"
-                            aria-label="Hide from Today"
-                            tooltip="Hide from Today"
+                            aria-label="Ignore"
+                            tooltip="Ignore"
+                            disabledReason={hideDisabledReason}
                             onClick={onHide}
                             className="text-muted-foreground"
                             data-attr="today-pulse-card-hide"
                         >
                             <IconHide />
                         </Button>
-                        {why && (
-                            <Tooltip>
-                                <TooltipTrigger
-                                    render={
-                                        <CollapsibleTrigger
-                                            iconOnly
-                                            icon={<IconInfo />}
-                                            className="text-muted-foreground"
-                                            data-attr="today-pulse-card-why"
-                                        />
-                                    }
-                                >
-                                    Why you see this
-                                </TooltipTrigger>
-                                <TooltipContent>Why you see this</TooltipContent>
-                            </Tooltip>
-                        )}
-                    </div>
+                    )}
                 </div>
-                {why && (
-                    <CollapsibleContent className="px-0 pb-2">
-                        <Text size="xs" variant="muted" className="m-0 pt-1">
-                            {why}
-                        </Text>
-                    </CollapsibleContent>
-                )}
-            </Collapsible>
+            </div>
         </div>
     )
 }

@@ -2,7 +2,9 @@ import '@testing-library/jest-dom'
 
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 
-import { archiveDisabledReason, confirmCreateAsBroadcast } from './broadcastLifecycle'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
+
+import { archiveDisabledReason, confirmCreateAsBroadcast, summaryActions } from './broadcastLifecycle'
 
 const TITLE = 'Track this send as a broadcast?'
 
@@ -18,6 +20,71 @@ describe('broadcastLifecycle', () => {
         ])('with $runs blocks archiving: $blocked', ({ statuses, blocked }) => {
             expect(!!archiveDisabledReason(statuses)).toBe(blocked)
         })
+    })
+
+    describe('summaryActions', () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        })
+
+        const disabledByLabel = (
+            workflowAccess: AccessControlLevel,
+            broadcastAccess: AccessControlLevel,
+            isArchived: boolean
+        ): Record<string, boolean> => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                resource_access_control: {
+                    ...priorAppContext?.resource_access_control,
+                    [AccessControlResourceType.Workflow]: workflowAccess,
+                },
+            } as AppContext
+            const noop = (): void => {}
+            const actions = summaryActions({
+                userAccessLevel: broadcastAccess,
+                canMoveToDraft: !isArchived,
+                canEditContent: true,
+                isArchived,
+                batchJobStatuses: [],
+                onMoveToDraft: noop,
+                onSendAgain: noop,
+                onRestore: noop,
+                onArchive: noop,
+                onDelete: noop,
+            })
+            return Object.fromEntries(actions.map((action) => [action.label, !!action.disabledReason]))
+        }
+
+        it.each([
+            {
+                grants: 'workflows viewer, broadcast editor',
+                workflowAccess: AccessControlLevel.Viewer,
+                broadcastAccess: AccessControlLevel.Editor,
+                isArchived: false,
+                disabled: { 'Stop and edit': false, 'Send again as a new broadcast': true, Archive: false },
+            },
+            {
+                grants: 'workflows editor, broadcast viewer',
+                workflowAccess: AccessControlLevel.Editor,
+                broadcastAccess: AccessControlLevel.Viewer,
+                isArchived: false,
+                disabled: { 'Stop and edit': true, 'Send again as a new broadcast': false, Archive: true },
+            },
+            {
+                grants: 'workflows editor, archived broadcast viewer',
+                workflowAccess: AccessControlLevel.Editor,
+                broadcastAccess: AccessControlLevel.Viewer,
+                isArchived: true,
+                disabled: { 'Send again as a new broadcast': false, 'Restore as draft': true, Delete: true },
+            },
+        ])(
+            'with $grants checks Send again against workflows and the rest against the broadcast',
+            ({ workflowAccess, broadcastAccess, isArchived, disabled }) => {
+                expect(disabledByLabel(workflowAccess, broadcastAccess, isArchived)).toEqual(disabled)
+            }
+        )
     })
 
     describe('confirmCreateAsBroadcast', () => {

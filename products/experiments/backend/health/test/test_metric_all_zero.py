@@ -21,7 +21,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.metric_all_zero import metric_all_zero
 from products.experiments.backend.health.context import LatestCalculation, ZeroMetric
-from products.experiments.backend.health.skips import CheckSkip
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
@@ -57,9 +57,7 @@ def _metric(**changes: Any) -> ZeroMetric:
     return ZeroMetric(**{**fields, **changes})
 
 
-def _outcome(
-    *metrics: ZeroMetric, hours_of_data: float = 96, **changes: Any
-) -> ExperimentHealthFinding | CheckSkip | None:
+def _outcome(*metrics: ZeroMetric, hours_of_data: float = 96, **changes: Any) -> CheckOutcome:
     calculation = LatestCalculation(
         metric_count=len(metrics) or 1,
         finished_at=LAST_ARRIVED,

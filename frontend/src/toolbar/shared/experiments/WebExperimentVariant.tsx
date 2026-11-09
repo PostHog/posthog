@@ -10,6 +10,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { useWebExperimentEditor } from '~/toolbar/shared/experiments/webExperimentEditorContext'
 import { WebExperimentTransformField } from '~/toolbar/shared/experiments/WebExperimentTransformField'
 import { WebExperimentTransformHeader } from '~/toolbar/shared/experiments/WebExperimentTransformHeader'
+import { WebExperimentVariantUrlCondition } from '~/toolbar/shared/experiments/WebExperimentVariantUrlCondition'
 
 interface WebExperimentVariantProps {
     variant: string
@@ -41,6 +42,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                     />
                 </div>
             )}
+            <WebExperimentVariantUrlCondition variant={variant} />
             <div className="flex items-center justify-between mb-2">
                 <LemonLabel>Transformations</LemonLabel>
                 <LemonButton

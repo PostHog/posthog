@@ -55,6 +55,7 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
 
 # Mirrors resolveGatewayProduct in packages/agent/packages/agent/src/utils/gateway.ts.
 _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
+    "feature_flags": "posthog_ai",
     "loop": "posthog_code",
     "metrics_import": "posthog_ai",
     "onboarding": "onboarding",
@@ -98,6 +99,7 @@ MINTABLE_PRODUCTS = frozenset(
         "posthog_ai",
         "account_audit",
         "onboarding",
+        "conversations",
         "background_agents",
         "posthog_code",
         "review_hog",
@@ -261,6 +263,8 @@ def mint_refusal(
     """Why a routed run must not mint."""
     if ai_product == "account_audit" and (origin_product != "account_audit" or not internal):
         return "no_account_audit_provenance"
+    if ai_product == "conversations" and (origin_product != "support_reply" or not internal):
+        return "no_conversations_provenance"
     if ai_product == "background_agents" and (origin_product not in BACKGROUND_AGENTS_ORIGINS or not internal):
         return "no_background_agents_provenance"
     if ai_product == "slack_app" and not has_slack_provenance(

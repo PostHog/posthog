@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -14,6 +15,7 @@ const REMOVE_CHILD_MESSAGE =
 let renderAttempts = 0
 let throwUntilAttempt = 0
 let thrownMessage = REMOVE_CHILD_MESSAGE
+let thrownValue: unknown = undefined
 
 /**
  * Throws on every render attempt up to `throwUntilAttempt`. React retries a failed render twice
@@ -22,7 +24,7 @@ let thrownMessage = REMOVE_CHILD_MESSAGE
 function Unstable(): JSX.Element {
     renderAttempts += 1
     if (renderAttempts <= throwUntilAttempt) {
-        throw new Error(thrownMessage)
+        throw thrownValue !== undefined ? thrownValue : new Error(thrownMessage)
     }
     return <div>recovered content</div>
 }
@@ -35,6 +37,7 @@ describe('ErrorBoundary', () => {
         renderAttempts = 0
         throwUntilAttempt = 0
         thrownMessage = REMOVE_CHILD_MESSAGE
+        thrownValue = undefined
         consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     })
 
@@ -43,10 +46,10 @@ describe('ErrorBoundary', () => {
         consoleErrorSpy.mockRestore()
     })
 
-    function renderBoundary(): void {
+    function renderBoundary(exceptionProps?: Record<string, string>): void {
         render(
             <Provider>
-                <ErrorBoundary>
+                <ErrorBoundary exceptionProps={exceptionProps}>
                     <Unstable />
                 </ErrorBoundary>
             </Provider>
@@ -80,6 +83,25 @@ describe('ErrorBoundary', () => {
 
         expect(screen.getByText('An error has occurred')).toBeInTheDocument()
         expect(screen.queryByText(/translation/i)).not.toBeInTheDocument()
+    })
+
+    it.each([
+        { value: null, described: 'null' },
+        { value: 'oops', described: 'string oops' },
+    ])('names the scene and records a thrown $value', ({ value, described }) => {
+        const captureSpy = jest.spyOn(posthog, 'captureException')
+        thrownValue = value
+        throwUntilAttempt = 3
+        renderBoundary({ feature: 'Insight' })
+
+        expect(
+            screen.getByText(`Non-Error value thrown in scene Insight: ${described}`, { exact: false })
+        ).toBeInTheDocument()
+        expect(captureSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ feature: 'Insight', thrown_value: described })
+        )
+        captureSpy.mockRestore()
     })
 
     // The app-root boundary in scenes/App.tsx has no key to remount it, so without an in-fallback

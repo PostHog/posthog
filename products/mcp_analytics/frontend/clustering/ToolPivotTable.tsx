@@ -25,7 +25,9 @@ function DiscoveryCell({ tool }: { tool: MCPToolPivotApi }): JSX.Element {
                         : `Advertised in only ${tool.advertised_sessions} sampled session${tool.advertised_sessions === 1 ? '' : 's'}, which is not enough to measure a rate.`
                 }
             >
-                <span className="text-muted cursor-help">—</span>
+                <span tabIndex={0} className="text-muted cursor-help">
+                    —
+                </span>
             </Tooltip>
         )
     }
@@ -33,7 +35,10 @@ function DiscoveryCell({ tool }: { tool: MCPToolPivotApi }): JSX.Element {
         <Tooltip
             title={`Called in ${tool.called_when_advertised} of the ${tool.advertised_sessions} sampled sessions that advertised it.`}
         >
-            <span className={`tabular-nums cursor-help ${tool.discovery_rate_pct < 25 ? 'text-danger' : ''}`}>
+            <span
+                tabIndex={0}
+                className={`tabular-nums cursor-help ${tool.discovery_rate_pct < 25 ? 'text-danger' : ''}`}
+            >
                 {tool.discovery_rate_pct.toFixed(1)}%
             </span>
         </Tooltip>
@@ -45,13 +50,17 @@ function FitCell({ tool }: { tool: MCPToolPivotApi }): JSX.Element {
     if (fit === null) {
         return (
             <Tooltip title="No description has been captured for this tool yet, so its fit to the intents can't be scored.">
-                <span className="text-muted cursor-help">—</span>
+                <span tabIndex={0} className="text-muted cursor-help">
+                    —
+                </span>
             </Tooltip>
         )
     }
     return (
         <Tooltip title="Call-weighted cosine similarity between the tool's description and the intents that route to it. Higher means the description matches what agents actually use the tool for.">
-            <span className="tabular-nums cursor-help">{fit.toFixed(2)}</span>
+            <span tabIndex={0} className="tabular-nums cursor-help">
+                {fit.toFixed(2)}
+            </span>
         </Tooltip>
     )
 }
@@ -110,7 +119,17 @@ export function ToolPivotTable(): JSX.Element {
                                 }`}
                             >
                                 <TableCell expand>
-                                    <span className="font-mono">{tool.tool}</span>
+                                    <button
+                                        type="button"
+                                        className="cursor-pointer rounded-sm text-left font-mono focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                                        aria-current={selectedToolName === tool.tool ? 'true' : undefined}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            selectTool(tool.tool)
+                                        }}
+                                    >
+                                        {tool.tool}
+                                    </button>
                                 </TableCell>
                                 <TableCell align="right">
                                     <span className="tabular-nums">{humanFriendlyNumber(tool.call_count)}</span>

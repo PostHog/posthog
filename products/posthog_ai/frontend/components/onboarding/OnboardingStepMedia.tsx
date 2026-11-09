@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@posthog/quill-primitives'
 
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 import type { OnboardingStep } from './onboardingSteps'
 
@@ -28,7 +28,7 @@ function prefersReducedMotion(): boolean {
 }
 
 function inStorybookEnvironment(): boolean {
-    return inStorybook() || inStorybookTestRunner()
+    return inStorybook()
 }
 
 // Hold every clip on its poster frame under Storybook so visual snapshots don't race the decoder.

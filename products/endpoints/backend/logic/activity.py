@@ -8,3 +8,4 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase
 class EndpointContext(ActivityContextBase):
     id: Optional[int] = None
     version: Optional[int] = None
+    reason: Optional[str] = None
