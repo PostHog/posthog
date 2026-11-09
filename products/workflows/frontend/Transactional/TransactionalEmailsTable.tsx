@@ -137,7 +137,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                             const title = (
                                 <span className="flex flex-wrap items-center gap-1">
                                     {row.source === 'code' ? (
-                                        <span className="font-mono">{row.name}</span>
+                                        <span className="font-mono break-all">{row.name}</span>
                                     ) : (
                                         row.name || 'Unnamed template'
                                     )}
