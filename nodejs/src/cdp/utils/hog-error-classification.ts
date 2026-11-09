@@ -55,6 +55,8 @@ function findHogVMException(error: unknown): KindedError | undefined {
     return undefined
 }
 
+export const isHogVMError = (error: unknown): boolean => findHogVMException(error) !== undefined
+
 const BYTECODE_CONTRACT = 'bytecodeContract'
 
 /**

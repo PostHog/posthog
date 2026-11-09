@@ -6,7 +6,13 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
-import { AttachmentRef, AttachmentStore, AttachmentStoreUnavailableError, UploadSlot } from './attachment-store'
+import {
+    AttachmentRef,
+    AttachmentStore,
+    AttachmentStoreUnavailableError,
+    UploadSlot,
+    settleBefore,
+} from './attachment-store'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 
 export const ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX = 'cdp-email-attachments-upload-bytes'
@@ -37,6 +43,8 @@ export type AcceptedSendFiles = { files: EmailAttachmentMetadata[]; attachmentBy
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const SEND_NEEDS_FILES_FOR_MS = 7 * DAY_MS
+const DJANGO_SEND_TIMEOUT_MS = 10_000
+export const ATTACHMENT_VERIFICATION_DEADLINE_MS = DJANGO_SEND_TIMEOUT_MS / 2
 
 const uploadRequestsTotal = new Counter({
     name: 'cdp_email_attachments_upload_requests_total',
@@ -133,13 +141,31 @@ export class AttachmentUploads {
         refs: AttachmentRef[],
         bodies: () => Promise<string[]>
     ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
-        if (!this.store) {
+        const store = this.store
+        if (!store) {
             return { refused: unavailable(teamId, 'No attachment store to verify the files of a send', null) }
         }
+        const deadline = AbortSignal.timeout(ATTACHMENT_VERIFICATION_DEADLINE_MS)
+        try {
+            return await settleBefore(deadline, this.verifySend(store, teamId, refs, bodies))
+        } catch (error) {
+            if (deadline.aborted) {
+                return { refused: unavailable(teamId, 'Could not verify the files of a send in time', error) }
+            }
+            throw error
+        }
+    }
+
+    private async verifySend(
+        store: AttachmentStore,
+        teamId: number,
+        refs: AttachmentRef[],
+        bodies: () => Promise<string[]>
+    ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
         let verified: Awaited<ReturnType<AttachmentStore['acceptForSend']>>
         try {
             const needsUntil = new Date(Date.now() + SEND_NEEDS_FILES_FOR_MS)
-            verified = await this.store.acceptForSend(teamId, refs, needsUntil)
+            verified = await store.acceptForSend(teamId, refs, needsUntil)
         } catch (error) {
             if (error instanceof AttachmentStoreUnavailableError) {
                 return { refused: unavailable(teamId, 'Could not verify the files of a send', error) }
@@ -149,9 +175,15 @@ export class AttachmentUploads {
         if ('refusal' in verified) {
             return { refused: { status: 400, body: { error: verified.refusal, sha256: verified.sha256 } } }
         }
+        let messageBodies: string[]
+        try {
+            messageBodies = await bodies()
+        } catch (error) {
+            return { refused: unavailable(teamId, 'Could not load the email step of a send', error) }
+        }
         const sizes = verified.files.map((file) => file.sizeBytes)
         const attachmentBytes = sizes.reduce((total, size) => total + size, 0)
-        const messageBytes = estimateMessageBytes(sizes, await bodies())
+        const messageBytes = estimateMessageBytes(sizes, messageBodies)
         if (messageBytes > MESSAGE_MAX_BYTES) {
             return {
                 refused: {

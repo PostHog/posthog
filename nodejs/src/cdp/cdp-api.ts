@@ -101,6 +101,7 @@ import {
 } from './utils'
 import { recordRequestOrigins } from './utils/cdp-fetch'
 import { dualRead, dualWrite } from './utils/dual-store'
+import { isHogVMError } from './utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
 import { PosthogJwtAudience } from './utils/jwt-utils'
@@ -1539,6 +1540,9 @@ export class CdpApi {
             const html = typeof email?.html === 'string' ? maybeAddPreheaderToEmail(email.html, email.preheader) : null
             return [html, email?.text].filter((body): body is string => typeof body === 'string')
         } catch (error) {
+            if (!isHogVMError(error)) {
+                throw error
+            }
             logger.warn('⚠️', 'Could not render the email step of a send with files', {
                 team_id: hogFlow.team_id,
                 hog_flow_id: hogFlow.id,

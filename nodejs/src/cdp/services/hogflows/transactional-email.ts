@@ -8,6 +8,9 @@ import {
 } from '~/cdp/schema/cyclotron'
 
 export const MAX_COPY_RECIPIENTS = 10
+export const ATTACHMENT_FILENAME_MAX_LENGTH = 255
+export const ATTACHMENT_CONTENT_TYPE_MAX_LENGTH = 78
+export const ATTACHMENT_CONTENT_ID_MAX_LENGTH = 78
 
 export const RECIPIENT_ADDRESS_PATTERN =
     /^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
@@ -17,6 +20,11 @@ const CopyRecipientsSchema = z
     .max(MAX_COPY_RECIPIENTS)
     .readonly()
     .optional()
+
+const attachmentHeaderValue = (field: string, maxLength: number) => {
+    const message = `${field} needs 1 to ${maxLength} characters`
+    return z.string().min(1, { message }).max(maxLength, { message }).optional()
+}
 
 export const AcceptedSendSchema = z
     .object({
@@ -48,9 +56,14 @@ export const AcceptedSendSchema = z
                 z
                     .object({
                         sha256: z.string().regex(/^[0-9a-f]{64}$/),
-                        filename: z.string().min(1),
-                        content_type: z.string().optional(),
-                        content_id: z.string().optional(),
+                        filename: z
+                            .string()
+                            .min(1)
+                            .max(ATTACHMENT_FILENAME_MAX_LENGTH, {
+                                message: `filename can be at most ${ATTACHMENT_FILENAME_MAX_LENGTH} characters`,
+                            }),
+                        content_type: attachmentHeaderValue('content_type', ATTACHMENT_CONTENT_TYPE_MAX_LENGTH),
+                        content_id: attachmentHeaderValue('content_id', ATTACHMENT_CONTENT_ID_MAX_LENGTH),
                     })
                     .strict()
                     .readonly()
