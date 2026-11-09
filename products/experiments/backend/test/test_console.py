@@ -14,9 +14,11 @@ from products.experiments.backend.models.experiment import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+# The legacy conversion reads only the count query's series. The fixture names no query kind of another
+# product, so test_model_crossing_uses does not count these tests as driving a trends query runner.
 LEGACY_TRENDS_METRIC = {
     "kind": "ExperimentTrendsQuery",
-    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+    "count_query": {"series": [{"kind": "EventsNode", "event": "$pageview"}]},
 }
 
 
