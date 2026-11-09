@@ -1,4 +1,10 @@
-import { CopyObjectCommand, CreateBucketCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import {
+    CopyObjectCommand,
+    CreateBucketCommand,
+    HeadObjectCommand,
+    PutObjectCommand,
+    S3Client,
+} from '@aws-sdk/client-s3'
 import { createHash, randomBytes } from 'node:crypto'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
@@ -7,6 +13,7 @@ import { FetchResponse, internalFetch } from '~/common/utils/request'
 import {
     AttachmentMissingError,
     AttachmentStoreUnavailableError,
+    DAY_MS,
     S3AttachmentStore,
     UploadSlot,
     buildAttachmentStore,
@@ -15,7 +22,6 @@ import {
 
 jest.setTimeout(30000)
 
-const DAY_MS = 24 * 60 * 60 * 1000
 const config = { ...getDefaultCdpConfig(), CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `attachments-test/${Date.now()}` }
 const BUCKET = config.CDP_EMAIL_ATTACHMENTS_S3_BUCKET
 
@@ -46,6 +52,18 @@ describe('S3AttachmentStore', () => {
     const upload = async (teamId: number, f: TestFile): Promise<void> => {
         const [slot] = await store.prepareUploads(teamId, [{ sha256: f.sha256, size: f.bytes.length }])
         expect((await put(slot, f.bytes)).status).toBe(200)
+    }
+
+    const storedWithAnotherChecksum = async (teamId: number, f: TestFile): Promise<void> => {
+        const other = file()
+        await s3.send(
+            new PutObjectCommand({
+                Bucket: BUCKET,
+                Key: keyOf(teamId, f.sha256),
+                Body: other.bytes,
+                ChecksumSHA256: Buffer.from(other.sha256, 'hex').toString('base64'),
+            })
+        )
     }
 
     const storeAt = (now: Date, signer: S3Client = store.s3, timeoutMs = 10000): S3AttachmentStore =>
@@ -147,11 +165,12 @@ describe('S3AttachmentStore', () => {
         })
 
         it.each([
-            ['would expire within a day of the URL', 1, 36 * DAY_MS],
-            ['belongs to another team', 2, 0],
-        ])('answers upload for a file that %s', async (_, askingTeam, clockOffsetMs) => {
+            ['would expire within a day of the URL', upload, 1, 36 * DAY_MS],
+            ['belongs to another team', upload, 2, 0],
+            ['is stored with another checksum, as send refuses it', storedWithAnotherChecksum, 1, 0],
+        ])('answers upload for a file that %s', async (_, keep, askingTeam, clockOffsetMs) => {
             const f = file()
-            await upload(1, f)
+            await keep(1, f)
             const createdAt = await lastModified(1, f.sha256)
 
             const [slot] = await storeAt(new Date(createdAt.getTime() + clockOffsetMs)).prepareUploads(askingTeam, [
@@ -261,18 +280,10 @@ describe('S3AttachmentStore', () => {
         })
     })
 
-    describe.each([
-        [
-            'acceptForSend',
-            (at: S3AttachmentStore, sha256: string, needsUntil: Date): Promise<unknown> =>
-                at.acceptForSend(1, [{ sha256, filename: 'a.pdf' }], needsUntil),
-        ],
-        [
-            'extend',
-            (at: S3AttachmentStore, sha256: string, needsUntil: Date): Promise<unknown> =>
-                at.extend(1, [sha256], needsUntil),
-        ],
-    ])('expiry through %s', (_, use) => {
+    describe('expiry through acceptForSend', () => {
+        const use = (at: S3AttachmentStore, sha256: string, needsUntil: Date): Promise<unknown> =>
+            at.acceptForSend(1, [{ sha256, filename: 'a.pdf' }], needsUntil)
+
         it('keeps a file through the latest time a use can need it, past its expiry at upload', async () => {
             const f = file()
             await upload(1, f)
@@ -403,7 +414,6 @@ describe('S3AttachmentStore', () => {
                 'acceptForSend',
                 (at: S3AttachmentStore) => at.acceptForSend(1, [{ sha256, filename: 'a.pdf' }], new Date()),
             ],
-            ['extend', (at: S3AttachmentStore) => at.extend(1, [sha256], new Date())],
             [
                 'load',
                 (at: S3AttachmentStore) =>

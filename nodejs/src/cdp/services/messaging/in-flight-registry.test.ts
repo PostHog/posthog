@@ -85,7 +85,12 @@ describe('InFlightRegistry', () => {
 })
 
 describe('inFlightLimitsFor', () => {
-    const settings = { memoryFraction: 0.5, maxInFlight: 4, heartbeatIntervalMs: 10_000 }
+    const settings = {
+        memoryFraction: 0.5,
+        maxInFlight: 4,
+        heartbeatIntervalMs: 10_000,
+        attachmentStoreBucket: 'files',
+    }
     const machine = (overrides: Partial<MachineMemory> = {}): MachineMemory => ({
         constrainedBytes: 4 * GIB,
         totalBytes: 64 * GIB,
@@ -116,6 +121,7 @@ describe('inFlightLimitsFor', () => {
         ['the budget cannot hold one message', settings, machine({ constrainedBytes: 768 * MIB }), 'memory budget'],
         ['the heap cannot hold one message', settings, machine({ heapLimitBytes: 64 * MIB }), 'heap limit'],
         ['the cap is zero', { ...settings, maxInFlight: 0 }, machine(), 'cap'],
+        ['no attachment store is set', { ...settings, attachmentStoreBucket: '' }, machine(), 'attachment store'],
     ])('refuses sends with files when %s', (_, given, memory, reason) => {
         expect(inFlightLimitsFor(given, memory)).toEqual({ refusal: expect.stringContaining(reason) })
     })

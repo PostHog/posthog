@@ -1,22 +1,34 @@
+import { DateTime } from 'luxon'
+
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
-import { reportResultWriteFailure } from '../services/job-queue/job-queue-postgres-v2'
+import { CONSUMER_STOP_DEADLINE_MS, reportResultWriteFailure } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { LONGEST_WAIT_FOR_ROOM_MS } from '../services/messaging/attachment-horizon'
+import { DAY_MS } from '../services/messaging/attachment-store'
+import { ATTACHMENT_SEND_DEADLINE_MS } from '../services/messaging/email.service'
 import {
     InFlightRegistry,
     callsSettledWithin,
     deferralDelayMs,
     exceedsLargestSend,
     fileBytesOf,
+    firstDueAt,
     inFlightLimitsFor,
 } from '../services/messaging/in-flight-registry'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { settleAllThenThrowFirst } from '../utils/settle-all'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
 
-const CALLS_SETTLE_BEFORE_WRITE_MS = 3_000
+export const RESULT_WRITE_MARGIN_MS = 5_000
+const ATTACHMENT_WAIT_EXPIRED = 'attachment_wait_expired'
+const WAITED_TOO_LONG_MESSAGE = `${ATTACHMENT_WAIT_EXPIRED}: this email waited ${LONGEST_WAIT_FOR_ROOM_MS / DAY_MS} days for an email worker with room for its files, so it was not sent before its files could expire. Send it again.`
+const waitedTooLongForRoom = new WeakSet<CyclotronJobInvocation>()
+const CALLS_SETTLE_BEFORE_WRITE_MS = CONSUMER_STOP_DEADLINE_MS - ATTACHMENT_SEND_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
 
 export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     protected override name = 'CdpCyclotronWorkerEmail'
@@ -36,9 +48,24 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     public override async processInvocations(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationResult[]> {
-        const results = await super.processInvocations(invocations)
+        const expired = invocations.filter((invocation) => waitedTooLongForRoom.has(invocation))
+        const results = [
+            ...(await super.processInvocations(
+                invocations.filter((invocation) => !waitedTooLongForRoom.has(invocation))
+            )),
+            ...expired.map((invocation) => this.failForWaitingTooLong(invocation)),
+        ]
         results.forEach(countPendingTrigger)
         return results
+    }
+
+    private failForWaitingTooLong(invocation: CyclotronJobInvocation): CyclotronJobInvocationResult {
+        const withFlowId = { ...invocation, hogFlow: { id: invocation.functionId } as HogFlow }
+        const result = createInvocationResult(withFlowId, {}, { finished: true })
+        result.error = WAITED_TOO_LONG_MESSAGE
+        result.logs.push({ level: 'error', timestamp: DateTime.now(), message: WAITED_TOO_LONG_MESSAGE })
+        this.invocationResultsService.emailStatusService.queueFailedJob(invocation, ATTACHMENT_WAIT_EXPIRED)
+        return result
     }
 
     public override async processBatch(
@@ -56,6 +83,9 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
             const admission = this.sendsWithFiles.tryStart(fileBytes, () => this.runSendWithFiles(invocation))
             if ('started' in admission) {
                 sends.push(admission.started)
+            } else if (Date.now() - firstDueAt(invocation, Date.now()) >= LONGEST_WAIT_FOR_ROOM_MS) {
+                waitedTooLongForRoom.add(invocation)
+                plain.push(invocation)
             } else {
                 deferrals.push(deferral(invocation))
             }
@@ -111,11 +141,14 @@ function registryFor(config: PluginsServerConfig): InFlightRegistry {
         memoryFraction: config.CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION,
         maxInFlight: config.CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT,
         heartbeatIntervalMs: config.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS,
+        attachmentStoreBucket: config.CDP_EMAIL_ATTACHMENTS_S3_BUCKET,
     })
     if ('refusal' in admission) {
-        logger.error('📧', 'The email worker refuses sends with files and defers each one', {
-            reason: admission.refusal,
-        })
+        logger.error(
+            '📧',
+            `The email worker refuses sends with files. It defers each one, and fails it with ${ATTACHMENT_WAIT_EXPIRED} once it has waited ${LONGEST_WAIT_FOR_ROOM_MS / DAY_MS} days`,
+            { reason: admission.refusal }
+        )
         return new InFlightRegistry(null)
     }
     logger.info('📧', 'The email worker admits sends with files', admission.limits)
@@ -131,8 +164,7 @@ function deferral(invocation: CyclotronJobInvocation): { invocation: CyclotronJo
             queueMetadata: {
                 ...invocation.queueMetadata,
                 attachmentDeferrals: earlierDeferrals + 1,
-                attachmentDueAt:
-                    invocation.queueMetadata?.attachmentDueAt ?? invocation.queueScheduledAt?.toMillis() ?? now,
+                attachmentDueAt: firstDueAt(invocation, now),
             },
         },
         scheduledAt: new Date(now + deferralDelayMs(earlierDeferrals)),

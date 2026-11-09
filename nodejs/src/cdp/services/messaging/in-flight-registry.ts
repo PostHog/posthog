@@ -37,7 +37,12 @@ export const deferralTokensSpent = new Counter({
 
 export type InFlightLimits = { budgetBytes: number; heapLimitBytes: number; maxInFlight: number }
 
-export type SendsWithFilesSettings = { memoryFraction: number; maxInFlight: number; heartbeatIntervalMs: number }
+export type SendsWithFilesSettings = {
+    memoryFraction: number
+    maxInFlight: number
+    heartbeatIntervalMs: number
+    attachmentStoreBucket: string
+}
 
 export type MachineMemory = { constrainedBytes: number; totalBytes: number; heapLimitBytes: number }
 
@@ -61,6 +66,9 @@ export function inFlightLimitsFor(
 ): { limits: InFlightLimits } | { refusal: string } {
     const largest = estimateSend(LARGEST_SEND_FILE_BYTES)
     const budgetBytes = Math.floor(settings.memoryFraction * (podMemoryBytes(machine) - PLAIN_BATCH_ALLOWANCE_BYTES))
+    if (!settings.attachmentStoreBucket) {
+        return { refusal: 'no attachment store is set, so the worker cannot load the files' }
+    }
     if (settings.heartbeatIntervalMs <= 0) {
         return { refusal: 'the job heartbeat is off, so a send that outlives its batch would be reset and sent twice' }
     }
@@ -89,6 +97,9 @@ export const declaredFileBytes = (files: readonly EmailAttachmentMetadata[]): nu
     files.reduce((total, file) => total + file.sizeBytes, 0)
 
 export const exceedsLargestSend = (fileBytes: number): boolean => fileBytes > LARGEST_SEND_FILE_BYTES
+
+export const firstDueAt = (invocation: CyclotronJobInvocation, now: number): number =>
+    invocation.queueMetadata?.attachmentDueAt ?? invocation.queueScheduledAt?.toMillis() ?? now
 
 export function deferralDelayMs(earlierDeferrals: number, random: () => number = Math.random): number {
     const ceiling = Math.min(LONGEST_DEFERRAL_MS, FIRST_DEFERRAL_MS * 2 ** earlierDeferrals)
