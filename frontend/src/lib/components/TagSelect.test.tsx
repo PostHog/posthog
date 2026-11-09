@@ -8,6 +8,9 @@ import { initKeaTests } from '~/test/init'
 
 import { TagSelect } from './TagSelect'
 
+// `getByLabelText` walks every label on each `waitFor` poll, which takes seconds over a full page of tags.
+const tagOption = (label: string): HTMLElement | null => document.querySelector(`[aria-label="${label}"]`)
+
 describe('TagSelect', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => cleanup())
@@ -25,14 +28,14 @@ describe('TagSelect', () => {
         )
 
         await userEvent.click(screen.getByText('revenue'))
-        await waitFor(() => expect(screen.getByLabelText('topic-1 (150)')).toBeInTheDocument())
+        await waitFor(() => expect(tagOption('topic-1 (150)')).not.toBeNull())
         expect(screen.getByText('Clear selection')).toBeInTheDocument()
-        expect(screen.queryByLabelText('topic-150 (1)')).not.toBeInTheDocument()
+        expect(tagOption('topic-150 (1)')).toBeNull()
         await userEvent.type(screen.getByPlaceholderText('Search tags'), 'topic-150')
-        await waitFor(() => expect(screen.getByLabelText('topic-150 (1)')).toBeInTheDocument())
-        expect(screen.queryByLabelText('revenue (1)')).not.toBeInTheDocument()
+        await waitFor(() => expect(tagOption('topic-150 (1)')).not.toBeNull())
+        expect(tagOption('revenue (1)')).toBeNull()
         expect(screen.queryByText('Clear selection')).not.toBeInTheDocument()
-        await userEvent.click(screen.getByLabelText('topic-150 (1)'))
+        await userEvent.click(tagOption('topic-150 (1)')!)
         expect(onChange).toHaveBeenCalledWith(['revenue', 'topic-150'])
     })
 
