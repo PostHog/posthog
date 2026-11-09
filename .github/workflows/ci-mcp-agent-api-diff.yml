@@ -68,6 +68,7 @@ jobs:
             - name: Clone posthog.com docs
               id: docs
               continue-on-error: true
+              timeout-minutes: 2
               run: |
                   for attempt in 1 2 3; do
                       rm -rf posthog-com
