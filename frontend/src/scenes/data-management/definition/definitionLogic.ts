@@ -145,6 +145,7 @@ export interface definitionLogicActions {
                   name: string
                   owner?: UserBasicType | null | undefined
                   primary_property?: string | null | undefined
+                  scheduled_deletion_at?: string | null | undefined
                   tags?: string[] | undefined
                   updated_at?: string | undefined
                   updated_by?: UserBasicType | null | undefined
@@ -173,6 +174,7 @@ export interface definitionLogicActions {
                   name: string
                   owner?: UserBasicType | null | undefined
                   primary_property?: string | null | undefined
+                  scheduled_deletion_at?: string | null | undefined
                   tags?: string[] | undefined
                   updated_at?: string | undefined
                   updated_by?: UserBasicType | null | undefined
